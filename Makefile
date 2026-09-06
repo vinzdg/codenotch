@@ -1,8 +1,21 @@
+# Default to standard Xcode location only if it exists and the user hasn't
+# already chosen a toolchain via `sudo xcode-select -s` / $DEVELOPER_DIR.
+# Unconditionally exporting a path that doesn't exist breaks `make` on machines
+# with only the Command Line Tools installed (xcrun: missing DEVELOPER_DIR).
+ifeq (,$(DEVELOPER_DIR))
+ifneq (,$(wildcard /Applications/Xcode.app/Contents/Developer))
 export DEVELOPER_DIR := /Applications/Xcode.app/Contents/Developer
+endif
+endif
 
 PROJECT := Codenotch.xcodeproj
 SCHEME  := Codenotch
 DEST    := platform=macOS,arch=arm64
+
+# Debug builds are ad-hoc signed so anyone can build without the maintainer's
+# Developer ID certificate (see CONTRIBUTING.md). Release (archive below) keeps
+# the Developer ID identity for notarization + Sparkle.
+DEV_SIGN := CODE_SIGN_IDENTITY="-" DEVELOPMENT_TEAM="" CODE_SIGN_STYLE=Automatic
 
 .PHONY: gen build test run clean
 
@@ -11,11 +24,11 @@ gen:
 
 build: gen
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination '$(DEST)' \
-		-configuration Debug build
+		-configuration Debug $(DEV_SIGN) build
 
 test: gen
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination '$(DEST)' \
-		-configuration Debug test
+		-configuration Debug $(DEV_SIGN) test
 
 run: build
 	@APP=$$(xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination '$(DEST)' \
