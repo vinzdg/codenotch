@@ -26,8 +26,8 @@ enum ProviderStatus: Equatable {
     var staleSince: Date? { if case .stale(let since) = self { return since }; return nil }
 }
 
-/// One metered window a provider exposes — Claude has two (the rolling session
-/// and the longer all-models window), others have one.
+/// One metered window a provider exposes — Claude has the rolling session, the
+/// all-models week, and Fable's own weekly cap; others typically have one.
 struct LimitWindow: Identifiable, Codable, Equatable {
     let id: String
     let label: String

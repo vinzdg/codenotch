@@ -43,12 +43,17 @@ final class UsageResponseTests: XCTestCase {
 
     func testDecodesTheLiveShape() throws {
         let windows = try decode(live).limitWindows()
-        XCTAssertEqual(windows.count, 2)
-        XCTAssertEqual(windows[0].id, "session")
+        XCTAssertEqual(windows.map(\.id), ["session", "weekly_all", "weekly_fable"])
         XCTAssertEqual(windows[0].label, "Current session")
         XCTAssertEqual(windows[0].usedFraction ?? -1, 0.52, accuracy: 0.0001)
         XCTAssertEqual(windows[1].label, "All models")
         XCTAssertEqual(windows[1].usedFraction ?? -1, 0.17, accuracy: 0.0001)
+        // Fable is in the live payload as `nimbus_quill` at 0% with no reset —
+        // Claude's own panel still lists that row, so dropping it for want of
+        // a countdown was the disagreement.
+        XCTAssertEqual(windows[2].label, "Fable")
+        XCTAssertEqual(windows[2].usedFraction ?? -1, 0, accuracy: 0.0001)
+        XCTAssertNil(windows[2].resetsAt)
     }
 
     /// The session window always sorts above the weekly one, whatever order the
@@ -85,6 +90,71 @@ final class UsageResponseTests: XCTestCase {
     func testUnknownKindsGetAReadableLabel() {
         XCTAssertEqual(UsageResponse.label(forKind: "weekly_opus"), "Opus")
         XCTAssertEqual(UsageResponse.label(forKind: "weekly_cowork"), "Cowork")
+        XCTAssertEqual(UsageResponse.label(forKind: "weekly_fable"), "Fable")
+        XCTAssertEqual(UsageResponse.label(forKind: "nimbus_quill"), "Fable")
+        XCTAssertEqual(UsageResponse.label(forKind: "seven_day_overage_included"), "Fable")
+    }
+
+    /// Claude Code's current name for the same Fable weekly cap.
+    func testFableFromOverageIncludedNamedWindow() throws {
+        let json = """
+        { "seven_day_overage_included": {
+            "utilization": 40.0,
+            "resets_at": "2026-09-02T17:00:00.316321+00:00" } }
+        """
+        let windows = try decode(json).limitWindows()
+        XCTAssertEqual(windows.map(\.id), ["weekly_fable"])
+        XCTAssertEqual(windows[0].label, "Fable")
+        XCTAssertEqual(windows[0].usedFraction ?? -1, 0.40, accuracy: 0.0001)
+        XCTAssertNotNil(windows[0].resetsAt)
+    }
+
+    /// A scoped `limits[]` row is how /usage titles "Weekly · Fable", and it
+    /// is drawn even before that cap has a reset time.
+    func testFableFromScopedLimitsEntryEvenWithoutReset() throws {
+        let json = """
+        { "limits": [{
+            "kind": "weekly_model", "percent": 12, "resets_at": null,
+            "scope": { "model": { "display_name": "Fable" } } }] }
+        """
+        let windows = try decode(json).limitWindows()
+        XCTAssertEqual(windows.map(\.id), ["weekly_fable"])
+        XCTAssertEqual(windows[0].label, "Fable")
+        XCTAssertEqual(windows[0].usedFraction ?? -1, 0.12, accuracy: 0.0001)
+        XCTAssertNil(windows[0].resetsAt)
+    }
+
+    /// Two names for one cap must not become two rows.
+    func testFableIsNotDuplicatedWhenNamedAndLimitsAgree() throws {
+        let json = """
+        { "nimbus_quill": { "utilization": 8.0, "resets_at": "2026-09-02T17:00:00.316321+00:00" },
+          "seven_day_overage_included": { "utilization": 8.0,
+            "resets_at": "2026-09-02T17:00:00.316321+00:00" },
+          "limits": [{ "kind": "weekly_fable", "percent": 8,
+                       "resets_at": "2026-09-02T17:00:00.316321+00:00" }] }
+        """
+        XCTAssertEqual(try decode(json).limitWindows().map(\.id), ["weekly_fable"])
+    }
+
+    func testFableSortsAfterAllModels() throws {
+        let json = """
+        { "limits": [
+            { "kind": "weekly_opus", "percent": 3, "resets_at": "2026-09-02T17:00:00.316321+00:00" },
+            { "kind": "weekly_fable", "percent": 8, "resets_at": "2026-09-02T17:00:00.316321+00:00" },
+            { "kind": "weekly_all", "percent": 17, "resets_at": "2026-09-02T17:00:00.316321+00:00" },
+            { "kind": "session", "percent": 52, "resets_at": "2026-08-28T09:50:00.316290+00:00" } ] }
+        """
+        XCTAssertEqual(try decode(json).limitWindows().map(\.id),
+                       ["session", "weekly_all", "weekly_fable", "weekly_opus"])
+    }
+
+    /// A null Fable field is "not on this account", not a 0% row.
+    func testANullFableNamedWindowIsOmitted() throws {
+        let json = """
+        { "five_hour": { "utilization": 10.0, "resets_at": "2026-08-28T09:50:00.316290+00:00" },
+          "nimbus_quill": null, "seven_day_overage_included": null }
+        """
+        XCTAssertEqual(try decode(json).limitWindows().map(\.id), ["session"])
     }
 }
 

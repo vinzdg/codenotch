@@ -238,9 +238,16 @@ actor ClaudeOAuthProvider: UsageProvider {
 /// The shape of `GET /api/oauth/usage`.
 struct UsageResponse: Decodable {
     struct Limit: Decodable {
+        struct Scope: Decodable {
+            struct Model: Decodable {
+                let displayName: String?
+            }
+            let model: Model?
+        }
         let kind: String
         let percent: Double
         let resetsAt: Date?
+        let scope: Scope?
     }
     struct Window: Decodable {
         let utilization: Double
@@ -250,18 +257,32 @@ struct UsageResponse: Decodable {
     let limits: [Limit]?
     let fiveHour: Window?
     let sevenDay: Window?
+    /// Fable's weekly cap. Anthropic has shipped this under two names: the
+    /// captured live payload used `nimbus_quill`; Claude Code now also reads
+    /// `seven_day_overage_included`. Either is the same window.
+    let nimbusQuill: Window?
+    let sevenDayOverageIncluded: Window?
+
+    /// Stable id for Fable's weekly row, so the two named fields and a
+    /// `limits[]` entry cannot draw as two rings that mean the same thing.
+    static let fableID = "weekly_fable"
 
     /// `limits` is the forward-compatible shape — it grows new kinds as
     /// Anthropic adds them — so it is preferred, with the two named windows as
     /// a fallback for older responses.
     func limitWindows() -> [LimitWindow] {
         var windows = (limits ?? []).compactMap { limit -> LimitWindow? in
-            guard let resetsAt = limit.resetsAt else { return nil }
+            let id = Self.canonicalID(for: limit)
+            let fable = id == Self.fableID
+            // A window with no reset time is not a countdown we can draw —
+            // except Fable, which Claude's own panel lists at 0% with no
+            // "Resets …" until that weekly cap has actually started.
+            guard limit.resetsAt != nil || fable else { return nil }
             return LimitWindow(
-                id: limit.kind,
-                label: UsageResponse.label(forKind: limit.kind),
+                id: id,
+                label: UsageResponse.label(forKind: fable ? Self.fableID : limit.kind),
                 usedFraction: limit.percent / 100,
-                resetsAt: resetsAt
+                resetsAt: limit.resetsAt
             )
         }
 
@@ -271,16 +292,21 @@ struct UsageResponse: Decodable {
         // just rolled over disappears from `limits` while `five_hour` still
         // carries it. Relying on the array alone loses the session exactly when
         // it resets, which is when someone is most likely to be looking.
-        func merge(_ window: UsageResponse.Window?, id: String, label: String) {
-            guard let window, let resetsAt = window.resetsAt,
-                  !windows.contains(where: { $0.id == id })
-            else { return }
+        func merge(_ window: UsageResponse.Window?, id: String, label: String,
+                   requireReset: Bool = true) {
+            guard let window else { return }
+            if requireReset && window.resetsAt == nil { return }
+            guard !windows.contains(where: { $0.id == id }) else { return }
             windows.append(LimitWindow(id: id, label: label,
                                        usedFraction: window.utilization / 100,
-                                       resetsAt: resetsAt))
+                                       resetsAt: window.resetsAt))
         }
         merge(fiveHour, id: "session", label: "Current session")
         merge(sevenDay, id: "weekly_all", label: "All models")
+        merge(sevenDayOverageIncluded, id: Self.fableID, label: "Fable",
+              requireReset: false)
+        merge(nimbusQuill, id: Self.fableID, label: "Fable",
+              requireReset: false)
 
         return windows.sorted(by: UsageResponse.displayOrder)
     }
@@ -292,6 +318,8 @@ struct UsageResponse: Decodable {
         case "weekly_all":    return "All models"
         case "weekly_opus":   return "Opus"
         case "weekly_sonnet": return "Sonnet"
+        case Self.fableID, "nimbus_quill", "seven_day_overage_included":
+            return "Fable"
         default:
             return kind
                 .replacingOccurrences(of: "weekly_", with: "")
@@ -300,12 +328,31 @@ struct UsageResponse: Decodable {
         }
     }
 
-    /// Session first, then the weekly windows — the order the frame shows.
+    static func canonicalID(for limit: Limit) -> String {
+        isFable(limit) ? fableID : limit.kind
+    }
+
+    static func isFable(_ limit: Limit) -> Bool {
+        switch limit.kind {
+        case Self.fableID, "nimbus_quill", "seven_day_overage_included":
+            return true
+        default:
+            break
+        }
+        let name = limit.scope?.model?.displayName?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+        return name == "fable" || name.hasPrefix("fable ")
+    }
+
+    /// Session first, then all-models, then Fable — the order Claude's own
+    /// usage panel draws — then any other weekly windows.
     private static func displayOrder(_ a: LimitWindow, _ b: LimitWindow) -> Bool {
         func rank(_ id: String) -> Int {
             if id == "session" { return 0 }
             if id == "weekly_all" { return 1 }
-            return 2
+            if id == fableID { return 2 }
+            return 3
         }
         let (ra, rb) = (rank(a.id), rank(b.id))
         return ra == rb ? a.id < b.id : ra < rb
