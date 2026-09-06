@@ -70,7 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let store = UsageStore(
                 providers: claudeProfiles.map { ClaudeOAuthProvider(profile: $0) }
                     + [CursorLocalProvider(), CodexLocalProvider(), AntigravityProvider(),
-                       GLMProvider()]
+                       GLMProvider(), GrokProvider()]
                     + webProviders,
                 disconnected: preferences.disconnectedProviders
             )

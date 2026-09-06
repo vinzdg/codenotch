@@ -572,7 +572,7 @@ final class ProviderGlyphTests: XCTestCase {
     }
 
     func testEveryGlyphResolvesAnOutline() {
-        for glyph in [ProviderGlyph.claude, .openai, .third, .cursor, .antigravity] {
+        for glyph in [ProviderGlyph.claude, .openai, .third, .cursor, .antigravity, .glm, .grok] {
             XCTAssertFalse(glyph.outline.isEmpty, "\(glyph) draws nothing")
         }
     }

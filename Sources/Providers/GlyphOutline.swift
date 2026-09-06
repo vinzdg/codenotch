@@ -401,6 +401,16 @@ enum GlyphOutline {
     /// One loop, no counters, so the even-odd fill that keeps the OpenAI knot
     /// open is a plain solid here. The diagonal's horizontal extent matches
     /// the bar depths (0.2 top and bottom) so the stroke reads at one weight.
+    /// A four-point spark in the unit box. Grok's mark is a spark, not a
+    /// letter, and a traced screenshot at 46px would be softer than the
+    /// geometric marks beside it; this keeps the same ink weight as `glm`.
+    static let grok: [[CGPoint]] = [
+        [CGPoint(x: 0.500, y: 0.020), CGPoint(x: 0.575, y: 0.425),
+         CGPoint(x: 0.980, y: 0.500), CGPoint(x: 0.575, y: 0.575),
+         CGPoint(x: 0.500, y: 0.980), CGPoint(x: 0.425, y: 0.575),
+         CGPoint(x: 0.020, y: 0.500), CGPoint(x: 0.425, y: 0.425)]
+    ]
+
     static let glm: [[CGPoint]] = [
         [CGPoint(x: 0.0200, y: 0.0000), CGPoint(x: 0.9800, y: 0.0000),
          CGPoint(x: 0.9800, y: 0.1850), CGPoint(x: 0.3180, y: 0.8000),
