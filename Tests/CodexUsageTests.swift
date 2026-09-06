@@ -145,6 +145,39 @@ final class CodexRolloutFallbackTests: XCTestCase {
     }
 }
 
+/// A rollout is a record, not a reading: a window whose reset has passed no
+/// longer exists, and its percentage is false rather than merely old. The
+/// case that prompted this: a three-day-old 0% on the 5h window beside a
+/// Codex that had just refused a prompt for lack of that same allowance.
+final class CodexExpiredWindowTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_788_000_000)
+
+    private func window(id: String, resetsIn seconds: TimeInterval?) -> LimitWindow {
+        LimitWindow(id: id, label: id,
+                    usedFraction: 0,
+                    resetsAt: seconds.map { now.addingTimeInterval($0) })
+    }
+
+    func testAResetWindowIsDropped() {
+        let kept = CodexLocalProvider.current(
+            [window(id: "primary", resetsIn: -3600),
+             window(id: "secondary", resetsIn: 3600)],
+            now: now)
+        XCTAssertEqual(kept.map(\.id), ["secondary"])
+    }
+
+    func testAWindowWithNoResetCarriesNoExpiry() {
+        let kept = CodexLocalProvider.current(
+            [window(id: "primary", resetsIn: nil)], now: now)
+        XCTAssertEqual(kept.map(\.id), ["primary"])
+    }
+
+    func testAllExpiredLeavesNothing() {
+        XCTAssertTrue(CodexLocalProvider.current(
+            [window(id: "primary", resetsIn: -10)], now: now).isEmpty)
+    }
+}
+
 /// The activity signal is a heuristic — a rollout written moments ago — so what
 /// it will and will not claim is worth pinning down.
 @MainActor

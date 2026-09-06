@@ -44,8 +44,8 @@ actor CodexLocalProvider: UsageProvider {
         // The newest thread wins — unless it carries nothing usable. Newer
         // builds can record a `premium`-typed snapshot with null windows, in
         // which case the previous thread's percentages are still the truest
-        // thing Codex wrote down. First rollout with windows wins; its own
-        // timestamp decides staleness.
+        // thing Codex wrote down. First rollout with *current* windows wins;
+        // its own timestamp decides staleness.
         for rollout in rollouts {
             let text: String
             do {
@@ -55,17 +55,32 @@ actor CodexLocalProvider: UsageProvider {
             }
             guard let windows = try? CodexUsage.windows(fromRollout: text),
                   !windows.isEmpty else { continue }
+            let current = Self.current(windows)
+            guard !current.isEmpty else { continue }
             return ProviderSnapshot(
                 id: id,
                 displayName: displayName,
                 glyph: glyph,
                 fidelity: .official,
                 status: Self.status(recordedAt: CodexUsage.recordedAt(inRollout: text)),
-                windows: windows,
+                windows: current,
                 headlineID: "primary"
             )
         }
-        throw UsageProviderError.nothingMetered("Codex reported no usage windows")
+        throw UsageProviderError.nothingMetered("Codex hasn't recorded current usage yet")
+    }
+
+    /// Windows from a rollout that still measure the present.
+    ///
+    /// A file is a record of what was true during the last turn, and a window
+    /// whose reset has passed no longer exists — its old percentage is false
+    /// rather than merely old. Showing a three-day-old 0% on a 5h window next
+    /// to a Codex that just refused a prompt is exactly how a correct reading
+    /// looks wrong. Windows with no reset carry no expiry to judge and are
+    /// kept. Live answers never pass through here: they are current by
+    /// construction.
+    static func current(_ windows: [LimitWindow], now: Date = Date()) -> [LimitWindow] {
+        windows.filter { $0.resetsAt.map { $0 > now } ?? true }
     }
 
     /// Ask Codex's app server for the live figure.
