@@ -35,7 +35,7 @@ enum ProviderGlyph: String, Codable, Equatable {
         case .openai: return 0.94
         case .antigravity: return 1.0
         case .glm:    return 0.95
-        case .grok:   return 0.96
+        case .grok:   return 0.92
         case .third:  return 1.0
         }
     }

@@ -401,15 +401,18 @@ enum GlyphOutline {
     /// One loop, no counters, so the even-odd fill that keeps the OpenAI knot
     /// open is a plain solid here. The diagonal's horizontal extent matches
     /// the bar depths (0.2 top and bottom) so the stroke reads at one weight.
-    /// A four-point spark in the unit box. Grok's mark is a spark, not a
-    /// letter, and a traced screenshot at 46px would be softer than the
-    /// geometric marks beside it; this keeps the same ink weight as `glm`.
-    static let grok: [[CGPoint]] = [
-        [CGPoint(x: 0.500, y: 0.020), CGPoint(x: 0.575, y: 0.425),
-         CGPoint(x: 0.980, y: 0.500), CGPoint(x: 0.575, y: 0.575),
-         CGPoint(x: 0.500, y: 0.980), CGPoint(x: 0.425, y: 0.575),
-         CGPoint(x: 0.020, y: 0.500), CGPoint(x: 0.425, y: 0.425)]
-    ]
+    /// Last-resort ring if the `glyph-grok` asset is missing. The real mark is
+    /// the two-crescent Grok (xAI) path in that asset; a polyline cannot hold
+    /// those curves without looking traced.
+    static let grok: [[CGPoint]] = {
+        func circle(_ r: CGFloat, n: Int) -> [CGPoint] {
+            (0..<n).map { i in
+                let t = CGFloat(i) / CGFloat(n) * 2 * .pi - .pi / 2
+                return CGPoint(x: 0.5 + r * cos(t), y: 0.5 + r * sin(t))
+            }
+        }
+        return [circle(0.48, n: 48), circle(0.32, n: 48)]
+    }()
 
     static let glm: [[CGPoint]] = [
         [CGPoint(x: 0.0200, y: 0.0000), CGPoint(x: 0.9800, y: 0.0000),
