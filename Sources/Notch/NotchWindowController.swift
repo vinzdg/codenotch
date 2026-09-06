@@ -391,7 +391,18 @@ final class NotchWindowController {
     /// A click on a ring refetches that provider; a click anywhere else on the
     /// open notch pins it. The ring is the more specific target, so it wins.
     func handleClick() {
-        guard let panel, model.isExpanded else { return togglePinned() }
+        guard let panel, model.isExpanded else {
+            // Opens it, the same as the pointer arriving would — it must not
+            // also pin it. The pill's hot zone is deliberately generous, since
+            // it is a small target on a screen edge, so a click aimed at
+            // something else nearby can land here without the notch ever
+            // having been seen open. Pinning is what a click on a notch that
+            // is *already* open does; folding it back in later is exactly
+            // the ordinary hover behaviour, which a plain `setExpanded` leaves
+            // intact.
+            setExpanded(true)
+            return
+        }
         let local = localCursor(in: panel.frame)
 
         // The handle sits inside the notch, so it has to be tested before the

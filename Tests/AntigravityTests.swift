@@ -915,3 +915,86 @@ final class KeychainProviderTests: XCTestCase {
         XCTAssertFalse(summary("codex").usesKeychain, "Codex reads a file, not the keychain")
     }
 }
+
+/// Claude Code files a new keychain item on every token rotation rather than
+/// updating one in place, so an account used for months accumulates several
+/// under `Claude Code-credentials` — six, on the machine this was found on.
+/// `kSecMatchLimitOne` gives no ordering guarantee across them, so the app
+/// could read an old, expired duplicate while a valid one sat beside it: the
+/// ring showed "Waiting for the first reading…" forever, with a working token
+/// one item away. `KeychainItem.winner` is the selection that replaced it —
+/// the query it is chosen from cannot run in a test, since there is no real
+/// keychain to point it at.
+final class KeychainDuplicateTests: XCTestCase {
+    private func item(ref: String, modified: Date?) -> [CFString: Any] {
+        var item: [CFString: Any] = [kSecValuePersistentRef: Data(ref.utf8)]
+        if let modified { item[kSecAttrModificationDate] = modified }
+        return item
+    }
+
+    /// The reported case: an old duplicate must not beat a newer one merely by
+    /// being asked about first.
+    func testTheMostRecentlyModifiedItemWins() {
+        let old = Date(timeIntervalSince1970: 1_000)
+        let new = Date(timeIntervalSince1970: 2_000)
+        let winner = KeychainItem.winner(among: [
+            item(ref: "old", modified: old),
+            item(ref: "new", modified: new)
+        ])
+        XCTAssertEqual(winner?.persistentRef, Data("new".utf8))
+        XCTAssertEqual(winner?.modifiedAt, new)
+    }
+
+    /// Order in the array must not decide it — that is exactly the bug being
+    /// replaced, moved into this function instead of out of it.
+    func testOrderInTheArrayDoesNotDecideIt() {
+        let old = Date(timeIntervalSince1970: 1_000)
+        let new = Date(timeIntervalSince1970: 2_000)
+        let winner = KeychainItem.winner(among: [
+            item(ref: "new", modified: new),
+            item(ref: "old", modified: old)
+        ])
+        XCTAssertEqual(winner?.persistentRef, Data("new".utf8))
+    }
+
+    /// The single-item case, which is nearly everyone: one duplicate is still
+    /// a field of one to win.
+    func testASingleItemWinsByDefault() {
+        let winner = KeychainItem.winner(among: [item(ref: "only", modified: Date())])
+        XCTAssertEqual(winner?.persistentRef, Data("only".utf8))
+    }
+
+    func testNoItemsMeansNoWinner() {
+        XCTAssertNil(KeychainItem.winner(among: []))
+    }
+
+    /// A duplicate with no recorded modification date is worth keeping, not
+    /// discarding — `.distantPast` only ranks it against the others.
+    func testAnUndatedDuplicateStillLosesToADatedOne() {
+        let dated = Date(timeIntervalSince1970: 1_000)
+        let winner = KeychainItem.winner(among: [
+            item(ref: "undated", modified: nil),
+            item(ref: "dated", modified: dated)
+        ])
+        XCTAssertEqual(winner?.persistentRef, Data("dated".utf8))
+    }
+
+    /// But it can still win outright if it is the only one there is.
+    func testAnUndatedDuplicateWinsWhenAloneWithNoDateAtAll() {
+        let winner = KeychainItem.winner(among: [item(ref: "only", modified: nil)])
+        XCTAssertEqual(winner?.persistentRef, Data("only".utf8))
+        XCTAssertNil(winner?.modifiedAt)
+    }
+
+    /// An entry with no persistent reference at all cannot be read later no
+    /// matter how it ranks, so it is dropped rather than allowed to win and
+    /// then fail.
+    func testAnItemWithNoPersistentRefIsNeverThePick() {
+        let broken: [CFString: Any] = [kSecAttrModificationDate: Date(timeIntervalSince1970: 9_999)]
+        let winner = KeychainItem.winner(among: [
+            broken,
+            item(ref: "usable", modified: Date(timeIntervalSince1970: 1))
+        ])
+        XCTAssertEqual(winner?.persistentRef, Data("usable".utf8))
+    }
+}

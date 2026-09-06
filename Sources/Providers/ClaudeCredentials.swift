@@ -28,19 +28,39 @@ struct ClaudeCredentials {
     /// `ClaudeKeychain` decides *whether* to read; this is what happens when it
     /// does. Every failure is turned into the status the UI should show, and
     /// the raw OSStatus is logged so "not found" and "refused" stay distinct.
+    ///
+    /// Reads the newest item under this service, rather than asking for "one"
+    /// and trusting the answer. Claude Code files a new item on every token
+    /// rotation instead of updating one in place, so an account used for
+    /// months accumulates several under the same service name. A plain
+    /// `kSecMatchLimitOne` query gives no ordering guarantee across them, and
+    /// the failure it produces is silent: the app reads an old, expired
+    /// duplicate, the ring shows "Waiting for the first reading…" forever, and
+    /// nothing about that message suggests a valid token is sitting right next
+    /// to the one that was picked. `KeychainItem.newest` finds it via
+    /// attributes and a persistent reference, neither of which needs
+    /// authorization to read — only this second, targeted fetch of the
+    /// winner's actual data does, which is why it costs the same single prompt
+    /// as before, per profile.
     static func read(service: String) throws -> ClaudeCredentials {
+        guard let winner = KeychainItem.newest(service: service) else {
+            Log.usage.error("keychain read failed: no item under \(service, privacy: .public)")
+            throw UsageProviderError.needsAuth
+        }
+
         var item: CFTypeRef?
         let status = SecItemCopyMatching([
             kSecClass: kSecClassGenericPassword,
-            kSecAttrService: service,
+            kSecValuePersistentRef: winner.persistentRef,
             kSecReturnData: true,
             kSecMatchLimit: kSecMatchLimitOne
         ] as CFDictionary, &item)
 
         guard status == errSecSuccess, let data = item as? Data else {
-            // The status matters: "not found" means Claude Code has never signed
-            // in, whereas -25308 (interaction not allowed) or -128 (user
-            // cancelled) mean the item is there but this app is not on its
+            // The status matters: "not found" means the item was deleted
+            // between enumeration and this read — Claude Code rotating at the
+            // exact wrong instant — whereas -25308 (interaction not allowed) or
+            // -128 (user cancelled) mean it is there and this app is not on its
             // access list. Those need very different advice, so record which.
             Log.usage.error("keychain read of \(service, privacy: .public) failed: OSStatus \(status) (\(Self.explain(status), privacy: .public))")
             throw Self.wasRefused(status)

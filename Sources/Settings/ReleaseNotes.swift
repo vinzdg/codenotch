@@ -31,6 +31,48 @@ struct ReleaseNote: Equatable {
 enum ReleaseNotes {
     static let all: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.4.0",
+            headline: "Two more accounts, four community fixes, and honest duplicates.",
+            changes: [
+                ReleaseNote.Change(
+                    title: "Multiple Claude Code accounts",
+                    detail: "Keep a work login apart with CLAUDE_CONFIG_DIR? It "
+                          + "now gets its own ring, its own limits, and its own "
+                          + "row in Settings, beside your personal one."
+                ),
+                ReleaseNote.Change(
+                    title: "GLM added",
+                    detail: "Z.ai's Coding Plan reads live now too, with a key "
+                          + "borrowed from whichever tool already holds one."
+                ),
+                ReleaseNote.Change(
+                    title: "A stuck Claude ring recovers on its own",
+                    detail: "One momentary failure — the Mac waking from sleep, "
+                          + "most often — used to lock the ring until the app "
+                          + "restarted. It now clears itself on the next check."
+                ),
+                ReleaseNote.Change(
+                    title: "Cursor sessions stop reporting work that already ended",
+                    detail: "A crashed or abandoned chat could read as \"still "
+                          + "working\" for a day or more. It now notices when "
+                          + "the writing has actually stopped."
+                ),
+                ReleaseNote.Change(
+                    title: "A months-old duplicate can no longer win",
+                    detail: "Claude Code files a new keychain entry on every "
+                          + "token rotation. An account signed in for a while "
+                          + "could pick an old, expired one at random and show "
+                          + "\"waiting for the first reading\" forever."
+                ),
+                ReleaseNote.Change(
+                    title: "A stray click no longer pins the notch open",
+                    detail: "Clicking near the screen edge before the notch had "
+                          + "even opened could leave it stuck open with nothing "
+                          + "on screen explaining why."
+                )
+            ]
+        ),
+        ReleaseNote(
             version: "1.3.0",
             headline: "Codex reads live, and Always show stays on.",
             changes: [

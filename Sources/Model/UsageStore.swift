@@ -39,6 +39,14 @@ final class UsageStore: ObservableObject {
 
     private let refreshInterval: TimeInterval
     /// How long a snapshot stays believable after its last successful fetch.
+    ///
+    /// Comfortably above `idleRefreshInterval`, on purpose. With the two equal,
+    /// a ring dimmed the instant the *first* idle refresh attempt failed —
+    /// which reads as "nothing is being read any more" when what actually
+    /// happened is one attempt, five minutes ago, out of what will keep being
+    /// tried every five minutes after. The margin buys room for a couple of
+    /// those attempts to have genuinely failed before the ring says so; it
+    /// must never fire merely because the idle schedule hasn't come round yet.
     private let staleAfter: TimeInterval
     /// How often to look when nothing is running.
     private let idleRefreshInterval: TimeInterval
@@ -57,7 +65,7 @@ final class UsageStore: ObservableObject {
         providers: [UsageProvider],
         refreshInterval: TimeInterval = 60,
         idleRefreshInterval: TimeInterval = 5 * 60,
-        staleAfter: TimeInterval = 5 * 60,
+        staleAfter: TimeInterval = 15 * 60,
         archive: UsageArchive = UsageArchive(),
         disconnected: Set<String> = []
     ) {
@@ -363,6 +371,11 @@ final class UsageStore: ObservableObject {
     /// Exposed for the tests: the store never invents a reading, so what a
     /// failure looks like is worth pinning down.
     static func statusForTesting(_ error: Error) -> ProviderStatus { status(for: error) }
+
+    /// Exposed so a test can hold the shipped defaults to the margin they are
+    /// supposed to keep, without re-typing the numbers on both sides.
+    var staleAfterForTesting: TimeInterval { staleAfter }
+    var idleRefreshIntervalForTesting: TimeInterval { idleRefreshInterval }
 
     private static func status(for error: Error) -> ProviderStatus {
         switch error {
