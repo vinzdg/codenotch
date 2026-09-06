@@ -409,4 +409,15 @@ enum GlyphOutline {
          CGPoint(x: 0.6820, y: 0.2000), CGPoint(x: 0.0200, y: 0.2000)]
     ]
 
+    /// The X mark, drawn rather than traced — there is no design-frame source
+    /// for it. One polygon: two crossing bars with notched ends, closed.
+    static let grok: [[CGPoint]] = [
+        [CGPoint(x: 0.0800, y: 0.0200), CGPoint(x: 0.3000, y: 0.0200),
+         CGPoint(x: 0.5000, y: 0.3200), CGPoint(x: 0.7000, y: 0.0200),
+         CGPoint(x: 0.9200, y: 0.0200), CGPoint(x: 0.6200, y: 0.5000),
+         CGPoint(x: 0.9200, y: 0.9800), CGPoint(x: 0.7000, y: 0.9800),
+         CGPoint(x: 0.5000, y: 0.6800), CGPoint(x: 0.3000, y: 0.9800),
+         CGPoint(x: 0.0800, y: 0.9800), CGPoint(x: 0.3800, y: 0.5000)]
+    ]
+
 }

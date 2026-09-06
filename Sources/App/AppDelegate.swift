@@ -45,10 +45,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if ProcessInfo.processInfo.environment["CODENOTCH_DEMO"] == "1" {
             controller.model.snapshots = Fixtures.snapshots()
         } else {
-            // Nothing needs a browser session at the moment. `WebSessionProvider`
-            // and `Sites.perplexity` are kept: they are the working pattern for a
-            // site behind bot management, and re-registering is one line.
-            let webProviders: [WebSessionProvider] = []
+            // Grok reads SuperGrok's weekly pool through a signed-in WebView
+            // (`Sites.grok`); `Sites.perplexity` is kept unregistered as the
+            // spare pattern for a site behind bot management.
+            let webProviders: [WebSessionProvider] = [WebSessionProvider(site: Sites.grok)]
             controller.signInItems = webProviders.map { provider in
                 (title: "Sign in to \(provider.displayName)…",
                  action: { [weak provider] in provider?.presentSignIn() })
