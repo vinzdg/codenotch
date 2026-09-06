@@ -86,6 +86,65 @@ final class CodexUsageTests: XCTestCase {
     }
 }
 
+/// Newer builds record a `premium`-typed snapshot with null windows. That is
+/// "nothing usable in this file", not a zero — and it must not hide an older
+/// thread's real percentages when the provider walks recent rollouts.
+final class CodexRolloutFallbackTests: XCTestCase {
+    /// Verbatim shape from `~/.codex/sessions/2026/09/06/rollout-…jsonl`.
+    private let premium = """
+    {"timestamp":"2026-09-06T06:13:52.937Z","type":"event_msg","payload":{\
+    "type":"token_count","rate_limits":{"limit_id":"premium","primary":null,\
+    "secondary":null,"credits":{"has_credits":false,"unlimited":false,\
+    "balance":"0"},"plan_type":"plus"}}}
+    """
+
+    func testPremiumSnapshotWithNullWindowsReportsNothingMetered() {
+        XCTAssertThrowsError(try CodexUsage.windows(fromRollout: premium)) { error in
+            guard case UsageProviderError.nothingMetered(let why) = error else {
+                return XCTFail("expected nothingMetered, got \(error)")
+            }
+            XCTAssertEqual(why, "Codex reported no usage windows")
+        }
+    }
+
+    /// The read takes the first rollout *with windows*, so the list has to be
+    /// newest-first with missing files dropped rather than a single newest URL.
+    func testRecentRolloutsAreNewestFirstAndSkipMissingFiles() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("codex-rollouts-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let old = dir.appendingPathComponent("old.jsonl")
+        let new = dir.appendingPathComponent("new.jsonl")
+        try "x".write(to: old, atomically: true, encoding: .utf8)
+        try "x".write(to: new, atomically: true, encoding: .utf8)
+
+        let store = dir.appendingPathComponent("state.sqlite")
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(store.path, &db), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        sqlite3_exec(db, """
+            CREATE TABLE threads (
+                rollout_path TEXT, archived INTEGER, updated_at_ms INTEGER);
+            """, nil, nil, nil)
+        // Newest first in time, plus a missing file and an archived thread —
+        // both must be dropped rather than returned.
+        for (path, ms, archived) in [
+            (new.path, 300, 0), ("/nonexistent/gone.jsonl", 250, 0),
+            (old.path, 200, 0), (old.path, 400, 1),
+        ] as [(String, Int, Int)] {
+            sqlite3_exec(db, """
+                INSERT INTO threads (rollout_path, archived, updated_at_ms)
+                VALUES ('\(path)', \(archived), \(ms));
+                """, nil, nil, nil)
+        }
+
+        XCTAssertEqual(CodexStore.recentRollouts(in: store), [new, old])
+        XCTAssertEqual(CodexStore.newestRollout(in: store), new)
+    }
+}
+
 /// The activity signal is a heuristic — a rollout written moments ago — so what
 /// it will and will not claim is worth pinning down.
 @MainActor

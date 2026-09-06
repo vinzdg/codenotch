@@ -37,21 +37,35 @@ actor CodexLocalProvider: UsageProvider {
             )
         }
 
-        guard let rollout = CodexStore.newestRollout(in: stateStore) else {
+        let rollouts = CodexStore.recentRollouts(in: stateStore)
+        guard !rollouts.isEmpty else {
             throw UsageProviderError.nothingMetered("No Codex threads on this machine yet")
         }
-        let text = try tail(of: rollout)
-        let windows = try CodexUsage.windows(fromRollout: text)
-
-        return ProviderSnapshot(
-            id: id,
-            displayName: displayName,
-            glyph: glyph,
-            fidelity: .official,
-            status: Self.status(recordedAt: CodexUsage.recordedAt(inRollout: text)),
-            windows: windows,
-            headlineID: "primary"
-        )
+        // The newest thread wins — unless it carries nothing usable. Newer
+        // builds can record a `premium`-typed snapshot with null windows, in
+        // which case the previous thread's percentages are still the truest
+        // thing Codex wrote down. First rollout with windows wins; its own
+        // timestamp decides staleness.
+        for rollout in rollouts {
+            let text: String
+            do {
+                text = try tail(of: rollout)
+            } catch {
+                continue
+            }
+            guard let windows = try? CodexUsage.windows(fromRollout: text),
+                  !windows.isEmpty else { continue }
+            return ProviderSnapshot(
+                id: id,
+                displayName: displayName,
+                glyph: glyph,
+                fidelity: .official,
+                status: Self.status(recordedAt: CodexUsage.recordedAt(inRollout: text)),
+                windows: windows,
+                headlineID: "primary"
+            )
+        }
+        throw UsageProviderError.nothingMetered("Codex reported no usage windows")
     }
 
     /// Ask Codex's app server for the live figure.
@@ -156,15 +170,24 @@ enum CodexStore {
 
     /// The rollout of the most recently touched thread.
     static func newestRollout(in store: URL) -> URL? {
-        guard let db = SQLiteStore.open(store) else { return nil }
+        recentRollouts(in: store).first
+    }
+
+    /// Recent rollouts, newest first. The usage read walks this list and takes
+    /// the first one carrying usable windows, so a new-format snapshot with
+    /// null windows does not hide an older thread's real percentages.
+    /// The activity monitor still uses only the first entry: recency of writes
+    /// is what it measures, not what the writes contain.
+    static func recentRollouts(in store: URL, limit: Int = 8) -> [URL] {
+        guard let db = SQLiteStore.open(store) else { return [] }
         defer { sqlite3_close(db) }
 
         let paths = SQLiteStore.rows(
             in: db,
-            sql: "SELECT rollout_path FROM threads WHERE archived = 0 ORDER BY updated_at_ms DESC LIMIT 8"
+            sql: "SELECT rollout_path FROM threads WHERE archived = 0 ORDER BY updated_at_ms DESC LIMIT \(limit)"
         )
         return paths
             .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
-            .first { FileManager.default.fileExists(atPath: $0.path) }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 }
