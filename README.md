@@ -20,6 +20,7 @@ two never disagree.
 | **Antigravity** | official where licensed, otherwise a request count | Antigravity's local language server first, then Google's quota endpoint; a plain count when neither will answer for the account. |
 | **GLM** | official | Z.ai's Coding Plan monitor endpoint, with a key borrowed from whichever coding tool already holds one — Claude Code's `settings.json`, ZCode, or OpenCode. |
 | **Grok** | official | grok.com's own Usage card RPC (`GetGrokCreditsConfig`), called from inside a signed-in WebView — the weekly SuperGrok pool. Sign in once via Right-click → Sign in to Grok… |
+| **OpenCode** | official | The Go plan's rolling/weekly/monthly windows from `opencode.ai/zen/go/v1/usage`, with the `opencode-go` key OpenCode itself stores on sign-in. |
 
 Codenotch never signs in anywhere. Every reading is borrowed from a credential
 or session a tool on your Mac already holds — install and sign in to any of

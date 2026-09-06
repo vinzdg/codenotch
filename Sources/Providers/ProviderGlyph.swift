@@ -12,6 +12,7 @@ enum ProviderGlyph: String, Codable, Equatable {
     case antigravity = "gemini"
     case glm
     case grok
+    case opencode
 
     /// If an asset with this name is in the bundle it wins over the traced
     /// outline — drop a PDF/SVG export from Figma in and it is picked up.
@@ -36,6 +37,7 @@ enum ProviderGlyph: String, Codable, Equatable {
         case .antigravity: return 1.0
         case .glm:    return 0.95
         case .grok:   return 0.95
+        case .opencode: return 0.95
         case .third:  return 1.0
         }
     }
@@ -49,6 +51,7 @@ enum ProviderGlyph: String, Codable, Equatable {
         case .antigravity: return GlyphOutline.antigravity
         case .glm:    return GlyphOutline.glm
         case .grok:   return GlyphOutline.grok
+        case .opencode: return GlyphOutline.opencode
         }
     }
 }

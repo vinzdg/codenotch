@@ -420,4 +420,15 @@ enum GlyphOutline {
          CGPoint(x: 0.0800, y: 0.9800), CGPoint(x: 0.3800, y: 0.5000)]
     ]
 
+    /// A terminal prompt — chevron plus underscore bar. OpenCode lives in the
+    /// terminal, and its own logo is not available as a traceable source, so
+    /// the mark says what the tool is rather than copying its brand.
+    static let opencode: [[CGPoint]] = [
+        [CGPoint(x: 0.1500, y: 0.1000), CGPoint(x: 0.6200, y: 0.4400),
+         CGPoint(x: 0.1500, y: 0.7800), CGPoint(x: 0.1500, y: 0.6000),
+         CGPoint(x: 0.4400, y: 0.4400), CGPoint(x: 0.1500, y: 0.2800)],
+        [CGPoint(x: 0.1500, y: 0.8400), CGPoint(x: 0.7500, y: 0.8400),
+         CGPoint(x: 0.7500, y: 0.9600), CGPoint(x: 0.1500, y: 0.9600)]
+    ]
+
 }
