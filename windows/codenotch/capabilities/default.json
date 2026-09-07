@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "Codenotch bar & panel: allow core APIs (event.listen is required for state broadcasts)",
+  "windows": ["notch"],
+  "permissions": ["core:default"]
+}

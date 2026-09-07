@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  /* Visual reference: upstream docs/specs/2026-08-28-usage-notch-design.md, reproduced for Windows */
+  *{box-sizing:border-box} /* content-box padding once pushed the card past the window's left edge */
+  html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overflow:hidden;user-select:none}
+  body{font-family:"Segoe UI",system-ui,sans-serif;color:#fff}
+  #root{position:relative;width:100%;height:100%}
+
+  /* The pill on the right edge */
+  #pill{
+    position:absolute;right:0;top:50%;transform:translateY(-50%);
+    width:70px;padding:18px 0;background:#000;
+    border-radius:20px 0 0 20px;
+    /* Stays visible on dark wallpapers: a thin stroke plus a faint glow, the only outline when black sits on black */
+    border:1px solid #2e2e2e;border-right:none;
+    box-shadow:none;
+    display:flex;flex-direction:column;align-items:center;gap:14px;cursor:pointer;
+  }
+  /* Fillets: the concave arcs between the pill's top/bottom and the screen edge (the inverse rounded
+     corner in the upstream design frame). An R×R black square hugs the edge and a radial gradient
+     punches out the circle of radius R centred on its outer corner; what remains is the arc. A 1 px
+     ring in the stroke colour joins the pill's own stroke (the outline cue on black wallpapers). */
+  #pill::before,#pill::after{
+    content:"";position:absolute;right:0;width:var(--fillet);height:var(--fillet);pointer-events:none;
+  }
+  #pill{--fillet:26px}
+  #pill::before{
+    top:calc(-1 * var(--fillet)); /* covers the 1 px stroke along the pill's top edge so there is no seam */
+    background:radial-gradient(circle at 0 0, transparent calc(var(--fillet) - 1.5px), #2e2e2e calc(var(--fillet) - 0.5px), #000 calc(var(--fillet) + 0.5px));
+  }
+  #pill::after{
+    bottom:calc(-1 * var(--fillet));
+    background:radial-gradient(circle at 0 100%, transparent calc(var(--fillet) - 1.5px), #2e2e2e calc(var(--fillet) - 0.5px), #000 calc(var(--fillet) + 0.5px));
+  }
+  .cell{display:flex;flex-direction:column;align-items:center;gap:6px}
+  .ringwrap{position:relative;width:56px;height:56px}
+  .ringwrap > svg.ring{position:absolute;inset:0;overflow:visible} /* pins only the ring itself; an inline logo svg must not match this or it ends up in the top-left corner */
+  .glyph{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font-size:20px;font-weight:700;color:#e8e8ea;letter-spacing:-.5px;
+  }
+  .glyph.small{font-size:15px}
+  /* Glyphs: mark = the provider's own brand mark (monochrome, shown white); appicon = the installed app's icon (colour, rounded and shrunk) */
+  .glyph img,.glyph svg{display:block;pointer-events:none;user-select:none}
+  .glyph .mark{display:block;width:26px;height:26px;color:#e8e8ea}
+  .glyph .mark svg{width:26px;height:26px;fill:currentColor} /* inline SVG follows currentColor, so it dims together with the cell */
+  .glyph img.png{width:26px;height:26px;object-fit:contain}
+  .glyph img.appicon{width:30px;height:30px;border-radius:8px;object-fit:cover}
+  .c-head .mark{display:inline-block;width:16px;height:16px;color:#e8e8ea;margin-right:2px}
+  .c-head .mark svg{width:16px;height:16px;fill:currentColor}
+  .pct{font-size:15px;font-weight:600;color:#fff;font-variant-numeric:tabular-nums}
+  .dim{opacity:.55}
+  /* Session arc animation */
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  /* A 60 fps SVG transform animation in a transparent always-on-top window slows the whole desktop
+     compositor (other apps stutter). steps() drops repaints to ~10 fps; it still reads as spinning/breathing. */
+  .arc-spin{animation:spin 1.2s steps(12) infinite;transform-origin:center}
+  .arc-pulse{animation:pulse 1.1s steps(6) infinite}
+
+  /* Hover card, shown to the left of the pill */
+  #card{
+    position:absolute;left:10px;right:80px;top:50%;transform:translateY(-50%);--tail:50%;
+    /* Anchored on both sides = fluid width: whatever the WebView's real logical width, the card cannot
+       extend past the window's left edge (a fixed max-width got clipped when the DPI disagreed).
+       The 246 cap matches the upstream spec. */
+    max-width:246px;margin-left:auto;background:#0a0a0a;border-radius:16px;padding:16px;
+    overflow-wrap:anywhere;min-width:0;
+    max-height:calc(100% - 16px);overflow:hidden; /* never taller than the window, however short it is */
+    display:none;
+  }
+  #card.show{display:block}
+  #card::after{ /* solid triangle pointing at the pill */
+    content:"";position:absolute;right:-8px;top:var(--tail);transform:translateY(-50%);
+    border:8px solid transparent;border-right:none;border-left:10px solid #0a0a0a;
+  }
+  .c-head{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+  .c-title{font-size:14px;font-weight:700}
+  .c-sub{font-size:11px;color:#808080;margin-bottom:10px}
+  .win{margin-top:10px}
+  .w-row{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;flex-wrap:wrap;column-gap:8px}
+  .w-label{color:#e8e8ea;font-weight:600;white-space:nowrap}
+  .w-reset{color:#808080;font-size:11px;white-space:nowrap;margin-left:auto} /* wrap as a whole when it does not fit; never break inside a word */
+  .w-track{height:4px;border-radius:2px;background:#2d2d2d;margin:6px 0 4px;overflow:hidden}
+  .w-fill{height:100%;border-radius:2px}
+  .w-used{font-size:11px;color:#808080}
+  .c-note{font-size:12px;color:#c8c8c8;line-height:1.5;margin-top:6px}
+  .c-sessions{margin-top:12px;border-top:1px solid #1e1e1e;padding-top:8px}
+  .s-row{display:flex;align-items:center;gap:6px;font-size:11px;color:#b0b0b3;padding:2px 0}
+  .s-dot{width:6px;height:6px;border-radius:3px;flex:0 0 auto}
+  #notice{
+    position:absolute;left:8px;bottom:6px;right:80px;font-size:10px;color:#808080;
+    background:rgba(0,0,0,.85);border-radius:8px;padding:4px 8px;display:none
+  }
+  #notice.show{display:block}
+</style>
+</head>
+<body>
+<div id="root">
+  <div id="card"></div>
+  <div id="pill"></div><!-- one .cell per provider, stacked vertically (upstream: data-driven, the same layout for 1–5 cells) -->
+  <div id="notice"></div>
+</div>
+<script>
+const invoke = window.__TAURI__.core.invoke;
+const listen = window.__TAURI__.event.listen;
+
+/* Colour ramp (upstream palette values) */
+const AMPLE='#00FF88', WATCH='#F2FF00', CRIT='#FF3F00';
+const TRACK='#303030', AMBER='#FFBF00', RUNGREEN='#28E07B';
+const tone=f=> f>=0.8?CRIT : f>=0.5?WATCH : AMPLE;
+
+let usage={status:'',windows:[],fetched_at:0,note:''};
+let codexSnap={status:'absent',windows:[],fetched_at:0,note:''};
+let cursorSnap={status:'absent',windows:[],fetched_at:0,note:''};
+let agSnap={status:'absent',windows:[],fetched_at:0,note:''};
+let glyphs={}; // id → {kind:'mark'|'appicon', url}
+let activity=[]; // working state of the non-Claude providers: {provider,state:'busy'|'waiting',name,detail,since}
+// "Is it working?" per provider: Claude from the four-state engine, the others from the activity probe. Returns running | attention | idle
+function workState(id){
+  if(id==='claude'){
+    if(stateSnap.agg==='running') return 'running';
+    if(stateSnap.agg==='attention') return 'attention';
+    // The engine cannot see cloud sessions: fall back to the desktop app's network activity
+    if(activity.some(a=>a.provider==='claude'&&a.state==='busy')) return 'running';
+    return 'idle';
+  }
+  const acts=activity.filter(a=>a.provider===id);
+  if(acts.some(a=>a.state==='waiting')) return 'attention';
+  if(acts.some(a=>a.state==='busy')) return 'running';
+  return 'idle';
+}
+function glyphHtml(p,small){
+  const g=glyphs[p.id];
+  if(g&&g.kind==='svg'&&g.svg) return `<span class="mark">${g.svg}</span>`;
+  if(g&&g.url) return `<img class="${g.kind}" src="${g.url}" alt="${p.name}"${small?' style="width:16px;height:16px;border-radius:4px"':''}>`;
+  return small?'':p.glyph; // fallback letter
+}
+// Provider table (order = top to bottom in the pill). `glyph` is the fallback letter used when no mark is available
+function providers(){
+  const list=[{id:'claude',name:'Claude',glyph:'C',snap:usage}];
+  if(codexSnap.status!=='absent') list.push({id:'codex',name:'Codex',glyph:'Cx',snap:codexSnap});
+  if(cursorSnap.status!=='absent') list.push({id:'cursor',name:'Cursor',glyph:'Cu',snap:cursorSnap});
+  if(agSnap.status!=='absent') list.push({id:'gemini',name:'Antigravity',glyph:'Ag',snap:agSnap});
+  return list;
+}
+function headlineOf(snap){
+  if(!snap.windows.length) return null;
+  const metered=snap.windows.filter(w=>w.count==null);
+  if(metered.length) return metered.reduce((a,b)=> b.used>a.used?b:a);
+  return snap.windows[0];
+}
+function staleOf(snap){ if(snap.status==='stale') return true; return snap.fetched_at>0 && (Date.now()-snap.fetched_at)>5*60*1000; }
+let stateSnap={sessions:[],agg:'idle'};
+
+function svgArc(r,frac,color,width,extra=''){
+  const C=2*Math.PI*r;
+  return `<circle cx="28" cy="28" r="${r}" fill="none" stroke="${color}" stroke-width="${width}"
+    stroke-dasharray="${(C*frac).toFixed(2)} ${C.toFixed(2)}" stroke-linecap="butt"
+    transform="rotate(-90 28 28)" ${extra}/>`;
+}
+
+function headline(){ // the cell shows the most constrained window — the one that will stop you first
+  if(!usage.windows.length) return null;
+  return usage.windows.reduce((a,b)=> b.used>a.used?b:a);
+}
+
+function isStale(){
+  if(usage.status==='stale') return true;
+  return usage.fetched_at>0 && (Date.now()-usage.fetched_at)>5*60*1000;
+}
+
+function renderRing(){
+  const ps=providers();
+  // Rebuild the DOM only when the structure changes (never swap the element under the cursor)
+  const want=ps.map(p=>p.id+':'+(glyphs[p.id]?glyphs[p.id].kind:'-')).join(',');
+  if(pill.dataset.cells!==want){
+    pill.innerHTML=ps.map(p=>`<div class="cell" data-p="${p.id}">
+      <div class="ringwrap"><svg class="ring" viewBox="0 0 56 56"></svg><div class="glyph ${(!glyphs[p.id]&&p.glyph.length>1)?'small':''}">${glyphHtml(p)}</div></div>
+      <div class="pct">—</div></div>`).join('');
+    pill.dataset.cells=want;
+  }
+  for(const p of ps){
+    const cell=pill.querySelector(`.cell[data-p="${p.id}"]`); if(!cell) continue;
+    const svg=cell.querySelector('svg.ring'), pct=cell.querySelector('.pct'), glyph=cell.querySelector('.glyph'), wrap=cell.querySelector('.ringwrap');
+    const h=headlineOf(p.snap);
+    let inner=`<circle cx="28" cy="28" r="22" fill="#2a2a2a"/><circle cx="28" cy="28" r="25" fill="none" stroke="${TRACK}" stroke-width="5"/>`;
+    if(h && h.count==null) inner+=svgArc(25,Math.min(h.used,1),tone(h.used),5);
+    { // thin inner arc: spinning = working, amber pulse = waiting on you (one animation for all four, different sources)
+      const ws=workState(p.id);
+      if(ws==='running') inner+=`<g class="arc-spin">${svgArc(19,0.28,RUNGREEN,2.5)}</g>`;
+      else if(ws==='attention') inner+=`<g class="arc-pulse"><circle cx="28" cy="28" r="19" fill="none" stroke="${AMBER}" stroke-width="2.5"/></g>`;
+    }
+    svg.innerHTML=inner;
+    if(p.snap.status==='needsAuth'||p.snap.status==='none') pct.textContent='—';
+    else if(h && h.count!=null) pct.textContent='~'+h.count;
+    else if(h) pct.textContent=(h.derived?'~':'')+Math.round(h.used*100)+'%';
+    else pct.textContent='…';
+    glyph.classList.toggle('dim', !!(h && h.used>=1));
+    wrap.classList.toggle('dim', staleOf(p.snap));
+  }
+}
+
+function resetCopy(ms){
+  if(!ms) return '';
+  const diff=ms-Date.now();
+  if(diff<=0) return 'Resetting…';
+  if(diff<60*60*1000) return `Resets in ${Math.max(1,Math.round(diff/60000))} min`;
+  const d=new Date(ms);
+  const t=d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+  if(diff<24*60*60*1000) return `Resets at ${t}`;
+  return `Resets ${d.toLocaleDateString('en-US',{weekday:'short'})} ${t}`;
+}
+
+function ago(ms){
+  const m=Math.round((Date.now()-ms)/60000);
+  return m<60?`${m}m ago`:`${Math.round(m/60)}h ago`;
+}
+
+const STATE_DOT={running:RUNGREEN,attention:AMBER,done:'#57c7ff'};
+
+let hoverId='claude';
+function renderCard(){
+  const c=document.getElementById('card');
+  const p=providers().find(x=>x.id===hoverId)||providers()[0];
+  const snap=p.snap;
+  const headIcon=glyphHtml(p,true);
+  let html=`<div class="c-head">${headIcon}<span class="c-title">${p.name} Usage</span></div>`;
+  if(staleOf(snap)&&snap.fetched_at) html+=`<div class="c-sub">Updated ${ago(snap.fetched_at)}</div>`;
+  if(snap.status==='needsAuth'){
+    const who={claude:'Sign in to Claude Code to see usage.',cursor:'Sign in to Cursor to see usage.',codex:'Sign in to Codex to see usage.',gemini:'Sign in to Antigravity to see usage.'}[p.id]||'';
+    html+=`<div class="c-note">${who}<br>${snap.note||''}</div>`;
+  }else if(!snap.windows.length){
+    html+=`<div class="c-note">${snap.note||'Waiting for first reading…'}</div>`;
+  }else{
+    for(const w of snap.windows){
+      if(w.count!=null){
+        html+=`<div class="win"><div class="w-row"><span class="w-label">${w.label}</span></div>
+          <div class="w-used">${w.count>0?`~${w.count} request${w.count===1?'':'s'} today`:'no requests today'}</div></div>`;
+        continue;
+      }
+      html+=`<div class="win">
+        <div class="w-row"><span class="w-label">${w.label}</span><span class="w-reset">${resetCopy(w.resets_at)}</span></div>
+        <div class="w-track"><div class="w-fill" style="width:${(Math.min(w.used,1)*100).toFixed(0)}%;background:${tone(w.used)}"></div></div>
+        <div class="w-used">${w.derived?'~':''}${Math.round(w.used*100)}% Used</div>
+      </div>`;
+    }
+    if(snap.note) html+=`<div class="c-note">${snap.note}</div>`;
+  }
+  if(p.id==='claude'){ // live sessions (a full list with jump-to-session is a follow-up)
+    const act=stateSnap.sessions.filter(s=>s.state!=='idle');
+    if(act.length){
+      html+=`<div class="c-sessions">`;
+      for(const s of act.slice(0,5)){
+        html+=`<div class="s-row"><span class="s-dot" style="background:${STATE_DOT[s.state]||'#666'}"></span>${esc(s.title)}</div>`;
+      }
+      html+=`</div>`;
+    }
+  }else{ // other providers: detected activity rows (Cursor reports state; Codex/Antigravity are inferred from recent writes)
+    const acts=activity.filter(a=>a.provider===p.id);
+    if(acts.length){
+      html+=`<div class="c-sessions">`;
+      for(const a of acts.slice(0,5)){
+        const col=a.state==='waiting'?AMBER:RUNGREEN;
+        html+=`<div class="s-row"><span class="s-dot" style="background:${col}"></span>${esc(a.name)}<span style="color:#808080;margin-left:auto">${esc(a.detail)}</span></div>`;
+      }
+      html+=`</div>`;
+    }
+  }
+  c.innerHTML=html;
+  placeCard();
+}
+// The card follows the hovered cell: vertically centred on it (kept inside the window), tail pointing at it
+function placeCard(){
+  const cell=pill.querySelector(`.cell[data-p="${hoverId}"]`)||pill;
+  const cr=cell.getBoundingClientRect();
+  const cy=cr.top+cr.height/2;
+  const H=innerHeight, ch=card.offsetHeight||0;
+  let top=Math.round(cy-ch/2); top=Math.max(8,Math.min(top,H-ch-8));
+  card.style.top=top+'px'; card.style.transform='none';
+  card.style.setProperty('--tail',Math.max(16,Math.min(ch-16,Math.round(cy-top)))+'px');
+}
+
+function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}
+
+/* Hover: stays expanded while either the pill or the card is under the cursor; collapses after a 250 ms grace period (upstream motion rule) */
+const card=document.getElementById('card'), pill=document.getElementById('pill');
+let hideTimer=null;
+function showCard(){clearTimeout(hideTimer);card.classList.add('show');renderCard();armWatchdog();} // show first, then render: placeCard needs offsetHeight
+function hideCard(){card.classList.remove('show');invoke('set_expanded',{on:false,rects:null}).catch(()=>{});}
+function scheduleHide(){clearTimeout(hideTimer);hideTimer=setTimeout(hideCard,250);}
+// ===== Diagnostics + geometry =====
+function jslog(m){invoke('log_js',{msg:String(m)}).catch(()=>{});}
+function callq(cmd,args){ // invoke with visible failure: any command error is reported on screen (a silent .catch used to swallow them)
+  return invoke(cmd,args).catch(e=>{notice(cmd+' failed: '+(e&&e.message||e));throw e;});
+}
+// Hot rectangles are reported in physical pixels (multiplied by this page's real DPR), so the Rust side does no conversion — WebView2's DPR and the window scale can disagree
+function rectOf(el){const r=el.getBoundingClientRect(),k=window.devicePixelRatio||1;return [r.left*k,r.top*k,r.width*k,r.height*k];}
+function armWatchdog(){
+  requestAnimationFrame(()=>{ // wait one frame so renderCard's new content is laid out before measuring
+    if(!card.classList.contains('show'))return;
+    callq('set_expanded',{on:true,rects:[rectOf(pill),rectOf(card)]}).catch(()=>{});
+  });
+}
+// Viewport fit (pure front-end fallback, independent of Rust): the window is 340 × primary scale physical px,
+// so if this page's CSS viewport is not 340 wide the WebView's DPR disagrees with the monitor; CSS zoom pulls the layout back to the design size.
+function fitZoom(){
+  const z=innerWidth/340;
+  document.documentElement.style.zoom=(Math.abs(z-1)>0.02)?String(z):'';
+  return z;
+}
+function reportDpr(){
+  const z=fitZoom();
+  jslog(`dpr=${window.devicePixelRatio} inner=${innerWidth}x${innerHeight} cssZoom=${z.toFixed(3)}`);
+  callq('report_dpr',{dpr:window.devicePixelRatio||1,w:innerWidth,h:innerHeight}).catch(()=>{});
+}
+reportDpr();
+window.addEventListener('resize',()=>{clearTimeout(window._dprT);window._dprT=setTimeout(()=>{reportDpr();if(card.classList.contains('show'))armWatchdog();},120);});
+matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener('change',reportDpr);
+
+/* Collapse test: no trust in element-level mouseenter/mouseleave/e.target at all —
+   pure geometry: is the cursor (clientX/Y) inside pill rect ∪ card rect ∪ their bounding box?
+   Leaving the window: document mouseout (relatedTarget=null) plus the Rust watchdog (system cursor) as a second line. */
+function inRect(x,y,r,pad){return x>=r.left-pad&&y>=r.top-pad&&x<r.right+pad&&y<r.bottom+pad;}
+function cellAt(x,y){
+  for(const el of pill.querySelectorAll('.cell')){ if(inRect(x,y,el.getBoundingClientRect(),6)) return el.dataset.p; }
+  return null;
+}
+function pointerInHot(x,y){
+  const p=pill.getBoundingClientRect();
+  if(inRect(x,y,p,4))return true;
+  if(!card.classList.contains('show'))return false;
+  const c=card.getBoundingClientRect();
+  if(inRect(x,y,c,4))return true;
+  const u={left:Math.min(p.left,c.left),top:Math.min(p.top,c.top),right:Math.max(p.right,c.right),bottom:Math.max(p.bottom,c.bottom)};
+  return inRect(x,y,u,0);
+}
+let hideLogged=0;
+document.addEventListener('mousemove',e=>{
+  if(dragging)return; // no card while dragging
+  const hot=pointerInHot(e.clientX,e.clientY);
+  if(hot){
+    clearTimeout(hideTimer);
+    const id=cellAt(e.clientX,e.clientY);
+    if(id&&id!==hoverId){ hoverId=id; if(card.classList.contains('show')){ renderCard(); armWatchdog(); } }
+    if(!card.classList.contains('show')) showCard();
+  }
+  else if(card.classList.contains('show')){ if(hideLogged++<5) jslog(`mousemove left the hot area -> collapse at ${e.clientX},${e.clientY}`); scheduleHide(); }
+});
+document.addEventListener('mouseout',e=>{ // relatedTarget null = the cursor left the page
+  if(!e.relatedTarget && card.classList.contains('show')){ if(hideLogged++<5) jslog('mouseout left the page -> collapse'); scheduleHide(); }
+});
+listen('pointer_left',()=>{clearTimeout(hideTimer);hideCard();}).catch(()=>{});
+// Card content changes change its height -> report the hot rectangles again
+listen('usage',()=>{if(card.classList.contains('show'))armWatchdog();}).catch(()=>{});
+listen('state',()=>{if(card.classList.contains('show'))armWatchdog();}).catch(()=>{});
+/* The pill can be dragged up and down the right edge. Press and move more than 4 px = drag (handed to Rust,
+   which follows the system cursor; the card is collapsed first); release without moving = click (opens the provider's usage page). */
+let press=null, dragging=false;
+pill.addEventListener('mousedown',e=>{ if(e.button!==0)return; press={x:e.clientX,y:e.clientY,id:cellAt(e.clientX,e.clientY)||hoverId}; });
+document.addEventListener('mousemove',e=>{
+  if(!press||dragging)return;
+  if(Math.abs(e.clientY-press.y)>4||Math.abs(e.clientX-press.x)>4){
+    dragging=true; clearTimeout(hideTimer); hideCard();
+    invoke('drag_begin').catch(err=>{notice('drag_begin failed: '+err);dragging=false;});
+  }
+});
+document.addEventListener('mouseup',e=>{
+  if(e.button!==0)return;
+  if(press&&!dragging) invoke('open_provider_page',{provider:press.id}).catch(()=>{});
+  press=null;
+});
+listen('drag_end',()=>{dragging=false;press=null;}).catch(()=>{});
+
+function notice(msg){
+  const n=document.getElementById('notice');
+  n.textContent=msg;n.classList.add('show');
+  clearTimeout(n._h);n._h=setTimeout(()=>n.classList.remove('show'),6000);
+}
+
+listen('usage',e=>{usage=e.payload||usage;renderRing();if(card.classList.contains('show'))renderCard();})
+  .catch(e=>notice('listen(usage) failed: '+e));
+listen('state',e=>{stateSnap=e.payload||stateSnap;renderRing();if(card.classList.contains('show'))renderCard();})
+  .catch(e=>notice('listen(state) failed: '+e));
+listen('notice',e=>notice(e.payload)).catch(()=>{});
+listen('codex',e=>{codexSnap=e.payload||codexSnap;renderRing();if(card.classList.contains('show'))renderCard();}).catch(()=>{});
+listen('cursor',e=>{cursorSnap=e.payload||cursorSnap;renderRing();if(card.classList.contains('show'))renderCard();}).catch(()=>{});
+invoke('get_cursor').then(u=>{cursorSnap=u||cursorSnap;renderRing();}).catch(()=>{});
+listen('antigravity',e=>{agSnap=e.payload||agSnap;renderRing();if(card.classList.contains('show'))renderCard();}).catch(()=>{});
+invoke('get_antigravity').then(u=>{agSnap=u||agSnap;renderRing();}).catch(()=>{});
+listen('glyphs',e=>{glyphs=e.payload||glyphs;renderRing();if(card.classList.contains('show'))renderCard();}).catch(()=>{});
+listen('activity',e=>{activity=e.payload||activity;renderRing();if(card.classList.contains('show'))renderCard();}).catch(()=>{});
+invoke('get_activity').then(a=>{activity=a||activity;renderRing();}).catch(()=>{});
+invoke('get_glyphs').then(g=>{glyphs=g||glyphs;renderRing();}).catch(()=>{});
+invoke('get_codex').then(u=>{codexSnap=u||codexSnap;renderRing();}).catch(()=>{});
+invoke('get_usage').then(u=>{usage=u||usage;renderRing();}).catch(e=>notice('get_usage failed: '+e));
+invoke('get_state').then(s=>{stateSnap=s||stateSnap;renderRing();}).catch(()=>{});
+setInterval(renderRing,30_000); // stale state and reset copy move with time
+</script>
+</body>
+</html>

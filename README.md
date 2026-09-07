@@ -10,6 +10,10 @@ Hover a ring for its limit windows and when they reset. Claude's ring shows the
 same **current session** window Claude Code's own `/usage` leads with, so the
 two never disagree.
 
+## Windows
+
+A Windows port — Rust/Tauri 2, same design and providers — lives in [`windows/`](windows/README.md).
+
 ## What it reads
 
 | Provider | Source | How |
