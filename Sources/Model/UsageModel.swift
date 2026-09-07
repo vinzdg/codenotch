@@ -26,6 +26,49 @@ enum ProviderStatus: Equatable {
     var staleSince: Date? { if case .stale(let since) = self { return since }; return nil }
 }
 
+/// How percentages read.
+///
+/// Whole percents above one — "12%", "104%" — because decimals there are
+/// noise. Below one, whole percents collapse a real reading into "0%", the one
+/// number that looks most like "nothing used", so both halves gain a tenth of
+/// a percent and still add up: 0.3% used is 99.7% left. A tenth of nothing
+/// says so rather than pretending to be zero.
+enum Percent {
+    /// The two halves of a used-fraction, as display text.
+    static func halves(for fraction: Double) -> (used: String, left: String) {
+        let value = fraction * 100
+        let fractional = (value > 0 && value < 1) || (value > 99 && value < 100)
+        guard fractional else {
+            // The left half derives from the *rounded* used half, not from the
+            // raw value — 9.5% used is "10% Used · 90% left", because that is
+            // how the dashboard the user is comparing against does the maths.
+            let used = Int(value.rounded())
+            return ("\(used)", "\(max(0, 100 - used))")
+        }
+        let left = max(0, 100 - value)
+        // "<0.1" has no number to subtract from a hundred, so the far half
+        // makes the same claim from its own end: ">99.9".
+        return (small(value), left > 99.9 ? ">99.9" : small(left))
+    }
+
+    /// One percentage, as display text — the ring's label.
+    static func text(for fraction: Double) -> String {
+        let value = fraction * 100
+        guard value > 0, value < 1 else { return "\(Int(value.rounded()))" }
+        return small(value)
+    }
+
+    private static func small(_ value: Double) -> String {
+        if value <= 0 { return "0" }
+        let tenths = (value * 10).rounded() / 10
+        if tenths < 0.1 { return "<0.1" }
+        if tenths > 99.9 { return ">99.9" }
+        // Fixed locale: the decimal point is not up to the system settings,
+        // any more than "%" is.
+        return String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), tenths)
+    }
+}
+
 /// One metered window a provider exposes — Claude has two (the rolling session
 /// and the longer all-models window), others have one.
 struct LimitWindow: Identifiable, Codable, Equatable {
@@ -62,8 +105,8 @@ struct LimitWindow: Identifiable, Codable, Equatable {
             // head, and "12% Used" beside Codex's "87% remaining" reads as two
             // different numbers rather than one seen from either end. That is
             // what made a correct reading look wrong.
-            let used = Int((usedFraction * 100).rounded())
-            return "\(used)% Used · \(max(0, 100 - used))% left"
+            let halves = Percent.halves(for: usedFraction)
+            return "\(halves.used)% Used · \(halves.left)% left"
         }
         if let remaining {
             return remaining == 1 ? "1 left" : "\(remaining) left"
@@ -136,7 +179,7 @@ struct ProviderSnapshot: Identifiable, Equatable {
 
     /// What the cell prints under the ring.
     var headlineText: String {
-        if let usedFraction { return "\(Int((usedFraction * 100).rounded()))%" }
+        if let usedFraction { return Percent.text(for: usedFraction) + "%" }
         if let remaining = headline?.remaining { return "\(remaining)" }
         if let used = headline?.used { return "\(used)" }
         return "—"
@@ -163,6 +206,9 @@ struct ProviderSnapshot: Identifiable, Equatable {
         case "codex":      return "Sign in to Codex to read your usage"
         case "gemini":     return "Sign in to Antigravity to read your usage"
         case "glm":        return "Set up a GLM Coding Plan key for a coding tool to read your usage"
+        case "opencode-go": return "Connect OpenCode Go in the OpenCode desktop app to read your usage"
+        case "grokbot":    return "Sign in with Grok Bot to read your usage"
+        case "copilot":    return "Sign in with GitHub CLI to read your Copilot usage"
         default:           return "Sign in to \(displayName) to read your usage"
         }
     }

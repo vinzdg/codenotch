@@ -17,12 +17,15 @@ two never disagree.
 | **Claude Code** | official | The OAuth token in the login keychain, against the same endpoint Claude Code's own `/usage` uses. |
 | **Cursor** | official | The editor's own signed-in session, read from its local SQLite state — no separate sign-in. |
 | **Codex** | official | Codex's own app server, asked live for the current rate limits. Falls back to its rollout log when Codex isn't running. |
+| **GitHub Copilot** | official | GitHub's Copilot quota endpoint, authenticated with the GitHub CLI session already on the Mac. |
 | **Antigravity** | official where licensed, otherwise a request count | Antigravity's local language server first, then Google's quota endpoint; a plain count when neither will answer for the account. |
 | **GLM** | official | Z.ai's Coding Plan monitor endpoint, with a key borrowed from whichever coding tool already holds one — Claude Code's `settings.json`, ZCode, or OpenCode. |
+| **OpenCode Go** | official | OpenCode's own Go quota endpoint, with the API key the OpenCode desktop app stores when Go is connected. |
 
 Codenotch never signs in anywhere. Every reading is borrowed from a credential
 or session a tool on your Mac already holds — install and sign in to any of
-them, and its ring appears. Switching a provider off in Settings stops its
+them, and its ring appears. For GitHub Copilot, install GitHub CLI and run
+`gh auth login` first. Switching a provider off in Settings stops its
 credential being read at all and forgets the readings taken from it; it does
 not sign you out of the tool that owns the account, and the row says so.
 
@@ -131,3 +134,23 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## License
 
 [MIT](LICENSE)
+
+### Grok Bot
+
+Reads the installed Grok Bot desktop app's active account and selected team.
+Shows its included usage percentage and reset time from `GetSandUsageStatus`;
+pooled enterprise allowances are identified without inventing a percentage.
+Sign in to Grok Bot first. macOS may ask to read **Grok Bot Safe Storage**;
+choose **Always Allow** to remember the permission. Expired sessions are renewed
+by Grok Bot. Codenotch never changes the account, spends credits, or uses a reset.
+
+### OpenCode Go
+
+Reads the rolling 5-hour, weekly and monthly limits of an OpenCode Go
+subscription — the same percentages OpenCode's own dashboard leads with. The
+key is the one the OpenCode desktop app stores when Go is connected (the CLI
+writes the same file); limits are dollar values ($12 / 5 hours, $30 / week,
+$60 / month), not request counts, so the percentages mean the same thing
+whichever model is running. Connect Go in OpenCode first. Reading the key is
+an ordinary file read, so macOS never asks. Codenotch never changes the
+account or what the key is used for.

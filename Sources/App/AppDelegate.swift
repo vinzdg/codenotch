@@ -69,8 +69,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Log.usage.info("claude profiles: \(self.claudeProfiles.map(\.displayPath).joined(separator: ", "), privacy: .public)")
             let store = UsageStore(
                 providers: claudeProfiles.map { ClaudeOAuthProvider(profile: $0) }
-                    + [CursorLocalProvider(), CodexLocalProvider(), AntigravityProvider(),
-                       GLMProvider()]
+                     + [CursorLocalProvider(), CodexLocalProvider(), AntigravityProvider(),
+                        GLMProvider(), OpenCodeGoProvider(), GitHubCopilotProvider(), GrokBotProvider()]
                     + webProviders,
                 disconnected: preferences.disconnectedProviders
             )

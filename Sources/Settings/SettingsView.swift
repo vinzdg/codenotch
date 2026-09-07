@@ -190,7 +190,8 @@ struct SettingsView: View {
     static let setupCopy =
         "Codenotch reads usage from tools already signed in on this Mac — it "
         + "never asks for your password. Install and sign in to any of Claude "
-        + "Code (the terminal tool, not the Claude app), Cursor, Codex or "
+        + "Code (the terminal tool, not the Claude app), Cursor, Codex, GitHub "
+        + "Copilot, Grok Bot, OpenCode Go or "
         + "Antigravity, and its ring appears in the notch."
 
     /// Said before it happens rather than after. A system dialogue asking to
@@ -200,7 +201,7 @@ struct SettingsView: View {
     /// be.
     static let keychainCopy =
         "macOS will ask once for permission to read Claude Code's and "
-        + "Antigravity's saved logins. Choose Always Allow — plain Allow makes "
+        + "Antigravity's and Grok Bot's saved logins. Choose Always Allow — plain Allow makes "
         + "it ask again every time."
 
     private var setupNote: some View {

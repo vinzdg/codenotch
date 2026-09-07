@@ -133,9 +133,37 @@ final class WindowSummaryTests: XCTestCase {
         XCTAssertEqual(window(1.04).summary, "104% Used · 0% left")
     }
 
+    /// Below one percent, whole percents collapse a real reading into "0%" —
+    /// the one number that looks most like nothing used. Both halves gain the
+    /// tenth so they still add up.
+    func testFractionsOfAPercentSurviveBelowOne() {
+        XCTAssertEqual(window(0.0034).summary, "0.3% Used · 99.7% left")
+        XCTAssertEqual(window(0.998).summary, "99.8% Used · 0.2% left")
+    }
+
+    /// A tenth of nothing is not zero: it says so rather than pretending.
+    func testVanishingFractionsSaySo() {
+        XCTAssertEqual(window(0.0004).summary, "<0.1% Used · >99.9% left")
+    }
+
+    /// The ring's label keeps the same honesty, one decimal under one percent
+    /// and whole percents everywhere else.
+    func testTheRingLabelCarriesTheFractionToo() {
+        XCTAssertEqual(window(0.0034).usedFraction.map { snapshot($0).headlineText }, "0.3%")
+        XCTAssertEqual(window(0.12).usedFraction.map { snapshot($0).headlineText }, "12%")
+        XCTAssertEqual(window(0.0004).usedFraction.map { snapshot($0).headlineText }, "<0.1%")
+    }
+
     /// Counts have no denominator, so they keep their own wording.
     func testCountsAreUntouched() {
         XCTAssertEqual(LimitWindow(id: "w", label: "Requests", used: 8).summary, "8 used")
         XCTAssertEqual(LimitWindow(id: "w", label: "Requests", remaining: 3).summary, "3 left")
+    }
+
+    private func snapshot(_ fraction: Double) -> ProviderSnapshot {
+        ProviderSnapshot(id: "p", displayName: "P", glyph: .third, fidelity: .official,
+                         status: .ok,
+                         windows: [LimitWindow(id: "w", label: "W", usedFraction: fraction)],
+                         headlineID: "w")
     }
 }
