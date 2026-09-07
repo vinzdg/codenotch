@@ -934,8 +934,8 @@ final class ReauthorizeTests: XCTestCase {
     }
 }
 
-/// Only two providers keep a credential in the keychain; the others read files
-/// and can never raise a prompt.
+/// Claude, Antigravity and cursor-agent keep a credential in the keychain;
+/// Codex still reads a file and can never raise a prompt.
 final class KeychainProviderTests: XCTestCase {
     private func summary(_ id: String) -> ProviderSummary {
         ProviderSummary(id: id, name: id, glyph: .claude, account: nil,
@@ -946,7 +946,8 @@ final class KeychainProviderTests: XCTestCase {
         XCTAssertTrue(summary("claude").usesKeychain)
         XCTAssertTrue(summary("claude-work").usesKeychain, "every profile's token is a keychain item")
         XCTAssertTrue(summary("gemini").usesKeychain)
-        XCTAssertFalse(summary("cursor").usesKeychain, "Cursor reads a file, not the keychain")
+        XCTAssertTrue(summary("cursor").usesKeychain,
+                      "cursor-agent files its JWT in the keychain")
         XCTAssertFalse(summary("codex").usesKeychain, "Codex reads a file, not the keychain")
     }
 }

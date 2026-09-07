@@ -59,8 +59,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let preferences = Preferences()
             self.preferences = preferences
 
-            // Cursor reads the editor's own session rather than a browser one:
-            // signing into cursor.com separately created a second, empty account.
+            // Cursor reads the editor's session, or cursor-agent's if the
+            // editor is missing — never a browser one: signing into
+            // cursor.com separately created a second, empty account.
             //
             // Built *after* preferences and told what is switched off, so the
             // very first list it draws already excludes them. Constructed first,

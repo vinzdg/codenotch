@@ -190,8 +190,9 @@ struct SettingsView: View {
     static let setupCopy =
         "Codenotch reads usage from tools already signed in on this Mac — it "
         + "never asks for your password. Install and sign in to any of Claude "
-        + "Code (the terminal tool, not the Claude app), Cursor, Codex, "
-        + "Antigravity, GLM, Grok or OpenCode, and its ring appears in the notch."
+        + "Code (the terminal tool, not the Claude app), Cursor (the editor or "
+        + "cursor-agent), Codex, Antigravity, GLM, Grok or OpenCode, and its "
+        + "ring appears in the notch."
 
     /// Said before it happens rather than after. A system dialogue asking to
     /// read a *credential*, from an app installed a minute ago, looks alarming
@@ -199,9 +200,9 @@ struct SettingsView: View {
     /// it return on every read, which is what "it asks every time" turns out to
     /// be.
     static let keychainCopy =
-        "macOS will ask once for permission to read Claude Code's and "
-        + "Antigravity's saved logins. Choose Always Allow — plain Allow makes "
-        + "it ask again every time."
+        "macOS will ask once for permission to read Claude Code's, "
+        + "Antigravity's and cursor-agent's saved logins. Choose Always Allow "
+        + "— plain Allow makes it ask again every time."
 
     private var setupNote: some View {
         HStack(alignment: .top, spacing: 10) {

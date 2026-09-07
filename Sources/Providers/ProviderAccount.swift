@@ -109,10 +109,13 @@ extension UsageProvider {
 /// A provider as the settings sheet needs it.
 struct ProviderSummary: Identifiable, Equatable {
     /// Whether this provider's credential lives in the keychain, and so can be
-    /// refused. Cursor and Codex read ordinary files and never prompt, so
-    /// offering them an "allow access" button would be offering a cure for an
-    /// illness they cannot catch.
-    var usesKeychain: Bool { ClaudeProfile.isClaude(providerID: id) || id == "gemini" }
+    /// refused. Codex still reads an ordinary file and never prompts. Cursor
+    /// does too when the editor is signed in, but `cursor-agent` files its
+    /// JWT in the login keychain — without this flag a declined prompt would
+    /// have no "Allow access…" to put the dialogue back.
+    var usesKeychain: Bool {
+        ClaudeProfile.isClaude(providerID: id) || id == "gemini" || id == "cursor"
+    }
 
     let id: String
     let name: String

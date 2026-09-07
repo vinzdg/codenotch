@@ -1,3 +1,4 @@
+import SQLite3
 import XCTest
 @testable import Codenotch
 
@@ -90,6 +91,7 @@ final class CursorUsageTests: XCTestCase {
 
 /// Borrowing the editor's session is what stops the notch reporting a different
 /// account's usage — signing into cursor.com separately made a second, empty one.
+/// The CLI session is the same cookie, reached only when the editor has none.
 final class CursorCredentialsTests: XCTestCase {
     func testCookieIsTheAccountAndTokenPair() {
         let credentials = CursorCredentials(accountID: "google-oauth2|user_ABC", accessToken: "tok")
@@ -103,6 +105,150 @@ final class CursorCredentialsTests: XCTestCase {
                 return XCTFail("expected needsAuth, got \(error)")
             }
         }
+    }
+
+    /// The editor path must not become a live keychain read. A missing store
+    /// with no agent token is still signed out, even on a machine that has
+    /// `cursor-agent` installed.
+    func testAMissingEditorAndNoAgentTokenIsSignedOut() {
+        let missing = URL(fileURLWithPath: "/tmp/definitely-not-here-\(UUID().uuidString).vscdb")
+        let config = URL(fileURLWithPath: "/tmp/definitely-not-here-\(UUID().uuidString).json")
+        XCTAssertThrowsError(
+            try CursorCredentials.load(editorStore: missing, agentToken: nil, agentConfig: config)
+        ) { error in
+            guard case UsageProviderError.needsAuth = error else {
+                return XCTFail("expected needsAuth, got \(error)")
+            }
+        }
+    }
+
+    func testAgentCookieUsesAuthIdFromCliConfig() throws {
+        let token = Self.jwt(sub: "auth0|user_JWT", exp: Date().timeIntervalSince1970 + 3600)
+        let config = try writeAgentConfig(authId: "auth0|user_CLI", userId: 42, email: "cli@example.com")
+        defer { try? FileManager.default.removeItem(at: config) }
+
+        let credentials = try CursorCredentials.session(fromAgentToken: token, configURL: config)
+        XCTAssertEqual(credentials.accountID, "auth0|user_CLI")
+        XCTAssertEqual(credentials.sessionCookie,
+                       "WorkosCursorSessionToken=auth0|user_CLI::\(token)")
+    }
+
+    /// Numeric userId is accepted by the same endpoint, and is what remains
+    /// when an older config has no authId.
+    func testAgentAccountIDFallsBackToUserIdThenJWTSub() throws {
+        let token = Self.jwt(sub: "auth0|user_JWT", exp: Date().timeIntervalSince1970 + 3600)
+
+        let withUser = try writeAgentConfig(authId: nil, userId: 99, email: "cli@example.com")
+        defer { try? FileManager.default.removeItem(at: withUser) }
+        XCTAssertEqual(CursorCredentials.agentAccountID(token: token, configURL: withUser), "99")
+
+        let missing = URL(fileURLWithPath: "/tmp/definitely-not-here-\(UUID().uuidString).json")
+        XCTAssertEqual(CursorCredentials.agentAccountID(token: token, configURL: missing),
+                       "auth0|user_JWT")
+    }
+
+    func testExpiredAgentTokenKeepsTheLastReading() {
+        let token = Self.jwt(sub: "auth0|user_JWT", exp: 1)
+        let missing = URL(fileURLWithPath: "/tmp/definitely-not-here-\(UUID().uuidString).json")
+        XCTAssertThrowsError(
+            try CursorCredentials.session(fromAgentToken: token, configURL: missing)
+        ) { error in
+            guard case UsageProviderError.credentialExpired = error else {
+                return XCTFail("expected credentialExpired, got \(error)")
+            }
+        }
+    }
+
+    func testAgentAccountReadsEmailFromCliConfig() throws {
+        let config = try writeAgentConfig(authId: "auth0|user_CLI", userId: 1, email: "cli@example.com")
+        defer { try? FileManager.default.removeItem(at: config) }
+
+        let account = try XCTUnwrap(CursorCredentials.agentAccount(from: config))
+        XCTAssertEqual(account.label, "cli@example.com")
+        XCTAssertEqual(account.source, "cursor-agent")
+    }
+
+    /// A signed-in editor wins so a laptop with both tools cannot flip
+    /// accounts depending on which file we happened to read.
+    func testTheEditorSessionIsPreferredOverTheAgent() throws {
+        let store = try writeEditorStore(account: "auth0|user_EDITOR", token: "editor-tok")
+        defer { try? FileManager.default.removeItem(at: store) }
+        let token = Self.jwt(sub: "auth0|user_JWT", exp: Date().timeIntervalSince1970 + 3600)
+        let config = try writeAgentConfig(authId: "auth0|user_CLI", userId: 1, email: "cli@example.com")
+        defer { try? FileManager.default.removeItem(at: config) }
+
+        let credentials = try CursorCredentials.load(editorStore: store, agentToken: token,
+                                                     agentConfig: config)
+        XCTAssertEqual(credentials.sessionCookie,
+                       "WorkosCursorSessionToken=auth0|user_EDITOR::editor-tok")
+    }
+
+    func testAMissingEditorFallsThroughToTheAgent() throws {
+        let missing = URL(fileURLWithPath: "/tmp/definitely-not-here-\(UUID().uuidString).vscdb")
+        let token = Self.jwt(sub: "auth0|user_JWT", exp: Date().timeIntervalSince1970 + 3600)
+        let config = try writeAgentConfig(authId: "auth0|user_CLI", userId: 1, email: "cli@example.com")
+        defer { try? FileManager.default.removeItem(at: config) }
+
+        let credentials = try CursorCredentials.load(editorStore: missing, agentToken: token,
+                                                     agentConfig: config)
+        XCTAssertEqual(credentials.accountID, "auth0|user_CLI")
+        XCTAssertEqual(credentials.accessToken, token)
+    }
+
+    func testSignInOpensTheEditorWhenItIsInstalled() {
+        guard case .openApp(let bundleID, let name) =
+                CursorCredentials.signInRoute(editorInstalled: true) else {
+            return XCTFail("expected openApp")
+        }
+        XCTAssertEqual(bundleID, CursorCredentials.bundleID)
+        XCTAssertEqual(name, "Cursor")
+    }
+
+    func testSignInNamesTheCLIWhenTheEditorIsMissing() {
+        guard case .guidance(let text) =
+                CursorCredentials.signInRoute(editorInstalled: false) else {
+            return XCTFail("expected guidance")
+        }
+        XCTAssertTrue(text.contains("cursor-agent login"), text)
+    }
+
+    private func writeAgentConfig(authId: String?, userId: Int, email: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cursor-cli-\(UUID().uuidString).json")
+        var authInfo: [String: Any] = ["email": email, "userId": userId]
+        if let authId { authInfo["authId"] = authId }
+        try JSONSerialization.data(withJSONObject: ["authInfo": authInfo])
+            .write(to: url)
+        return url
+    }
+
+    private func writeEditorStore(account: String, token: String) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cursor-\(UUID().uuidString).vscdb")
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(url.path, &db), SQLITE_OK)
+        sqlite3_exec(db, "CREATE TABLE ItemTable (key TEXT, value TEXT);", nil, nil, nil)
+        sqlite3_exec(db, "INSERT INTO ItemTable VALUES ('cursorAuth/accessToken', '\(token)');",
+                     nil, nil, nil)
+        sqlite3_exec(db, "INSERT INTO ItemTable VALUES ('cursorAuth/stripeMembershipAuthId', '\(account)');",
+                     nil, nil, nil)
+        sqlite3_close(db)
+        return url
+    }
+
+    /// Unsigned, for tests only. The server never sees these; they exist so
+    /// expiry and `sub` can be pinned without a live keychain item.
+    private static func jwt(sub: String, exp: TimeInterval) -> String {
+        func encode(_ object: [String: Any]) -> String {
+            let data = try! JSONSerialization.data(withJSONObject: object)
+            return data.base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .trimmingCharacters(in: CharacterSet(charactersIn: "="))
+        }
+        return encode(["alg": "none", "typ": "JWT"])
+            + "." + encode(["sub": sub, "exp": exp])
+            + ".sig"
     }
 }
 
