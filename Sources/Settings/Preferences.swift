@@ -26,6 +26,21 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(notchEdge.rawValue, forKey: Keys.edge) }
     }
 
+    /// Where along that edge the notch sits, nudged from the centred default
+    /// by ⌥-dragging the pill. One value per edge — moving it on the right
+    /// should not silently relocate it on the top too — so this is read and
+    /// written through `offset(for:)`/`setOffset(_:for:)` rather than exposed
+    /// as a single published value the way the other settings are.
+    func offset(for edge: NotchEdge) -> CGFloat {
+        CGFloat(defaults.double(forKey: Self.offsetKey(for: edge)))
+    }
+
+    func setOffset(_ offset: CGFloat, for edge: NotchEdge) {
+        defaults.set(Double(offset), forKey: Self.offsetKey(for: edge))
+    }
+
+    private static func offsetKey(for edge: NotchEdge) -> String { "notchOffset.\(edge.rawValue)" }
+
     /// Where the app itself shows up: Dock, menu bar, or nowhere.
     @Published var appPresence: AppPresence {
         didSet { defaults.set(appPresence.rawValue, forKey: Keys.presence) }

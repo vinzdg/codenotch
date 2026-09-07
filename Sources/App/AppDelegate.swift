@@ -81,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // this, every launch on any other edge opens with a flash of the
             // right-hand one and then crossfades away from it.
             controller.model.edge = preferences.notchEdge
+            controller.model.alongOffset = preferences.offset(for: preferences.notchEdge)
 
             let updater = Updater()
             self.updater = updater
@@ -143,8 +144,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             preferences.$notchEdge
                 .receive(on: RunLoop.main)
-                .sink { [weak controller] in controller?.apply(edge: $0) }
+                .sink { [weak controller, weak preferences] edge in
+                    // Read before `apply(edge:)` moves the panel, so the new
+                    // edge's own remembered nudge is what it lands at rather
+                    // than the old edge's carried over onto it.
+                    controller?.model.alongOffset = preferences?.offset(for: edge) ?? 0
+                    controller?.apply(edge: edge)
+                }
                 .store(in: &cancellables)
+
+            controller.onReposition = { [weak preferences] offset in
+                preferences?.setOffset(offset, for: preferences?.notchEdge ?? .right)
+            }
 
             preferences.$disconnectedProviders
                 .receive(on: RunLoop.main)

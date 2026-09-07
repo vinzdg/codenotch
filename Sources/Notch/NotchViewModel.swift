@@ -40,6 +40,12 @@ final class NotchViewModel: ObservableObject {
     /// Which screen edge the notch is welded to. Everything geometric reads
     /// this through `placement` rather than assuming an axis.
     @Published var edge: NotchEdge = .right
+    /// A user-chosen nudge along that edge, in screen points from the centred
+    /// default — set live while ⌥-dragging the pill, and by
+    /// `NotchGeometry.panelFrame` from there. Reset to whatever was stored for
+    /// the new edge whenever `edge` changes; this type does not own that
+    /// persistence, only the live value.
+    @Published var alongOffset: CGFloat = 0
     /// The display's own notch, when this edge has to share the bezel with one.
     ///
     /// Set by the window controller from the screen the panel is on, because

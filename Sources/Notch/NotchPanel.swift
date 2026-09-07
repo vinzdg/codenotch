@@ -12,6 +12,13 @@ final class NotchPanel: NSPanel {
     /// A left click on the visible chrome. Handled here for the same reason the
     /// menu is: the hit test lands on a SwiftUI subview that may consume it.
     var onClick: (() -> Void)?
+    /// ⌥-drag on the chrome, reported as the raw pointer delta since the last
+    /// event — not a cumulative offset, so the caller decides what "along the
+    /// edge" means for the current one. Chosen over a plain click-and-hold
+    /// threshold so an ordinary click never risks being read as a tiny nudge.
+    var onDrag: ((CGFloat, CGFloat) -> Void)?
+    /// The ⌥-drag ended. Where to persist the offset the drags above moved to.
+    var onDragEnd: (() -> Void)?
 
     override func sendEvent(_ event: NSEvent) {
         guard event.type == .rightMouseDown,
@@ -28,7 +35,30 @@ final class NotchPanel: NSPanel {
         guard let view = contentView, view.hitTest(event.locationInWindow) != nil else {
             return super.mouseDown(with: event)
         }
-        onClick?()
+        guard event.modifierFlags.contains(.option), onDrag != nil else {
+            onClick?()
+            return
+        }
+        trackOptionDrag()
+    }
+
+    /// Blocks on this window's own event stream until the button lifts, the
+    /// standard AppKit pattern for a custom drag started from `mouseDown`.
+    /// Never falls through to `onClick` on release: an ⌥-drag is a distinct
+    /// gesture from the start, not a click that grew into one, so there is
+    /// nothing to reinterpret once the button comes up.
+    private func trackOptionDrag() {
+        while let event = nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            switch event.type {
+            case .leftMouseDragged:
+                onDrag?(event.deltaX, event.deltaY)
+            case .leftMouseUp:
+                onDragEnd?()
+                return
+            default:
+                return
+            }
+        }
     }
 
     init(contentRect: NSRect) {

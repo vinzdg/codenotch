@@ -23,6 +23,10 @@ final class NotchWindowController {
     var onRefreshProvider: ((String) -> Void)?
     /// Open the settings window, asked for by clicking the handle.
     var onOpenSettings: (() -> Void)?
+    /// An ⌥-drag on the pill settled at a new `model.alongOffset`. The
+    /// controller only holds the live value; persisting it per edge is
+    /// Preferences' job, the same division `apply(edge:)` already keeps.
+    var onReposition: ((CGFloat) -> Void)?
 
     private var panel: NotchPanel?
     private var hostingView: NotchHostingView<NotchRootView>?
@@ -100,7 +104,10 @@ final class NotchWindowController {
         guard let screen = NotchGeometry.preferredScreen(from: NSScreen.screens) else { return }
         model.adopt(screen: screen)
         let size = model.panelSize(cellCount: cellCount ?? model.snapshots.count)
-        let frame = NotchGeometry.panelFrame(for: screen, panelSize: size, edge: model.edge)
+        let frame = NotchGeometry.panelFrame(
+            for: screen, panelSize: size, edge: model.edge,
+            alongOffset: model.alongOffset, slack: model.slack
+        )
         lastVisibleFrame = screen.visibleFrame
 
         if let panel {
@@ -110,6 +117,11 @@ final class NotchWindowController {
             let hosting = NotchHostingView(rootView: NotchRootView(model: model))
             panel.contextMenuProvider = { [weak self] in self?.contextMenu() }
             panel.onClick = { [weak self] in self?.handleClick() }
+            panel.onDrag = { [weak self] dx, dy in self?.dragged(dx: dx, dy: dy) }
+            panel.onDragEnd = { [weak self] in
+                guard let self else { return }
+                self.onReposition?(self.model.alongOffset)
+            }
 
             // The hosting view goes *inside* a plain container rather than
             // being the content view itself.
@@ -142,6 +154,22 @@ final class NotchWindowController {
             Log.usage.debug("panel \(NSStringFromRect(panel.frame), privacy: .public) on screen \(NSStringFromRect(screen.frame), privacy: .public)")
         }
         updateInteractiveRects()
+    }
+
+    /// Feeds a raw pointer delta from an ⌥-drag into `model.alongOffset` and
+    /// re-places the panel at once, so the pill tracks the cursor rather than
+    /// catching up once the button lifts.
+    ///
+    /// Both deltas are used as `NSEvent` reports them, unflipped: `deltaY`
+    /// positive is the pointer moving *down* the screen, `deltaX` positive is
+    /// it moving *right*. `NotchGeometry` is written to match — it subtracts
+    /// the offset from a vertical edge's y (which AppKit grows *up*, so
+    /// subtracting more moves the pill down) and adds it to a horizontal
+    /// edge's x — so no sign flip belongs here; adding one would make the
+    /// pill run away from the cursor instead of following it.
+    private func dragged(dx: CGFloat, dy: CGFloat) {
+        model.alongOffset += model.edge.isVertical ? dy : dx
+        relocate()
     }
 
     // MARK: - Hit regions
