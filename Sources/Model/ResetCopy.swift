@@ -47,7 +47,7 @@ enum ResetCopy {
         let formatter = DateFormatter()
         formatter.calendar = calendar
         formatter.timeZone = calendar.timeZone
-        formatter.locale = .current
+        formatter.locale = calendar.locale ?? .current
         return formatter
     }
 

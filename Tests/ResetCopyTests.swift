@@ -42,7 +42,19 @@ final class ResetCopyTests: XCTestCase {
     func testAbsoluteTimeUsesAColon() {
         let text = ResetCopy.text(for: now.addingTimeInterval(6 * 60 * 60), now: now)
         XCTAssertTrue(text.contains(":"), "expected a colon in \(text)")
-        XCTAssertFalse(text.contains("."), "expected no full stop in \(text)")
+        let hasPeriodBetweenDigits = text.range(of: #"\d+\.\d+"#, options: .regularExpression) != nil
+        XCTAssertFalse(hasPeriodBetweenDigits, "expected no full stop between time digits in \(text)")
+    }
+
+    /// Spanish (and similar locales) format AM/PM as "a. m." / "p. m." with
+    /// periods, but the time separator itself must still be a colon.
+    func testSpanishLocaleKeepsColonTimeSeparator() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "es_ES")
+        let text = ResetCopy.text(for: now.addingTimeInterval(6 * 60 * 60), now: now, calendar: calendar)
+        XCTAssertTrue(text.contains(":"), "expected a colon in \(text)")
+        let hasPeriodBetweenDigits = text.range(of: #"\d+\.\d+"#, options: .regularExpression) != nil
+        XCTAssertFalse(hasPeriodBetweenDigits, "expected no full stop between time digits in \(text)")
     }
 
     func testPastResetsReadAsResetting() {
