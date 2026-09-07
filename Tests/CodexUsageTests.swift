@@ -72,6 +72,44 @@ final class CodexUsageTests: XCTestCase {
         XCTAssertEqual(result.last?.usedFraction, 0)
         XCTAssertEqual(result.last?.resetsAt, Date(timeIntervalSince1970: 1_800_000_120))
     }
+
+    /// The reported symptom: the tooltip showed only the weekly window and the
+    /// ring showed a dash. A null `used_percent` on one window threw the whole
+    /// fetch away, so a good weekly window was hidden behind the bad hourly
+    /// one. One malformed window is skipped, not fatal.
+    func testAWindowMissingUsedPercentIsSkippedRatherThanFailing() throws {
+        let result = try windows("""
+        {"rate_limit":{
+          "primary_window":{"used_percent":null,"limit_window_seconds":18000,"reset_at":1800001000},
+          "secondary_window":{"used_percent":29,"limit_window_seconds":604800,"reset_at":1800600000}}}
+        """)
+        XCTAssertEqual(result.map(\.id), ["secondary"])
+        XCTAssertEqual(result.first?.label, "Weekly limit")
+        XCTAssertEqual(result.first?.usedFraction ?? -1, 0.29, accuracy: 0.0001)
+    }
+
+    /// A window without a duration still gets a fallback label instead of
+    /// failing the decode of the whole response.
+    func testAWindowMissingItsDurationStillParses() throws {
+        let result = try windows("""
+        {"rate_limit":{
+          "primary_window":{"used_percent":8,"reset_at":1800001000},
+          "secondary_window":{"used_percent":42,"limit_window_seconds":604800,"reset_at":1800600000}}}
+        """)
+        XCTAssertEqual(result.map(\.id), ["primary", "secondary"])
+        XCTAssertEqual(result.first?.label, "Current session")
+        XCTAssertEqual(result.last?.label, "Weekly limit")
+    }
+
+    /// Both windows malformed is still an error, not an empty success — the
+    /// store turns it into "waiting", not a silent 0%.
+    func testBothWindowsMissingLeavesNothingMetered() {
+        XCTAssertThrowsError(try windows("""
+        {"rate_limit":{
+          "primary_window":{"used_percent":null,"limit_window_seconds":18000},
+          "secondary_window":null}}
+        """))
+    }
 }
 
 /// The activity signal is a heuristic — a rollout written moments ago — so what

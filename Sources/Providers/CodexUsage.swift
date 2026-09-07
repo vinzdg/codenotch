@@ -14,7 +14,7 @@ enum CodexUsage {
     }
 
     private struct Window: Decodable {
-        let limit_window_seconds: Double
+        let limit_window_seconds: Double?
         let used_percent: Double?
         let reset_at: Double?
         let reset_after_seconds: Double?
@@ -32,14 +32,15 @@ enum CodexUsage {
         for (id, window) in [("primary", response.rate_limit?.primary_window),
                              ("secondary", response.rate_limit?.secondary_window)] {
             guard let window else { continue }
-            guard let percent = window.used_percent else {
-                throw UsageProviderError.badResponse(status: 0)
-            }
+            // One malformed window must not discard the other: a null
+            // `used_percent` on the 5h window once threw the whole fetch away,
+            // hiding a perfectly good weekly window behind an error.
+            guard let percent = window.used_percent else { continue }
             let resetsAt = window.reset_at.map { Date(timeIntervalSince1970: $0) }
                 ?? window.reset_after_seconds.map { now.addingTimeInterval($0) }
             windows.append(LimitWindow(
                 id: id,
-                label: label(windowSeconds: window.limit_window_seconds, fallback: id),
+                label: label(windowSeconds: window.limit_window_seconds ?? 0, fallback: id),
                 usedFraction: percent / 100,
                 resetsAt: resetsAt
             ))
