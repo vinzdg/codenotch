@@ -26,6 +26,10 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(notchEdge.rawValue, forKey: Keys.edge) }
     }
 
+    @Published var resetTimeFormat: ResetTimeFormat {
+        didSet { defaults.set(resetTimeFormat.rawValue, forKey: Keys.resetTimeFormat) }
+    }
+
     /// Where the app itself shows up: Dock, menu bar, or nowhere.
     @Published var appPresence: AppPresence {
         didSet { defaults.set(appPresence.rawValue, forKey: Keys.presence) }
@@ -59,6 +63,7 @@ final class Preferences: ObservableObject {
         static let visibility = "notchVisibility"
         static let presence = "appPresence"
         static let edge = "notchEdge"
+        static let resetTimeFormat = "resetTimeFormat"
         static let lastSeenVersion = "lastSeenVersion"
     }
 
@@ -113,6 +118,8 @@ final class Preferences: ObservableObject {
         // side of a Mac that no system chrome claims by default.
         self.notchEdge = defaults.string(forKey: Keys.edge)
             .flatMap(NotchEdge.init(rawValue:)) ?? .right
+        self.resetTimeFormat = defaults.string(forKey: Keys.resetTimeFormat)
+            .flatMap(ResetTimeFormat.init(rawValue:)) ?? .automatic
         // Absent means nothing has been shown yet, which is true of a fresh
         // install — so the current release reads as new to it.
         self.lastSeenVersion = defaults.string(forKey: Keys.lastSeenVersion)

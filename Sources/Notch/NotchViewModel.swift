@@ -17,6 +17,7 @@ final class NotchViewModel: ObservableObject {
     @Published var hoveredIndex: Int?
     /// Ticked on refresh so the "Resets in N min" copy stays honest.
     @Published var now: Date = Date()
+    @Published var resetTimeFormat: ResetTimeFormat = .automatic
 
     /// Whether the notch is open or folded away to its pill.
     @Published var isExpanded = false

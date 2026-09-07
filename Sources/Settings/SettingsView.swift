@@ -54,6 +54,16 @@ struct SettingsView: View {
             // read as three unrelated settings, and "Where Codenotch appears"
             // was a header long enough to look like a warning.
             Section("Appearance") {
+                Picker("Reset time", selection: $preferences.resetTimeFormat) {
+                    ForEach(ResetTimeFormat.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+
+                Text(preferences.resetTimeFormat.explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 Picker("Show", selection: $preferences.notchVisibility) {
                     ForEach(NotchVisibility.allCases) { Text($0.title).tag($0) }
                 }

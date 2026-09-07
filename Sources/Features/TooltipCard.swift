@@ -232,6 +232,7 @@ private struct LimitWindowRow: View {
     let window: LimitWindow
     let fidelity: Fidelity
     let now: Date
+    let resetTimeFormat: ResetTimeFormat
 
     private var band: UsageBand { UsageBand.band(for: window.usedFraction ?? 0) }
     private var trackWidth: CGFloat { NotchLayout.cardWidth - 2 * NotchLayout.cardPadding }
@@ -242,7 +243,7 @@ private struct LimitWindowRow: View {
 
     /// Blank rather than invented: some providers never say when the window rolls.
     private var resetText: String {
-        window.resetsAt.map { ResetCopy.text(for: $0, now: now) } ?? ""
+        window.resetsAt.map { ResetCopy.text(for: $0, now: now, format: resetTimeFormat) } ?? ""
     }
 
     var body: some View {
@@ -271,6 +272,7 @@ private struct LimitWindowRow: View {
 private struct ProviderTooltip: View {
     let snapshot: ProviderSnapshot
     let now: Date
+    let resetTimeFormat: ResetTimeFormat
 
     /// Only worth saying when the numbers are not current. A remembered reading
     /// has to be dated, or it quietly passes itself off as live.
@@ -301,7 +303,8 @@ private struct ProviderTooltip: View {
                     .padding(.top, NotchLayout.headerToBlock)
             } else {
                 ForEach(Array(snapshot.windows.enumerated()), id: \.element.id) { index, window in
-                    LimitWindowRow(window: window, fidelity: snapshot.fidelity, now: now)
+                    LimitWindowRow(window: window, fidelity: snapshot.fidelity, now: now,
+                                   resetTimeFormat: resetTimeFormat)
                         .padding(.top, index == 0 ? NotchLayout.headerToBlock : NotchLayout.blockSpacing)
                 }
             }
@@ -433,6 +436,7 @@ struct TooltipCard: View {
     /// How many sessions this screen has room to list. Solved from the display
     /// rather than fixed, so a big screen hides nothing.
     var sessionCap: Int = NotchLayout.defaultSessionCap
+    var resetTimeFormat: ResetTimeFormat = .automatic
 
     /// The same figure the hover region uses, so what is drawn and what is
     /// reachable can never drift apart.
@@ -454,7 +458,7 @@ struct TooltipCard: View {
             // drifts while the card resizes around them.
             ZStack(alignment: .topLeading) {
                 VStack(alignment: .leading, spacing: 0) {
-                    ProviderTooltip(snapshot: snapshot, now: now)
+                    ProviderTooltip(snapshot: snapshot, now: now, resetTimeFormat: resetTimeFormat)
                     if let activity {
                         SessionList(summary: activity, now: now, cap: sessionCap)
                     }

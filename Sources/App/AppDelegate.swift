@@ -81,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // this, every launch on any other edge opens with a flash of the
             // right-hand one and then crossfades away from it.
             controller.model.edge = preferences.notchEdge
+            controller.model.resetTimeFormat = preferences.resetTimeFormat
 
             let updater = Updater()
             self.updater = updater
@@ -144,6 +145,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             preferences.$notchEdge
                 .receive(on: RunLoop.main)
                 .sink { [weak controller] in controller?.apply(edge: $0) }
+                .store(in: &cancellables)
+
+            preferences.$resetTimeFormat
+                .receive(on: RunLoop.main)
+                .sink { [weak controller] in controller?.model.resetTimeFormat = $0 }
                 .store(in: &cancellables)
 
             preferences.$disconnectedProviders

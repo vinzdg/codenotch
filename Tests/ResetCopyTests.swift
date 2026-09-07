@@ -48,6 +48,40 @@ final class ResetCopyTests: XCTestCase {
     func testPastResetsReadAsResetting() {
         XCTAssertEqual(ResetCopy.text(for: now.addingTimeInterval(-5), now: now), "Resetting…")
     }
+
+    func testRemainingFormatAndRoundingBoundaries() {
+        let cases: [(TimeInterval, String)] = [
+            (-5, "Resetting…"), (0, "Resetting…"),
+            (1, "Resets in 1 min"),
+            (50 * 60 + 40, "Resets in 51 min"),
+            (59 * 60 + 40, "Resets in 1h 0m"),
+            (3 * 3600 + 20 * 60, "Resets in 3h 20m"),
+            (24 * 3600 - 20, "Resets in 1 Day 0h"),
+            (27 * 3600, "Resets in 1 Day 3h"),
+            (75 * 3600, "Resets in 3 Days 3h"),
+            (26 * 86400, "Resets in 26 Days 0h")
+        ]
+        for (seconds, expected) in cases {
+            XCTAssertEqual(ResetCopy.text(for: now.addingTimeInterval(seconds), now: now,
+                                          format: .remaining), expected)
+        }
+    }
+
+    @MainActor
+    func testResetTimePreferencePersistsAndFallsBackToAutomatic() throws {
+        let name = "ResetCopyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let preferences = Preferences(defaults: defaults)
+        XCTAssertEqual(preferences.resetTimeFormat, .automatic)
+        preferences.resetTimeFormat = .remaining
+        XCTAssertEqual(Preferences(defaults: defaults).resetTimeFormat, .remaining)
+        preferences.resetTimeFormat = .automatic
+        XCTAssertEqual(Preferences(defaults: defaults).resetTimeFormat, .automatic)
+        defaults.set("unknown", forKey: "resetTimeFormat")
+        XCTAssertEqual(Preferences(defaults: defaults).resetTimeFormat, .automatic)
+    }
 }
 
 /// A weekday only identifies a day inside the coming week. Codex's monthly

@@ -53,6 +53,10 @@ At rest it is a small pill on the screen edge that unfolds when the pointer
 reaches it — configurable in Settings to always show, or to hide entirely.
 Settings live in an orb below the notch: an arc at rest, a gear on hover.
 
+In Settings → Appearance → Reset time, choose **Time remaining** for countdowns
+like "Resets in 3 Days 3h". **Automatic** keeps the reset date and time, with
+minutes shown when less than an hour remains.
+
 The app itself can show a Dock icon, a menu bar icon, or neither.
 
 ## Updates

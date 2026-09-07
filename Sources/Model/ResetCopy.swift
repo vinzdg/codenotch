@@ -1,11 +1,48 @@
 import Foundation
 
+enum ResetTimeFormat: String, CaseIterable, Identifiable {
+    case automatic
+    case remaining
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .automatic: return "Automatic"
+        case .remaining: return "Time remaining"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .automatic:
+            return "Minutes under an hour; otherwise the reset date and time."
+        case .remaining:
+            return "Time until usage resets, such as 3 Days 3h or 3h 20m."
+        }
+    }
+}
+
 /// "Resets in 51 min" under an hour, "Resets Thu 12:00 AM" within the week,
 /// "Resets Sep 28" beyond it.
 enum ResetCopy {
-    static func text(for resetsAt: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+    static func text(for resetsAt: Date, now: Date = Date(), calendar: Calendar = .current,
+                     format: ResetTimeFormat = .automatic) -> String {
         let seconds = resetsAt.timeIntervalSince(now)
         guard seconds > 0 else { return "Resetting…" }
+
+        if format == .remaining {
+            let minutes = max(1, Int((seconds / 60).rounded()))
+            let hours = minutes / 60
+            let days = hours / 24
+            if days > 0 {
+                return "Resets in \(days) \(days == 1 ? "Day" : "Days") \(hours % 24)h"
+            }
+            if hours > 0 {
+                return "Resets in \(hours)h \(minutes % 60)m"
+            }
+            return "Resets in \(minutes) min"
+        }
 
         // Rounding, not truncation, so 50m40s reads as 51 rather than 50. A
         // value that rounds up to 60 falls through to the absolute form, so
