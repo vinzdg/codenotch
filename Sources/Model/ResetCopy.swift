@@ -8,7 +8,7 @@ enum ResetTimeFormat: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .automatic: return "Automatic"
+        case .automatic: return "Reset date"
         case .remaining: return "Time remaining"
         }
     }
