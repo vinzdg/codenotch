@@ -49,6 +49,20 @@ final class SnapshotTests: XCTestCase {
         XCTAssertEqual(s.headlineText, "2")
     }
 
+    /// Token counts are seven digits wide and the ring is 44 pt; requests and
+    /// credits are small enough to stay verbatim.
+    func testLargeCountsAreCompacted() {
+        XCTAssertEqual(LimitWindow.compact(9_999), "9999")
+        XCTAssertEqual(LimitWindow.compact(651_061), "651k")
+        XCTAssertEqual(LimitWindow.compact(1_128_771), "1.1M")
+        XCTAssertEqual(LimitWindow.compact(2_000_000), "2.0M")
+    }
+
+    func testACountOnlyHeadlineIsCompacted() {
+        let s = snapshot([LimitWindow(id: "month", label: "Tokens this month", used: 651_061)])
+        XCTAssertEqual(s.headlineText, "651k")
+    }
+
     func testOnlyOfficialNumbersAreShownUnqualified() {
         XCTAssertEqual(Fidelity.official.qualifier, "")
         XCTAssertEqual(Fidelity.derived.qualifier, "~")

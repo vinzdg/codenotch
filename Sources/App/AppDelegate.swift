@@ -70,7 +70,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let store = UsageStore(
                 providers: claudeProfiles.map { ClaudeOAuthProvider(profile: $0) }
                     + [CursorLocalProvider(), CodexLocalProvider(), AntigravityProvider(),
-                       GLMProvider(), GrokLocalProvider(), OpenCodeProvider()]
+                       GLMProvider(), GrokLocalProvider(), OpenCodeProvider(),
+                       // A closure, not the value: the provider is an actor and
+                       // re-reads the budget on every fetch, so a ceiling typed
+                       // into Settings applies without a restart.
+                       GeminiAPIProvider(budget: {
+                           Preferences.storedGeminiAPIMonthlyTokenBudget()
+                       })]
                     + webProviders,
                 disconnected: preferences.disconnectedProviders
             )
@@ -151,6 +157,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak store] in store?.disconnected = $0 }
                 .store(in: &cancellables)
 
+            // Redraw the Gemini API ring against the new ceiling.
+            //
+            // `dropFirst` because `@Published` publishes the value it is given
+            // at init, and a refresh there would race the store's first poll.
+            // `receive(on:)` because `@Published` emits in `willSet` — the hop
+            // to the next run loop pass is what lets the `didSet` persist the
+            // number before the provider's closure goes looking for it.
+            preferences.$geminiAPIMonthlyTokenBudget
+                .dropFirst()
+                .receive(on: RunLoop.main)
+                .sink { [weak store] _ in store?.refresh(providerID: "gemini-api") }
+                .store(in: &cancellables)
+
             store.$snapshots
                 .receive(on: RunLoop.main)
                 .sink { [weak controller] snapshots in
@@ -189,7 +208,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "cursor": CursorActivityMonitor(),
             "codex": CodexActivityMonitor(),
             "gemini": AntigravityActivityMonitor(),
-            "grok": GrokActivityMonitor()
+            "grok": GrokActivityMonitor(),
+            "gemini-api": GeminiCLIActivityMonitor()
         ]
         for profile in claudeProfiles {
             monitors[profile.id] = ClaudeSessionMonitor(directory: profile.sessionsDirectory)

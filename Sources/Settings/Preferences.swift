@@ -31,6 +31,23 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(appPresence.rawValue, forKey: Keys.presence) }
     }
 
+    /// The ceiling the Gemini API ring fills against, counted in tokens.
+    ///
+    /// In tokens rather than money because a bare `GEMINI_API_KEY` publishes no
+    /// limit of any kind — there is nothing to read, so the ceiling has to come
+    /// from the user — and because prices change under the app while a token
+    /// stays a token. `nil` means no ceiling, which is the honest default: the
+    /// key is billed per token with no cap.
+    @Published var geminiAPIMonthlyTokenBudget: Int? {
+        didSet {
+            if let budget = geminiAPIMonthlyTokenBudget, budget > 0 {
+                defaults.set(budget, forKey: Keys.geminiAPIMonthlyTokenBudget)
+            } else {
+                defaults.removeObject(forKey: Keys.geminiAPIMonthlyTokenBudget)
+            }
+        }
+    }
+
     /// The version whose changes have already been shown.
     ///
     /// Written when the What's New dialogue is dismissed rather than when it
@@ -60,6 +77,22 @@ final class Preferences: ObservableObject {
         static let presence = "appPresence"
         static let edge = "notchEdge"
         static let lastSeenVersion = "lastSeenVersion"
+        /// A new key, so there is nothing under the old app name to migrate.
+        static let geminiAPIMonthlyTokenBudget = "geminiAPIMonthlyTokenBudget"
+    }
+
+    /// The budget read straight from disk, off the main actor.
+    ///
+    /// The Gemini API provider is an actor and asks for this on every fetch, and
+    /// `@Published` state is main-actor-isolated where `UserDefaults` is
+    /// thread-safe — so the provider reads the store, not the object.
+    nonisolated static func storedGeminiAPIMonthlyTokenBudget(
+        defaults: UserDefaults = .standard
+    ) -> Int? {
+        guard let budget = defaults.object(forKey: Keys.geminiAPIMonthlyTokenBudget) as? Int,
+              budget > 0
+        else { return nil }
+        return budget
     }
 
     /// True the very first time this copy runs, and never again.
@@ -116,6 +149,7 @@ final class Preferences: ObservableObject {
         // Absent means nothing has been shown yet, which is true of a fresh
         // install — so the current release reads as new to it.
         self.lastSeenVersion = defaults.string(forKey: Keys.lastSeenVersion)
+        self.geminiAPIMonthlyTokenBudget = Self.storedGeminiAPIMonthlyTokenBudget(defaults: defaults)
         // Read from the system rather than from our own store: the user can turn
         // this off in System Settings, and a remembered `true` would then be a lie.
         self.launchAtLogin = Self.isRegisteredForLogin

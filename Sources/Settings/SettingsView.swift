@@ -191,7 +191,8 @@ struct SettingsView: View {
         "Codenotch reads usage from tools already signed in on this Mac — it "
         + "never asks for your password. Install and sign in to any of Claude "
         + "Code (the terminal tool, not the Claude app), Cursor, Codex, "
-        + "Antigravity, GLM, Grok or OpenCode, and its ring appears in the notch."
+        + "Antigravity, GLM, Grok, OpenCode or a Gemini API key (via Gemini "
+        + "CLI, OpenCode or Hermes), and its ring appears in the notch."
 
     /// Said before it happens rather than after. A system dialogue asking to
     /// read a *credential*, from an app installed a minute ago, looks alarming
@@ -306,6 +307,28 @@ private struct AccountRow: View {
 
     @ViewBuilder
     private var detail: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            accountDetail
+            // Google publishes no limit for a bare API key, so the ring has
+            // nothing to fill against until the user names a ceiling itself.
+            if isConnected, provider.id == "gemini-api" {
+                HStack(spacing: 6) {
+                    Text("Monthly budget")
+                    TextField("None", value: $preferences.geminiAPIMonthlyTokenBudget,
+                              format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 110)
+                    Text("tokens")
+                }
+                .foregroundStyle(.secondary)
+                .help("Fills the ring against a ceiling you choose; Google publishes "
+                      + "none for an API key.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var accountDetail: some View {
         if !isConnected {
             Text("Signed out — nothing is read, and no readings are kept.")
                 .foregroundStyle(.tertiary)

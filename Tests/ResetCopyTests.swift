@@ -138,4 +138,9 @@ final class WindowSummaryTests: XCTestCase {
         XCTAssertEqual(LimitWindow(id: "w", label: "Requests", used: 8).summary, "8 used")
         XCTAssertEqual(LimitWindow(id: "w", label: "Requests", remaining: 3).summary, "3 left")
     }
+
+    /// Only the number shortens; the wording around it does not.
+    func testALargeCountKeepsItsWording() {
+        XCTAssertEqual(LimitWindow(id: "w", label: "Tokens", used: 651_061).summary, "651k used")
+    }
 }

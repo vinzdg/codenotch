@@ -455,6 +455,54 @@ final class PreferencesTests: XCTestCase {
 
         XCTAssertFalse(Preferences(defaults: defaults).isConnected("cursor"))
     }
+
+    /// No ceiling is the honest default: an API key is billed per token and
+    /// publishes no limit, so the ring stays unfilled until the user names one.
+    func testTheGeminiTokenBudgetStartsUnset() {
+        XCTAssertNil(preferences().geminiAPIMonthlyTokenBudget)
+    }
+
+    func testTheGeminiTokenBudgetSurvivesARestart() {
+        let name = "PreferencesTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+
+        Preferences(defaults: defaults).geminiAPIMonthlyTokenBudget = 2_000_000
+
+        XCTAssertEqual(Preferences(defaults: defaults).geminiAPIMonthlyTokenBudget, 2_000_000)
+        // The provider is an actor and reads the store directly, off the main
+        // actor — so that path has to see the same value.
+        XCTAssertEqual(Preferences.storedGeminiAPIMonthlyTokenBudget(defaults: defaults),
+                       2_000_000)
+    }
+
+    /// Clearing the field has to remove the key, not leave the old ceiling
+    /// behind for the next launch to read back.
+    func testClearingTheGeminiTokenBudgetForgetsIt() {
+        let name = "PreferencesTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+
+        let p = Preferences(defaults: defaults)
+        p.geminiAPIMonthlyTokenBudget = 2_000_000
+        p.geminiAPIMonthlyTokenBudget = nil
+
+        XCTAssertNil(defaults.object(forKey: "geminiAPIMonthlyTokenBudget"))
+        XCTAssertNil(Preferences(defaults: defaults).geminiAPIMonthlyTokenBudget)
+    }
+
+    /// A budget of zero would divide the ring by nothing, so it reads as no
+    /// budget at all rather than as a ceiling already blown.
+    func testAZeroGeminiTokenBudgetReadsAsNone() {
+        let name = "PreferencesTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+
+        Preferences(defaults: defaults).geminiAPIMonthlyTokenBudget = 0
+
+        XCTAssertNil(Preferences(defaults: defaults).geminiAPIMonthlyTokenBudget)
+        XCTAssertNil(Preferences.storedGeminiAPIMonthlyTokenBudget(defaults: defaults))
+    }
 }
 
 /// Settings shows whose account each reading comes from. Not decoration: the app
@@ -580,6 +628,40 @@ final class ProviderGlyphTests: XCTestCase {
     /// The raw value is what archived readings were written under.
     func testTheRawValueSurvivesTheRename() {
         XCTAssertEqual(ProviderGlyph.antigravity.rawValue, "gemini")
+    }
+
+    /// `gemini` was taken by the arch before the sparkle needed a name, and it
+    /// is an archive key, so the sparkle got a second one rather than the two
+    /// marks trading meanings under stored readings.
+    func testTheSparkHasItsOwnRawValue() {
+        XCTAssertEqual(ProviderGlyph.geminiSpark.rawValue, "gemini-spark")
+    }
+
+    /// The dispatch is one line and pointing it at the arch would be silent —
+    /// both marks fill the box and both are one closed loop. What separates
+    /// them is where the ink reaches the edge: the spark has a point at each of
+    /// the four edge midpoints, while the arch touches the top at its apex and
+    /// is open along the bottom.
+    func testTheSparkResolvesToTheSparkleAndNotTheArch() throws {
+        let spark = ProviderGlyph.geminiSpark.outline
+        XCTAssertEqual(spark.count, 1)
+        let points = try XCTUnwrap(spark.first)
+
+        let left = try XCTUnwrap(points.min { $0.x < $1.x })
+        XCTAssertEqual(left.x, 0, accuracy: 0.01)
+        XCTAssertEqual(left.y, 0.5, accuracy: 0.01)
+
+        let right = try XCTUnwrap(points.max { $0.x < $1.x })
+        XCTAssertEqual(right.x, 1, accuracy: 0.01)
+        XCTAssertEqual(right.y, 0.5, accuracy: 0.01)
+
+        let top = try XCTUnwrap(points.min { $0.y < $1.y })
+        XCTAssertEqual(top.y, 0, accuracy: 0.01)
+        XCTAssertEqual(top.x, 0.5, accuracy: 0.01)
+
+        let bottom = try XCTUnwrap(points.max { $0.y < $1.y })
+        XCTAssertEqual(bottom.y, 1, accuracy: 0.01)
+        XCTAssertEqual(bottom.x, 0.5, accuracy: 0.01)
     }
 }
 

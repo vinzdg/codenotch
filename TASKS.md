@@ -1055,6 +1055,105 @@ it and then notice when the answer changes.
       fraction needs a limit, no limit is published, and a denominator we made
       up would put a confident ring on a guess.
 
+### Gemini API key, via the tools' own logs
+
+- [x] **There is no endpoint to ask.** A bare `GEMINI_API_KEY` is billed per
+      token and Google publishes no usage or quota resource for one — unlike
+      Claude, Cursor and Codex, which each answer with a figure. So this
+      provider does not call anything. It adds up what the tools that spent the
+      key already wrote down on this Mac.
+- [x] **The key itself is never read**, and nothing here goes looking for it:
+      not `~/.zshrc`, not an `.env`, not `opencode.json`, not `auth.json`, not
+      the keychain. Knowing the key would not produce a number anyway, so
+      reading it would be a prompt and a liability bought for nothing. The only
+      credential-shaped thing touched is `~/.gemini/settings.json`, and only for
+      `security.auth.selectedType`, which names *how* the calls were paid for.
+- [x] Three sources, each with a **single definition of "tokens"** chosen from
+      that tool's own source so nothing is counted twice:
+      * **Gemini CLI** — `tokens.total` in
+        `~/.gemini/tmp/<project>/chats/session-*.jsonl`. It is already
+        input + output + thoughts + tool, and `cached` is a *subset* of `input`,
+        so summing the parts would double-count the cache.
+      * **OpenCode** — `tokens.total` from `opencode.db` when present and above
+        zero, else `input + output + reasoning + cache.read + cache.write`.
+        OpenCode's `input` excludes the cached part, so the components add up:
+        a real row reads 96008 = 2834 + 51 + 17 + 93106 + 0.
+      * **Hermes** — `input + cache_read + cache_write + output` from
+        `session_model_usage`. Reasoning is **excluded here but not for
+        OpenCode**, and that asymmetry is deliberate: Hermes's own
+        `CanonicalUsage.total_tokens` counts reasoning inside `output_tokens`,
+        so adding `reasoning_tokens` would bill those tokens twice, whereas
+        OpenCode's `reasoning` is a separate quantity.
+- [x] **The CLI's JSONL appends the same call twice.** Verified against Gemini
+      CLI 0.58.0's bundled `ChatRecordingService`: a `gemini` record is written
+      as soon as the answer starts, and written *again* with the same `id` once
+      `usageMetadata` arrives. Read naively, 26 lines in a real session became
+      26 calls where there were 15. So records are deduped by `id` with the last
+      one winning, and everything else — the header line, `{"$set":...}` patches,
+      `user` records, garbage — falls through.
+- [x] **`{"$rewindTo":"<id>"}` is ignored on purpose.** Rewinding the
+      conversation does not refund the call: those tokens were generated and
+      billed. Honouring the rewind would make the notch quietly under-report
+      exactly when someone is iterating hardest.
+- [x] Buckets are **local month and local day**, not UTC. Every timestamp on
+      disk is UTC, but the bill and the user's "today" are local, and the three
+      rows in the tooltip have to agree on where the boundary is — so all three
+      readers feed one routine, `GeminiTokenUsage.bucket`. Reading a UTC
+      timestamp as local time here would repeat the bug `procStart` and
+      `AntigravityActivity` each hit once already — the same mistake a third
+      time.
+- [x] Each reader pre-filters before it parses, because these files only grow:
+      the CLI skips any session file whose modification date predates the start
+      of the month (a file cannot hold records newer than its own mtime), and
+      both databases push the same cut-off into SQL against the indexed time
+      column. `json_extract` does the OpenCode filtering inside the system
+      libsqlite3, so nothing extra is linked.
+- [x] **Hermes rows are bucketed by `last_seen`**, whole. Its table stores one
+      aggregate per session and model, not per call, so a session straddling
+      midnight or month end lands entirely in the bucket of its last call. That
+      is the same granularity Hermes's own `/usage` reports, and splitting it
+      would mean inventing a distribution.
+- [x] `.derived` with no budget, `.manual` once the user sets one. The ceiling
+      in Settings is in **tokens, not money**: an API key publishes no limit, and
+      prices change under an app that ships every few weeks, so a currency
+      figure would go stale silently. Either way the tooltip keeps its `~` — the
+      number is assembled here, not quoted from Google.
+- [x] Counts are compacted for the ring (`651k`, `1.1M`). A 44 pt ring cannot
+      hold seven digits, and below 10 000 the digits are printed verbatim so no
+      existing request or credit count changes.
+- [x] Busy detection watches **Gemini CLI only**, by modification date. The
+      session file holds no pid, so `ProcessLiveness` has nothing to verify, but
+      the CLI patches `lastUpdated` on every message — the same mtime substitute
+      Antigravity and Cursor use. OpenCode's and Hermes's databases are written
+      for reasons that have nothing to do with a Gemini call, so their mtimes
+      would report work that is not this provider's.
+- [x] **Two departures from the provider template**, both deliberate. The
+      protocol extension's default `signInRoute` offers to sign in, and here
+      there is nothing to sign into, so this provider overrides it with a
+      `.guidance` message saying so and saying the key is never read; the
+      default would have put a button in Settings that could only fail. And
+      `lastTools` is `nonisolated(unsafe)` behind a `nonisolated func
+      account()`, the bargain `GLMProvider.lastKnownPlan` already makes: the
+      settings row asks for the account off the actor, and the worst a race can
+      do is name yesterday's tools for one row-draw.
+- [x] **The ring first shipped with the wrong mark.** `.antigravity` draws
+      Antigravity's arch, not the Gemini sparkle — the arch is the editor's own
+      logo, and the row next to it already wears it. The sparkle was sitting in
+      `GlyphOutline.gemini`, generated and referenced by nothing since the
+      Antigravity provider took the name. It could not simply reclaim the raw
+      value `gemini`: that string is an archive key, so a new case
+      `geminiSpark = "gemini-spark"` was added instead. A `gemini-api` snapshot
+      archived before this change still decodes as the arch and draws it until
+      the next poll overwrites it; one stale ring for one refresh is not worth a
+      migration.
+- [x] **Cloud Monitoring was considered and set aside.** It really does publish
+      official per-project counters, including
+      `generate_content_usage_output_token_count`, which would be a `.official`
+      reading. It needs gcloud application-default credentials and a token
+      refresh this app does not do, and the whole design here is to borrow a
+      credential another tool already holds rather than to acquire one. Worth
+      revisiting if the app ever grows a Google sign-in for another reason.
+
 ### Choosing how much the notch shows
 
 - [x] Three modes, not the two asked for. The default is neither "always" nor

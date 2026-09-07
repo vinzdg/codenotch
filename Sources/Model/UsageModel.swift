@@ -53,6 +53,17 @@ struct LimitWindow: Identifiable, Codable, Equatable {
         self.resetsAt = resetsAt
     }
 
+    /// A count short enough to sit inside a 44 pt ring.
+    ///
+    /// Requests and credits are three or four digits and print verbatim; token
+    /// counts run to seven, and "651061" under the ring is unreadable at that
+    /// width. The threshold is 10 000 so no existing provider's number changes.
+    static func compact(_ count: Int) -> String {
+        if count < 10_000 { return "\(count)" }
+        if count < 1_000_000 { return "\(count / 1_000)k" }
+        return String(format: "%.1fM", Double(count) / 1_000_000)
+    }
+
     /// What the tooltip says on the line under the bar.
     var summary: String {
         if let usedFraction {
@@ -66,10 +77,10 @@ struct LimitWindow: Identifiable, Codable, Equatable {
             return "\(used)% Used · \(max(0, 100 - used))% left"
         }
         if let remaining {
-            return remaining == 1 ? "1 left" : "\(remaining) left"
+            return remaining == 1 ? "1 left" : "\(Self.compact(remaining)) left"
         }
         if let used {
-            return used == 1 ? "1 used" : "\(used) used"
+            return used == 1 ? "1 used" : "\(Self.compact(used)) used"
         }
         return "No reading"
     }
@@ -137,8 +148,8 @@ struct ProviderSnapshot: Identifiable, Equatable {
     /// What the cell prints under the ring.
     var headlineText: String {
         if let usedFraction { return "\(Int((usedFraction * 100).rounded()))%" }
-        if let remaining = headline?.remaining { return "\(remaining)" }
-        if let used = headline?.used { return "\(used)" }
+        if let remaining = headline?.remaining { return LimitWindow.compact(remaining) }
+        if let used = headline?.used { return LimitWindow.compact(used) }
         return "—"
     }
 
