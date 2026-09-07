@@ -2,6 +2,7 @@
 build/
 .build/
 dist/
+Package.resolved
 DerivedData/
 *.xcodeproj
 *.xcworkspace
