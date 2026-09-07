@@ -14,13 +14,25 @@ import Foundation
 ///     "onDemand": { "enabled": false, "used": 0, "limit": null } } }
 /// ```
 ///
-/// Cursor meters an **allowance, not a request count** — the dashboard's "Your
-/// included usage · N% used" is `totalPercentUsed`. The `used`/`limit` pair sits
-/// at zero on a free plan even while real usage is happening, because the
-/// allowance arrives as `breakdown.bonus` rather than as a dollar limit. Reading
-/// `used`/`limit` therefore reports 0% for an account that is 10% through its
-/// month, which is exactly what this parser used to do.
+/// Cursor meters an **allowance, not a request count**. Plan & Usage has two
+/// bars. The ring follows **Auto** (`autoPercentUsed`) — Cursor Models,
+/// Grok, Composer. API (`apiPercentUsed`) is a separate bucket.
+/// `totalPercentUsed` is a blend of the two and is not a row here.
+///
+/// The `used`/`limit` pair sits at zero on a free plan even while real usage
+/// is happening, because the allowance arrives as `breakdown.bonus` rather
+/// than as a dollar limit. Reading those reported 0% for an account that was
+/// actually on the Cursor Models bar, which is exactly what this parser
+/// used to do.
 enum CursorUsage {
+    static let modelsLabel = "Auto usage"
+
+    /// The window the ring should mean. Cursor Models when that field exists,
+    /// never the blended total, never API.
+    static func headlineID(in windows: [LimitWindow]) -> String {
+        windows.contains(where: { $0.id == "auto" }) ? "auto" : "api"
+    }
+
     static func windows(fromJSON json: String) throws -> [LimitWindow] {
         guard let data = json.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -32,20 +44,11 @@ enum CursorUsage {
 
         var windows: [LimitWindow] = []
 
-        // The headline, and the one the dashboard shows.
-        //
-        // Zero is a reading, not an absence. A free plan reports
-        // `totalPercentUsed: 0` beside `limit: 0`, and it is tempting to read
-        // that as "no allowance to be a percentage of" — but Cursor itself
-        // ships the answer in the same response:
-        // "You've used 0% of your included total usage". If Cursor calls it 0%,
-        // so does this. Suppressing it hid a correct reading from an account
-        // that had genuinely just been switched.
-        if let total = percent(plan["totalPercentUsed"]) {
-            windows.append(LimitWindow(id: "included", label: "Included usage",
-                                       usedFraction: total, resetsAt: resetsAt))
+        // Zero is a reading, not an absence — a fresh month is 0% on this bar.
+        if let models = percent(plan["autoPercentUsed"]) {
+            windows.append(LimitWindow(id: "auto", label: modelsLabel,
+                                       usedFraction: models, resetsAt: resetsAt))
         }
-        // Reported separately by Cursor, and can be far ahead of the total.
         if let api = percent(plan["apiPercentUsed"]), api > 0 {
             windows.append(LimitWindow(id: "api", label: "API usage",
                                        usedFraction: api, resetsAt: resetsAt))

@@ -65,14 +65,15 @@ actor CursorLocalProvider: UsageProvider {
         let body = String(data: data, encoding: .utf8) ?? ""
         Log.usage.debug("cursor usage -> \(body.prefix(900), privacy: .public)")
 
+        let windows = try CursorUsage.windows(fromJSON: body)
         return ProviderSnapshot(
             id: id,
             displayName: displayName,
             glyph: glyph,
             fidelity: .official,
             status: .ok,
-            windows: try CursorUsage.windows(fromJSON: body),
-            headlineID: "included"
+            windows: windows,
+            headlineID: CursorUsage.headlineID(in: windows)
         )
     }
 }
