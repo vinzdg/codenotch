@@ -19,7 +19,11 @@ DEST    := platform=macOS,arch=arm64
 # changes nothing: project.yml's stable identity is what keeps a keychain
 # "Always Allow" grant alive across rebuilds, and forcing ad-hoc there would
 # throw that away and bring the prompt back on every `make run`.
-ifeq (,$(shell security find-identity -v -p codesigning 2>/dev/null | grep -c "Developer ID Application"))
+# `grep -c` prints "0" and exits 1 when it matches nothing, so the emptiness
+# test was never true: on a machine without the certificate DEV_SIGN stayed
+# empty and the build tried to sign with an identity that is not there.
+# Compare against the count itself.
+ifeq (0,$(shell security find-identity -v -p codesigning 2>/dev/null | grep -c "Developer ID Application"))
 DEV_SIGN := CODE_SIGN_IDENTITY="-" DEVELOPMENT_TEAM="" CODE_SIGN_STYLE=Automatic
 endif
 
