@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # Unsigned on purpose: no identity exists on a runner, and the tests
+      # read fixtures rather than keychains — see `make test-ci`.
+      - name: Run unit tests
+        run: make test-ci
