@@ -13,7 +13,7 @@ final class UsageStore: ObservableObject {
     /// succeeds. The settings row's only honest basis for offering to ask again.
     @Published private(set) var refusedAccess: Set<String> = []
 
-    private let providers: [UsageProvider]
+    private var providers: [UsageProvider]
     /// Providers the user has switched off. They are not fetched at all — their
     /// credential is never read, which is the whole point of switching one off.
     /// Filtering the results afterwards would still touch the keychain.
@@ -63,13 +63,14 @@ final class UsageStore: ObservableObject {
 
     init(
         providers: [UsageProvider],
+        order: [String] = [],
         refreshInterval: TimeInterval = 60,
         idleRefreshInterval: TimeInterval = 5 * 60,
         staleAfter: TimeInterval = 15 * 60,
         archive: UsageArchive = UsageArchive(),
         disconnected: Set<String> = []
     ) {
-        self.providers = providers
+        self.providers = Self.ordered(providers, by: order)
         self.refreshInterval = refreshInterval
         self.idleRefreshInterval = idleRefreshInterval
         self.staleAfter = staleAfter
@@ -104,9 +105,33 @@ final class UsageStore: ObservableObject {
         }
     }
 
+    /// The providers sorted into the user's chosen order. Ids missing from
+    /// the order keep their natural positions after the named ones, so a
+    /// provider added later appears rather than vanishing — the same
+    /// reasoning as `disconnectedProviders` being a disconnected set.
+    static func ordered(_ providers: [UsageProvider], by order: [String]) -> [UsageProvider] {
+        guard !order.isEmpty else { return providers }
+        var rank: [String: Int] = [:]
+        for (index, id) in order.enumerated() where rank[id] == nil { rank[id] = index }
+        return providers.enumerated().sorted { a, b in
+            let left = rank[a.element.id] ?? Int.max
+            let right = rank[b.element.id] ?? Int.max
+            return left == right ? a.offset < b.offset : left < right
+        }.map(\.element)
+    }
+
+    /// Re-sort the providers — and the snapshots already on screen, keeping
+    /// their values — into `order`.
+    func reorder(_ order: [String]) {
+        let sorted = Self.ordered(providers, by: order)
+        guard sorted.map(\.id) != providers.map(\.id) else { return }
+        providers = sorted
+        let byID = Dictionary(snapshots.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        snapshots = sorted.compactMap { byID[$0.id] }
+    }
+
     /// Enough to list the providers in settings without exposing them.
-    var providerSummaries: [ProviderSummary] {
-        providers.map { provider in
+    var providerSummaries: [ProviderSummary] {        providers.map { provider in
             ProviderSummary(id: provider.id, name: provider.displayName,
                             glyph: provider.glyph, account: provider.account(),
                             signIn: provider.signInRoute,

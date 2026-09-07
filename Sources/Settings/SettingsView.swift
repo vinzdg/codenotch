@@ -33,6 +33,7 @@ struct SettingsView: View {
                 if needsSetup { setupNote }
                 ForEach(accounts) {
                     AccountRow(provider: $0, preferences: preferences,
+                               moveProvider: moveProvider,
                                signOut: signOut, signIn: signIn,
                                switchAccount: switchAccount, retry: retry)
                 }
@@ -63,6 +64,19 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                // The way back from the context menu's "Hide for an hour",
+                // without waiting out the hour.
+                if let until = preferences.hiddenUntil, until > Date() {
+                    HStack {
+                        Text("Hidden until \(until.formatted(date: .omitted, time: .shortened)).")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                        Button("Show now") { preferences.hiddenUntil = nil }
+                            .controlSize(.small)
+                    }
+                }
 
                 Picker("Edge", selection: $preferences.notchEdge) {
                     ForEach(NotchEdge.allCases) { Text($0.title).tag($0) }
@@ -142,9 +156,21 @@ struct SettingsView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) { credit }
         .frame(width: SettingsView.width, height: SettingsView.height)
         .onAppear { accounts = providers() }
+        .onChange(of: preferences.providerOrder) { _ in accounts = providers() }
         .onReceive(NotificationCenter.default.publisher(
             for: NSWindow.didBecomeKeyNotification
         )) { _ in accounts = providers() }
+    }
+
+    /// One step up or down the notch. The whole visible order is written back,
+    /// so the store and the rows stay a single source of truth apart.
+    private func moveProvider(_ id: String, _ offset: Int) {
+        var ids = accounts.map(\.id)
+        guard let index = ids.firstIndex(of: id) else { return }
+        let target = index + offset
+        guard ids.indices.contains(target) else { return }
+        ids.swapAt(index, target)
+        preferences.providerOrder = ids
     }
 
     private var credit: some View {
@@ -236,12 +262,15 @@ struct SettingsView: View {
 private struct AccountRow: View {
     let provider: ProviderSummary
     @ObservedObject var preferences: Preferences
+    /// One step up (-1) or down (+1) the notch's order.
+    let moveProvider: (String, Int) -> Void
     let signOut: (String) -> Void
     let signIn: (String) -> Bool
     let switchAccount: (String) -> Bool
     let retry: (String) -> Void
 
     private var isConnected: Bool { preferences.isConnected(provider.id) }
+    private var isMuted: Bool { preferences.isMutedAlerts(for: provider.id) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -258,6 +287,39 @@ private struct AccountRow: View {
                     .foregroundStyle(isConnected ? .primary : .secondary)
 
                 Spacer(minLength: 8)
+
+                // Reordering: the notch's reading order is a habit, and
+                // habits belong to the person, not to discovery order.
+                VStack(spacing: 0) {
+                    Button { moveProvider(provider.id, -1) } label: {
+                        Image(systemName: "chevron.up").font(.system(size: 8, weight: .semibold))
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Move \(provider.name) up the notch")
+
+                    Button { moveProvider(provider.id, 1) } label: {
+                        Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Move \(provider.name) down the notch")
+                }
+
+                // Per-provider threshold alerts, muted here rather than in a
+                // separate notifications pane — the thing being muted is this
+                // row's reading, so the control belongs on the row.
+                if isConnected {
+                    Button {
+                        preferences.setAlertsMuted(!isMuted, for: provider.id)
+                    } label: {
+                        Image(systemName: isMuted ? "bell.slash" : "bell")
+                            .font(.system(size: 11))
+                            .foregroundStyle(isMuted ? .tertiary : .secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(isMuted
+                          ? "Alerts for \(provider.name) are muted. Click to unmute."
+                          : "Alert when \(provider.name) crosses 80% and 100% of a limit.")
+                }
 
                 // Prefers the app that owns the account, and falls back to the
                 // web page only when there is no app to open.

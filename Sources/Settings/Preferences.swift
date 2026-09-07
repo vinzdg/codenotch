@@ -47,6 +47,30 @@ final class Preferences: ObservableObject {
         }
     }
 
+    /// Providers whose threshold alerts are muted. Stored as the muted set so
+    /// a provider added later alerts by default — the same reasoning as
+    /// `disconnectedProviders`.
+    @Published var mutedAlertProviders: Set<String> {
+        didSet { defaults.set(Array(mutedAlertProviders), forKey: Keys.mutedAlerts) }
+    }
+
+    /// Until when the notch is hiding itself at the user's own request —
+    /// "hide for an hour" from the context menu. Nil means it never was.
+    ///
+    /// Deliberately not part of `NotchVisibility`: that is a standing choice,
+    /// this is a timed reprieve, and encoding it there would make "on hover"
+    /// mean two different things depending on when you looked.
+    @Published var hiddenUntil: Date? {
+        didSet { defaults.set(hiddenUntil, forKey: Keys.hiddenUntil) }
+    }
+
+    /// The order the providers are shown in, as provider ids. Ids missing
+    /// from the list keep their natural order after the ones it names, so a
+    /// provider added later appears rather than vanishing.
+    @Published var providerOrder: [String] {
+        didSet { defaults.set(providerOrder, forKey: Keys.providerOrder) }
+    }
+
     /// Set when the login-item request was refused, so the UI can say so rather
     /// than quietly flipping the switch back.
     @Published private(set) var launchAtLoginProblem: String?
@@ -60,6 +84,9 @@ final class Preferences: ObservableObject {
         static let presence = "appPresence"
         static let edge = "notchEdge"
         static let lastSeenVersion = "lastSeenVersion"
+        static let mutedAlerts = "mutedAlertProviders"
+        static let hiddenUntil = "hiddenUntil"
+        static let providerOrder = "providerOrder"
     }
 
     /// True the very first time this copy runs, and never again.
@@ -119,6 +146,23 @@ final class Preferences: ObservableObject {
         // Read from the system rather than from our own store: the user can turn
         // this off in System Settings, and a remembered `true` would then be a lie.
         self.launchAtLogin = Self.isRegisteredForLogin
+        self.mutedAlertProviders = Set(defaults.stringArray(forKey: Keys.mutedAlerts) ?? [])
+        self.hiddenUntil = defaults.object(forKey: Keys.hiddenUntil) as? Date
+        self.providerOrder = defaults.stringArray(forKey: Keys.providerOrder) ?? []
+    }
+
+    // MARK: Threshold alerts
+
+    func isMutedAlerts(for providerID: String) -> Bool {
+        mutedAlertProviders.contains(providerID)
+    }
+
+    func setAlertsMuted(_ muted: Bool, for providerID: String) {
+        if muted {
+            mutedAlertProviders.insert(providerID)
+        } else {
+            mutedAlertProviders.remove(providerID)
+        }
     }
 
     func isConnected(_ providerID: String) -> Bool {

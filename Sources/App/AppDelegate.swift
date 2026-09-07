@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var whatsNew: WhatsNewWindowController?
     /// Held for the life of the app: releasing it stops the scheduled checks.
     private var updater: Updater?
+    private var thresholdNotifier: ThresholdNotifier?
     private var statusItem: StatusItemController?
     private var cancellables = Set<AnyCancellable>()
 
@@ -38,7 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         guard !isRunningTests else { return }
 
-        let controller = NotchWindowController()
+            let controller = NotchWindowController()
 
         // `CODENOTCH_DEMO=1` puts the design frame's three providers on screen
         // with its numbers, for screenshots and for eyeballing the layout.
@@ -58,6 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Preferences.migrateFromPreviousName()
             let preferences = Preferences()
             self.preferences = preferences
+            controller.preferences = preferences
 
             // Cursor reads the editor's own session rather than a browser one:
             // signing into cursor.com separately created a second, empty account.
@@ -69,9 +71,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Log.usage.info("claude profiles: \(self.claudeProfiles.map(\.displayPath).joined(separator: ", "), privacy: .public)")
             let store = UsageStore(
                 providers: claudeProfiles.map { ClaudeOAuthProvider(profile: $0) }
-                     + [CursorLocalProvider(), CodexLocalProvider(), AntigravityProvider(),
-                        GLMProvider(), OpenCodeGoProvider(), GitHubCopilotProvider(), GrokBotProvider()]
+                    + [CursorLocalProvider(), CodexLocalProvider(), AntigravityProvider(),
+                       GLMProvider(), OpenCodeGoProvider(), GitHubCopilotProvider(), GrokBotProvider()]
                     + webProviders,
+                order: preferences.providerOrder,
                 disconnected: preferences.disconnectedProviders
             )
 
@@ -149,6 +152,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             preferences.$disconnectedProviders
                 .receive(on: RunLoop.main)
                 .sink { [weak store] in store?.disconnected = $0 }
+                .store(in: &cancellables)
+
+            preferences.$providerOrder
+                .receive(on: RunLoop.main)
+                .sink { [weak store] in store?.reorder($0) }
+                .store(in: &cancellables)
+
+            // Limit crossings become notifications here rather than inside the
+            // store: the store fetches, the notifier decides what is worth
+            // interrupting someone for, and neither needs to know the other.
+            let notifier = ThresholdNotifier(
+                isMuted: { [weak preferences] in preferences?.isMutedAlerts(for: $0) ?? false },
+                deliver: { ThresholdAlerts.deliver($0) }
+            )
+            self.thresholdNotifier = notifier
+            store.$snapshots
+                .receive(on: RunLoop.main)
+                .sink { notifier.observe($0) }
                 .store(in: &cancellables)
 
             store.$snapshots

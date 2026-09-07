@@ -475,7 +475,33 @@ final class NotchWindowController {
 
     private var edgeChange = 0
 
+    /// The user's own preferences — read for the timed hide, never written
+    /// except through the context menu's one deliberate action.
+    weak var preferences: Preferences?
+
     func apply(_ visibility: NotchVisibility) {
+        baseVisibility = visibility
+        suppressApplied = false
+        applyVisibility(visibility)
+    }
+
+    /// The standing choice from Settings.
+    private var baseVisibility: NotchVisibility = .onHover
+    /// Whether the timed hide is currently in force — so the clock notices it
+    /// expiring without re-applying the world every half minute.
+    private var suppressApplied = false
+
+    /// The clock's half-minute check: the timed hide is applied when it starts
+    /// and the Settings choice is restored when it ends, and between those two
+    /// moments nothing happens.
+    private func applyEffectiveVisibility() {
+        let hidden = isHiddenForNow
+        guard hidden != suppressApplied else { return }
+        suppressApplied = hidden
+        applyVisibility(hidden ? .hidden : baseVisibility)
+    }
+
+    private func applyVisibility(_ visibility: NotchVisibility) {
         switch visibility {
         case .alwaysShow:
             panel?.orderFrontRegardless()
@@ -510,6 +536,20 @@ final class NotchWindowController {
         updateInteractiveRects()
     }
 
+    /// True while the user's timed hide is still in force.
+    private var isHiddenForNow: Bool {
+        guard let until = preferences?.hiddenUntil else { return false }
+        return until > Date()
+    }
+
+    /// One hour of peace, from the context menu. It expires by itself, and
+    /// Settings' Appearance section offers the way back before then — a hide
+    /// with no visible way back would make the menu item a one-way door.
+    func hideForAnHour() {
+        preferences?.hiddenUntil = Date().addingTimeInterval(60 * 60)
+        applyEffectiveVisibility()
+    }
+
     /// Clicking the open notch pins it, so it stays put while you read it.
     ///
     /// A no-op while Settings says Always show: there the notch is already
@@ -538,9 +578,14 @@ final class NotchWindowController {
     // MARK: - Odds and ends
 
     private func startClock() {
-        // Keeps "Resets in N min" from going stale while the tooltip is open.
+        // Keeps "Resets in N min" from going stale while the tooltip is open,
+        // and notices a timed hide expiring — no file event or screen change
+        // will ever announce that.
         let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.model.now = Date() }
+            MainActor.assumeIsolated {
+                self?.model.now = Date()
+                self?.applyEffectiveVisibility()
+            }
         }
         RunLoop.main.add(timer, forMode: .common)
         clockTimer = timer
@@ -579,6 +624,27 @@ final class NotchWindowController {
         refresh.isEnabled = true
         menu.addItem(refresh)
 
+        // A timed hide, not the Settings switch: a standing choice reached in
+        // a moment of annoyance would be a decision made with the notch
+        // missing, with no reminder that it exists.
+        if isHiddenForNow, let until = preferences?.hiddenUntil {
+            let hidden = NSMenuItem(
+                title: "Hidden until \(until.formatted(date: .omitted, time: .shortened))",
+                action: nil, keyEquivalent: ""
+            )
+            hidden.isEnabled = false
+            menu.addItem(hidden)
+        } else {
+            let hide = NSMenuItem(
+                title: "Hide for an hour",
+                action: #selector(MenuActions.hideForAnHour(_:)),
+                keyEquivalent: ""
+            )
+            hide.target = menuActions
+            hide.isEnabled = true
+            menu.addItem(hide)
+        }
+
         for (index, entry) in signInItems.enumerated() {
             let item = NSMenuItem(
                 title: entry.title,
@@ -602,7 +668,8 @@ final class NotchWindowController {
     private lazy var menuActions = MenuActions(
         refresh: { [weak self] in self?.onRefresh?() },
         signIn: { [weak self] index in self?.signInItems[safe: index]?.action() },
-        togglePinned: { [weak self] in self?.togglePinned() }
+        togglePinned: { [weak self] in self?.togglePinned() },
+        hideForAnHour: { [weak self] in self?.hideForAnHour() }
     )
 }
 
@@ -613,19 +680,23 @@ final class MenuActions: NSObject {
     private let refresh: () -> Void
     private let signIn: (Int) -> Void
     private let pin: () -> Void
+    private let hide: () -> Void
 
     init(
         refresh: @escaping () -> Void,
         signIn: @escaping (Int) -> Void,
-        togglePinned: @escaping () -> Void
+        togglePinned: @escaping () -> Void,
+        hideForAnHour: @escaping () -> Void
     ) {
         self.refresh = refresh
         self.signIn = signIn
         self.pin = togglePinned
+        self.hide = hideForAnHour
     }
 
     @objc func refreshNow(_ sender: Any?) { refresh() }
     @objc func togglePinned(_ sender: Any?) { pin() }
+    @objc func hideForAnHour(_ sender: Any?) { hide() }
 
     @objc func signIn(_ sender: Any?) {
         guard let item = sender as? NSMenuItem else { return }
