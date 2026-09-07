@@ -13,6 +13,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var updater: Updater?
     private var statusItem: StatusItemController?
     private var cancellables = Set<AnyCancellable>()
+    /// Turns the monitors' running commentary into the one event worth
+    /// interrupting for: an agent that has just stopped working.
+    private var completions = SessionCompletionWatcher()
 
     /// The unit bundle is hosted by this app, so `xcodebuild test` launches it
     /// for real. Without this guard every test run put a live request on the
@@ -197,11 +200,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for (id, monitor) in monitors {
             monitor.sessionsPublisher
                 .receive(on: RunLoop.main)
-                .sink { [weak controller] live in
+                .sink { [weak self, weak controller] live in
+                    guard let controller else { return }
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                        controller?.model.sessions[id] = live
+                        controller.model.sessions[id] = live
                     }
-                    controller?.model.now = Date()
+                    controller.model.now = Date()
+                    // The publisher delivers on the main run loop, but the
+                    // closure itself is nonisolated — the same assertion the
+                    // notch controller's timers make.
+                    MainActor.assumeIsolated { self?.announceCompletions(on: controller) }
                 }
                 .store(in: &cancellables)
             monitor.start()
@@ -212,6 +220,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         controller.show()
         notchController = controller
+    }
+
+    /// Open the notch, and make a noise, when something has just finished.
+    ///
+    /// The watcher is fed on every publication whether or not anything is
+    /// switched on, because it is a difference engine: skipping a reading would
+    /// leave it comparing against a state two changes old, and the *next*
+    /// transition it reported would be one that never happened.
+    ///
+    /// Several sessions can land in the same reading — one turn ending often
+    /// unblocks another — and that gets one peek and one chime rather than a
+    /// chord. The newest is the one offered, since it is the one whose window
+    /// you were most recently in.
+    @MainActor
+    private func announceCompletions(on controller: NotchWindowController) {
+        let events = completions.absorb(controller.model.sessions)
+        guard let event = events.first, let preferences else { return }
+        Log.usage.info("session \(event.session.name, privacy: .public) \(String(describing: event.reason), privacy: .public)")
+
+        if preferences.sessionEndSound {
+            SessionChime.play(event.reason == .blocked
+                              ? preferences.sessionBlockedSoundName
+                              : preferences.sessionEndSoundName)
+        }
+        guard preferences.announceSessionEnd else { return }
+        controller.peek(for: preferences.peekDuration.seconds,
+                        focusing: event.session.processID)
     }
 
     /// Closing the settings window must not take the app with it.

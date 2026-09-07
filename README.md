@@ -40,6 +40,38 @@ Any `~/.claude-<slug>` directory Claude Code has run against is found at launch;
 the default `~/.claude` always comes first, the rest in alphabetical order, so the
 rings never swap places.
 
+## When a session ends
+
+The notch opens itself for five seconds when an agent stops working, or stops
+to ask you something, and sounds the system alert. Clicking it while it is open
+brings that session's application to the front.
+
+The app, not the tab. A session publishes its pid and nothing else — no window,
+no tab, no tty — so the app is found by walking up the process tree from the
+agent to whatever launched it. Choosing the *tab* inside that app needs the
+terminal's own scripting interface, and there is no general one: Terminal.app
+and iTerm2 can match a tab by tty, Warp and Ghostty publish no scripting
+dictionary at all. So the app is raised for everybody and the tooltip names the
+session, which leaves the last hop one keystroke rather than working for two
+terminals and silently doing nothing in a third.
+
+Both halves switch off separately in Settings, because they fail differently:
+the peek is no use behind a full-screen window, and the sound is no use in a
+meeting. Each of the two events — finished, and waiting on you — picks its own
+sound there, with a preview button beside it.
+
+The sound is played as a file on the ordinary output rather than handed to
+`NSSound` as a system alert. A system alert goes through the interface
+sound-effects channel, which System Settings → Sound can switch off — and on a
+Mac where it is off, `NSSound.play()` reports success and nothing is heard.
+
+Only *leaving* busy counts. A question being answered is not a piece of work
+ending, and a session whose file disappears mid-turn — which is what quitting
+Claude Code looks like — is not announced at all, since there is no window left
+to jump to. Nothing is announced from the first reading either: every session
+already running at launch arrives with no history, and treating that as a
+transition would ring once per open window on every start.
+
 ## Placement
 
 The notch lives on any of the four screen edges. Right and left keep a

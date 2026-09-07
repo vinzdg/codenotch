@@ -97,7 +97,8 @@ enum GrokActivity {
             detail: "Grok",
             state: .busy,
             waitingFor: nil,
-            since: modified
+            since: modified,
+            processID: pid
         )
     }
 

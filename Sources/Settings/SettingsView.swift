@@ -87,6 +87,54 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            // Its own section rather than a line in General: this is the only
+            // part of the app that speaks first, and a switch that stops the
+            // Mac making a noise has to be findable by someone who is looking
+            // for exactly that and nothing else.
+            Section("When a session ends") {
+                Toggle("Open the notch for a moment", isOn: $preferences.announceSessionEnd)
+
+                Picker("For", selection: $preferences.peekDuration) {
+                    ForEach(PeekDuration.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .disabled(!preferences.announceSessionEnd)
+
+                Text(preferences.peekDuration.explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Toggle("Play a sound", isOn: $preferences.sessionEndSound)
+
+                // Two sounds, because the two events say different things: one
+                // is "that's done", the other is "you are the hold-up". Each
+                // has a preview beside it — picking an alert sound you cannot
+                // hear until the next time it fires is guesswork.
+                SoundRow(label: "Finished", name: $preferences.sessionEndSoundName,
+                         pickerEnabled: preferences.sessionEndSound)
+                SoundRow(label: "Waiting on you", name: $preferences.sessionBlockedSoundName,
+                         pickerEnabled: preferences.sessionEndSound)
+
+                Text("Codenotch already knows the moment an agent stops working "
+                     + "or stops to ask you something. Clicking the notch while "
+                     + "it is open brings that session's app to the front — the "
+                     + "app, not the tab: only some terminals let anything "
+                     + "outside them choose a tab, so the tooltip names the "
+                     + "session instead.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("The sound plays on the ordinary output, not the interface "
+                     + "sound-effects channel — so it is still heard with "
+                     + "\u{201C}Play user interface sound effects\u{201D} "
+                     + "switched off in System Settings → Sound.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             // Startup and updates together: both are about what Codenotch does
             // without being asked, and one switch under its own header looked
             // like an oversight rather than a section.
@@ -232,6 +280,38 @@ struct SettingsView: View {
 
 /// One provider: whether Codenotch reads it, whose account that is, and where
 /// to go if there is nothing to read.
+/// One sound choice, with a preview button.
+private struct SoundRow: View {
+    let label: String
+    @Binding var name: String
+    /// The preview stays live even with the sound switched off — it is how you
+    /// find out what you are switching on, and a dead button teaches nothing.
+    let pickerEnabled: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Picker(label, selection: $name) {
+                // A sound that has been removed since it was chosen still has
+                // to appear, or the picker would silently show a different one
+                // and the setting would look like it had changed itself.
+                if !SessionChime.available.contains(name) {
+                    Text("\(name) (missing)").tag(name)
+                }
+                ForEach(SessionChime.available, id: \.self) { Text($0).tag($0) }
+            }
+            .disabled(!pickerEnabled)
+            Button {
+                Log.usage.info("preview \(name, privacy: .public)")
+                SessionChime.play(name)
+            } label: {
+                Image(systemName: "play.circle")
+            }
+            .buttonStyle(.borderless)
+            .help("Play \(name)")
+        }
+    }
+}
+
 private struct AccountRow: View {
     let provider: ProviderSummary
     @ObservedObject var preferences: Preferences
