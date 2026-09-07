@@ -1,10 +1,19 @@
+<div align="center">
+
 # Codenotch
 
-A macOS app that pins a small black notch to a screen edge, showing how much of
-each coding assistant's usage limit you have burned — and whether it is still
-working, done, or waiting on you.
+[![CI](https://github.com/vinzdg/codenotch/actions/workflows/ci.yml/badge.svg)](https://github.com/vinzdg/codenotch/actions/workflows/ci.yml)
+![Platform](https://img.shields.io/badge/platform-macOS%2026%2B-black)
+![Swift](https://img.shields.io/badge/swift-5-orange)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+**A macOS app that pins a small black notch to a screen edge, showing how much
+of each coding assistant's usage limit you have burned — and whether it is
+still working, done, or waiting on you.**
 
 ![Collapsed notch with hover tooltip](docs/design/frame-124-hover-tooltip.png)
+
+</div>
 
 Hover a ring for its limit windows and when they reset. Claude's ring shows the
 same **current session** window Claude Code's own `/usage` leads with, so the
@@ -21,6 +30,7 @@ two never disagree.
 | **Antigravity** | official where licensed, otherwise a request count | Antigravity's local language server first, then Google's quota endpoint; a plain count when neither will answer for the account. |
 | **GLM** | official | Z.ai's Coding Plan monitor endpoint, with a key borrowed from whichever coding tool already holds one — Claude Code's `settings.json`, ZCode, or OpenCode. |
 | **OpenCode Go** | official | OpenCode's own Go quota endpoint, with the API key the OpenCode desktop app stores when Go is connected. |
+| **Grok Bot** | official | The installed Grok Bot desktop app's active account, read from its own usage status. |
 
 Codenotch never signs in anywhere. Every reading is borrowed from a credential
 or session a tool on your Mac already holds — install and sign in to any of
@@ -40,6 +50,19 @@ personal one, with its own limits, its own sessions and its own row in Settings.
 Any `~/.claude-<slug>` directory Claude Code has run against is found at launch;
 the default `~/.claude` always comes first, the rest in alphabetical order, so the
 rings never swap places.
+
+## Alerts and control
+
+A provider's headline limit crossing **80%** — and reaching **100%** — becomes
+a system notification: once per crossing, never repeated while it stays
+crossed, and again only after the window has genuinely rolled over. Each
+provider can be muted from its own row in Settings, and macOS permission is
+asked on the first real alert rather than at launch.
+
+The notch's right-click menu offers **Hide for an hour** — a timed reprieve
+that expires by itself, with the way back in Settings' Appearance section. The
+rows in Settings also reorder the notch, because reading order is a habit, and
+habits belong to the person rather than to discovery order.
 
 ## Placement
 
@@ -75,7 +98,8 @@ No signing identity is required for either. `make release` — which archives,
 notarizes, and produces a signed auto-update feed — needs a Developer ID
 certificate and an App Store Connect notary profile, and is only ever run by
 the maintainer to cut an official release. See
-[CONTRIBUTING.md](CONTRIBUTING.md).
+[CONTRIBUTING.md](CONTRIBUTING.md). CI runs the same unit tests unsigned via
+`make test-ci`.
 
 Run with `CODENOTCH_DEMO=1` to see fixed sample data instead of live readings.
 
@@ -131,26 +155,14 @@ unified log.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Credits
+
+Codenotch was created by **Vinz** — [**@hivinz_**](https://x.com/hivinz_).
+The design, the notch itself, and every idea that makes it work are his. This
+branch adds the Grok Bot, GitHub Copilot and OpenCode Go providers, threshold
+alerts, and a round of polish on top of that foundation — nothing here would
+exist without the original.
+
 ## License
 
-[MIT](LICENSE)
-
-### Grok Bot
-
-Reads the installed Grok Bot desktop app's active account and selected team.
-Shows its included usage percentage and reset time from `GetSandUsageStatus`;
-pooled enterprise allowances are identified without inventing a percentage.
-Sign in to Grok Bot first. macOS may ask to read **Grok Bot Safe Storage**;
-choose **Always Allow** to remember the permission. Expired sessions are renewed
-by Grok Bot. Codenotch never changes the account, spends credits, or uses a reset.
-
-### OpenCode Go
-
-Reads the rolling 5-hour, weekly and monthly limits of an OpenCode Go
-subscription — the same percentages OpenCode's own dashboard leads with. The
-key is the one the OpenCode desktop app stores when Go is connected (the CLI
-writes the same file); limits are dollar values ($12 / 5 hours, $30 / week,
-$60 / month), not request counts, so the percentages mean the same thing
-whichever model is running. Connect Go in OpenCode first. Reading the key is
-an ordinary file read, so macOS never asks. Codenotch never changes the
-account or what the key is used for.
+[MIT](LICENSE) © 2026 Vinz
