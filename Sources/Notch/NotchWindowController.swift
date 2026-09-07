@@ -481,8 +481,11 @@ final class NotchWindowController {
 
     func apply(_ visibility: NotchVisibility) {
         baseVisibility = visibility
-        suppressApplied = false
-        applyVisibility(visibility)
+        // The suppression is consulted here, not only on the clock: a relaunch
+        // while a timed hide is in force would otherwise show the notch for up
+        // to half a minute before the tick noticed.
+        suppressApplied = isHiddenForNow
+        applyVisibility(suppressApplied ? .hidden : visibility)
     }
 
     /// The standing choice from Settings.
