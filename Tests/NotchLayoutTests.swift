@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import Codenotch
 
@@ -627,6 +628,125 @@ final class NotchVisibilityTests: XCTestCase {
         for mode in NotchVisibility.allCases {
             XCTAssertFalse(mode.title.isEmpty)
             XCTAssertFalse(mode.explanation.isEmpty)
+        }
+    }
+}
+
+/// Which displays get a notch. Its default matters: get it wrong and a fresh
+/// install with two displays either shows a notch where none was expected or
+/// hides the one that was always there.
+final class NotchScreenScopeTests: XCTestCase {
+    private func defaults() -> UserDefaults {
+        let name = "NotchScreenScopeTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return defaults
+    }
+
+    @MainActor
+    func testItDefaultsToMainDisplayOnly() {
+        XCTAssertEqual(Preferences(defaults: defaults()).notchScope, .mainDisplay)
+    }
+
+    @MainActor
+    func testTheChoiceSurvivesARestart() {
+        let defaults = defaults()
+        Preferences(defaults: defaults).notchScope = .allDisplays
+        XCTAssertEqual(Preferences(defaults: defaults).notchScope, .allDisplays)
+    }
+
+    /// A value written by a future version must not leave every display bare —
+    /// it falls back to the main one.
+    @MainActor
+    func testAnUnknownStoredValueFallsBackToMainDisplay() {
+        let defaults = defaults()
+        defaults.set("projector", forKey: "notchScope")
+        XCTAssertEqual(Preferences(defaults: defaults).notchScope, .mainDisplay)
+    }
+
+    func testEveryScopeIsOfferedAndNamed() {
+        XCTAssertEqual(NotchScreenScope.allCases.count, 2)
+        for scope in NotchScreenScope.allCases {
+            XCTAssertFalse(scope.title.isEmpty)
+            XCTAssertFalse(scope.explanation.isEmpty)
+        }
+    }
+}
+
+/// The fleet's add/remove maths, without any displays: which controllers to
+/// retire and which to create when the screen list changes.
+final class NotchFleetReconcileTests: XCTestCase {
+    private func key(_ n: Int) -> NSNumber { NSNumber(value: n) }
+
+    func testAnEmptyFleetAddsEveryDesiredScreen() {
+        let plan = NotchFleet.planReconciliation(current: [], desired: [key(1), key(2)])
+        XCTAssertTrue(plan.remove.isEmpty)
+        XCTAssertEqual(plan.add, [key(1), key(2)])
+    }
+
+    func testAnUnchangedListPlansNothing() {
+        let plan = NotchFleet.planReconciliation(
+            current: [key(1), key(2)], desired: [key(2), key(1)])
+        XCTAssertTrue(plan.remove.isEmpty)
+        XCTAssertTrue(plan.add.isEmpty)
+    }
+
+    func testAGoneScreenIsRetiredAndANewOneAdded() {
+        let plan = NotchFleet.planReconciliation(
+            current: [key(1), key(2)], desired: [key(2), key(3)])
+        XCTAssertEqual(plan.remove, [key(1)])
+        XCTAssertEqual(plan.add, [key(3)])
+    }
+
+    func testDisconnectingEverythingRetiresEverything() {
+        let plan = NotchFleet.planReconciliation(current: [key(1)], desired: [])
+        XCTAssertEqual(plan.remove, [key(1)])
+        XCTAssertTrue(plan.add.isEmpty)
+    }
+
+    /// Screen keys identify notches one-to-one, so real displays must never
+    /// share one — otherwise two panels would be keyed as a single controller.
+    func testRealScreensHaveDistinctKeys() {
+        let screens = NSScreen.screens
+        guard !screens.isEmpty else { return }
+        let keys = screens.map(NotchFleet.key)
+        XCTAssertEqual(Set(keys).count, keys.count)
+    }
+}
+
+/// The fleet against the real screen list: main-only keeps a single notch,
+/// all-displays one per screen. On a one-display Mac both are one — the point
+/// is the count follows the scope, not a fixed number.
+@MainActor
+final class NotchFleetScopeTests: XCTestCase {
+    func testMainDisplayKeepsASingleNotch() {
+        let fleet = NotchFleet(scope: .mainDisplay, edge: .right)
+        fleet.show()
+        defer { fleet.stop() }
+        XCTAssertEqual(fleet.controllersForTesting.count, min(1, NSScreen.screens.count))
+    }
+
+    func testAllDisplaysKeepsOneNotchPerScreen() {
+        let fleet = NotchFleet(scope: .allDisplays, edge: .right)
+        fleet.show()
+        defer { fleet.stop() }
+        XCTAssertEqual(fleet.controllersForTesting.count, NSScreen.screens.count)
+    }
+
+    /// A controller created late — a display plugged in at noon — starts with
+    /// today's readings rather than empty rings.
+    func testLateControllersStartWithCurrentReadings() {
+        let fleet = NotchFleet(scope: .mainDisplay, edge: .right)
+        fleet.show()
+        defer { fleet.stop() }
+        let reading = ProviderSnapshot(
+            id: "codex", displayName: "Codex", glyph: .openai,
+            fidelity: .official, status: .ok,
+            windows: [LimitWindow(id: "primary", label: "5h limit", usedFraction: 0.27)],
+            headlineID: "primary")
+        fleet.setSnapshots([reading])
+        for controller in fleet.controllersForTesting {
+            XCTAssertEqual(controller.model.snapshots, [reading])
         }
     }
 }

@@ -26,6 +26,11 @@ final class NotchWindowController {
 
     private var panel: NotchPanel?
     private var hostingView: NotchHostingView<NotchRootView>?
+
+    /// The display this notch belongs to. Nil follows the menu-bar screen,
+    /// which is what a single-controller setup did before the fleet existed —
+    /// so leaving it unset changes nothing.
+    var assignedScreen: NSScreen?
     private var cancellables = Set<AnyCancellable>()
     private var mouseMonitors: [Any] = []
     private var clearHoverWork: DispatchWorkItem?
@@ -96,8 +101,19 @@ final class NotchWindowController {
 
     // MARK: - Placement
 
+    /// The screen this notch lives on: its assigned display while that display
+    /// is still connected, the menu-bar screen otherwise — so unplugging the
+    /// display never strands the panel on a screen that no longer exists.
+    func currentScreen() -> NSScreen? {
+        if let assigned = assignedScreen,
+           NSScreen.screens.contains(where: { $0 === assigned }) {
+            return assigned
+        }
+        return NotchGeometry.preferredScreen(from: NSScreen.screens)
+    }
+
     func relocate(cellCount: Int? = nil) {
-        guard let screen = NotchGeometry.preferredScreen(from: NSScreen.screens) else { return }
+        guard let screen = currentScreen() else { return }
         model.adopt(screen: screen)
         let size = model.panelSize(cellCount: cellCount ?? model.snapshots.count)
         let frame = NotchGeometry.panelFrame(for: screen, panelSize: size, edge: model.edge)
@@ -288,7 +304,7 @@ final class NotchWindowController {
     /// Has the Dock appeared, gone away, moved or resized since we last placed
     /// the panel? Nothing notifies us, so this is asked rather than told.
     private func followUsableAreaIfItMoved() {
-        guard let screen = NotchGeometry.preferredScreen(from: NSScreen.screens) else { return }
+        guard let screen = currentScreen() else { return }
         guard screen.visibleFrame != lastVisibleFrame else { return }
         relocate()
     }
@@ -521,6 +537,15 @@ final class NotchWindowController {
         }
         setPointing(false)
         updateInteractiveRects()
+    }
+
+    /// Tear down a controller whose display is gone: hide first so no panel
+    /// lingers on a screen that no longer exists, then stop its timers and
+    /// monitors — a retired controller that kept polling would relocate
+    /// another display's panel underneath a parked pointer.
+    func retire() {
+        apply(.hidden)
+        stop()
     }
 
     /// Clicking the open notch pins it, so it stays put while you read it.

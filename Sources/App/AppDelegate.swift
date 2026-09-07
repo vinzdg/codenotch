@@ -3,7 +3,7 @@ import Combine
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var notchController: NotchWindowController?
+    private var notchFleet: NotchFleet?
     private var store: UsageStore?
     private var monitors: [String: any AgentActivityMonitor] = [:]
     private var preferences: Preferences?
@@ -38,26 +38,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         guard !isRunningTests else { return }
 
-        let controller = NotchWindowController()
+        // Before Preferences reads anything, or the first launch flag and
+        // every choice would be read from an empty domain.
+        Preferences.migrateFromPreviousName()
+        let preferences = Preferences()
+        self.preferences = preferences
+
+        // One notch per display: the fleet owns a controller for each screen
+        // the scope asks for and fans every reading out to all of them. The
+        // stored edge goes in up front, before any panel is ever put up — the
+        // sink below delivers on the next run loop turn, by which time the
+        // notch would already have flashed on the default edge.
+        let fleet = NotchFleet(scope: preferences.notchScope, edge: preferences.notchEdge)
+        self.notchFleet = fleet
 
         // `CODENOTCH_DEMO=1` puts the design frame's three providers on screen
         // with its numbers, for screenshots and for eyeballing the layout.
         if ProcessInfo.processInfo.environment["CODENOTCH_DEMO"] == "1" {
-            controller.model.snapshots = Fixtures.snapshots()
+            fleet.setSnapshots(Fixtures.snapshots())
         } else {
             // Nothing needs a browser session at the moment. `WebSessionProvider`
             // and `Sites.perplexity` are kept: they are the working pattern for a
             // site behind bot management, and re-registering is one line.
             let webProviders: [WebSessionProvider] = []
-            controller.signInItems = webProviders.map { provider in
+            fleet.signInItems = webProviders.map { provider in
                 (title: "Sign in to \(provider.displayName)…",
                  action: { [weak provider] in provider?.presentSignIn() })
             }
-            // Before Preferences reads anything, or the first launch flag and
-            // every choice would be read from an empty domain.
-            Preferences.migrateFromPreviousName()
-            let preferences = Preferences()
-            self.preferences = preferences
 
             // Cursor reads the editor's own session rather than a browser one:
             // signing into cursor.com separately created a second, empty account.
@@ -74,13 +81,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     + webProviders,
                 disconnected: preferences.disconnectedProviders
             )
-
-            // The stored edge goes in before the panel is ever put up. The
-            // sink below delivers on the next run loop turn, by which time the
-            // notch has already been shown on the default edge — so without
-            // this, every launch on any other edge opens with a flash of the
-            // right-hand one and then crossfades away from it.
-            controller.model.edge = preferences.notchEdge
 
             let updater = Updater()
             self.updater = updater
@@ -99,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 },
                 retry: { [weak store] in store?.reauthorize(providerID: $0) }
             )
-            controller.onOpenSettings = { [weak settings] in settings?.show() }
+            fleet.onOpenSettings = { [weak settings] in settings?.show() }
             self.settings = settings
 
             // What changed, once per version — including on a fresh install,
@@ -138,12 +138,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             preferences.$notchVisibility
                 .receive(on: RunLoop.main)
-                .sink { [weak controller] in controller?.apply($0) }
+                .sink { [weak fleet] in fleet?.apply($0) }
                 .store(in: &cancellables)
 
             preferences.$notchEdge
                 .receive(on: RunLoop.main)
-                .sink { [weak controller] in controller?.apply(edge: $0) }
+                .sink { [weak fleet] in fleet?.apply(edge: $0) }
+                .store(in: &cancellables)
+
+            preferences.$notchScope
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet] in fleet?.apply(scope: $0) }
                 .store(in: &cancellables)
 
             preferences.$disconnectedProviders
@@ -153,19 +158,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             store.$snapshots
                 .receive(on: RunLoop.main)
-                .sink { [weak controller] snapshots in
-                    withAnimation(NotchMotion.unfold) {
-                        controller?.model.snapshots = snapshots
-                    }
-                    controller?.model.now = Date()
+                .sink { [weak fleet] snapshots in
+                    fleet?.setSnapshots(snapshots)
                 }
                 .store(in: &cancellables)
             store.start()
-            controller.onRefresh = { [weak store] in store?.refreshNow() }
-            controller.onRefreshProvider = { [weak store] id in store?.refresh(providerID: id) }
+            fleet.onRefresh = { [weak store] in store?.refreshNow() }
+            fleet.onRefreshProvider = { [weak store] id in store?.refresh(providerID: id) }
             store.$refreshing
                 .receive(on: RunLoop.main)
-                .sink { [weak controller] ids in controller?.model.refreshing = ids }
+                .sink { [weak fleet] ids in fleet?.setRefreshing(ids) }
                 .store(in: &cancellables)
 
             // CODENOTCH_DISCOVER=<url> loads that page in the signed-in WebView
@@ -197,11 +199,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for (id, monitor) in monitors {
             monitor.sessionsPublisher
                 .receive(on: RunLoop.main)
-                .sink { [weak controller] live in
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                        controller?.model.sessions[id] = live
-                    }
-                    controller?.model.now = Date()
+                .sink { [weak fleet] live in
+                    fleet?.setSessions(providerID: id, sessions: live)
                 }
                 .store(in: &cancellables)
             monitor.start()
@@ -210,8 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store?.isBusy = { monitors.values.contains { m in m.sessions.contains { $0.state == .busy } } }
         self.monitors = monitors
 
-        controller.show()
-        notchController = controller
+        fleet.show()
     }
 
     /// Closing the settings window must not take the app with it.
@@ -238,6 +236,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         store?.stop()
         monitors.values.forEach { $0.stop() }
-        notchController?.stop()
+        notchFleet?.stop()
     }
 }
