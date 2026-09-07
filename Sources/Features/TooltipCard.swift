@@ -437,13 +437,8 @@ struct TooltipCard: View {
     /// The same figure the hover region uses, so what is drawn and what is
     /// reachable can never drift apart.
     private var height: CGFloat {
-        NotchLayout.cardHeight(
-            windowCount: snapshot.windows.count,
-            sessionCount: activity?.sessions.count ?? 0,
-            sessionCap: sessionCap,
-            statusMessage: snapshot.statusMessage,
-            blockMessage: snapshot.block?.summary(now: now)
-        )
+        NotchLayout.cardHeight(for: snapshot, activity: activity,
+                               sessionCap: sessionCap, now: now)
     }
 
     var body: some View {

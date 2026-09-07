@@ -49,4 +49,28 @@ enum NotchMotion {
     static func respectingReduceMotion(_ animation: Animation, _ reduce: Bool) -> Animation? {
         reduce ? nil : animation
     }
+
+    // MARK: Timing (AppKit side and delays, where an `Animation` does not fit)
+
+    /// A percentage's cell following the pointer onto it. Quicker than any
+    /// spring here — it is a highlight, not a movement.
+    static let pop = Animation.spring(response: 0.18, dampingFraction: 0.85)
+
+    /// How long the pointer may leave the tooltip before it is dismissed.
+    /// Hover out waits, because the pointer has to cross the gap between the
+    /// notch and the card without the card vanishing under it.
+    static let hoverGrace: TimeInterval = 0.25
+
+    /// How long the pointer may stray before an open notch folds shut. Longer
+    /// than the hover grace: folding is a bigger movement than dismissing a
+    /// tooltip, and doing it the instant the pointer strays feels twitchy.
+    static let foldGrace: TimeInterval = 0.45
+
+    /// The bare duration behind `crossfade`, for the places that crossfade in
+    /// AppKit — an `NSAnimationContext` takes seconds, not an `Animation`.
+    static let crossfadeDuration: TimeInterval = 0.16
+
+    /// How long contents wait before arriving on an edge change, so the shape
+    /// is already moving when they show up.
+    static let arrivalBeat: TimeInterval = 0.05
 }

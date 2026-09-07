@@ -34,6 +34,10 @@ final class ClaudeSessionMonitor: ObservableObject, AgentActivityMonitor {
     }
 
     func start() {
+        // Not idempotent by construction: a second descriptor and a second
+        // timer would stack on the first pair, so stop whatever is running.
+        // (`AntigravityActivityMonitor` does the same.)
+        stop()
         rescan()
         watchDirectory()
 

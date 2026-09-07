@@ -32,13 +32,6 @@ final class NotchWindowController {
     private var clockTimer: Timer?
     private var cursorTimer: Timer?
 
-    /// Hover in is quick; hover out waits, because the pointer has to cross the
-    /// gap between the notch and the card without the card vanishing under it.
-    private let hoverGrace: TimeInterval = 0.25
-    /// Longer than the hover grace: folding shut is a bigger movement than
-    /// dismissing a tooltip, and doing it the instant the pointer strays feels
-    /// twitchy rather than responsive.
-    private let foldGrace: TimeInterval = 0.45
     private var foldWork: DispatchWorkItem?
     /// Whether we have pushed the pointing hand onto the cursor stack.
     private var isPointing = false
@@ -213,11 +206,10 @@ final class NotchWindowController {
         guard model.snapshots.indices.contains(index) else { return nil }
         let snapshot = model.snapshots[index]
         let cardHeight = NotchLayout.cardHeight(
-            windowCount: snapshot.windows.count,
-            sessionCount: model.activity(for: snapshot.id)?.sessions.count ?? 0,
+            for: snapshot,
+            activity: model.activity(for: snapshot.id),
             sessionCap: model.sessionCap,
-            statusMessage: snapshot.statusMessage,
-            blockMessage: snapshot.block?.summary(now: model.now)
+            now: model.now
         )
         // Across the stack the region is the card, its tail, and the gap the
         // pointer has to cross. Along it, the card's own extent.
@@ -322,7 +314,7 @@ final class NotchWindowController {
             clearHoverWork?.cancel()
             clearHoverWork = nil
             if model.hoveredIndex != target {
-                withAnimation(.spring(response: 0.18, dampingFraction: 0.85)) {
+                withAnimation(NotchMotion.pop) {
                     model.hoveredIndex = target
                 }
             }
@@ -335,7 +327,7 @@ final class NotchWindowController {
                 }
             }
             clearHoverWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + hoverGrace, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + NotchMotion.hoverGrace, execute: work)
         }
 
         updateInteractiveRects()
@@ -367,7 +359,7 @@ final class NotchWindowController {
             }
         }
         foldWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + foldGrace, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + NotchMotion.foldGrace, execute: work)
     }
 
     /// The rings are buttons, so they should say so.
@@ -452,7 +444,7 @@ final class NotchWindowController {
         let change = edgeChange
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = Self.edgeCrossfade
+            context.duration = NotchMotion.crossfadeDuration
             panel.animator().alphaValue = 0
         } completionHandler: { [weak self] in
             MainActor.assumeIsolated {
@@ -470,7 +462,7 @@ final class NotchWindowController {
                 // A beat, then open. Not decoration: setting it shut and open
                 // again inside one turn lets SwiftUI coalesce the pair, and the
                 // notch arrives at full size having animated nothing.
-                DispatchQueue.main.asyncAfter(deadline: .now() + Self.arrivalBeat) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + NotchMotion.arrivalBeat) {
                     MainActor.assumeIsolated {
                         guard change == self.edgeChange else { return }
                         withAnimation(NotchMotion.unfold) { self.model.isExpanded = true }
@@ -481,11 +473,6 @@ final class NotchWindowController {
         }
     }
 
-    /// Half the crossing, each way. Short: it is a settings change, not a
-    /// flourish, and the notch should be back before you have looked up.
-    private static let edgeCrossfade: TimeInterval = 0.16
-    /// The pause between landing and opening.
-    private static let arrivalBeat: TimeInterval = 0.05
     private var edgeChange = 0
 
     func apply(_ visibility: NotchVisibility) {

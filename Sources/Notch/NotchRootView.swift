@@ -189,11 +189,10 @@ struct NotchRootView: View {
         let card = model.edge.isVertical
             ? NotchLayout.cardWidth
             : NotchLayout.cardHeight(
-                windowCount: snapshot.windows.count,
-                sessionCount: model.activity(for: snapshot.id)?.sessions.count ?? 0,
+                for: snapshot,
+                activity: model.activity(for: snapshot.id),
                 sessionCap: model.sessionCap,
-                statusMessage: snapshot.statusMessage,
-                blockMessage: snapshot.block?.summary(now: model.now)
+                now: model.now
             )
         return place.point(
             along: model.slack + model.ringCenter(index: index),

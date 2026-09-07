@@ -399,3 +399,22 @@ enum NotchLayout {
         (edge.isVertical ? cardWidth : maxCardHeight) + tailLength + tailGap
     }
 }
+
+extension NotchLayout {
+    /// `cardHeight` fed from a live snapshot, so every place that needs the
+    /// same figure — the card that draws it, the hover region that has to
+    /// match, and the centre that places the pair — assembles the arguments
+    /// once, and cannot drift apart.
+    static func cardHeight(for snapshot: ProviderSnapshot,
+                           activity: ActivitySummary?,
+                           sessionCap: Int,
+                           now: Date) -> CGFloat {
+        cardHeight(
+            windowCount: snapshot.windows.count,
+            sessionCount: activity?.sessions.count ?? 0,
+            sessionCap: sessionCap,
+            statusMessage: snapshot.statusMessage,
+            blockMessage: snapshot.block?.summary(now: now)
+        )
+    }
+}
