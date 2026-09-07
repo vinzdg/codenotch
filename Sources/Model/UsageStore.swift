@@ -39,6 +39,29 @@ final class UsageStore: ObservableObject {
         }
     }
 
+    /// The order the user has put the rings in, as provider ids.
+    ///
+    /// Held here rather than at each consumer because there are two consumers —
+    /// the notch reads `snapshots`, settings reads `providerSummaries` — and
+    /// they have to agree. Sorting each of them separately makes that agreement
+    /// something two call sites have to keep remembering.
+    @Published var order: [String] = [] {
+        didSet {
+            guard order != oldValue else { return }
+            // Reordered in place, not refetched. The user has just dragged a
+            // row and the rings have to follow now; re-reading every credential
+            // to answer a question about layout would spend Claude's
+            // rate-limit budget on nothing.
+            snapshots = ProviderOrder.arrange(snapshots, by: order, id: \.id)
+        }
+    }
+
+    /// `providers` in the user's order. Every read of `providers` that ends up
+    /// on screen goes through this.
+    private var orderedProviders: [UsageProvider] {
+        ProviderOrder.arrange(providers, by: order, id: \.id)
+    }
+
     /// Whether any provider is actively being used right now. Your usage cannot
     /// move while nothing is running, so polling hard through a quiet afternoon
     /// spends rate-limit budget to re-read a number that has not changed.
@@ -74,7 +97,8 @@ final class UsageStore: ObservableObject {
         idleRefreshInterval: TimeInterval = 5 * 60,
         staleAfter: TimeInterval = 15 * 60,
         archive: UsageArchive = UsageArchive(),
-        disconnected: Set<String> = []
+        disconnected: Set<String> = [],
+        order: [String] = []
     ) {
         self.providers = providers
         self.refreshInterval = refreshInterval
@@ -90,6 +114,10 @@ final class UsageStore: ObservableObject {
         // `lastGood` is still empty, so it wrote an empty archive and destroyed
         // every remembered reading on any launch with a provider switched off.
         _disconnected = Published(initialValue: disconnected)
+        // Through the wrapper's storage for the same reason `_disconnected` is:
+        // a plain assignment runs the `didSet`, which sorts a `snapshots` that
+        // does not exist yet and is then immediately thrown away below.
+        _order = Published(initialValue: order)
         lastGood = archive.load()
         // Pruned here as well as in `didSet`, because `didSet` cannot be relied
         // on to run: it guards against a no-op change, and the value the
@@ -103,7 +131,7 @@ final class UsageStore: ObservableObject {
         // Filtered here, not only in `didSet`. The store is built before the
         // preference reaches it, so an unfiltered first pass draws every
         // switched-off provider for as long as it takes the binding to arrive.
-        snapshots = providers.filter { !disconnected.contains($0.id) }.map { provider in
+        snapshots = orderedProviders.filter { !disconnected.contains($0.id) }.map { provider in
             guard let remembered = lastGood[provider.id] else { return Self.placeholder(provider) }
             var snapshot = remembered.snapshot
             snapshot.status = .stale(since: remembered.fetchedAt)
@@ -113,7 +141,7 @@ final class UsageStore: ObservableObject {
 
     /// Enough to list the providers in settings without exposing them.
     var providerSummaries: [ProviderSummary] {
-        providers.map { provider in
+        orderedProviders.map { provider in
             ProviderSummary(id: provider.id, name: provider.displayName,
                             glyph: provider.glyph,
                             account: disconnected.contains(provider.id) ? nil : provider.account(),
@@ -186,7 +214,7 @@ final class UsageStore: ObservableObject {
     }
 
     func refresh() async {
-        let live = providers.filter { !disconnected.contains($0.id) }
+        let live = orderedProviders.filter { !disconnected.contains($0.id) }
         let versions = connectionVersions
         refreshing = Set(live.map(\.id))
         defer { refreshing = [] }

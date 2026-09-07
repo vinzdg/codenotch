@@ -411,6 +411,16 @@ final class PreferencesTests: XCTestCase {
         return Preferences(defaults: defaults)
     }
 
+    /// The defaults themselves, for the cases that need two `Preferences` over
+    /// the same store to stand in for a relaunch.
+    private func scratchDefaults() -> UserDefaults {
+        let name = "PreferencesTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        addTeardownBlock { defaults.removePersistentDomain(forName: name) }
+        return defaults
+    }
+
     func testTheFirstLaunchIsAnnouncedExactlyOnce() {
         let name = "PreferencesTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
@@ -455,6 +465,33 @@ final class PreferencesTests: XCTestCase {
 
         XCTAssertFalse(Preferences(defaults: defaults).isConnected("cursor"))
     }
+
+    // MARK: - Order
+
+    func testNoStoredOrderMeansNeverChosen() {
+        XCTAssertTrue(Preferences(defaults: scratchDefaults()).providerOrder.isEmpty)
+    }
+
+    func testTheOrderSurvivesARelaunch() {
+        let defaults = scratchDefaults()
+
+        Preferences(defaults: defaults).setProviderOrder(["codex", "claude", "cursor"])
+
+        XCTAssertEqual(Preferences(defaults: defaults).providerOrder,
+                       ["codex", "claude", "cursor"])
+    }
+
+    func testAnAbsentProfileKeepsItsPlaceAcrossAMove() {
+        let preferences = Preferences(defaults: scratchDefaults())
+        preferences.setProviderOrder(["claude", "claude-work", "cursor"])
+
+        // Settings can only show what was discovered at launch, and
+        // `~/.claude-work` is not on this Mac today.
+        preferences.setProviderOrder(["cursor", "claude"])
+
+        XCTAssertEqual(preferences.providerOrder, ["cursor", "claude", "claude-work"])
+    }
+
 }
 
 /// Settings shows whose account each reading comes from. Not decoration: the app

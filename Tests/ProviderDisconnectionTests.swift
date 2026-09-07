@@ -4,13 +4,15 @@ import XCTest
 
 @MainActor
 final class ProviderDisconnectionTests: XCTestCase {
-    private func makeStore(_ providers: [UsageProvider], disconnected: Set<String> = [])
+    private func makeStore(_ providers: [UsageProvider], disconnected: Set<String> = [],
+                           order: [String] = [])
         -> (UsageStore, UsageArchive) {
         let name = "ProviderDisconnectionTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
         addTeardownBlock { defaults.removePersistentDomain(forName: name) }
         let archive = UsageArchive(defaults: defaults)
-        return (UsageStore(providers: providers, archive: archive, disconnected: disconnected), archive)
+        return (UsageStore(providers: providers, archive: archive,
+                           disconnected: disconnected, order: order), archive)
     }
 
     func testSettingsDoesNotReadADisconnectedAccount() {
@@ -181,6 +183,62 @@ final class ProviderDisconnectionTests: XCTestCase {
         // A short bounded wait also covers the existing 380ms single-cell
         // spinner delay when this regression is run against the old code.
         try? await Task.sleep(nanoseconds: 500_000_000)
+    }
+
+    // MARK: - Order
+
+    private let providers = [Probe(id: "claude"), Probe(id: "cursor"), Probe(id: "codex")]
+
+    /// The one assertion that fails the moment anyone goes back to sorting at
+    /// one consumer instead of at the store.
+    func testTheNotchAndTheSettingsListOpenInTheSameOrder() {
+        let (store, _) = makeStore(providers, order: ["codex", "claude"])
+
+        XCTAssertEqual(store.snapshots.map(\.id), ["codex", "claude", "cursor"])
+        XCTAssertEqual(store.providerSummaries.map(\.id), ["codex", "claude", "cursor"])
+    }
+
+    func testARefreshKeepsTheOrder() async {
+        let (store, _) = makeStore(providers, order: ["codex", "claude"])
+
+        await store.refresh()
+
+        XCTAssertEqual(store.snapshots.map(\.id), ["codex", "claude", "cursor"])
+    }
+
+    /// Dragging a row is a question about layout. Answering it by re-reading
+    /// every credential would spend Claude's rate-limit budget on nothing.
+    func testReorderingMovesTheRingsWithoutRefetching() async {
+        let (store, _) = makeStore(providers)
+        await store.refresh()
+        let before = providers.map(\.calls)
+
+        store.order = ["codex", "cursor", "claude"]
+
+        XCTAssertEqual(store.snapshots.map(\.id), ["codex", "cursor", "claude"])
+        XCTAssertEqual(providers.map(\.calls), before, "reordering refetched a provider")
+    }
+
+    /// Settings splits the rows into connected and not, and the second group is
+    /// built by filtering the first list rather than by keeping a list of its
+    /// own. That only works because a switched-off provider still has a place
+    /// in the summaries — it is missing from the notch, never from the order.
+    func testASwitchedOffProviderKeepsItsPlaceInTheSettingsList() {
+        let (store, _) = makeStore(providers,
+                              disconnected: ["cursor"],
+                              order: ["codex", "cursor", "claude"])
+
+        XCTAssertEqual(store.providerSummaries.map(\.id), ["codex", "cursor", "claude"])
+    }
+
+    /// A provider switched off is not in the notch at all, so its place in the
+    /// order must simply be skipped rather than leaving a gap.
+    func testADisconnectedProviderDoesNotLeaveAGap() {
+        let (store, _) = makeStore(providers,
+                              disconnected: ["cursor"],
+                              order: ["codex", "cursor", "claude"])
+
+        XCTAssertEqual(store.snapshots.map(\.id), ["codex", "claude"])
     }
 }
 

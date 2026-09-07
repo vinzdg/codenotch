@@ -72,7 +72,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     + [CursorLocalProvider(), CodexLocalProvider(), AntigravityProvider(),
                        GLMProvider(), GrokLocalProvider(), OpenCodeProvider()]
                     + webProviders,
-                disconnected: preferences.disconnectedProviders
+                disconnected: preferences.disconnectedProviders,
+                // Passed at construction, not left to the sink below, for the
+                // same reason `disconnected` is: the sink delivers a run loop
+                // turn later, so without this every launch draws the built-in
+                // order for a frame and then visibly shuffles.
+                order: preferences.providerOrder
             )
 
             // The stored edge goes in before the panel is ever put up. The
@@ -149,6 +154,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             preferences.$disconnectedProviders
                 .receive(on: RunLoop.main)
                 .sink { [weak store] in store?.disconnected = $0 }
+                .store(in: &cancellables)
+
+            preferences.$providerOrder
+                .receive(on: RunLoop.main)
+                .sink { [weak store] in store?.order = $0 }
                 .store(in: &cancellables)
 
             store.$snapshots

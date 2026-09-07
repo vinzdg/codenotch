@@ -16,6 +16,21 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(Array(disconnectedProviders), forKey: Keys.disconnected) }
     }
 
+    /// The order the user has dragged the rings into, as provider ids.
+    ///
+    /// Stored as the ids actually placed rather than as every id known at the
+    /// time: providers are discovered at launch — Claude Code contributes one
+    /// per `~/.claude-<slug>` — so an exhaustive list written today is wrong
+    /// the moment a profile appears. `ProviderOrder` reconciles the two,
+    /// forgivingly in both directions.
+    ///
+    /// Empty means never chosen, which is not the same as having chosen the
+    /// order the app ships with: keeping them distinct is what lets a later
+    /// version change the built-in order for everyone who never had an opinion.
+    @Published var providerOrder: [String] {
+        didSet { defaults.set(providerOrder, forKey: Keys.order) }
+    }
+
     /// How much of itself the notch shows at rest.
     @Published var notchVisibility: NotchVisibility {
         didSet { defaults.set(notchVisibility.rawValue, forKey: Keys.visibility) }
@@ -60,6 +75,7 @@ final class Preferences: ObservableObject {
         static let presence = "appPresence"
         static let edge = "notchEdge"
         static let lastSeenVersion = "lastSeenVersion"
+        static let order = "providerOrder"
     }
 
     /// True the very first time this copy runs, and never again.
@@ -116,6 +132,9 @@ final class Preferences: ObservableObject {
         // Absent means nothing has been shown yet, which is true of a fresh
         // install — so the current release reads as new to it.
         self.lastSeenVersion = defaults.string(forKey: Keys.lastSeenVersion)
+        // Absent means never chosen, so the rings keep the order the app ships
+        // with until someone drags one.
+        self.providerOrder = defaults.stringArray(forKey: Keys.order) ?? []
         // Read from the system rather than from our own store: the user can turn
         // this off in System Settings, and a remembered `true` would then be a lie.
         self.launchAtLogin = Self.isRegisteredForLogin
@@ -131,6 +150,16 @@ final class Preferences: ObservableObject {
         } else {
             disconnectedProviders.insert(providerID)
         }
+    }
+
+    /// Record a new order, keeping the ids that are not on this Mac today.
+    ///
+    /// Settings can only show what was discovered at launch, so writing its
+    /// list verbatim would quietly forget where a Claude profile sat the moment
+    /// its directory was moved away — and put it back at the end when it
+    /// returned, for something the user never did.
+    func setProviderOrder(_ ids: [String]) {
+        providerOrder = ProviderOrder.remember(ids, keeping: providerOrder)
     }
 
     /// Forget everything this app has stored and quit.

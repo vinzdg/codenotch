@@ -548,7 +548,11 @@ and the tooltip header is dated.
       rather than from our own store — the user can turn it off in System
       Settings, and a remembered `true` would then be a lie
 - [x] Right-click menu: Keep open, Refresh now, Sign in…, Quit
-- [ ] Drag-to-reorder providers
+- [x] Drag-to-reorder providers. Stored as the ids the user actually placed,
+      not as an index per provider: the set is not fixed — Claude Code
+      contributes one per `~/.claude-<slug>` — so anything the stored order has
+      never seen is appended rather than dropped, and an id whose directory is
+      gone keeps its place instead of being pruned
 - [ ] Plan ceilings, auto-hide
 
 ### Accounts in settings

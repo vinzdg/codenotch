@@ -28,6 +28,12 @@ them, and its ring appears. Switching a provider off in Settings stops its
 credential being read at all and forgets the readings taken from it; it does
 not sign you out of the tool that owns the account, and the row says so.
 
+Settings lists the connected providers in the order the notch draws them, and
+you can drag one by its handle to move it. The order is remembered across
+launches. A provider you switch back on joins the end of that list rather than
+reclaiming an older position, so nothing you cannot currently see jumps ahead
+of something you placed deliberately.
+
 It also answers **"is it still working?"** — a thin arc spins inside a
 provider's ring while a session is busy, and becomes a pulsing amber ring when
 one is blocked waiting on you. Hover for every live session by name, where it
