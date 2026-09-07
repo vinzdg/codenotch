@@ -9,6 +9,7 @@ struct SettingsView: View {
     /// another app, so the user is always coming *back* here to see it — which
     /// makes returning focus the exact moment the old value is wrong.
     @State private var accounts: [ProviderSummary] = []
+    @State private var displays: [DisplayOption] = []
     /// Switching off has to reach the store's archive, not just the preference
     /// — see `UsageStore.signOut(providerID:)`.
     let signOut: (String) -> Void
@@ -70,6 +71,22 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
 
                 Text(preferences.notchEdge.explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Picker("Display", selection: $preferences.displayPreference) {
+                    Text("Follow active window").tag(DisplayPreference.followActiveWindow)
+                    ForEach(displays) { display in
+                        Text(display.name).tag(DisplayPreference.display(display.id))
+                    }
+                    if case .display(let id) = preferences.displayPreference,
+                       !displays.contains(where: { $0.id == id }) {
+                        Text("Unavailable display").tag(DisplayPreference.display(id))
+                    }
+                }
+
+                Text(displayExplanation)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -141,10 +158,30 @@ struct SettingsView: View {
         // hunted for is not really a credit.
         .safeAreaInset(edge: .bottom, spacing: 0) { credit }
         .frame(width: SettingsView.width, height: SettingsView.height)
-        .onAppear { accounts = providers() }
+        .onAppear { refreshVisibleState() }
         .onReceive(NotificationCenter.default.publisher(
             for: NSWindow.didBecomeKeyNotification
-        )) { _ in accounts = providers() }
+        )) { _ in refreshVisibleState() }
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSApplication.didChangeScreenParametersNotification
+        )) { _ in displays = DisplayOption.connected }
+    }
+
+    private func refreshVisibleState() {
+        accounts = providers()
+        displays = DisplayOption.connected
+    }
+
+    private var displayExplanation: String {
+        switch preferences.displayPreference {
+        case .followActiveWindow:
+            return "Moves to the display containing the window receiving keyboard input."
+        case .display(let id):
+            if let display = displays.first(where: { $0.id == id }) {
+                return "Pinned to \(display.name)."
+            }
+            return "That display is disconnected. Codenotch follows the active window until it returns."
+        }
     }
 
     private var credit: some View {

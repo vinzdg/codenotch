@@ -445,6 +445,21 @@ final class PreferencesTests: XCTestCase {
         XCTAssertFalse(Preferences(defaults: defaults).isConnected("codex"))
     }
 
+    func testDisplayChoiceSurvivesARestart() {
+        let name = "PreferencesTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+
+        Preferences(defaults: defaults).displayPreference = .display("monitor-uuid")
+
+        XCTAssertEqual(Preferences(defaults: defaults).displayPreference,
+                       .display("monitor-uuid"))
+    }
+
+    func testDisplayDefaultsToFollowingTheActiveWindow() {
+        XCTAssertEqual(preferences().displayPreference, .followActiveWindow)
+    }
+
     /// The key is deliberately unchanged across the rename, so choices made
     /// before it survive.
     func testItReadsChoicesStoredUnderTheOldName() {

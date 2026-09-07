@@ -4,6 +4,7 @@ import XCTest
 private struct FakeScreen: ScreenDescribing {
     var frameValue: CGRect
     var visibleFrameValue: CGRect
+    var displayIdentifier: String? = nil
 }
 
 final class NotchGeometryTests: XCTestCase {
@@ -31,6 +32,43 @@ final class NotchGeometryTests: XCTestCase {
         let frame = NotchGeometry.panelFrame(for: secondary, panelSize: CGSize(width: 334, height: 484))
         XCTAssertEqual(frame.maxX, 0, accuracy: 0.001)
         XCTAssertEqual(frame.midY, 920, accuracy: 0.5)
+    }
+
+    func testAChosenDisplayWinsOverTheActiveOne() {
+        let active = FakeScreen(frameValue: .zero, visibleFrameValue: .zero,
+                                displayIdentifier: "active")
+        let chosen = FakeScreen(frameValue: CGRect(x: 100, y: 0, width: 100, height: 100),
+                                visibleFrameValue: .zero, displayIdentifier: "chosen")
+
+        let result = NotchGeometry.preferredScreen(
+            from: [active, chosen], preference: .display("chosen"), activeScreen: active
+        )
+
+        XCTAssertEqual(result?.displayIdentifier, "chosen")
+    }
+
+    func testADisconnectedChoiceTemporarilyFallsBackToTheActiveDisplay() {
+        let active = FakeScreen(frameValue: .zero, visibleFrameValue: .zero,
+                                displayIdentifier: "active")
+
+        let result = NotchGeometry.preferredScreen(
+            from: [active], preference: .display("missing"), activeScreen: active
+        )
+
+        XCTAssertEqual(result?.displayIdentifier, "active")
+    }
+
+    func testFollowActiveWindowUsesTheActiveDisplay() {
+        let first = FakeScreen(frameValue: .zero, visibleFrameValue: .zero,
+                               displayIdentifier: "first")
+        let active = FakeScreen(frameValue: .zero, visibleFrameValue: .zero,
+                                displayIdentifier: "active")
+
+        let result = NotchGeometry.preferredScreen(
+            from: [first, active], preference: .followActiveWindow, activeScreen: active
+        )
+
+        XCTAssertEqual(result?.displayIdentifier, "active")
     }
 }
 

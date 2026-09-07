@@ -5,6 +5,7 @@ import Combine
 @MainActor
 final class NotchWindowController {
     let model = NotchViewModel()
+    var displayPreference: DisplayPreference = .followActiveWindow
 
     /// The panel's content view, so a test can check what SwiftUI is and is not
     /// allowed to reach.
@@ -97,7 +98,9 @@ final class NotchWindowController {
     // MARK: - Placement
 
     func relocate(cellCount: Int? = nil) {
-        guard let screen = NotchGeometry.preferredScreen(from: NSScreen.screens) else { return }
+        guard let screen = NotchGeometry.preferredScreen(
+            from: NSScreen.screens, preference: displayPreference
+        ) else { return }
         model.adopt(screen: screen)
         let size = model.panelSize(cellCount: cellCount ?? model.snapshots.count)
         let frame = NotchGeometry.panelFrame(for: screen, panelSize: size, edge: model.edge)
@@ -288,7 +291,9 @@ final class NotchWindowController {
     /// Has the Dock appeared, gone away, moved or resized since we last placed
     /// the panel? Nothing notifies us, so this is asked rather than told.
     private func followUsableAreaIfItMoved() {
-        guard let screen = NotchGeometry.preferredScreen(from: NSScreen.screens) else { return }
+        guard let screen = NotchGeometry.preferredScreen(
+            from: NSScreen.screens, preference: displayPreference
+        ) else { return }
         guard screen.visibleFrame != lastVisibleFrame else { return }
         relocate()
     }
@@ -479,6 +484,12 @@ final class NotchWindowController {
                 }
             }
         }
+    }
+
+    func apply(displayPreference: DisplayPreference) {
+        guard self.displayPreference != displayPreference else { return }
+        self.displayPreference = displayPreference
+        relocate()
     }
 
     /// Half the crossing, each way. Short: it is a settings change, not a

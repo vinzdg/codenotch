@@ -14,16 +14,29 @@ protocol ScreenDescribing {
     var frameValue: CGRect { get }
     var visibleFrameValue: CGRect { get }
     var hardwareNotch: HardwareNotch? { get }
+    var displayIdentifier: String? { get }
 }
 
 extension ScreenDescribing {
     /// Most displays have none, and most tests do not care.
     var hardwareNotch: HardwareNotch? { nil }
+    var displayIdentifier: String? { nil }
 }
 
 extension NSScreen: ScreenDescribing {
     var frameValue: CGRect { frame }
     var visibleFrameValue: CGRect { visibleFrame }
+
+    /// Unlike `CGDirectDisplayID`, this UUID survives display reconfiguration
+    /// and restarts, so a saved choice still names the same physical monitor.
+    var displayIdentifier: String? {
+        let screenNumber = NSDeviceDescriptionKey("NSScreenNumber")
+        guard let number = deviceDescription[screenNumber] as? NSNumber,
+              let unmanaged = CGDisplayCreateUUIDFromDisplayID(number.uint32Value)
+        else { return nil }
+        let uuid = unmanaged.takeRetainedValue()
+        return CFUUIDCreateString(nil, uuid) as String
+    }
 
     /// Measured from the two menu-bar strips *either side* of the notch, which
     /// is the only thing AppKit describes directly. `safeAreaInsets.top` gives
@@ -96,8 +109,24 @@ enum NotchGeometry {
         )
     }
 
-    /// The notch follows the screen with the menu bar.
-    static func preferredScreen(from screens: [NSScreen]) -> NSScreen? {
-        NSScreen.main ?? screens.first
+    static func preferredScreen(
+        from screens: [NSScreen],
+        preference: DisplayPreference = .followActiveWindow
+    ) -> NSScreen? {
+        preferredScreen(from: screens, preference: preference, activeScreen: NSScreen.main)
+    }
+
+    /// Kept generic so display selection can be proved without relying on the
+    /// monitors attached to the machine running the tests.
+    static func preferredScreen<Screen: ScreenDescribing>(
+        from screens: [Screen],
+        preference: DisplayPreference,
+        activeScreen: Screen?
+    ) -> Screen? {
+        if case .display(let id) = preference,
+           let selected = screens.first(where: { $0.displayIdentifier == id }) {
+            return selected
+        }
+        return activeScreen ?? screens.first
     }
 }
