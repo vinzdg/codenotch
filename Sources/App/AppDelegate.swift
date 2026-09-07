@@ -127,6 +127,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             let statusItem = StatusItemController { [weak settings] in settings?.show() }
             self.statusItem = statusItem
+            statusItem.onRefreshProvider = { [weak store] id in store?.refresh(providerID: id) }
+            statusItem.onRefreshAll = { [weak store] in store?.refreshNow() }
 
             preferences.$appPresence
                 .receive(on: RunLoop.main)
@@ -153,11 +155,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             store.$snapshots
                 .receive(on: RunLoop.main)
-                .sink { [weak controller] snapshots in
+                .sink { [weak controller, weak statusItem] snapshots in
                     withAnimation(NotchMotion.unfold) {
                         controller?.model.snapshots = snapshots
                     }
                     controller?.model.now = Date()
+                    statusItem?.snapshots = snapshots
                 }
                 .store(in: &cancellables)
             store.start()
