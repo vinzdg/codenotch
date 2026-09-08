@@ -19,7 +19,12 @@ DEST    := platform=macOS,arch=arm64
 # changes nothing: project.yml's stable identity is what keeps a keychain
 # "Always Allow" grant alive across rebuilds, and forcing ad-hoc there would
 # throw that away and bring the prompt back on every `make run`.
-ifeq (,$(shell security find-identity -v -p codesigning 2>/dev/null | grep -c "Developer ID Application"))
+# `grep -c` prints a count on stdout whether or not it matched, so this is
+# tested against "0" and not against empty: comparing to empty never fired,
+# DEV_SIGN was never set on anyone's machine, and every contributor got a
+# signing failure from project.yml's hardcoded Developer ID instead of the
+# ad-hoc fallback CONTRIBUTING.md promises.
+ifeq (0,$(shell security find-identity -v -p codesigning 2>/dev/null | grep -c "Developer ID Application"))
 DEV_SIGN := CODE_SIGN_IDENTITY="-" DEVELOPMENT_TEAM="" CODE_SIGN_STYLE=Automatic
 endif
 

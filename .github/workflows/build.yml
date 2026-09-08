@@ -1,0 +1,56 @@
+# Builds and tests on a GitHub-hosted macOS runner, so a fork can be built
+# without a local Xcode install. The app is ad-hoc signed: the Makefile's
+# DEV_SIGN fallback fires because no Developer ID certificate exists on a
+# runner, which is the same path any contributor takes.
+name: build
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    # macos-26 carries the macOS 26 SDK that project.yml's deployment target
+    # needs. macos-latest points here too, but is pinned so a runner-image
+    # rollover cannot silently drop the SDK out from under the build.
+    runs-on: macos-26
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          xcode-select -p
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Test
+        run: make test
+
+      - name: Build
+        run: make build
+
+      # Zipped with ditto rather than handed to upload-artifact directly:
+      # upload-artifact walks the directory and does not preserve the symlinks
+      # and permissions inside a .app, which produces an artifact that unpacks
+      # into a bundle macOS refuses to launch.
+      - name: Package
+        run: |
+          APP="$(xcodebuild -project Codenotch.xcodeproj -scheme Codenotch \
+                   -destination 'platform=macOS,arch=arm64' -configuration Debug \
+                   -showBuildSettings 2>/dev/null \
+                 | awk -F' = ' '/ BUILT_PRODUCTS_DIR/ {print $2; exit}')/Codenotch.app"
+          test -d "$APP" || { echo "no app at $APP"; exit 1; }
+          codesign -dv "$APP" 2>&1 || true
+          ditto -c -k --sequesterRsrc --keepParent "$APP" Codenotch.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Codenotch-adhoc-${{ github.sha }}
+          path: Codenotch.zip
+          if-no-files-found: error
