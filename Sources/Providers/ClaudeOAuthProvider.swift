@@ -241,6 +241,32 @@ struct UsageResponse: Decodable {
         let kind: String
         let percent: Double
         let resetsAt: Date?
+        /// Set on `weekly_scoped`: the model or surface the window covers. The
+        /// kind is the same for every such window; the scope carries the name.
+        let scope: Scope?
+
+        /// `weekly_scoped` appears once per scoped model, so the kind alone
+        /// would collide. The scope name keeps each window its own row.
+        var windowID: String {
+            guard let name = scope?.name else { return kind }
+            return "\(kind):\(name.lowercased())"
+        }
+        var label: String { scope?.name ?? UsageResponse.label(forKind: kind) }
+    }
+    struct Scope: Decodable {
+        struct Model: Decodable {
+            let displayName: String?
+        }
+        let model: Model?
+        let surface: String?
+
+        /// What the window is scoped to, worded as the endpoint words it —
+        /// "Fable" for a per-model window, the surface otherwise.
+        var name: String? {
+            if let name = model?.displayName, !name.isEmpty { return name }
+            if let surface, !surface.isEmpty { return surface.capitalized }
+            return nil
+        }
     }
     struct Window: Decodable {
         let utilization: Double
@@ -258,8 +284,8 @@ struct UsageResponse: Decodable {
         var windows = (limits ?? []).compactMap { limit -> LimitWindow? in
             guard let resetsAt = limit.resetsAt else { return nil }
             return LimitWindow(
-                id: limit.kind,
-                label: UsageResponse.label(forKind: limit.kind),
+                id: limit.windowID,
+                label: limit.label,
                 usedFraction: limit.percent / 100,
                 resetsAt: resetsAt
             )

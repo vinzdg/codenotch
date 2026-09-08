@@ -72,6 +72,39 @@ final class UsageResponseTests: XCTestCase {
         XCTAssertTrue(try decode(json).limitWindows().isEmpty)
     }
 
+    /// `weekly_scoped` is one kind shared by every per-model window; the name
+    /// lives in `scope.model.display_name`, and that is what the row shows.
+    /// Two scoped windows keep separate rows instead of colliding on the kind.
+    func testScopedWeeklyWindowShowsItsModelName() throws {
+        let json = """
+        { "limits": [
+            { "kind": "weekly_all", "group": "weekly", "percent": 30, "severity": "normal",
+              "resets_at": "2026-09-13T02:00:00.227124+00:00", "scope": null, "is_active": false },
+            { "kind": "weekly_scoped", "group": "weekly", "percent": 37, "severity": "normal",
+              "resets_at": "2026-09-13T02:00:00.227355+00:00",
+              "scope": { "model": { "id": null, "display_name": "Fable" }, "surface": null },
+              "is_active": true },
+            { "kind": "weekly_scoped", "group": "weekly", "percent": 4, "severity": "normal",
+              "resets_at": "2026-09-13T02:00:00.227355+00:00",
+              "scope": { "model": { "id": null, "display_name": "Opus" }, "surface": null },
+              "is_active": false } ] }
+        """
+        let windows = try decode(json).limitWindows()
+        XCTAssertEqual(windows.map(\.id), ["weekly_all", "weekly_scoped:fable", "weekly_scoped:opus"])
+        XCTAssertEqual(windows.map(\.label), ["All models", "Fable", "Opus"])
+        XCTAssertEqual(windows[1].usedFraction ?? -1, 0.37, accuracy: 0.0001)
+    }
+
+    /// A scoped window that names no model keeps the generic wording rather
+    /// than an empty label.
+    func testScopedWindowWithoutAScopeKeepsTheKindWording() throws {
+        let json = """
+        { "limits": [ { "kind": "weekly_scoped", "percent": 1,
+                        "resets_at": "2026-09-13T02:00:00.227355+00:00", "scope": null } ] }
+        """
+        XCTAssertEqual(try decode(json).limitWindows().map(\.label), ["Scoped"])
+    }
+
     /// Older responses without `limits` still render from the named windows.
     func testFallsBackToTheNamedWindows() throws {
         let json = """
