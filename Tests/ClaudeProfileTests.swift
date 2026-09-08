@@ -188,10 +188,17 @@ final class ClaudeProfileTests: XCTestCase {
         let home = URL(fileURLWithPath: "/Users/vinz")
         let store = UsageStore(
             providers: [
-                ClaudeOAuthProvider(profile: .default(home: home), archive: UsageArchive(defaults: defaults)),
-                ClaudeOAuthProvider(profile: ClaudeProfile(slug: "work",
-                                                           configDirectory: home.appendingPathComponent(".claude-work")),
-                                    archive: UsageArchive(defaults: defaults))
+                ClaudeOAuthProvider(
+                    profile: .default(home: home),
+                    archive: UsageArchive(defaults: defaults),
+                    loadCredentials: { throw UsageProviderError.needsAuth }
+                ),
+                ClaudeOAuthProvider(
+                    profile: ClaudeProfile(slug: "work",
+                                           configDirectory: home.appendingPathComponent(".claude-work")),
+                    archive: UsageArchive(defaults: defaults),
+                    loadCredentials: { throw UsageProviderError.needsAuth }
+                )
             ],
             archive: UsageArchive(defaults: defaults)
         )

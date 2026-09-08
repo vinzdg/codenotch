@@ -29,6 +29,7 @@ final class NotchPanel: NSPanel {
             return super.mouseDown(with: event)
         }
         onClick?()
+        super.mouseDown(with: event)
     }
 
     init(contentRect: NSRect) {

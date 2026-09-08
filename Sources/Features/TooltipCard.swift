@@ -335,6 +335,7 @@ private struct BlockedRow: View {
 private struct SessionRow: View {
     let session: AgentSession
     let now: Date
+    @State private var isHovered = false
 
     private var stateColor: Color {
         switch session.state {
@@ -360,7 +361,7 @@ private struct SessionRow: View {
         return session.detail
     }
 
-    var body: some View {
+    private var rowContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             SplitRow(leading: session.name, trailing: stateWord,
                      trailingColor: stateColor) {
@@ -369,9 +370,38 @@ private struct SessionRow: View {
             SplitRow(
                 leading: detail,
                 trailing: ElapsedCopy.text(since: session.since, now: now),
-                leadingColor: Palette.textSecondary
+                leadingColor: (session.focusTarget != nil && isHovered) ? Palette.textPrimary : Palette.textSecondary,
+                trailingColor: (session.focusTarget != nil && isHovered) ? Palette.textPrimary : Palette.textSecondary
             )
             .padding(.top, NotchLayout.sessionRowGap)
+        }
+        .contentShape(Rectangle())
+    }
+
+    var body: some View {
+        if let target = session.focusTarget {
+            Button {
+                SessionFocus.activate(target: target)
+            } label: {
+                rowContent
+            }
+            .buttonStyle(.plain)
+            .onHover { inside in
+                isHovered = inside
+                if inside {
+                    NSCursor.pointingHand.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .onDisappear {
+                if isHovered {
+                    isHovered = false
+                    NSCursor.pop()
+                }
+            }
+        } else {
+            rowContent
         }
     }
 }

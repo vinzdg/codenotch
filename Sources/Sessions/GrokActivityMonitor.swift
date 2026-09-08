@@ -97,7 +97,8 @@ enum GrokActivity {
             detail: "Grok",
             state: .busy,
             waitingFor: nil,
-            since: modified
+            since: modified,
+            focusTarget: pid.map(AgentSession.FocusTarget.process)
         )
     }
 

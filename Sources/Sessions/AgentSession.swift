@@ -14,6 +14,12 @@ struct AgentSession: Identifiable, Equatable {
         case idle
     }
 
+    /// Where this session is running, so clicking it can focus the host app.
+    enum FocusTarget: Equatable {
+        case process(pid_t)
+        case application(bundleID: String)
+    }
+
     let id: String
     /// What to call it in the tooltip.
     let name: String
@@ -24,4 +30,24 @@ struct AgentSession: Identifiable, Equatable {
     let waitingFor: String?
     /// When it entered its current state.
     let since: Date
+    /// Where to direct focus when clicked.
+    let focusTarget: FocusTarget?
+
+    init(
+        id: String,
+        name: String,
+        detail: String,
+        state: State,
+        waitingFor: String?,
+        since: Date,
+        focusTarget: FocusTarget? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.detail = detail
+        self.state = state
+        self.waitingFor = waitingFor
+        self.since = since
+        self.focusTarget = focusTarget
+    }
 }

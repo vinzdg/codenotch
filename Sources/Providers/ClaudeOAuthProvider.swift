@@ -206,7 +206,7 @@ actor ClaudeOAuthProvider: UsageProvider {
     nonisolated func forgetCachedCredential() { keychain.forgetCached() }
 
     nonisolated func account() -> ProviderAccount? {
-        guard let credentials = try? keychain.load() else { return nil }
+        guard let credentials = try? loadCredentials() else { return nil }
         return ProviderAccount(
             label: nil,   // the credential carries no address
             plan: credentials.subscriptionType,

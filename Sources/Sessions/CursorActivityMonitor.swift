@@ -184,7 +184,8 @@ final class CursorActivityMonitor: ObservableObject, AgentActivityMonitor {
             detail: (head["subtitle"] as? String) ?? "Cursor",
             state: state,
             waitingFor: blocked ? "needs your input" : nil,
-            since: since
+            since: since,
+            focusTarget: .application(bundleID: CursorCredentials.bundleID)
         )
     }
 

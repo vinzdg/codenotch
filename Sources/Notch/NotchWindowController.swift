@@ -302,8 +302,11 @@ final class NotchWindowController {
         setExpanded(liveRect.contains(local) || overTooltip)
 
         var target: Int?
+        var cellTarget: Int?
         if model.isExpanded, notchRect.contains(local) {
-            target = cellIndex(along: placement.along(of: local))
+            let index = cellIndex(along: placement.along(of: local))
+            target = index
+            cellTarget = index
         } else if model.isExpanded, let current = model.hoveredIndex,
                   let card = tooltipRect(index: current),
                   card.contains(local) {
@@ -315,7 +318,7 @@ final class NotchWindowController {
             model.isHoveringSettings = overHandle
         }
         setPointing(
-            Self.wantsPointingHand(isExpanded: model.isExpanded, cellIndex: target) || overHandle
+            Self.wantsPointingHand(isExpanded: model.isExpanded, cellIndex: cellTarget) || overHandle
         )
 
         if let target {
@@ -412,13 +415,14 @@ final class NotchWindowController {
             onOpenSettings?()
             return
         }
-        if notchRect.contains(local),
-           let index = cellIndex(along: placement.along(of: local)),
-           model.snapshots.indices.contains(index) {
-            onRefreshProvider?(model.snapshots[index].id)
-            return
+        if notchRect.contains(local) {
+            if let index = cellIndex(along: placement.along(of: local)),
+               model.snapshots.indices.contains(index) {
+                onRefreshProvider?(model.snapshots[index].id)
+                return
+            }
+            togglePinned()
         }
-        togglePinned()
     }
 
     /// Move the notch to another screen edge.
