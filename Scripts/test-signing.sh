@@ -40,14 +40,14 @@ check_signing 'certificate without a valid identity uses ad-hoc' \
 
 SIGNING_IDENTITIES='  1) AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA "Apple Development: Contributor (TEAM123456)"
      1 valid identities found'
-check_signing 'valid development identity supplies its team' \
-    'Debug CODE_SIGN_IDENTITY="Apple Development" CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="TEAM123456"'
+check_signing 'valid development identity falls back to ad-hoc' \
+    'Debug CODE_SIGN_IDENTITY="-" DEVELOPMENT_TEAM="" CODE_SIGN_STYLE=Automatic'
 
 SIGNING_IDENTITIES='  1) AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA "Apple Development: Contributor (TEAM123456)"
   2) BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB "Apple Development: Another Contributor (TEAM654321)"
      2 valid identities found'
-check_signing 'multiple development identities select one team' \
-    'Debug CODE_SIGN_IDENTITY="Apple Development" CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="TEAM123456" PROVISIONING_PROFILE_SPECIFIER=""'
+check_signing 'multiple development identities fall back to ad-hoc' \
+    'Debug CODE_SIGN_IDENTITY="-" DEVELOPMENT_TEAM="" CODE_SIGN_STYLE=Automatic'
 
 SIGNING_IDENTITIES='  1) AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA "Developer ID Application: Maintainer (6WFPL8B9FB)"
   2) BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB "Apple Development: Contributor (TEAM123456)"
