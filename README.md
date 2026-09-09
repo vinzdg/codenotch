@@ -97,6 +97,14 @@ entry, autostart file or pacman package. Those belong to the Linux packaging
 milestone described in
 [`docs/plans/2026-09-09-linux-arch-installation-plan.md`](docs/plans/2026-09-09-linux-arch-installation-plan.md).
 
+### Notch controls
+
+When unpinned, Codenotch rests as a small black bar on the configured screen
+edge. Hover over it to reveal the provider rings and usage card. Right-click
+the bar or the expanded notch to change its screen side, vertical position,
+size, visible providers, or to pin the full notch in place. These choices are
+saved in `~/.config/codenotch/config.json` on Linux.
+
 ## What it reads
 
 | Provider | Source | How |

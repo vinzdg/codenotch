@@ -18,14 +18,21 @@ mod activity;
 mod diag;
 mod watcher;
 
+use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 
 /// Logical size of the notch window: the 70 pt pill column on the right plus room for the hover card on the left.
 pub const NOTCH_W: f64 = 340.0;
 /// Hand-bumped build tag, written to run.log at startup so a log can always be matched to the exe that wrote it.
-pub const BUILD: &str = "r32";
+pub const BUILD: &str = "r33";
 pub const NOTCH_H: f64 = 460.0; // 300 clipped the card once it held three window blocks plus the session list
+const COMPACT_W: f64 = 10.0;
+const COMPACT_H: f64 = 88.0;
+
+/// Tracks the actual window shell, independently from whether the hover card is visible.
+static SHELL_EXPANDED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 pub struct AppState {
     pub store: Mutex<state::Store>,
@@ -39,6 +46,66 @@ pub struct AppState {
     pub glyphs: Mutex<std::collections::HashMap<String, glyphs::Glyph>>,
     /// Working state of the non-Claude providers (Cursor reports it; Codex and Antigravity are inferred from recent writes)
     pub activity: Mutex<Vec<activity::Activity>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct NotchUiConfig {
+    side: String,
+    position: f64,
+    scale: f64,
+    providers: Vec<String>,
+    pinned: bool,
+}
+
+impl From<&config::Config> for NotchUiConfig {
+    fn from(cfg: &config::Config) -> Self {
+        Self {
+            side: cfg.notch_side.clone(),
+            position: cfg.notch_y,
+            scale: cfg.notch_scale,
+            providers: cfg.visible_providers.clone(),
+            pinned: cfg.notch_pinned,
+        }
+    }
+}
+
+fn notch_geometry(
+    cfg: &config::Config,
+    expanded: bool,
+    monitor_position: (i32, i32),
+    monitor_size: (u32, u32),
+    monitor_scale: f64,
+) -> ((u32, u32), (i32, i32)) {
+    let (logical_w, logical_h) = if expanded || cfg.notch_pinned {
+        (NOTCH_W * cfg.notch_scale, NOTCH_H * cfg.notch_scale)
+    } else {
+        (COMPACT_W, COMPACT_H)
+    };
+    let width = (logical_w * monitor_scale).round().max(1.0) as u32;
+    let height = (logical_h * monitor_scale).round().max(1.0) as u32;
+    let x = if cfg.notch_side == "left" {
+        monitor_position.0
+    } else {
+        monitor_position.0 + monitor_size.0 as i32 - width as i32
+    };
+    let monitor_height = monitor_size.1 as i32;
+    let y = (monitor_position.1 as f64 + monitor_height as f64 * cfg.notch_y.clamp(0.0, 1.0)
+        - height as f64 / 2.0)
+        .round() as i32;
+    let y = y.clamp(
+        monitor_position.1,
+        monitor_position.1 + (monitor_height - height as i32).max(0),
+    );
+    ((width, height), (x, y))
+}
+
+#[derive(Debug, Deserialize)]
+struct NotchUiUpdate {
+    side: String,
+    position: f64,
+    scale: f64,
+    providers: Vec<String>,
+    pinned: bool,
 }
 
 fn resolved_lang(raw: &str) -> String {
@@ -59,51 +126,54 @@ pub fn broadcast(app: &AppHandle) {
     let _ = app.emit("state", &snap);
 }
 
-/// Pins the notch to the right edge of the primary monitor; the other edges are a later milestone.
+/// Places either the full notch or its compact resting bar on the selected edge of the primary monitor.
 pub fn place_notch(app: &AppHandle) {
     let Some(w) = app.get_webview_window("notch") else {
         return;
     };
     let scale = w.scale_factor().unwrap_or(1.0);
     if let Ok(Some(mon)) = w.primary_monitor() {
-        // Two monitors at different scales (150 % and 200 % in practice): the physical size can
-        // end up converted with the *other* monitor's scale factor depending on where the window
-        // is created and then moved, leaving the WebView ~256 logical px wide instead of 340.
-        // So the physical size is pinned straight from mon.scale_factor() before placing the
-        // window; if it still reports a different scale afterwards, it is pinned once more.
-        let ms = mon.scale_factor();
-        let target = tauri::PhysicalSize::new((NOTCH_W * ms).round() as u32, (NOTCH_H * ms).round() as u32);
-        let _ = w.set_size(target);
-        // Position from the window's measured physical size — deriving it from the scale factor
-        // pushed the window past the right edge at 125 % / 150 % (the ring's right side was clipped).
-        let (ww, wh) = w
-            .outer_size()
-            .ok()
-            .filter(|s| s.width > 0 && s.height > 0)
-            .map(|s| (s.width as i32, s.height as i32))
-            .unwrap_or((target.width as i32, target.height as i32));
-        let x = mon.position().x + mon.size().width as i32 - ww;
-        // Vertical position comes from the configured ratio (the pill can be dragged; it persists), clamped to the monitor
-        let ratio = {
+        let cfg = {
             let st = app.state::<AppState>();
-            let c = st.cfg.lock().unwrap();
-            c.notch_y.clamp(0.0, 1.0)
+            let cfg = st.cfg.lock().unwrap().clone();
+            cfg
         };
-        let mh = mon.size().height as i32;
-        let y = (mon.position().y as f64 + mh as f64 * ratio - wh as f64 / 2.0).round() as i32;
-        let y = y.clamp(mon.position().y, mon.position().y + (mh - wh).max(0));
+        let expanded = cfg.notch_pinned
+            || SHELL_EXPANDED.load(std::sync::atomic::Ordering::SeqCst);
+        let ms = mon.scale_factor();
+        let ((target_w, target_h), (x, y)) = notch_geometry(
+            &cfg,
+            expanded,
+            (mon.position().x, mon.position().y),
+            (mon.size().width, mon.size().height),
+            ms,
+        );
+        let target = tauri::PhysicalSize::new(target_w, target_h);
+        let _ = w.set_size(target);
+        // Resize is asynchronous on GTK/Windows, so use the requested target rather than the
+        // temporarily stale outer_size. This keeps the chosen edge fixed during expansion.
+        let (ww, wh) = (target.width as i32, target.height as i32);
         let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
-        if w.outer_size().map(|s| s.width != target.width).unwrap_or(false) {
-            let _ = w.set_size(target);
-            let x = mon.position().x + mon.size().width as i32 - target.width as i32;
-            let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+        #[cfg(target_os = "linux")]
+        {
+            // GTK applies resize asynchronously. KWin clamps the first move using the old width
+            // (340 px while retracting), so re-anchor after the new geometry reached X11.
+            let delayed = w.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(60));
+                let _ = delayed.set_size(target);
+                std::thread::sleep(std::time::Duration::from_millis(20));
+                let _ = delayed.set_position(tauri::PhysicalPosition::new(x, y));
+            });
         }
         // Placement log line: the first thing to check when the notch is not visible
         let log = config::config_path().with_file_name("run.log");
         let _ = std::fs::write(
             log,
             format!(
-                "notch placed build={BUILD}: pos=({x},{y}) size=({ww}x{wh}) inner={:?} win_scale={scale} mon_scale={ms} monitor=({},{} {}x{})\n",
+                "notch placed build={BUILD}: expanded={expanded} side={} scale={:.2} pos=({x},{y}) size=({ww}x{wh}) inner={:?} win_scale={scale} mon_scale={ms} monitor=({},{} {}x{})\n",
+                cfg.notch_side,
+                cfg.notch_scale,
                 w.inner_size().map(|s| (s.width, s.height)).unwrap_or((0, 0)),
                 mon.position().x,
                 mon.position().y,
@@ -237,6 +307,21 @@ fn noactivate(app: &AppHandle) {
 #[cfg(not(windows))]
 fn noactivate(_app: &AppHandle) {}
 
+/// Wry creates its GTK WebView with a 200 × 200 size request. Without clearing that request GTK
+/// refuses to shrink the containing window to the 10 × 88 resting bar.
+#[cfg(target_os = "linux")]
+fn allow_compact_window(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("notch") {
+        let _ = w.with_webview(|webview| {
+            use gtk::prelude::WidgetExt;
+            webview.inner().set_size_request(1, 1);
+        });
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn allow_compact_window(_app: &AppHandle) {}
+
 // ---------------- commands ----------------
 
 #[tauri::command]
@@ -244,6 +329,48 @@ fn get_state(state: tauri::State<AppState>) -> state::Snapshot {
     let store = state.store.lock().unwrap();
     let cfg = state.cfg.lock().unwrap();
     store.snapshot(&cfg.lang, &resolved_lang(&cfg.lang), false)
+}
+
+#[tauri::command]
+fn get_notch_config(state: tauri::State<AppState>) -> NotchUiConfig {
+    let cfg = state.cfg.lock().unwrap();
+    NotchUiConfig::from(&*cfg)
+}
+
+#[tauri::command]
+fn set_notch_config(app: AppHandle, update: NotchUiUpdate) -> NotchUiConfig {
+    let ui = {
+        let st = app.state::<AppState>();
+        let mut cfg = st.cfg.lock().unwrap();
+        cfg.notch_side = update.side;
+        cfg.notch_y = update.position;
+        cfg.notch_scale = update.scale;
+        cfg.visible_providers = update.providers;
+        cfg.notch_pinned = update.pinned;
+        cfg.normalize_notch();
+        config::save(&cfg);
+        NotchUiConfig::from(&*cfg)
+    };
+    if ui.pinned {
+        SHELL_EXPANDED.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    place_notch(&app);
+    let _ = app.emit("notch_config", &ui);
+    ui
+}
+
+#[tauri::command]
+fn set_shell_expanded(app: AppHandle, expanded: bool) -> bool {
+    let pinned = {
+        let st = app.state::<AppState>();
+        let pinned = st.cfg.lock().unwrap().notch_pinned;
+        pinned
+    };
+    let actual = expanded || pinned;
+    SHELL_EXPANDED.store(actual, std::sync::atomic::Ordering::SeqCst);
+    place_notch(&app);
+    let _ = app.emit("shell_expanded", actual);
+    actual
 }
 
 #[tauri::command]
@@ -627,6 +754,7 @@ fn main() {
 
     let cfg = config::load();
     let port = cfg.port;
+    SHELL_EXPANDED.store(cfg.notch_pinned, std::sync::atomic::Ordering::SeqCst);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -647,6 +775,9 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             get_state,
+            get_notch_config,
+            set_notch_config,
+            set_shell_expanded,
             get_usage,
             get_codex,
             get_cursor,
@@ -667,6 +798,7 @@ fn main() {
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
+            allow_compact_window(&handle);
             #[cfg(not(target_os = "linux"))]
             place_notch(&handle);
             noactivate(&handle);
@@ -734,4 +866,41 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("Codenotch failed to start");
+}
+
+#[cfg(test)]
+mod notch_geometry_tests {
+    use super::*;
+
+    #[test]
+    fn resting_bar_and_full_notch_share_the_exact_edge_and_vertical_anchor() {
+        let cfg = config::Config::default();
+        let monitor_position = (1920, 0);
+        let monitor_size = (1920, 1080);
+        let (full_size, full_pos) =
+            notch_geometry(&cfg, true, monitor_position, monitor_size, 1.0);
+        let (bar_size, bar_pos) =
+            notch_geometry(&cfg, false, monitor_position, monitor_size, 1.0);
+
+        assert_eq!(full_size, (279, 377));
+        assert_eq!(bar_size, (10, 88));
+        assert_eq!(full_pos.0 + full_size.0 as i32, 3840);
+        assert_eq!(bar_pos.0 + bar_size.0 as i32, 3840);
+        let full_center = full_pos.1 as f64 + full_size.1 as f64 / 2.0;
+        let bar_center = bar_pos.1 as f64 + bar_size.1 as f64 / 2.0;
+        assert!((full_center - bar_center).abs() <= 0.5);
+    }
+
+    #[test]
+    fn left_edge_setting_keeps_both_states_on_the_same_edge() {
+        let cfg = config::Config {
+            notch_side: "left".into(),
+            notch_y: 0.25,
+            ..Default::default()
+        };
+        let (_, full_pos) = notch_geometry(&cfg, true, (1920, 0), (1920, 1080), 1.0);
+        let (_, bar_pos) = notch_geometry(&cfg, false, (1920, 0), (1920, 1080), 1.0);
+        assert_eq!(full_pos.0, 1920);
+        assert_eq!(bar_pos.0, 1920);
+    }
 }

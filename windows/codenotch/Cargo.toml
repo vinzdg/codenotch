@@ -36,3 +36,6 @@ windows = { version = "0.58", features = [
   "Win32_Globalization",
   "Win32_System_Console",
 ] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"

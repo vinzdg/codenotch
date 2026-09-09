@@ -96,12 +96,67 @@
     background:rgba(0,0,0,.85);border-radius:8px;padding:4px 8px;display:none
   }
   #notice.show{display:block}
+
+  /* Unpinned resting state: only this small black grab bar occupies the screen edge. */
+  #edgebar{
+    display:none;position:absolute;inset:0;background:#000;border:1px solid #343434;
+    border-right:none;border-radius:6px 0 0 6px;cursor:pointer;
+  }
+  body.compact #edgebar{display:block}
+  body.compact #pill,body.compact #card,body.compact #settings,body.compact #notice{display:none!important}
+
+  /* The same design can be pinned to either side of the primary monitor. */
+  body.side-left #pill{left:0;right:auto;border-radius:0 20px 20px 0;border-left:none;border-right:1px solid #2e2e2e}
+  body.side-left #pill::before,body.side-left #pill::after{left:0;right:auto}
+  body.side-left #pill::before{background:radial-gradient(circle at 100% 0,transparent calc(var(--fillet) - 1.5px),#2e2e2e calc(var(--fillet) - .5px),#000 calc(var(--fillet) + .5px))}
+  body.side-left #pill::after{background:radial-gradient(circle at 100% 100%,transparent calc(var(--fillet) - 1.5px),#2e2e2e calc(var(--fillet) - .5px),#000 calc(var(--fillet) + .5px))}
+  body.side-left #card{left:80px;right:10px;margin-left:0;margin-right:auto}
+  body.side-left #card::after{left:-8px;right:auto;border-left:0;border-right:10px solid #0a0a0a}
+  body.side-left #notice{left:80px;right:8px}
+  body.side-left #edgebar{border-left:none;border-right:1px solid #343434;border-radius:0 6px 6px 0}
+
+  /* Custom context menu: it fits the same safe area as the usage card. */
+  #settings{
+    display:none;position:absolute;left:8px;right:80px;top:50%;transform:translateY(-50%);
+    max-width:252px;margin-left:auto;padding:14px;background:#0b0b0c;border:1px solid #303033;
+    border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.45);font-size:12px;
+  }
+  #settings.show{display:block}
+  body.side-left #settings{left:80px;right:8px;margin-left:0;margin-right:auto}
+  .settings-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .settings-title{font-size:14px;font-weight:700}
+  .settings-close{border:0;background:transparent;color:#aaa;font-size:18px;line-height:1;cursor:pointer;padding:0 2px}
+  .setting{display:grid;grid-template-columns:82px 1fr;align-items:center;gap:8px;margin:8px 0}
+  .setting label{color:#aaa}
+  .setting select,.setting input[type="range"]{width:100%}
+  .setting select{-webkit-appearance:none;appearance:none;background:#e9e9ec;color:#161618;border:1px solid #5a5a60;border-radius:7px;padding:5px 7px;font-weight:600}
+  .provider-options{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:7px 0 10px}
+  .provider-options label,.pin-row{display:flex;align-items:center;gap:6px;color:#ddd}
+  .settings-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:11px}
+  .settings-actions button{border:1px solid #3a3a3e;border-radius:8px;padding:6px 10px;background:#19191c;color:#eee;cursor:pointer}
+  .settings-actions .primary{background:#fff;color:#111;border-color:#fff;font-weight:700}
 </style>
 </head>
-<body>
+<body class="compact side-right">
 <div id="root">
+  <div id="edgebar" title="Codenotch — hover to open, right-click for settings"></div>
   <div id="card"></div>
   <div id="pill"></div><!-- one .cell per provider, stacked vertically (upstream: data-driven, the same layout for 1–5 cells) -->
+  <form id="settings">
+    <div class="settings-head"><span class="settings-title">Codenotch</span><button class="settings-close" type="button" aria-label="Close">×</button></div>
+    <div class="setting"><label for="setting-side">Lato</label><select id="setting-side"><option value="right">Destra</option><option value="left">Sinistra</option></select></div>
+    <div class="setting"><label for="setting-position">Posizione</label><input id="setting-position" type="range" min="8" max="92" step="1"></div>
+    <div class="setting"><label for="setting-size">Dimensione</label><select id="setting-size"><option value="0.70">Piccola</option><option value="0.82">Compatta</option><option value="1">Normale</option><option value="1.15">Grande</option></select></div>
+    <div class="setting"><label>Servizi</label><span></span></div>
+    <div class="provider-options">
+      <label><input type="checkbox" name="provider" value="claude">Claude</label>
+      <label><input type="checkbox" name="provider" value="codex">Codex</label>
+      <label><input type="checkbox" name="provider" value="cursor">Cursor</label>
+      <label><input type="checkbox" name="provider" value="gemini">Antigravity</label>
+    </div>
+    <label class="pin-row"><input id="setting-pin" type="checkbox"> Mantieni il notch visibile</label>
+    <div class="settings-actions"><button id="settings-cancel" type="button">Annulla</button><button class="primary" type="submit">Applica</button></div>
+  </form>
   <div id="notice"></div>
 </div>
 <script>
@@ -119,6 +174,8 @@ let cursorSnap={status:'absent',windows:[],fetched_at:0,note:''};
 let agSnap={status:'absent',windows:[],fetched_at:0,note:''};
 let glyphs={}; // id → {kind:'mark'|'appicon', url}
 let activity=[]; // working state of the non-Claude providers: {provider,state:'busy'|'waiting',name,detail,since}
+let notchConfig={side:'right',position:.5,scale:.82,providers:['claude','codex','cursor','gemini'],pinned:false};
+let shellExpanded=false, settingsOpen=false;
 // "Is it working?" per provider: Claude from the four-state engine, the others from the activity probe. Returns running | attention | idle
 function workState(id){
   if(id==='claude'){
@@ -141,11 +198,15 @@ function glyphHtml(p,small){
 }
 // Provider table (order = top to bottom in the pill). `glyph` is the fallback letter used when no mark is available
 function providers(){
-  const list=[{id:'claude',name:'Claude',glyph:'C',snap:usage}];
-  if(codexSnap.status!=='absent') list.push({id:'codex',name:'Codex',glyph:'Cx',snap:codexSnap});
-  if(cursorSnap.status!=='absent') list.push({id:'cursor',name:'Cursor',glyph:'Cu',snap:cursorSnap});
-  if(agSnap.status!=='absent') list.push({id:'gemini',name:'Antigravity',glyph:'Ag',snap:agSnap});
-  return list;
+  const all=[
+    {id:'claude',name:'Claude',glyph:'C',snap:usage},
+    {id:'codex',name:'Codex',glyph:'Cx',snap:codexSnap},
+    {id:'cursor',name:'Cursor',glyph:'Cu',snap:cursorSnap},
+    {id:'gemini',name:'Antigravity',glyph:'Ag',snap:agSnap},
+  ];
+  const chosen=all.filter(p=>notchConfig.providers.includes(p.id));
+  const available=chosen.filter(p=>p.id==='claude'||p.snap.status!=='absent');
+  return available.length?available:chosen;
 }
 function headlineOf(snap){
   if(!snap.windows.length) return null;
@@ -226,6 +287,7 @@ let hoverId='claude';
 function renderCard(){
   const c=document.getElementById('card');
   const p=providers().find(x=>x.id===hoverId)||providers()[0];
+  if(!p){c.innerHTML='';return;}
   const snap=p.snap;
   const headIcon=glyphHtml(p,true);
   let html=`<div class="c-head">${headIcon}<span class="c-title">${p.name} Usage</span></div>`;
@@ -286,12 +348,52 @@ function placeCard(){
 
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}
 
-/* Hover: stays expanded while either the pill or the card is under the cursor; collapses after a 250 ms grace period (upstream motion rule) */
+/* Resting shell + hover: an unpinned notch retracts to a real 10 px window, then grows inward. */
 const card=document.getElementById('card'), pill=document.getElementById('pill');
-let hideTimer=null;
-function showCard(){clearTimeout(hideTimer);card.classList.add('show');renderCard();armWatchdog();} // show first, then render: placeCard needs offsetHeight
+const edgebar=document.getElementById('edgebar'), settings=document.getElementById('settings');
+let hideTimer=null, shellBusy=false;
+function syncShellClasses(){
+  document.body.classList.toggle('compact',!shellExpanded);
+  document.body.classList.toggle('side-left',notchConfig.side==='left');
+  document.body.classList.toggle('side-right',notchConfig.side!=='left');
+}
+function useConfig(cfg){
+  notchConfig=cfg||notchConfig;
+  if(notchConfig.pinned)shellExpanded=true;
+  const ps=providers();
+  if(!ps.some(p=>p.id===hoverId))hoverId=(ps[0]&&ps[0].id)||'claude';
+  syncShellClasses();renderRing();
+  if(card.classList.contains('show'))renderCard();
+}
+function showCard(){
+  if(settingsOpen||!shellExpanded)return;
+  clearTimeout(hideTimer);card.classList.add('show');renderCard();armWatchdog();
+}
 function hideCard(){card.classList.remove('show');invoke('set_expanded',{on:false,rects:null}).catch(()=>{});}
-function scheduleHide(){clearTimeout(hideTimer);hideTimer=setTimeout(hideCard,250);}
+async function expandShell(showUsage=true){
+  clearTimeout(hideTimer);
+  if(shellBusy)return;
+  if(!shellExpanded){
+    shellBusy=true;
+    try{shellExpanded=await callq('set_shell_expanded',{expanded:true});}
+    finally{shellBusy=false;}
+    syncShellClasses();
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    reportDpr();renderRing();
+  }
+  if(showUsage&&!settingsOpen)showCard();
+}
+async function collapseShell(){
+  if(notchConfig.pinned||settingsOpen||shellBusy)return;
+  hideCard();shellBusy=true;
+  try{shellExpanded=await callq('set_shell_expanded',{expanded:false});}
+  finally{shellBusy=false;}
+  syncShellClasses();reportDpr();
+}
+function scheduleHide(){
+  clearTimeout(hideTimer);
+  hideTimer=setTimeout(()=>{hideCard();collapseShell();},350);
+}
 // ===== Diagnostics + geometry =====
 function jslog(m){invoke('log_js',{msg:String(m)}).catch(()=>{});}
 function callq(cmd,args){ // invoke with visible failure: any command error is reported on screen (a silent .catch used to swallow them)
@@ -302,13 +404,17 @@ function callq(cmd,args){ // invoke with visible failure: any command error is r
 function rectOf(el){const r=el.getBoundingClientRect(),k=window.devicePixelRatio||1;return [r.left*k,r.top*k,r.width*k,r.height*k];}
 function armWatchdog(){
   requestAnimationFrame(()=>{ // wait one frame so renderCard's new content is laid out before measuring
-    if(!card.classList.contains('show'))return;
-    callq('set_expanded',{on:true,rects:[rectOf(pill),rectOf(card)]}).catch(()=>{});
+    if(!shellExpanded)return;
+    const rects=[rectOf(pill)];
+    if(card.classList.contains('show'))rects.push(rectOf(card));
+    if(settingsOpen)rects.push(rectOf(settings));
+    callq('set_expanded',{on:true,rects}).catch(()=>{});
   });
 }
 // Viewport fit (pure front-end fallback, independent of Rust): the window is 340 × primary scale physical px,
 // so if this page's CSS viewport is not 340 wide the WebView's DPR disagrees with the monitor; CSS zoom pulls the layout back to the design size.
 function fitZoom(){
+  if(!shellExpanded){document.documentElement.style.zoom='';return 1;}
   const z=innerWidth/340;
   document.documentElement.style.zoom=(Math.abs(z-1)>0.02)?String(z):'';
   return z;
@@ -331,33 +437,80 @@ function cellAt(x,y){
   return null;
 }
 function pointerInHot(x,y){
+  if(!shellExpanded)return inRect(x,y,edgebar.getBoundingClientRect(),2);
   const p=pill.getBoundingClientRect();
   if(inRect(x,y,p,4))return true;
-  if(!card.classList.contains('show'))return false;
-  const c=card.getBoundingClientRect();
-  if(inRect(x,y,c,4))return true;
-  const u={left:Math.min(p.left,c.left),top:Math.min(p.top,c.top),right:Math.max(p.right,c.right),bottom:Math.max(p.bottom,c.bottom)};
+  const open=settingsOpen?settings:(card.classList.contains('show')?card:null);
+  if(!open)return false;
+  const r=open.getBoundingClientRect();
+  if(inRect(x,y,r,4))return true;
+  const u={left:Math.min(p.left,r.left),top:Math.min(p.top,r.top),right:Math.max(p.right,r.right),bottom:Math.max(p.bottom,r.bottom)};
   return inRect(x,y,u,0);
 }
 let hideLogged=0;
+edgebar.addEventListener('mouseenter',()=>expandShell(true));
 document.addEventListener('mousemove',e=>{
-  if(dragging)return; // no card while dragging
+  if(dragging||!shellExpanded)return; // no card while dragging or retracted
   const hot=pointerInHot(e.clientX,e.clientY);
   if(hot){
     clearTimeout(hideTimer);
+    if(settingsOpen)return;
     const id=cellAt(e.clientX,e.clientY);
     if(id&&id!==hoverId){ hoverId=id; if(card.classList.contains('show')){ renderCard(); armWatchdog(); } }
     if(!card.classList.contains('show')) showCard();
   }
-  else if(card.classList.contains('show')){ if(hideLogged++<5) jslog(`mousemove left the hot area -> collapse at ${e.clientX},${e.clientY}`); scheduleHide(); }
+  else if(!notchConfig.pinned||card.classList.contains('show')){ if(hideLogged++<5) jslog(`mousemove left the hot area -> collapse at ${e.clientX},${e.clientY}`); scheduleHide(); }
 });
 document.addEventListener('mouseout',e=>{ // relatedTarget null = the cursor left the page
-  if(!e.relatedTarget && card.classList.contains('show')){ if(hideLogged++<5) jslog('mouseout left the page -> collapse'); scheduleHide(); }
+  if(!e.relatedTarget&&shellExpanded&&!settingsOpen){if(hideLogged++<5)jslog('mouseout left the page -> collapse');scheduleHide();}
 });
-listen('pointer_left',()=>{clearTimeout(hideTimer);hideCard();}).catch(()=>{});
+listen('pointer_left',()=>{if(!settingsOpen){clearTimeout(hideTimer);hideCard();collapseShell();}}).catch(()=>{});
 // Card content changes change its height -> report the hot rectangles again
 listen('usage',()=>{if(card.classList.contains('show'))armWatchdog();}).catch(()=>{});
 listen('state',()=>{if(card.classList.contains('show'))armWatchdog();}).catch(()=>{});
+
+function fillSettings(){
+  document.getElementById('setting-side').value=notchConfig.side;
+  document.getElementById('setting-position').value=String(Math.round(notchConfig.position*100));
+  document.getElementById('setting-size').value=String(notchConfig.scale);
+  if(!document.getElementById('setting-size').value)document.getElementById('setting-size').value='0.82';
+  document.getElementById('setting-pin').checked=notchConfig.pinned;
+  for(const box of settings.querySelectorAll('input[name="provider"]'))box.checked=notchConfig.providers.includes(box.value);
+}
+async function openSettings(){
+  clearTimeout(hideTimer);await expandShell(false);hideCard();
+  settingsOpen=true;fillSettings();settings.classList.add('show');armWatchdog();
+}
+function closeSettings(){
+  settingsOpen=false;settings.classList.remove('show');
+  if(!notchConfig.pinned)collapseShell().catch(err=>notice(String(err)));
+}
+document.addEventListener('contextmenu',e=>{
+  e.preventDefault();
+  if(settingsOpen&&settings.contains(e.target))return;
+  openSettings().catch(err=>notice(String(err)));
+});
+settings.querySelector('.settings-close').addEventListener('click',closeSettings);
+document.getElementById('settings-cancel').addEventListener('click',closeSettings);
+settings.addEventListener('submit',async e=>{
+  e.preventDefault();
+  const selected=[...settings.querySelectorAll('input[name="provider"]:checked')].map(box=>box.value);
+  if(!selected.length){notice('Seleziona almeno un servizio.');return;}
+  const update={
+    side:document.getElementById('setting-side').value,
+    position:Number(document.getElementById('setting-position').value)/100,
+    scale:Number(document.getElementById('setting-size').value),
+    providers:selected,
+    pinned:document.getElementById('setting-pin').checked,
+  };
+  try{
+    const saved=await callq('set_notch_config',{update});
+    useConfig(saved);settingsOpen=false;settings.classList.remove('show');
+    notice('Impostazioni salvate.');
+    if(!saved.pinned)await collapseShell();else{shellExpanded=true;syncShellClasses();}
+  }catch(_){/* callq already reports the failure */}
+});
+
 /* The pill can be dragged up and down the right edge. Press and move more than 4 px = drag (handed to Rust,
    which follows the system cursor; the card is collapsed first); release without moving = click (opens the provider's usage page). */
 let press=null, dragging=false;
@@ -387,6 +540,8 @@ listen('usage',e=>{usage=e.payload||usage;renderRing();if(card.classList.contain
 listen('state',e=>{stateSnap=e.payload||stateSnap;renderRing();if(card.classList.contains('show'))renderCard();})
   .catch(e=>notice('listen(state) failed: '+e));
 listen('notice',e=>notice(e.payload)).catch(()=>{});
+listen('notch_config',e=>useConfig(e.payload)).catch(()=>{});
+listen('shell_expanded',e=>{shellExpanded=!!e.payload;syncShellClasses();}).catch(()=>{});
 listen('codex',e=>{codexSnap=e.payload||codexSnap;renderRing();if(card.classList.contains('show'))renderCard();}).catch(()=>{});
 listen('cursor',e=>{cursorSnap=e.payload||cursorSnap;renderRing();if(card.classList.contains('show'))renderCard();}).catch(()=>{});
 invoke('get_cursor').then(u=>{cursorSnap=u||cursorSnap;renderRing();}).catch(()=>{});
@@ -396,6 +551,13 @@ listen('glyphs',e=>{glyphs=e.payload||glyphs;renderRing();if(card.classList.cont
 listen('activity',e=>{activity=e.payload||activity;renderRing();if(card.classList.contains('show'))renderCard();}).catch(()=>{});
 invoke('get_activity').then(a=>{activity=a||activity;renderRing();}).catch(()=>{});
 invoke('get_glyphs').then(g=>{glyphs=g||glyphs;renderRing();}).catch(()=>{});
+invoke('get_notch_config').then(async cfg=>{
+  useConfig(cfg);
+  // WebKitGTK can restore the configured 340 x 460 bootstrap size while loading the page.
+  // Re-apply the desired shell once the frontend is ready so the resting bar keeps its exact anchor.
+  shellExpanded=await callq('set_shell_expanded',{expanded:!!cfg.pinned});
+  syncShellClasses();reportDpr();
+}).catch(e=>notice('get_notch_config failed: '+e));
 invoke('get_codex').then(u=>{codexSnap=u||codexSnap;renderRing();}).catch(()=>{});
 invoke('get_usage').then(u=>{usage=u||usage;renderRing();}).catch(e=>notice('get_usage failed: '+e));
 invoke('get_state').then(s=>{stateSnap=s||stateSnap;renderRing();}).catch(()=>{});
