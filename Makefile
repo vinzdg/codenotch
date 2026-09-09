@@ -27,23 +27,13 @@ DEST    ?= platform=macOS,arch=$(ARCH)
 # "Signing for Codenotch requires a development team", on every target.
 HAS_DEVELOPER_ID := $(shell security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application")
 
-# A personal "Apple Development" certificate, where there is one, is preferred
-# over ad-hoc for exactly the reason the maintainer's identity is: it is
-# stable, so a keychain "Always Allow" grant survives the next rebuild, and
-# working on the credential-reading paths does not mean re-granting after every
-# build. Read its team from a valid signing identity: a certificate can remain
-# in the keychain without its private key, and choosing it would fail the
-# build. With nothing parsed, ad-hoc is the fallback and needs no Apple account.
-DEV_TEAM := $(shell security find-identity -v -p codesigning 2>/dev/null \
-	| sed -n 's/.*"Apple Development: .* (\([A-Z0-9]*\))".*/\1/p' | head -1)
-
+# For contributors, always fall back to ad-hoc signing. Using an "Apple Development"
+# certificate with manual signing on newer Xcode versions often expects a provisioning
+# profile or legacy "Mac Development" certificate, which breaks local `make run`.
+# Ad-hoc signing ensures the build works out of the box for anyone without an Apple
+# Developer account or provisioning profile.
 ifeq (,$(HAS_DEVELOPER_ID))
-ifeq (,$(DEV_TEAM))
 DEV_SIGN := CODE_SIGN_IDENTITY="-" DEVELOPMENT_TEAM="" CODE_SIGN_STYLE=Automatic
-else
-DEV_SIGN := CODE_SIGN_IDENTITY="Apple Development" CODE_SIGN_STYLE=Manual \
-	DEVELOPMENT_TEAM="$(DEV_TEAM)" PROVISIONING_PROFILE_SPECIFIER=""
-endif
 endif
 
 .PHONY: gen build test test-ci run install clean
