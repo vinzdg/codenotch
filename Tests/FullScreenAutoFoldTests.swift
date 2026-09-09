@@ -109,4 +109,24 @@ final class FullScreenAutoFoldTests: XCTestCase {
         controller.handleActiveSpaceOrAppChange()
         XCTAssertTrue(controller.model.isExpanded, "Always-on notch should unfold again when leaving full screen")
     }
+
+    func testDetectorFindsFullScreenWindowOnNotchedDisplay() {
+        let screen = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let pid: pid_t = 61634
+        // On a MacBook with camera notch, native full-screen windows start below the notch (y ≈ 33)
+        // and reach the bottom of the screen (height = 949, 33 + 949 = 982).
+        let windows: [(pid: pid_t, layer: Int, bounds: CGRect)] = [
+            (pid: pid, layer: 0, bounds: CGRect(x: 0, y: 33, width: 1512, height: 949))
+        ]
+
+        XCTAssertTrue(
+            FullScreenDetector.isFullScreen(
+                screenBounds: screen,
+                frontmostPID: pid,
+                windows: windows,
+                safeAreaTopInset: 32
+            ),
+            "Must detect full-screen window on a notched MacBook"
+        )
+    }
 }
