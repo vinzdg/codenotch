@@ -1,0 +1,24 @@
+command	category	module	platforms	description
+run	safe	project	all	Run the project entry point
+setup	modifying	project	all	Install dependencies and prepare the project
+check	safe	project	all	Static checks (config + health)
+ci	safe	project	all	Full local pipeline (check + tests)
+status	safe	project	all	Show project and platform status
+platform	safe	project	all	Detect the current platform
+platforms	safe	project	all	List every supported platform
+health	safe	project	all	Check required tools for this platform
+health-all	safe	project	all	Check tools across all platforms
+cure-plan	safe	project	all	Show what cure would install (dry-run)
+cure	confirm	project	all	Install missing required tools
+doctor	safe	project	all	Full environment diagnostics
+pending	safe	project	all	Show detected-but-unavailable commands (background)
+version	safe	project	all	Show native macOS and Rust/Tauri project versions
+config init	modifying	config	all	Create .env from .env.example
+config check	safe	config	all	Verify required env vars are set
+config diff	safe	config	all	Diff .env keys against .env.example
+tests all	safe	tests	all	Run every test suite
+desktop build	safe	desktop	arch,debian	Build the Rust/Tauri workspace in release mode
+desktop run	safe	desktop	arch,debian	Run the Rust/Tauri Codenotch application
+desktop doctor	safe	desktop	arch,debian	Run Codenotch provider and environment diagnostics
+arch build	safe	arch	arch	Build debug Codenotch and hook binaries on Arch Linux
+arch release	safe	arch	arch	Build optimized Codenotch and hook binaries on Arch Linux

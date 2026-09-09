@@ -1,0 +1,2 @@
+id	arch	debian	macos	windows	required	platforms	description
+appindicator	libayatana-appindicator|libappindicator	libayatana-appindicator3-dev|libappindicator3-dev	-	-	required	arch,debian	Dynamic AppIndicator library required when Tauri initializes the tray

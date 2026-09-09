@@ -297,7 +297,8 @@ function jslog(m){invoke('log_js',{msg:String(m)}).catch(()=>{});}
 function callq(cmd,args){ // invoke with visible failure: any command error is reported on screen (a silent .catch used to swallow them)
   return invoke(cmd,args).catch(e=>{notice(cmd+' failed: '+(e&&e.message||e));throw e;});
 }
-// Hot rectangles are reported in physical pixels (multiplied by this page's real DPR), so the Rust side does no conversion — WebView2's DPR and the window scale can disagree
+// Hot rectangles are reported in physical pixels for the Windows/WebView2 pointer watchdog.
+// Linux/WebKitGTK uses the DOM geometry below because Wayland does not expose global coordinates.
 function rectOf(el){const r=el.getBoundingClientRect(),k=window.devicePixelRatio||1;return [r.left*k,r.top*k,r.width*k,r.height*k];}
 function armWatchdog(){
   requestAnimationFrame(()=>{ // wait one frame so renderCard's new content is laid out before measuring
@@ -323,7 +324,7 @@ matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener('cha
 
 /* Collapse test: no trust in element-level mouseenter/mouseleave/e.target at all —
    pure geometry: is the cursor (clientX/Y) inside pill rect ∪ card rect ∪ their bounding box?
-   Leaving the window: document mouseout (relatedTarget=null) plus the Rust watchdog (system cursor) as a second line. */
+   Leaving the window: document mouseout (relatedTarget=null) plus the Windows Rust watchdog as a second line. */
 function inRect(x,y,r,pad){return x>=r.left-pad&&y>=r.top-pad&&x<r.right+pad&&y<r.bottom+pad;}
 function cellAt(x,y){
   for(const el of pill.querySelectorAll('.cell')){ if(inRect(x,y,el.getBoundingClientRect(),6)) return el.dataset.p; }

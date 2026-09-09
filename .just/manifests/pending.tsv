@@ -1,0 +1,21 @@
+command	reason	command_line
+macos-gen	xcodegen unavailable on current Arch host	make gen
+macos-build	xcodegen and xcodebuild unavailable on current Arch host	make build
+macos-test	xcodegen and xcodebuild unavailable on current Arch host	make test
+macos-test-ci	xcodegen and xcodebuild unavailable on current Arch host	make test-ci
+macos-run	xcodegen and xcodebuild unavailable on current Arch host	make run
+macos-install	xcodegen and xcodebuild unavailable on current Arch host	make install
+macos-clean	destructive native-build cleanup intentionally not mapped	make clean
+macos-archive	Developer ID signing workflow requires macOS	make archive
+macos-dmg	hdiutil and Developer ID signing require macOS	make dmg
+macos-notarize	notary profile and macOS required	make notarize
+macos-appcast	Sparkle release tools and signed DMG required	make appcast
+macos-release	maintainer signing and notarization credentials required	make release
+macos-verify-release	Gatekeeper and macOS release artifact required	make verify-release
+macos-publish	remote release upload requires explicit maintainer action	make publish
+macos-build-ci	xcodegen and xcodebuild unavailable on current Arch host	make build-ci
+macos-dmg-ci	xcodegen xcodebuild and hdiutil unavailable on current Arch host	make dmg-ci
+macos-sign-local	macOS keychain and codesign required	Scripts/sign-local.sh
+macos-inspect-antigravity	macOS filesystem and keychain inspection only	Scripts/inspect-antigravity.sh
+shellcheck	shellcheck is not installed	shellcheck Scripts/*.sh .just/scripts/unix/*.sh
+rustfmt	workspace is not currently rustfmt-clean	cargo fmt --manifest-path windows/Cargo.toml --all -- --check

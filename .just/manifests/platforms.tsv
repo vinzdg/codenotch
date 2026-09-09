@@ -1,0 +1,5 @@
+id	detect	manager	install	adapter
+arch	/etc/arch-release or pacman	pacman	sudo pacman -S --needed	.just/adapters/arch.sh
+debian	/etc/debian_version or apt-get	apt-get	sudo apt-get install -y	.just/adapters/debian.sh
+macos	uname -s = Darwin	brew	brew install	.just/adapters/macos.sh
+windows	OS = Windows_NT	winget	winget install -e --id	.just/adapters/windows.ps1

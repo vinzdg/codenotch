@@ -45,6 +45,58 @@ instead, see [Building](#building).
 
 A Windows port — Rust/Tauri 2, same design and providers — lives in [`windows/`](windows/README.md).
 
+## Linux (Arch, experimental)
+
+The Rust/Tauri port under `windows/` is also the Linux codebase. It compiles on
+Arch Linux. In Wayland sessions Codenotch automatically uses XWayland (when
+`DISPLAY` is available), because edge pinning requires global window
+coordinates that native Wayland intentionally does not expose. Set
+`CODENOTCH_NATIVE_WAYLAND=1` to opt out, with the caveat that the compositor may
+ignore the requested position.
+
+Install the Tauri system dependencies, Rust and `just`:
+
+```sh
+sudo pacman -Syu
+sudo pacman -S --needed \
+  base-devel rustup just webkit2gtk-4.1 curl wget file openssl \
+  appmenu-gtk-module libayatana-appindicator librsvg xdotool lsof
+rustup default stable
+```
+
+The package list follows the official
+[Tauri 2 Linux prerequisites](https://v2.tauri.app/start/prerequisites/).
+
+Initialize the project, then choose one of the two Arch build recipes:
+
+```sh
+just setup
+just arch build       # debug: windows/target/debug/{codenotch,codenotch-hook}
+just arch release     # optimized: windows/target/release/{codenotch,codenotch-hook}
+```
+
+For a manual system-wide installation, build the release and install both
+binaries together so the Claude hook can find the main application:
+
+```sh
+just arch release
+sudo install -Dm755 windows/target/release/codenotch /usr/local/bin/codenotch
+sudo install -Dm755 windows/target/release/codenotch-hook /usr/local/bin/codenotch-hook
+codenotch doctor
+codenotch
+```
+
+To remove this manual installation:
+
+```sh
+sudo rm -f /usr/local/bin/codenotch /usr/local/bin/codenotch-hook
+```
+
+This is currently a binary-only installation: it does not install a desktop
+entry, autostart file or pacman package. Those belong to the Linux packaging
+milestone described in
+[`docs/plans/2026-09-09-linux-arch-installation-plan.md`](docs/plans/2026-09-09-linux-arch-installation-plan.md).
+
 ## What it reads
 
 | Provider | Source | How |

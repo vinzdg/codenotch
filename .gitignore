@@ -7,3 +7,14 @@ DerivedData/
 xcuserdata/
 *.xcuserstate
 .swiftpm/
+
+# --- JustfileConfigurator (auto-added) ---
+.env
+/backups/db/*
+!/backups/db/.gitkeep
+/reports/*
+!/reports/.gitkeep
+Justfile.bak
+
+# Local codebase graph and extraction cache
+/graphify-out/

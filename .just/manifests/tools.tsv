@@ -1,0 +1,18 @@
+command	arch	debian	macos	windows	required	platforms	description
+just	just	just	just	Casey.Just	required	arch,debian,macos,windows	Command runner used by every recipe
+bash	bash	bash	bash	-	required	arch,debian,macos	POSIX shell that runs the Unix recipes
+git	git	git	git	Git.Git	required	arch,debian,macos,windows	Version control
+pkg-config	pkgconf	pkg-config	pkg-config	-	required	arch,debian	Native dependency discovery for GTK, WebKitGTK, OpenSSL and librsvg
+cargo	rustup	cargo	rustup-init	Rustlang.Rustup	required	arch,debian	Rust workspace build tool
+rustfmt	rustup	rustfmt	rustup-init	Rustlang.Rustup	optional	arch,debian	Formatter parked until the existing Rust baseline is normalized
+cargo-clippy	rustup	clippy	rustup-init	Rustlang.Rustup	required	arch,debian	Rust static analysis used by just check
+cc|clang|gcc	base-devel	build-essential	llvm	-	required	arch,debian	Native C compiler required by Rust dependencies
+make	base-devel	make	make	GnuWin32.Make	optional	macos	Existing native macOS command wrapper
+xcodegen	-	-	xcodegen	-	optional	macos	Generates the native macOS Xcode project
+xcodebuild	-	-	-	-	optional	macos	Builds and tests the native macOS app
+gh	github-cli	gh	gh	GitHub.cli	optional	macos	Uploads notarized macOS release assets
+lsof	lsof	lsof	lsof	-	optional	arch,debian,macos	Antigravity local bridge process discovery
+tar	tar	tar	gnu-tar	-	optional	arch,debian,macos	Archive packaging for backups and dist
+zip	zip	zip	zip	-	optional	arch,debian,macos	Zip packaging for backups and dist
+python	python	python3	python	Python.Python.3	optional	arch,debian,macos,windows	Static server for the docs dashboard
+powershell.exe|pwsh	-	-	-	Microsoft.PowerShell	required	windows	Shell that runs the Windows recipes

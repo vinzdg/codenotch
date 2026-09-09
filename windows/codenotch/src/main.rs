@@ -24,7 +24,7 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Logical size of the notch window: the 70 pt pill column on the right plus room for the hover card on the left.
 pub const NOTCH_W: f64 = 340.0;
 /// Hand-bumped build tag, written to run.log at startup so a log can always be matched to the exe that wrote it.
-pub const BUILD: &str = "r31";
+pub const BUILD: &str = "r32";
 pub const NOTCH_H: f64 = 460.0; // 300 clipped the card once it held three window blocks plus the session list
 
 pub struct AppState {
@@ -78,8 +78,10 @@ pub fn place_notch(app: &AppHandle) {
         // pushed the window past the right edge at 125 % / 150 % (the ring's right side was clipped).
         let (ww, wh) = w
             .outer_size()
+            .ok()
+            .filter(|s| s.width > 0 && s.height > 0)
             .map(|s| (s.width as i32, s.height as i32))
-            .unwrap_or(((NOTCH_W * scale) as i32, (NOTCH_H * scale) as i32));
+            .unwrap_or((target.width as i32, target.height as i32));
         let x = mon.position().x + mon.size().width as i32 - ww;
         // Vertical position comes from the configured ratio (the pill can be dragged; it persists), clamped to the monitor
         let ratio = {
@@ -340,6 +342,7 @@ fn set_expanded(on: bool, rects: Option<Vec<[f64; 4]>>) {
 }
 
 /// The WebView zoom currently applied (1.0 = uncorrected)
+#[cfg(windows)]
 static ZOOM: Mutex<f64> = Mutex::new(1.0);
 
 pub fn applog(line: &str) {
@@ -357,33 +360,49 @@ pub fn applog(line: &str) {
 /// scale, set_zoom pulls the effective DPR back to that scale, restoring the 340 px width.
 #[tauri::command]
 fn report_dpr(app: AppHandle, dpr: f64, w: f64, h: f64) {
-    let Some(win) = app.get_webview_window("notch") else { return };
-    let want = win
-        .primary_monitor()
-        .ok()
-        .flatten()
-        .map(|m| m.scale_factor())
-        .unwrap_or_else(|| win.scale_factor().unwrap_or(1.0));
-    let mut z = ZOOM.lock().unwrap();
-    let base = if *z > 0.0 { dpr / *z } else { dpr };
-    let target = if base > 0.0 { want / base } else { 1.0 };
-    applog(&format!(
-        "dpr report: dpr={dpr:.3} viewport={w:.0}x{h:.0} monitor_scale={want:.3} zoom_applied={:.3} -> target_zoom={target:.3}",
-        *z
-    ));
-    // Oscillation guard: at most three corrections per process (if the DPR does not follow the zoom, stop chasing it)
-    static APPLIED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-    if (dpr - want).abs() > 0.02
-        && (target - *z).abs() > 0.01
-        && (0.25..=4.0).contains(&target)
-        && APPLIED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 3
+    // This correction exists for WebView2 on Windows. WebKitGTK already keeps its viewport and
+    // monitor scale in sync; changing its zoom can instead create resize/re-render loops.
+    #[cfg(not(windows))]
     {
-        match win.set_zoom(target) {
-            Ok(()) => {
-                *z = target;
-                applog(&format!("dpr correction: set_zoom({target:.3}) ok"));
+        let _ = app;
+        applog(&format!(
+            "dpr report: dpr={dpr:.3} viewport={w:.0}x{h:.0} (native WebKitGTK scaling)"
+        ));
+        return;
+    }
+
+    #[cfg(windows)]
+    {
+        let Some(win) = app.get_webview_window("notch") else {
+            return;
+        };
+        let want = win
+            .primary_monitor()
+            .ok()
+            .flatten()
+            .map(|m| m.scale_factor())
+            .unwrap_or_else(|| win.scale_factor().unwrap_or(1.0));
+        let mut z = ZOOM.lock().unwrap();
+        let base = if *z > 0.0 { dpr / *z } else { dpr };
+        let target = if base > 0.0 { want / base } else { 1.0 };
+        applog(&format!(
+            "dpr report: dpr={dpr:.3} viewport={w:.0}x{h:.0} monitor_scale={want:.3} zoom_applied={:.3} -> target_zoom={target:.3}",
+            *z
+        ));
+        // Oscillation guard: at most three corrections per process (if the DPR does not follow the zoom, stop chasing it)
+        static APPLIED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        if (dpr - want).abs() > 0.02
+            && (target - *z).abs() > 0.01
+            && (0.25..=4.0).contains(&target)
+            && APPLIED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 3
+        {
+            match win.set_zoom(target) {
+                Ok(()) => {
+                    *z = target;
+                    applog(&format!("dpr correction: set_zoom({target:.3}) ok"));
+                }
+                Err(e) => applog(&format!("dpr correction failed: {e}")),
             }
-            Err(e) => applog(&format!("dpr correction failed: {e}")),
         }
     }
 }
@@ -395,6 +414,7 @@ fn report_dpr(app: AppHandle, dpr: f64, w: f64, h: f64) {
 /// "Outside the window" is not the test, though: the window has a 340×460 transparent area, so
 /// the cursor is compared against the hot rectangles the page reports (pill, card, and the gap
 /// between them), and two consecutive misses (300 ms) count as leaving.
+#[cfg(windows)]
 fn start_pointer_watchdog(app: AppHandle) {
     std::thread::spawn(move || {
         let mut miss = 0u8;
@@ -540,6 +560,26 @@ fn attach_console() {
 #[cfg(not(windows))]
 fn attach_console() {}
 
+/// Wayland deliberately does not expose global window/cursor coordinates and compositors are
+/// free to ignore an application's absolute position request. Codenotch is an edge-pinned
+/// utility, so on Linux prefer XWayland when the session provides it. Native Wayland remains the
+/// fallback on Wayland-only systems and can be requested with CODENOTCH_NATIVE_WAYLAND=1.
+#[cfg(target_os = "linux")]
+fn configure_linux_display_backend() {
+    let native_wayland = std::env::var("CODENOTCH_NATIVE_WAYLAND")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    if !native_wayland
+        && std::env::var_os("WAYLAND_DISPLAY").is_some()
+        && std::env::var_os("DISPLAY").is_some()
+    {
+        std::env::set_var("GDK_BACKEND", "x11");
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn configure_linux_display_backend() {}
+
 fn report(r: Result<String, String>) {
     let msg = match r {
         Ok(m) => format!("OK: {m}"),
@@ -551,6 +591,8 @@ fn report(r: Result<String, String>) {
 }
 
 fn main() {
+    // Must run before Tauri/GTK is initialized.
+    configure_linux_display_backend();
     attach_console();
     let args: Vec<String> = std::env::args().collect();
     if let Some(cmd) = args.get(1) {
@@ -625,10 +667,23 @@ fn main() {
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
+            #[cfg(not(target_os = "linux"))]
             place_notch(&handle);
             noactivate(&handle);
             if let Some(w) = handle.get_webview_window("notch") {
                 let _ = w.show();
+            }
+            // GTK/X11 reports 0x0 for a hidden window. Place it only after it has been realized,
+            // otherwise the right-edge calculation lands one whole monitor width too far right.
+            #[cfg(target_os = "linux")]
+            {
+                place_notch(&handle);
+                applog(&format!(
+                    "linux display: GDK_BACKEND={} WAYLAND_DISPLAY={} DISPLAY={}",
+                    std::env::var("GDK_BACKEND").unwrap_or_else(|_| "auto".into()),
+                    std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "unset".into()),
+                    std::env::var("DISPLAY").unwrap_or_else(|_| "unset".into())
+                ));
             }
             tray::setup(&handle)?;
             server::start(handle.clone(), port);
@@ -641,6 +696,9 @@ fn main() {
             // Collecting glyphs may read icon resources out of a few executables; do it off the main thread and push when done
             let gh = handle.clone();
             std::thread::spawn(move || reload_glyphs(&gh));
+            // The global-coordinate watchdog is a WebView2/Win32 workaround. Native DOM pointer
+            // events are reliable on WebKitGTK; Wayland returns unusable (0,0) global coordinates.
+            #[cfg(windows)]
             start_pointer_watchdog(handle.clone());
             // Seen-clears-it scan
             let acker = handle.clone();

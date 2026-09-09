@@ -1,0 +1,16 @@
+# Normalise line endings across platforms.
+* text=auto eol=lf
+
+# Windows scripts must keep CRLF.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Keep tabs intact in manifests.
+*.tsv text eol=lf
+
+# Treat archives and images as binary.
+*.zip binary
+*.gz  binary
+*.png binary
+*.jpg binary
