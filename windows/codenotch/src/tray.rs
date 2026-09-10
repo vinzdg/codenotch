@@ -82,16 +82,14 @@ fn handle(app: &AppHandle, id: &str) {
         "uninstall" => notice(app, hooks_install::uninstall()),
         "reset" => crate::reset_bar(app),
         "open-data" => {
-            let dir = crate::config::config_path().parent().map(|p| p.to_path_buf()).unwrap_or_default();
+            let dir = crate::config::config_path()
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_default();
             let _ = std::fs::create_dir_all(crate::glyphs::user_dir());
-            let mut cmd = std::process::Command::new("explorer");
-            cmd.arg(dir.as_os_str());
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                cmd.creation_flags(0x0800_0000);
-            }
-            let _ = cmd.spawn();
+            let result = crate::open_target(dir.as_os_str())
+                .map(|_| "Opened the Codenotch data folder.".to_string());
+            notice(app, result);
         }
         "refresh" => {
             {

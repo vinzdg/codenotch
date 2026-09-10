@@ -25,7 +25,7 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Logical size of the notch window: the 70 pt pill column on the right plus room for the hover card on the left.
 pub const NOTCH_W: f64 = 340.0;
 /// Hand-bumped build tag, written to run.log at startup so a log can always be matched to the exe that wrote it.
-pub const BUILD: &str = "r33";
+pub const BUILD: &str = "r36";
 pub const NOTCH_H: f64 = 460.0; // 300 clipped the card once it held three window blocks plus the session list
 const COMPACT_W: f64 = 10.0;
 const COMPACT_H: f64 = 88.0;
@@ -74,29 +74,72 @@ fn notch_geometry(
     expanded: bool,
     monitor_position: (i32, i32),
     monitor_size: (u32, u32),
+    work_area: (i32, i32, u32, u32),
     monitor_scale: f64,
 ) -> ((u32, u32), (i32, i32)) {
-    let (logical_w, logical_h) = if expanded || cfg.notch_pinned {
-        (NOTCH_W * cfg.notch_scale, NOTCH_H * cfg.notch_scale)
+    let full_width = (NOTCH_W * cfg.notch_scale * monitor_scale)
+        .round()
+        .max(1.0) as u32;
+    let full_height = (NOTCH_H * cfg.notch_scale * monitor_scale)
+        .round()
+        .max(1.0) as u32;
+    let (width, height) = if expanded || cfg.notch_pinned {
+        (full_width, full_height)
     } else {
-        (COMPACT_W, COMPACT_H)
+        (
+            (COMPACT_W * monitor_scale).round().max(1.0) as u32,
+            (COMPACT_H * monitor_scale).round().max(1.0) as u32,
+        )
     };
-    let width = (logical_w * monitor_scale).round().max(1.0) as u32;
-    let height = (logical_h * monitor_scale).round().max(1.0) as u32;
     let x = if cfg.notch_side == "left" {
         monitor_position.0
     } else {
         monitor_position.0 + monitor_size.0 as i32 - width as i32
     };
-    let monitor_height = monitor_size.1 as i32;
-    let y = (monitor_position.1 as f64 + monitor_height as f64 * cfg.notch_y.clamp(0.0, 1.0)
-        - height as f64 / 2.0)
-        .round() as i32;
-    let y = y.clamp(
-        monitor_position.1,
-        monitor_position.1 + (monitor_height - height as i32).max(0),
-    );
+
+    // The configured position describes the full notch. Clamp that rectangle once to the
+    // desktop work area, then derive the resting bar from the full notch's actual centre.
+    // Clamping both heights independently puts a compact bar at the top while KWin moves the
+    // larger notch below its panel, so the two visible shapes no longer line up.
+    let work_top = work_area.1.max(monitor_position.1);
+    let work_bottom = (work_area.1 + work_area.3 as i32)
+        .min(monitor_position.1 + monitor_size.1 as i32)
+        .max(work_top);
+    let desired_center = monitor_position.1 as f64
+        + monitor_size.1 as f64 * cfg.notch_y.clamp(0.0, 1.0);
+    let full_y = (desired_center - full_height as f64 / 2.0).round() as i32;
+    let full_y = full_y.clamp(work_top, (work_bottom - full_height as i32).max(work_top));
+    let shared_center = full_y as f64 + full_height as f64 / 2.0;
+    let y = (shared_center - height as f64 / 2.0).round() as i32;
+    let y = y.clamp(work_top, (work_bottom - height as i32).max(work_top));
     ((width, height), (x, y))
+}
+
+#[cfg(target_os = "linux")]
+fn primary_work_area(
+    monitor_position: (i32, i32),
+    monitor_scale: f64,
+) -> Option<(i32, i32, u32, u32)> {
+    use gtk::gdk::prelude::MonitorExt;
+
+    let monitor = gtk::gdk::Display::default()?.primary_monitor()?;
+    let geometry = monitor.geometry();
+    let area = monitor.workarea();
+    let x = monitor_position.0
+        + ((area.x() - geometry.x()) as f64 * monitor_scale).round() as i32;
+    let y = monitor_position.1
+        + ((area.y() - geometry.y()) as f64 * monitor_scale).round() as i32;
+    let width = (area.width().max(1) as f64 * monitor_scale).round() as u32;
+    let height = (area.height().max(1) as f64 * monitor_scale).round() as u32;
+    Some((x, y, width, height))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn primary_work_area(
+    _monitor_position: (i32, i32),
+    _monitor_scale: f64,
+) -> Option<(i32, i32, u32, u32)> {
+    None
 }
 
 #[derive(Debug, Deserialize)]
@@ -141,11 +184,20 @@ pub fn place_notch(app: &AppHandle) {
         let expanded = cfg.notch_pinned
             || SHELL_EXPANDED.load(std::sync::atomic::Ordering::SeqCst);
         let ms = mon.scale_factor();
+        let monitor_position = (mon.position().x, mon.position().y);
+        let monitor_size = (mon.size().width, mon.size().height);
+        let work_area = primary_work_area(monitor_position, ms).unwrap_or((
+            monitor_position.0,
+            monitor_position.1,
+            monitor_size.0,
+            monitor_size.1,
+        ));
         let ((target_w, target_h), (x, y)) = notch_geometry(
             &cfg,
             expanded,
-            (mon.position().x, mon.position().y),
-            (mon.size().width, mon.size().height),
+            monitor_position,
+            monitor_size,
+            work_area,
             ms,
         );
         let target = tauri::PhysicalSize::new(target_w, target_h);
@@ -171,14 +223,18 @@ pub fn place_notch(app: &AppHandle) {
         let _ = std::fs::write(
             log,
             format!(
-                "notch placed build={BUILD}: expanded={expanded} side={} scale={:.2} pos=({x},{y}) size=({ww}x{wh}) inner={:?} win_scale={scale} mon_scale={ms} monitor=({},{} {}x{})\n",
+                "notch placed build={BUILD}: expanded={expanded} side={} scale={:.2} pos=({x},{y}) size=({ww}x{wh}) inner={:?} win_scale={scale} mon_scale={ms} monitor=({},{} {}x{}) workarea=({},{} {}x{})\n",
                 cfg.notch_side,
                 cfg.notch_scale,
                 w.inner_size().map(|s| (s.width, s.height)).unwrap_or((0, 0)),
                 mon.position().x,
                 mon.position().y,
                 mon.size().width,
-                mon.size().height
+                mon.size().height,
+                work_area.0,
+                work_area.1,
+                work_area.2,
+                work_area.3
             ),
         );
     }
@@ -414,18 +470,36 @@ pub fn reload_glyphs(app: &AppHandle) {
     let _ = app.emit("glyphs", &m);
 }
 
-#[tauri::command]
-fn open_data_dir() {
-    let dir = config::config_path().parent().map(|p| p.to_path_buf()).unwrap_or_default();
-    let _ = std::fs::create_dir_all(glyphs::user_dir());
-    let mut cmd = std::process::Command::new("explorer");
-    cmd.arg(dir.as_os_str());
+/// Open a URL or filesystem path with the platform's default application.
+pub(crate) fn open_target(target: &std::ffi::OsStr) -> Result<(), String> {
     #[cfg(windows)]
-    {
+    let mut command = {
         use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    let _ = cmd.spawn();
+        let mut command = std::process::Command::new("cmd");
+        command.args(["/C", "start", ""]);
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        command
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = std::process::Command::new("open");
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = std::process::Command::new("xdg-open");
+
+    command.arg(target);
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Could not open {}: {error}", target.to_string_lossy()))
+}
+
+#[tauri::command]
+fn open_data_dir() -> Result<(), String> {
+    let dir = config::config_path()
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default();
+    let _ = std::fs::create_dir_all(glyphs::user_dir());
+    open_target(dir.as_os_str())
 }
 
 #[tauri::command]
@@ -440,21 +514,14 @@ fn get_codex(state: tauri::State<AppState>) -> usage::UsageSnapshot {
 
 /// A click on a cell opens that provider's usage page
 #[tauri::command]
-fn open_provider_page(provider: String) {
+fn open_provider_page(provider: String) -> Result<(), String> {
     let url = match provider.as_str() {
         "codex" => "https://chatgpt.com/#settings/Account",
         "cursor" => "https://cursor.com/dashboard",
         "gemini" => "https://antigravity.google",
         _ => "https://claude.ai/settings/usage",
     };
-    let mut cmd = std::process::Command::new("cmd");
-    cmd.args(["/C", "start", "", url]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    let _ = cmd.spawn();
+    open_target(std::ffi::OsStr::new(url))
 }
 
 /// Card expansion state: Some(hot rectangles, in **physical pixels** relative to the window's
@@ -603,15 +670,8 @@ fn log_js(msg: String) {
 }
 
 #[tauri::command]
-fn open_usage_page() {
-    let mut cmd = std::process::Command::new("cmd");
-    cmd.args(["/C", "start", "", "https://claude.ai/settings/usage"]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
-    let _ = cmd.spawn();
+fn open_usage_page() -> Result<(), String> {
+    open_target(std::ffi::OsStr::new("https://claude.ai/settings/usage"))
 }
 
 #[tauri::command]
@@ -877,10 +937,11 @@ mod notch_geometry_tests {
         let cfg = config::Config::default();
         let monitor_position = (1920, 0);
         let monitor_size = (1920, 1080);
+        let work_area = (1920, 0, 1920, 1080);
         let (full_size, full_pos) =
-            notch_geometry(&cfg, true, monitor_position, monitor_size, 1.0);
+            notch_geometry(&cfg, true, monitor_position, monitor_size, work_area, 1.0);
         let (bar_size, bar_pos) =
-            notch_geometry(&cfg, false, monitor_position, monitor_size, 1.0);
+            notch_geometry(&cfg, false, monitor_position, monitor_size, work_area, 1.0);
 
         assert_eq!(full_size, (279, 377));
         assert_eq!(bar_size, (10, 88));
@@ -898,9 +959,54 @@ mod notch_geometry_tests {
             notch_y: 0.25,
             ..Default::default()
         };
-        let (_, full_pos) = notch_geometry(&cfg, true, (1920, 0), (1920, 1080), 1.0);
-        let (_, bar_pos) = notch_geometry(&cfg, false, (1920, 0), (1920, 1080), 1.0);
+        let work_area = (1920, 0, 1920, 1080);
+        let (_, full_pos) =
+            notch_geometry(&cfg, true, (1920, 0), (1920, 1080), work_area, 1.0);
+        let (_, bar_pos) =
+            notch_geometry(&cfg, false, (1920, 0), (1920, 1080), work_area, 1.0);
         assert_eq!(full_pos.0, 1920);
         assert_eq!(bar_pos.0, 1920);
+    }
+
+    #[test]
+    fn top_panel_clamp_keeps_the_resting_bar_on_the_full_notch_center() {
+        let cfg = config::Config {
+            notch_y: 0.08,
+            notch_scale: 0.7,
+            ..Default::default()
+        };
+        let monitor_position = (1920, 0);
+        let monitor_size = (1920, 1080);
+        let kde_work_area = (1920, 48, 1920, 1032);
+        let (full_size, full_pos) = notch_geometry(
+            &cfg,
+            true,
+            monitor_position,
+            monitor_size,
+            kde_work_area,
+            1.0,
+        );
+        let (bar_size, bar_pos) = notch_geometry(
+            &cfg,
+            false,
+            monitor_position,
+            monitor_size,
+            kde_work_area,
+            1.0,
+        );
+
+        assert_eq!((full_size, full_pos), ((238, 322), (3602, 48)));
+        assert_eq!((bar_size, bar_pos), ((10, 88), (3830, 165)));
+        assert_eq!(full_pos.1 + full_size.1 as i32 / 2, 209);
+        assert_eq!(bar_pos.1 + bar_size.1 as i32 / 2, 209);
+    }
+
+    #[test]
+    fn shell_transition_is_edge_aware_and_takes_half_a_second() {
+        let ui = include_str!("../ui/notch.html");
+        assert!(ui.contains("--shell-motion:500ms"));
+        assert!(ui.contains("const SHELL_MOTION_MS=500"));
+        assert!(ui.contains("body.side-left.shell-opening #pill"));
+        assert!(ui.contains("body.side-left.shell-closing #pill"));
     }
 }

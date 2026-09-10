@@ -6,6 +6,7 @@
   /* Visual reference: upstream docs/specs/2026-08-28-usage-notch-design.md, reproduced for Windows */
   *{box-sizing:border-box} /* content-box padding once pushed the card past the window's left edge */
   html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overflow:hidden;user-select:none}
+  :root{--shell-motion:500ms;--shell-ease:cubic-bezier(.22,1,.36,1);--rest-width:10px;--rest-inset:0px}
   body{font-family:"Segoe UI",system-ui,sans-serif;color:#fff}
   #root{position:relative;width:100%;height:100%}
 
@@ -18,6 +19,16 @@
     border:1px solid #2e2e2e;border-right:none;
     box-shadow:none;
     display:flex;flex-direction:column;align-items:center;gap:14px;cursor:pointer;
+    clip-path:inset(0 0 0 0 round 0);
+    transition:transform var(--shell-motion) var(--shell-ease),clip-path var(--shell-motion) var(--shell-ease);
+    will-change:transform,clip-path;
+  }
+  /* The full window is made transparent first, then the notch slides in from the screen edge.
+     Leaving only --rest-width visible at the start makes the moving pill continue directly from
+     the compact black bar instead of flashing into existence. */
+  body.shell-opening #pill,body.shell-closing #pill{
+    transform:translateY(-50%) translateX(calc(100% - var(--rest-width)));
+    clip-path:inset(var(--rest-inset) 0 var(--rest-inset) 0 round 6px);
   }
   /* Fillets: the concave arcs between the pill's top/bottom and the screen edge (the inverse rounded
      corner in the upstream design frame). An R×R black square hugs the edge and a radial gradient
@@ -107,6 +118,9 @@
 
   /* The same design can be pinned to either side of the primary monitor. */
   body.side-left #pill{left:0;right:auto;border-radius:0 20px 20px 0;border-left:none;border-right:1px solid #2e2e2e}
+  body.side-left.shell-opening #pill,body.side-left.shell-closing #pill{
+    transform:translateY(-50%) translateX(calc(-100% + var(--rest-width)));
+  }
   body.side-left #pill::before,body.side-left #pill::after{left:0;right:auto}
   body.side-left #pill::before{background:radial-gradient(circle at 100% 0,transparent calc(var(--fillet) - 1.5px),#2e2e2e calc(var(--fillet) - .5px),#000 calc(var(--fillet) + .5px))}
   body.side-left #pill::after{background:radial-gradient(circle at 100% 100%,transparent calc(var(--fillet) - 1.5px),#2e2e2e calc(var(--fillet) - .5px),#000 calc(var(--fillet) + .5px))}
@@ -135,6 +149,7 @@
   .settings-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:11px}
   .settings-actions button{border:1px solid #3a3a3e;border-radius:8px;padding:6px 10px;background:#19191c;color:#eee;cursor:pointer}
   .settings-actions .primary{background:#fff;color:#111;border-color:#fff;font-weight:700}
+  @media (prefers-reduced-motion:reduce){#pill{transition-duration:0ms}}
 </style>
 </head>
 <body class="compact side-right">
@@ -144,18 +159,18 @@
   <div id="pill"></div><!-- one .cell per provider, stacked vertically (upstream: data-driven, the same layout for 1–5 cells) -->
   <form id="settings">
     <div class="settings-head"><span class="settings-title">Codenotch</span><button class="settings-close" type="button" aria-label="Close">×</button></div>
-    <div class="setting"><label for="setting-side">Lato</label><select id="setting-side"><option value="right">Destra</option><option value="left">Sinistra</option></select></div>
-    <div class="setting"><label for="setting-position">Posizione</label><input id="setting-position" type="range" min="8" max="92" step="1"></div>
-    <div class="setting"><label for="setting-size">Dimensione</label><select id="setting-size"><option value="0.70">Piccola</option><option value="0.82">Compatta</option><option value="1">Normale</option><option value="1.15">Grande</option></select></div>
-    <div class="setting"><label>Servizi</label><span></span></div>
+    <div class="setting"><label for="setting-side">Side</label><select id="setting-side"><option value="right">Right</option><option value="left">Left</option></select></div>
+    <div class="setting"><label for="setting-position">Position</label><input id="setting-position" type="range" min="8" max="92" step="1"></div>
+    <div class="setting"><label for="setting-size">Size</label><select id="setting-size"><option value="0.7">Small</option><option value="0.82">Compact</option><option value="1">Normal</option><option value="1.15">Large</option></select></div>
+    <div class="setting"><label>Services</label><span></span></div>
     <div class="provider-options">
       <label><input type="checkbox" name="provider" value="claude">Claude</label>
       <label><input type="checkbox" name="provider" value="codex">Codex</label>
       <label><input type="checkbox" name="provider" value="cursor">Cursor</label>
       <label><input type="checkbox" name="provider" value="gemini">Antigravity</label>
     </div>
-    <label class="pin-row"><input id="setting-pin" type="checkbox"> Mantieni il notch visibile</label>
-    <div class="settings-actions"><button id="settings-cancel" type="button">Annulla</button><button class="primary" type="submit">Applica</button></div>
+    <label class="pin-row"><input id="setting-pin" type="checkbox"> Keep the notch visible</label>
+    <div class="settings-actions"><button id="settings-cancel" type="button">Cancel</button><button id="settings-apply" class="primary" type="submit">Apply</button></div>
   </form>
   <div id="notice"></div>
 </div>
@@ -351,18 +366,28 @@ function esc(s){const d=document.createElement('div');d.textContent=s||'';return
 /* Resting shell + hover: an unpinned notch retracts to a real 10 px window, then grows inward. */
 const card=document.getElementById('card'), pill=document.getElementById('pill');
 const edgebar=document.getElementById('edgebar'), settings=document.getElementById('settings');
-let hideTimer=null, shellBusy=false;
+const SHELL_MOTION_MS=500;
+let hideTimer=null, shellTarget=false, shellTask=null, settingsSaving=false;
+const nextPaint=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+const motionDelay=()=>matchMedia('(prefers-reduced-motion: reduce)').matches?0:SHELL_MOTION_MS;
+const waitForMotion=()=>new Promise(resolve=>setTimeout(resolve,motionDelay()));
 function syncShellClasses(){
   document.body.classList.toggle('compact',!shellExpanded);
   document.body.classList.toggle('side-left',notchConfig.side==='left');
   document.body.classList.toggle('side-right',notchConfig.side!=='left');
 }
+function syncRestGeometry(){
+  const scale=Math.max(.1,Number(notchConfig.scale)||1);
+  document.documentElement.style.setProperty('--rest-width',`${10/scale}px`);
+  const inset=Math.max(0,(pill.offsetHeight-88/scale)/2);
+  document.documentElement.style.setProperty('--rest-inset',`${inset}px`);
+}
 function useConfig(cfg){
   notchConfig=cfg||notchConfig;
-  if(notchConfig.pinned)shellExpanded=true;
+  if(notchConfig.pinned)shellTarget=true;
   const ps=providers();
   if(!ps.some(p=>p.id===hoverId))hoverId=(ps[0]&&ps[0].id)||'claude';
-  syncShellClasses();renderRing();
+  syncShellClasses();renderRing();syncRestGeometry();
   if(card.classList.contains('show'))renderCard();
 }
 function showCard(){
@@ -370,29 +395,61 @@ function showCard(){
   clearTimeout(hideTimer);card.classList.add('show');renderCard();armWatchdog();
 }
 function hideCard(){card.classList.remove('show');invoke('set_expanded',{on:false,rects:null}).catch(()=>{});}
+async function driveShell(){
+  // Do not drop a newer request while a resize or animation is in flight. Hover, right-click,
+  // Cancel or Apply only update shellTarget; this one driver serializes every transition.
+  while(shellExpanded!==shellTarget){
+    if(shellTarget){
+      // Keep the pill at the edge while Rust grows and repositions the transparent window.
+      document.body.classList.remove('shell-closing');
+      document.body.classList.add('shell-opening');
+      shellExpanded=await callq('set_shell_expanded',{expanded:true});
+      syncShellClasses();reportDpr();renderRing();syncRestGeometry();
+      await nextPaint();
+      document.body.classList.remove('shell-opening');
+      await waitForMotion();
+    }else{
+      // Slide all visible notch pixels back to the edge before shrinking the native window.
+      document.body.classList.remove('shell-opening');
+      document.body.classList.add('shell-closing');
+      await waitForMotion();
+      if(shellTarget){
+        // The pointer came back during retraction: reverse smoothly without compacting first.
+        document.body.classList.remove('shell-closing');
+        await waitForMotion();
+        continue;
+      }
+      shellExpanded=await callq('set_shell_expanded',{expanded:false});
+      syncShellClasses();
+      document.body.classList.remove('shell-closing');
+      reportDpr();
+    }
+  }
+  return shellExpanded;
+}
+function requestShell(expanded){
+  shellTarget=!!expanded||notchConfig.pinned;
+  // Start in a microtask so shellTask is assigned before driveShell can complete
+  // synchronously when the shell is already at the requested state.
+  if(!shellTask)shellTask=Promise.resolve().then(driveShell).finally(()=>{
+    document.body.classList.remove('shell-opening','shell-closing');
+    shellTask=null;
+  });
+  return shellTask;
+}
 async function expandShell(showUsage=true){
   clearTimeout(hideTimer);
-  if(shellBusy)return;
-  if(!shellExpanded){
-    shellBusy=true;
-    try{shellExpanded=await callq('set_shell_expanded',{expanded:true});}
-    finally{shellBusy=false;}
-    syncShellClasses();
-    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-    reportDpr();renderRing();
-  }
-  if(showUsage&&!settingsOpen)showCard();
+  await requestShell(true);
+  if(showUsage&&!settingsOpen&&shellExpanded)showCard();
 }
 async function collapseShell(){
-  if(notchConfig.pinned||settingsOpen||shellBusy)return;
-  hideCard();shellBusy=true;
-  try{shellExpanded=await callq('set_shell_expanded',{expanded:false});}
-  finally{shellBusy=false;}
-  syncShellClasses();reportDpr();
+  if(notchConfig.pinned||settingsOpen)return shellExpanded;
+  hideCard();
+  return requestShell(false);
 }
 function scheduleHide(){
   clearTimeout(hideTimer);
-  hideTimer=setTimeout(()=>{hideCard();collapseShell();},350);
+  hideTimer=setTimeout(()=>{hideCard();collapseShell().catch(err=>notice(String(err)));},350);
 }
 // ===== Diagnostics + geometry =====
 function jslog(m){invoke('log_js',{msg:String(m)}).catch(()=>{});}
@@ -454,6 +511,10 @@ document.addEventListener('mousemove',e=>{
   const hot=pointerInHot(e.clientX,e.clientY);
   if(hot){
     clearTimeout(hideTimer);
+    if(!shellTarget){
+      requestShell(true).then(()=>{if(!settingsOpen&&shellExpanded)showCard();}).catch(err=>notice(String(err)));
+      return;
+    }
     if(settingsOpen)return;
     const id=cellAt(e.clientX,e.clientY);
     if(id&&id!==hoverId){ hoverId=id; if(card.classList.contains('show')){ renderCard(); armWatchdog(); } }
@@ -472,16 +533,30 @@ listen('state',()=>{if(card.classList.contains('show'))armWatchdog();}).catch(()
 function fillSettings(){
   document.getElementById('setting-side').value=notchConfig.side;
   document.getElementById('setting-position').value=String(Math.round(notchConfig.position*100));
-  document.getElementById('setting-size').value=String(notchConfig.scale);
-  if(!document.getElementById('setting-size').value)document.getElementById('setting-size').value='0.82';
+  const size=document.getElementById('setting-size');
+  size.querySelectorAll('option[data-custom]').forEach(option=>option.remove());
+  const scale=Number(notchConfig.scale);
+  const match=[...size.options].find(option=>Math.abs(Number(option.value)-scale)<0.0001);
+  if(match)size.value=match.value;
+  else{
+    // Preserve hand-edited/legacy scales when another setting is changed.
+    const option=document.createElement('option');
+    option.value=String(scale);option.textContent=`Custom (${Math.round(scale*100)}%)`;
+    option.dataset.custom='true';size.prepend(option);size.value=option.value;
+  }
   document.getElementById('setting-pin').checked=notchConfig.pinned;
   for(const box of settings.querySelectorAll('input[name="provider"]'))box.checked=notchConfig.providers.includes(box.value);
 }
 async function openSettings(){
-  clearTimeout(hideTimer);await expandShell(false);hideCard();
-  settingsOpen=true;fillSettings();settings.classList.add('show');armWatchdog();
+  if(settingsOpen)return;
+  clearTimeout(hideTimer);settingsOpen=true;
+  try{
+    await expandShell(false);hideCard();
+    fillSettings();settings.classList.add('show');armWatchdog();
+  }catch(err){settingsOpen=false;settings.classList.remove('show');throw err;}
 }
 function closeSettings(){
+  if(settingsSaving)return;
   settingsOpen=false;settings.classList.remove('show');
   if(!notchConfig.pinned)collapseShell().catch(err=>notice(String(err)));
 }
@@ -494,8 +569,9 @@ settings.querySelector('.settings-close').addEventListener('click',closeSettings
 document.getElementById('settings-cancel').addEventListener('click',closeSettings);
 settings.addEventListener('submit',async e=>{
   e.preventDefault();
+  if(settingsSaving)return;
   const selected=[...settings.querySelectorAll('input[name="provider"]:checked')].map(box=>box.value);
-  if(!selected.length){notice('Seleziona almeno un servizio.');return;}
+  if(!selected.length){notice('Select at least one service.');return;}
   const update={
     side:document.getElementById('setting-side').value,
     position:Number(document.getElementById('setting-position').value)/100,
@@ -503,12 +579,19 @@ settings.addEventListener('submit',async e=>{
     providers:selected,
     pinned:document.getElementById('setting-pin').checked,
   };
+  settingsSaving=true;
+  for(const control of settings.querySelectorAll('button,input,select'))control.disabled=true;
+  const apply=document.getElementById('settings-apply');apply.textContent='Saving…';
   try{
     const saved=await callq('set_notch_config',{update});
     useConfig(saved);settingsOpen=false;settings.classList.remove('show');
-    notice('Impostazioni salvate.');
-    if(!saved.pinned)await collapseShell();else{shellExpanded=true;syncShellClasses();}
+    notice('Settings saved.');
+    if(!saved.pinned)await collapseShell();else await requestShell(true);
   }catch(_){/* callq already reports the failure */}
+  finally{
+    settingsSaving=false;apply.textContent='Apply';
+    for(const control of settings.querySelectorAll('button,input,select'))control.disabled=false;
+  }
 });
 
 /* The pill can be dragged up and down the right edge. Press and move more than 4 px = drag (handed to Rust,
@@ -524,7 +607,7 @@ document.addEventListener('mousemove',e=>{
 });
 document.addEventListener('mouseup',e=>{
   if(e.button!==0)return;
-  if(press&&!dragging) invoke('open_provider_page',{provider:press.id}).catch(()=>{});
+  if(press&&!dragging) callq('open_provider_page',{provider:press.id}).catch(()=>{});
   press=null;
 });
 listen('drag_end',()=>{dragging=false;press=null;}).catch(()=>{});

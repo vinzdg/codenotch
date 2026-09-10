@@ -160,4 +160,16 @@ mod tests {
         cfg.normalize_notch();
         assert_eq!(cfg.visible_providers, vec!["claude"]);
     }
+
+    #[test]
+    fn small_scale_survives_config_roundtrip() {
+        let cfg = Config {
+            notch_scale: 0.7,
+            ..Default::default()
+        };
+        let encoded = serde_json::to_string(&cfg).unwrap();
+        let mut decoded: Config = serde_json::from_str(&encoded).unwrap();
+        decoded.normalize_notch();
+        assert_eq!(decoded.notch_scale, 0.7);
+    }
 }
