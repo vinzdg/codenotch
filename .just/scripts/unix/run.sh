@@ -12,4 +12,4 @@ if [ "$(detect_platform)" != macos ]; then
     fi
 fi
 cd "$TEMPLATE_ROOT"
-exec cargo run --manifest-path windows/Cargo.toml -p codenotch --locked
+exec cargo run --manifest-path windows/Cargo.toml -p codenotch --locked -- --foreground

@@ -25,7 +25,7 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Logical size of the notch window: the 70 pt pill column on the right plus room for the hover card on the left.
 pub const NOTCH_W: f64 = 340.0;
 /// Hand-bumped build tag, written to run.log at startup so a log can always be matched to the exe that wrote it.
-pub const BUILD: &str = "r37";
+pub const BUILD: &str = "r38";
 pub const NOTCH_H: f64 = 460.0; // 300 clipped the card once it held three window blocks plus the session list
 const COMPACT_W: f64 = 10.0;
 const COMPACT_H: f64 = 88.0;
@@ -801,11 +801,71 @@ fn report(r: Result<String, String>) {
     let _ = std::fs::write(log, &msg);
 }
 
+#[cfg(target_os = "linux")]
+const DETACHED_CHILD_ENV: &str = "CODENOTCH_DETACHED_CHILD";
+
+#[cfg(target_os = "linux")]
+fn is_cli_command(args: &[String]) -> bool {
+    matches!(
+        args.get(1).map(String::as_str),
+        Some("install-hooks" | "uninstall-hooks" | "autostart" | "doctor" | "--foreground")
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn should_detach_linux(args: &[String], already_detached: bool) -> bool {
+    !already_detached && !is_cli_command(args)
+}
+
+/// Start the Linux GUI as a proper desktop process instead of leaving it attached to the shell.
+/// The child keeps the original arguments (including `--silent`), but has no terminal streams;
+/// consequently GTK/AppIndicator diagnostics cannot corrupt the user's prompt.
+#[cfg(target_os = "linux")]
+fn spawn_detached_linux(args: &[String]) -> std::io::Result<()> {
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+
+    let executable = std::env::current_exe()?;
+    let mut child = Command::new(executable);
+    child
+        .args(args.iter().skip(1))
+        .env(DETACHED_CHILD_ENV, "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    // SAFETY: setsid is async-signal-safe and the closure does not allocate or touch shared state.
+    unsafe {
+        child.pre_exec(|| {
+            if libc::setsid() == -1 {
+                Err(std::io::Error::last_os_error())
+            } else {
+                Ok(())
+            }
+        });
+    }
+    child.spawn().map(|_| ())
+}
+
 fn main() {
-    // Must run before Tauri/GTK is initialized.
-    configure_linux_display_backend();
     attach_console();
     let args: Vec<String> = std::env::args().collect();
+
+    // Keep diagnostic and maintenance commands synchronous, but make a normal Linux launch act
+    // like a desktop application. This must happen before GTK is initialized, otherwise its tray
+    // backend can write deprecation warnings into the invoking terminal.
+    #[cfg(target_os = "linux")]
+    if should_detach_linux(&args, std::env::var_os(DETACHED_CHILD_ENV).is_some()) {
+        match spawn_detached_linux(&args) {
+            Ok(()) => return,
+            Err(error) => eprintln!(
+                "codenotch: could not detach from the terminal ({error}); starting in foreground"
+            ),
+        }
+    }
+
+    // Must run before Tauri/GTK is initialized.
+    configure_linux_display_backend();
     if let Some(cmd) = args.get(1) {
         match cmd.as_str() {
             "install-hooks" => {
@@ -955,6 +1015,23 @@ fn main() {
 #[cfg(test)]
 mod notch_geometry_tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn normal_linux_launch_detaches_but_cli_and_debug_commands_do_not() {
+        let argv = |tail: &[&str]| {
+            std::iter::once("codenotch".to_owned())
+                .chain(tail.iter().map(|arg| (*arg).to_owned()))
+                .collect::<Vec<_>>()
+        };
+
+        assert!(should_detach_linux(&argv(&[]), false));
+        assert!(should_detach_linux(&argv(&["--silent"]), false));
+        assert!(!should_detach_linux(&argv(&["doctor"]), false));
+        assert!(!should_detach_linux(&argv(&["install-hooks"]), false));
+        assert!(!should_detach_linux(&argv(&["--foreground"]), false));
+        assert!(!should_detach_linux(&argv(&[]), true));
+    }
 
     #[test]
     fn resting_bar_and_full_notch_share_the_exact_edge_and_vertical_anchor() {

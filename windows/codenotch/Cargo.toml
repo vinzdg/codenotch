@@ -39,3 +39,4 @@ windows = { version = "0.58", features = [
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
+libc = "0.2"

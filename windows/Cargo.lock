@@ -502,6 +502,7 @@ dependencies = [
  "chrono",
  "dirs 5.0.1",
  "gtk",
+ "libc",
  "native-tls",
  "notify",
  "png 0.17.16",

@@ -86,6 +86,10 @@ codenotch doctor
 codenotch
 ```
 
+On Linux, `codenotch` starts the interface in the background and immediately
+returns control to the terminal. Use `codenotch --foreground` when debugging
+and you want GTK/Tauri diagnostics to remain attached to the shell.
+
 To remove this manual installation:
 
 ```sh
