@@ -176,8 +176,13 @@ struct ProviderSnapshot: Identifiable, Equatable {
         case .accessDenied:
             // Says what happened and what fixes it. "Sign in to Claude Code"
             // would send someone who *is* signed in to fix the wrong thing.
-            return "Codenotch was refused access to \(displayName)'s saved "
-                 + "login. Click this ring to ask again, and choose Always Allow."
+            // Not "choose Always Allow". That writes the item's access list,
+            // and what refuses this read is its *partition list*, which no
+            // dialogue ever writes — so the button it points at cannot fix the
+            // problem, and an hour later the same advice is offered again.
+            return "macOS is holding \(displayName)'s saved login back from "
+                 + "Codenotch. Run Scripts/fix-keychain-partitions.sh once to "
+                 + "grant it."
         case .unsupported(let why): return why
         case .error(let why): return "Couldn't read usage — \(why)"
         case .stale, .ok:     return "Waiting for the first reading…"

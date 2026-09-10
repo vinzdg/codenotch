@@ -860,8 +860,14 @@ final class KeychainRefusalTests: XCTestCase {
             fidelity: .official, status: .accessDenied, windows: []
         )
         let message = snapshot.statusMessage ?? ""
-        XCTAssertTrue(message.contains("refused"))
-        XCTAssertTrue(message.contains("Always Allow"))
+        XCTAssertTrue(message.contains("holding"))
+        XCTAssertTrue(message.contains("fix-keychain-partitions"),
+                      "it has to name the one thing that actually grants access")
+        // "Always Allow" writes the access list; a partition-list refusal is
+        // untouched by it. Offering it sends someone to press a button that
+        // cannot work, and then to press it again an hour later.
+        XCTAssertFalse(message.contains("Always Allow"),
+                       "it offers a button that cannot fix a partition refusal")
         XCTAssertFalse(message.contains("Sign in"), "it tells a signed-in user to sign in")
     }
 

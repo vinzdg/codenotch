@@ -43,6 +43,24 @@ struct ClaudeCredentials {
     /// winner's actual data does, which is why it costs the same single prompt
     /// as before, per profile.
     static func read(service: String) throws -> ClaudeCredentials {
+        // Never raise a password dialogue from a poll. A menu-bar app on a
+        // timer has no business interrupting anyone, and this particular
+        // dialogue is one the user cannot get rid of: it comes from the item's
+        // *partition list*, not its access list, and "Always Allow" only
+        // writes the access list. Approving it buys exactly one read.
+        //
+        // `kSecUseAuthenticationUI` below is set for the same reason and is not
+        // enough on its own — it governs the data-protection keychain, and
+        // anything carrying a partition list is the old file-backed kind.
+        // Legacy items honour this call instead. With only the key set, the
+        // prompt still appeared once a minute.
+        //
+        // Process-wide, so it is restored in a `defer` on every path: leaving
+        // interaction off would silently break a prompt some other part of the
+        // app legitimately wants to show.
+        SecKeychainSetUserInteractionAllowed(false)
+        defer { SecKeychainSetUserInteractionAllowed(true) }
+
         guard let winner = KeychainItem.newest(service: service) else {
             Log.usage.error("keychain read failed: no item under \(service, privacy: .public)")
             throw UsageProviderError.needsAuth
@@ -53,8 +71,16 @@ struct ClaudeCredentials {
             kSecClass: kSecClassGenericPassword,
             kSecValuePersistentRef: winner.persistentRef,
             kSecReturnData: true,
-            kSecMatchLimit: kSecMatchLimitOne
+            kSecMatchLimit: kSecMatchLimitOne,
+            kSecUseAuthenticationUI: kSecUseAuthenticationUIFail
         ] as CFDictionary, &item)
+
+        // Refused, but the item is right there. Ask the one reader macOS never
+        // refuses before giving up — see `readViaSecurityTool`.
+        if Self.wasRefused(status), let rescued = Self.readViaSecurityTool(service: service) {
+            Log.usage.notice("\(service, privacy: .public) read via the security tool after a partition refusal")
+            return try decode(rescued, service: service)
+        }
 
         guard status == errSecSuccess, let data = item as? Data else {
             // The status matters: "not found" means the item was deleted
@@ -81,6 +107,12 @@ struct ClaudeCredentials {
                 : UsageProviderError.needsAuth
         }
 
+        return try decode(data, service: service)
+    }
+
+    /// Turn the stored JSON into a credential. Shared by both readers, so a
+    /// rescued read is judged identically to a direct one.
+    private static func decode(_ data: Data, service: String) throws -> ClaudeCredentials {
         struct Payload: Decodable {
             struct OAuth: Decodable {
                 let accessToken: String
@@ -101,6 +133,48 @@ struct ClaudeCredentials {
             expiresAt: Date(timeIntervalSince1970: payload.claudeAiOauth.expiresAt / 1000),
             subscriptionType: payload.claudeAiOauth.subscriptionType
         )
+    }
+
+    /// Read the item by shelling out to `/usr/bin/security`.
+    ///
+    /// The last resort, and the only one that survives what actually breaks
+    /// this. Claude Code does not update its keychain items, it recreates them
+    /// on every token rotation, and a freshly created item's partition list
+    /// contains just `apple-tool:`. Every app with a Team ID — this one
+    /// included — is evicted the moment that happens, and the only way back in
+    /// is the login password. `/usr/bin/security` is Apple-signed, so it *is*
+    /// `apple-tool:` and is never the one refused. Claude Code writes these
+    /// items through it, which is why it is always on the access list too.
+    ///
+    /// Not the primary path: it costs a process per read, and the direct
+    /// `SecItemCopyMatching` above is both cheaper and the honest way to ask.
+    /// This runs only after a refusal.
+    private static func readViaSecurityTool(service: String) -> Data? {
+        let tool = Process()
+        tool.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        // `-w` prints only the password. The account is this user, matching
+        // how Claude Code files it.
+        tool.arguments = ["find-generic-password", "-a", NSUserName(), "-s", service, "-w"]
+        let out = Pipe()
+        tool.standardOutput = out
+        tool.standardError = Pipe()
+        do {
+            try tool.run()
+        } catch {
+            Log.usage.error("could not run the security tool: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        // Read before waiting: a full pipe buffer with nobody draining it is a
+        // deadlock, and this payload is comfortably under the limit only until
+        // Claude Code adds another key to it.
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        tool.waitUntilExit()
+        guard tool.terminationStatus == 0 else { return nil }
+        // `-w` ends its output with a newline; an empty answer has to stay
+        // distinguishable from a newline-only one.
+        var trimmed = data
+        while trimmed.last == 0x0A || trimmed.last == 0x0D { trimmed.removeLast() }
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     /// Which keychain refusal this was. "Not found" means Claude Code has never

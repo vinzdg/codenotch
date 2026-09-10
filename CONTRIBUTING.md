@@ -10,12 +10,25 @@ make run                 # build and launch
 ```
 
 None of these need an Apple Developer account. `xcodebuild` ad-hoc signs a
-Debug build automatically, which is enough to run and debug locally. The one
-thing an unsigned build can't do is keep a keychain "Always Allow" grant across
-rebuilds — Claude Code's and Antigravity's credentials are guarded by an ACL
-keyed on the signing identity, and an ad-hoc identity changes every build. In
-practice this means the keychain prompt reappears each time you rebuild during
-development; that's expected and doesn't affect anything else.
+Debug build automatically, which is enough to run and debug locally. An ad-hoc
+identity changes every build, so a keychain "Always Allow" grant does not
+survive a rebuild and the prompt reappears during development.
+
+That prompt is no longer shown, in Debug or in a release build. It was never
+only a development annoyance: a keychain item has an access list, which is what
+"Always Allow" writes to, and a *partition list*, which nothing in the GUI ever
+writes to. An app outside the partition list is refused before the access list
+is consulted, so approving the dialogue is good for exactly one read. Claude
+Code recreates its keychain items on every token rotation rather than updating
+them, and a freshly created item's partition list holds only `apple-tool:` —
+which evicts a properly signed release build just as surely as an ad-hoc one.
+Shipped users got the dialogue on a timer.
+
+`ClaudeCredentials.read` therefore disables keychain interaction for the length
+of the read and falls back to `/usr/bin/security`, which is Apple-signed and so
+is never the client that gets refused. A refusal it cannot recover from becomes
+`.accessDenied`, and `Scripts/fix-keychain-partitions.sh` is the one thing that
+actually restores direct access.
 
 `make release` is different: it archives, signs with a Developer ID
 certificate, notarizes with Apple, and regenerates the Sparkle auto-update
