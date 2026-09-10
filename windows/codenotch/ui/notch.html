@@ -409,7 +409,11 @@ function showCard(){
   if(settingsOpen||!shellExpanded)return;
   clearTimeout(hideTimer);card.classList.add('show');renderCard();armWatchdog();
 }
-function hideCard(){card.classList.remove('show');invoke('set_expanded',{on:false,rects:null}).catch(()=>{});}
+function hideCard(){
+  card.classList.remove('show');
+  if(shellExpanded)armWatchdog();
+  else invoke('set_expanded',{on:false,rects:null}).catch(()=>{});
+}
 async function driveShell(){
   // Do not drop a newer request while a resize or animation is in flight. Hover, right-click,
   // Cancel or Apply only update shellTarget; this one driver serializes every transition.
@@ -476,7 +480,8 @@ function callq(cmd,args){ // invoke with visible failure: any command error is r
 }
 // Hot rectangles are reported in physical pixels for the Windows/WebView2 pointer watchdog.
 // Linux/WebKitGTK uses the DOM geometry below because Wayland does not expose global coordinates.
-function rectOf(el){const r=el.getBoundingClientRect(),k=window.devicePixelRatio||1;return [r.left*k,r.top*k,r.width*k,r.height*k];}
+const IS_LINUX=/Linux/i.test(navigator.platform||navigator.userAgent);
+function rectOf(el){const r=el.getBoundingClientRect(),k=IS_LINUX?1:(window.devicePixelRatio||1);return [r.left*k,r.top*k,r.width*k,r.height*k];}
 function armWatchdog(){
   requestAnimationFrame(()=>{ // wait one frame so renderCard's new content is laid out before measuring
     if(!shellExpanded)return;
@@ -493,11 +498,12 @@ function fitZoom(){
   // Windows still uses a genuinely compact 10×88 native window; never scale that tiny viewport.
   // Linux keeps the full transparent shell, so its resting state follows the normal full zoom.
   if(innerWidth<100||innerHeight<100){document.documentElement.style.zoom='';root.style.cssText='';return 1;}
-  const z=Math.min(innerWidth/340,innerHeight/460);
-  if(/Linux/i.test(navigator.platform||navigator.userAgent)){
+  const z=IS_LINUX?Math.max(.65,Math.min(1.15,Number(notchConfig.scale)||.82)):Math.min(innerWidth/340,innerHeight/460);
+  if(IS_LINUX){
     const left=notchConfig.side==='left';
     document.documentElement.style.zoom='';
-    root.style.position='absolute';root.style.width='340px';root.style.height='460px';root.style.top='0';
+    root.style.position='absolute';root.style.width='340px';root.style.height='460px';
+    root.style.top=`${Math.max(0,(innerHeight-460*z)/2)}px`;
     root.style.left=left?'0':'auto';root.style.right=left?'auto':'0';
     root.style.transformOrigin=left?'top left':'top right';
     root.style.transform=`scale(${z})`;
@@ -667,10 +673,9 @@ invoke('get_activity').then(a=>{activity=a||activity;renderRing();}).catch(()=>{
 invoke('get_glyphs').then(g=>{glyphs=g||glyphs;renderRing();}).catch(()=>{});
 invoke('get_notch_config').then(async cfg=>{
   useConfig(cfg);
-  // WebKitGTK can restore the configured 340 x 460 bootstrap size while loading the page.
-  // Re-apply the desired shell once the frontend is ready so the resting bar keeps its exact anchor.
+  // Re-apply the stable native shell after WebKitGTK is ready, then publish the real DOM input area.
   shellExpanded=await callq('set_shell_expanded',{expanded:!!cfg.pinned});
-  syncShellClasses();reportDpr();
+  syncShellClasses();reportDpr();armWatchdog();
 }).catch(e=>notice('get_notch_config failed: '+e));
 invoke('get_codex').then(u=>{codexSnap=u||codexSnap;renderRing();}).catch(()=>{});
 invoke('get_usage').then(u=>{usage=u||usage;renderRing();}).catch(e=>notice('get_usage failed: '+e));

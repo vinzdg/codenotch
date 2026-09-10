@@ -112,14 +112,20 @@ pub fn load() -> Config {
     cfg
 }
 
-pub fn save(cfg: &Config) {
+pub fn save(cfg: &Config) -> std::io::Result<()> {
     let path = config_path();
     if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
+        std::fs::create_dir_all(dir)?;
     }
-    if let Ok(txt) = serde_json::to_string_pretty(cfg) {
-        let _ = std::fs::write(path, txt);
+    let txt = serde_json::to_string_pretty(cfg).map_err(std::io::Error::other)?;
+    #[cfg(target_os = "linux")]
+    {
+        let temporary = path.with_extension("json.tmp");
+        std::fs::write(&temporary, txt)?;
+        std::fs::rename(temporary, path)
     }
+    #[cfg(not(target_os = "linux"))]
+    std::fs::write(path, txt)
 }
 
 #[cfg(test)]

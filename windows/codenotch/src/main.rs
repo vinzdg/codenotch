@@ -25,10 +25,11 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Logical size of the notch window: the 70 pt pill column on the right plus room for the hover card on the left.
 pub const NOTCH_W: f64 = 340.0;
 /// Hand-bumped build tag, written to run.log at startup so a log can always be matched to the exe that wrote it.
-pub const BUILD: &str = "r39";
+pub const BUILD: &str = "r40";
 pub const NOTCH_H: f64 = 460.0; // 300 clipped the card once it held three window blocks plus the session list
 const COMPACT_W: f64 = 10.0;
 const COMPACT_H: f64 = 88.0;
+const MAX_NOTCH_SCALE: f64 = 1.15;
 
 /// Tracks the actual window shell, independently from whether the hover card is visible.
 static SHELL_EXPANDED: std::sync::atomic::AtomicBool =
@@ -71,6 +72,17 @@ impl From<&config::Config> for NotchUiConfig {
 
 fn native_shell_expanded(content_expanded: bool) -> bool {
     cfg!(target_os = "linux") || content_expanded
+}
+
+fn native_geometry_config(cfg: &config::Config) -> config::Config {
+    let mut native = cfg.clone();
+    #[cfg(target_os = "linux")]
+    {
+        // GTK does not reliably resize a non-resizable transparent toplevel after WebKit restores
+        // its bootstrap size. Keep one maximum-sized shell and scale only the DOM inside it.
+        native.notch_scale = MAX_NOTCH_SCALE;
+    }
+    native
 }
 
 fn notch_geometry(
@@ -199,8 +211,9 @@ pub fn place_notch(app: &AppHandle) {
         // Linux keeps one stable transparent shell and changes only its input region. Resizing a
         // toplevel under KWin/Wayland produces observable intermediate positions and makes the CSS
         // transition stutter. Windows retains the genuinely compact native window.
+        let native_cfg = native_geometry_config(&cfg);
         let ((target_w, target_h), (x, y)) = notch_geometry(
-            &cfg,
+            &native_cfg,
             native_shell_expanded(expanded),
             monitor_position,
             monitor_size,
@@ -270,7 +283,7 @@ pub fn reset_bar(app: &AppHandle) {
         let st = app.state::<AppState>();
         let mut c = st.cfg.lock().unwrap();
         c.notch_y = 0.5;
-        config::save(&c);
+        let _ = config::save(&c);
     }
     place_notch(app);
 }
@@ -333,7 +346,7 @@ fn drag_begin(app: AppHandle) {
             let st = app.state::<AppState>();
             let mut c = st.cfg.lock().unwrap();
             c.notch_y = ratio;
-            config::save(&c);
+            let _ = config::save(&c);
             applog(&format!("notch drag: y={last_y} ratio={ratio:.3}"));
         }
         DRAGGING.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -353,7 +366,7 @@ pub fn apply_lang(app: &AppHandle, lang: &str) {
         let st = app.state::<AppState>();
         let mut c = st.cfg.lock().unwrap();
         c.lang = lang.to_string();
-        config::save(&c);
+        let _ = config::save(&c);
     }
     if let Some(tray) = app.tray_by_id("main") {
         if let Ok(menu) = tray::build_menu(app, lang) {
@@ -387,8 +400,8 @@ fn noactivate(app: &AppHandle) {
 #[cfg(not(windows))]
 fn noactivate(_app: &AppHandle) {}
 
-/// Wry creates its GTK WebView with a 200 × 200 size request. Without clearing that request GTK
-/// refuses to shrink the containing window to the 10 × 88 resting bar.
+/// Wry creates its GTK WebView with a 200 × 200 size request. Clear it so the stable Linux shell,
+/// rather than an internal WebKit request, remains the single source of native geometry.
 #[cfg(target_os = "linux")]
 fn allow_compact_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("notch") {
@@ -418,17 +431,19 @@ fn get_notch_config(state: tauri::State<AppState>) -> NotchUiConfig {
 }
 
 #[tauri::command]
-fn set_notch_config(app: AppHandle, update: NotchUiUpdate) -> NotchUiConfig {
+fn set_notch_config(app: AppHandle, update: NotchUiUpdate) -> Result<NotchUiConfig, String> {
     let ui = {
         let st = app.state::<AppState>();
         let mut cfg = st.cfg.lock().unwrap();
-        cfg.notch_side = update.side;
-        cfg.notch_y = update.position;
-        cfg.notch_scale = update.scale;
-        cfg.visible_providers = update.providers;
-        cfg.notch_pinned = update.pinned;
-        cfg.normalize_notch();
-        config::save(&cfg);
+        let mut next = cfg.clone();
+        next.notch_side = update.side;
+        next.notch_y = update.position;
+        next.notch_scale = update.scale;
+        next.visible_providers = update.providers;
+        next.notch_pinned = update.pinned;
+        next.normalize_notch();
+        config::save(&next).map_err(|error| format!("could not save settings: {error}"))?;
+        *cfg = next;
         NotchUiConfig::from(&*cfg)
     };
     if ui.pinned {
@@ -436,7 +451,7 @@ fn set_notch_config(app: AppHandle, update: NotchUiUpdate) -> NotchUiConfig {
     }
     place_notch(&app);
     let _ = app.emit("notch_config", &ui);
-    ui
+    Ok(ui)
 }
 
 #[tauri::command]
@@ -554,9 +569,51 @@ fn open_provider_page(provider: String) -> Result<(), String> {
 /// WebView2's DPR and the window's scale_factor can disagree (see report_dpr).
 static HOT: Mutex<Option<Vec<[f64; 4]>>> = Mutex::new(None);
 
+#[cfg(target_os = "linux")]
+fn set_linux_input_region(app: &AppHandle, rects: &[[f64; 4]]) {
+    let rectangles = rects
+        .iter()
+        .filter(|r| r.iter().all(|value| value.is_finite()) && r[2] > 0.0 && r[3] > 0.0)
+        .map(|r| {
+            gtk::cairo::RectangleInt::new(
+                r[0].floor() as i32,
+                r[1].floor() as i32,
+                r[2].ceil() as i32,
+                r[3].ceil() as i32,
+            )
+        })
+        .collect::<Vec<_>>();
+    if rectangles.is_empty() {
+        return;
+    }
+    let Some(window) = app.get_webview_window("notch") else {
+        return;
+    };
+    let _ = window.with_webview(move |webview| {
+        use gtk::prelude::{Cast, WidgetExt};
+
+        let Some(widget) = webview.inner().toplevel() else {
+            return;
+        };
+        let Ok(window) = widget.downcast::<gtk::Window>() else {
+            return;
+        };
+        let Some(surface) = window.window() else {
+            return;
+        };
+        let region = gtk::cairo::Region::create_rectangles(&rectangles);
+        surface.input_shape_combine_region(&region, 0, 0);
+    });
+}
+
 #[tauri::command]
-fn set_expanded(on: bool, rects: Option<Vec<[f64; 4]>>) {
-    *HOT.lock().unwrap() = if on { Some(rects.unwrap_or_default()) } else { None };
+fn set_expanded(app: AppHandle, on: bool, rects: Option<Vec<[f64; 4]>>) {
+    let rects = rects.unwrap_or_default();
+    #[cfg(target_os = "linux")]
+    if on {
+        set_linux_input_region(&app, &rects);
+    }
+    *HOT.lock().unwrap() = if on { Some(rects) } else { None };
 }
 
 /// The WebView zoom currently applied (1.0 = uncorrected)
@@ -826,13 +883,21 @@ fn spawn_detached_linux(args: &[String]) -> std::io::Result<()> {
     use std::process::{Command, Stdio};
 
     let executable = std::env::current_exe()?;
+    let crash_log = config::config_path().with_file_name("crash.log");
+    if let Some(directory) = crash_log.parent() {
+        std::fs::create_dir_all(directory)?;
+    }
+    let stderr = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(crash_log)?;
     let mut child = Command::new(executable);
     child
         .args(args.iter().skip(1))
         .env(DETACHED_CHILD_ENV, "1")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::from(stderr));
 
     // SAFETY: setsid is async-signal-safe and the closure does not allocate or touch shared state.
     unsafe {
@@ -1004,7 +1069,7 @@ fn main() {
             {
                 let st = handle.state::<AppState>();
                 let c = st.cfg.lock().unwrap();
-                config::save(&c);
+                let _ = config::save(&c);
             }
             Ok(())
         })
@@ -1125,8 +1190,9 @@ mod notch_geometry_tests {
         let monitor = (1920, 0);
         let size = (1920, 1080);
         let work_area = (1920, 48, 1920, 1032);
+        let native_cfg = native_geometry_config(&cfg);
         let resting = notch_geometry(
-            &cfg,
+            &native_cfg,
             native_shell_expanded(false),
             monitor,
             size,
@@ -1134,7 +1200,7 @@ mod notch_geometry_tests {
             1.0,
         );
         let expanded = notch_geometry(
-            &cfg,
+            &native_cfg,
             native_shell_expanded(true),
             monitor,
             size,
@@ -1143,6 +1209,17 @@ mod notch_geometry_tests {
         );
 
         assert_eq!(resting, expanded);
-        assert_eq!(resting, ((238, 322), (3602, 48)));
+        assert_eq!(resting, ((391, 529), (3449, 48)));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_scales_content_and_reports_its_real_input_region() {
+        let ui = include_str!("../ui/notch.html");
+        assert!(ui.contains("IS_LINUX?Math.max(.65,Math.min(1.15,Number(notchConfig.scale)"));
+        assert!(ui.contains("root.style.top=`${Math.max(0,(innerHeight-460*z)/2)}px`"));
+        assert!(ui.contains("const IS_LINUX=/Linux/i.test"));
+        assert!(ui.contains("k=IS_LINUX?1:"));
+        assert!(ui.contains("syncShellClasses();reportDpr();armWatchdog()"));
     }
 }
