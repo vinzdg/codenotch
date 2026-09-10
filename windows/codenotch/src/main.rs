@@ -25,7 +25,7 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Logical size of the notch window: the 70 pt pill column on the right plus room for the hover card on the left.
 pub const NOTCH_W: f64 = 340.0;
 /// Hand-bumped build tag, written to run.log at startup so a log can always be matched to the exe that wrote it.
-pub const BUILD: &str = "r36";
+pub const BUILD: &str = "r37";
 pub const NOTCH_H: f64 = 460.0; // 300 clipped the card once it held three window blocks plus the session list
 const COMPACT_W: f64 = 10.0;
 const COMPACT_H: f64 = 88.0;
@@ -67,6 +67,10 @@ impl From<&config::Config> for NotchUiConfig {
             pinned: cfg.notch_pinned,
         }
     }
+}
+
+fn native_shell_expanded(content_expanded: bool) -> bool {
+    cfg!(target_os = "linux") || content_expanded
 }
 
 fn notch_geometry(
@@ -192,32 +196,52 @@ pub fn place_notch(app: &AppHandle) {
             monitor_size.0,
             monitor_size.1,
         ));
+        // Linux keeps one stable transparent shell and changes only its input region. Resizing a
+        // toplevel under KWin/Wayland produces observable intermediate positions and makes the CSS
+        // transition stutter. Windows retains the genuinely compact native window.
         let ((target_w, target_h), (x, y)) = notch_geometry(
             &cfg,
-            expanded,
+            native_shell_expanded(expanded),
             monitor_position,
             monitor_size,
             work_area,
             ms,
         );
         let target = tauri::PhysicalSize::new(target_w, target_h);
-        let _ = w.set_size(target);
-        // Resize is asynchronous on GTK/Windows, so use the requested target rather than the
-        // temporarily stale outer_size. This keeps the chosen edge fixed during expansion.
         let (ww, wh) = (target.width as i32, target.height as i32);
+        let compact_on_left = cfg.notch_side == "left";
+        let _ = w.set_size(target);
         let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
         #[cfg(target_os = "linux")]
-        {
-            // GTK applies resize asynchronously. KWin clamps the first move using the old width
-            // (340 px while retracting), so re-anchor after the new geometry reached X11.
-            let delayed = w.clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(60));
-                let _ = delayed.set_size(target);
-                std::thread::sleep(std::time::Duration::from_millis(20));
-                let _ = delayed.set_position(tauri::PhysicalPosition::new(x, y));
-            });
-        }
+        let _ = w.with_webview(move |webview| {
+            use gtk::prelude::{Cast, WidgetExt};
+
+            let Some(widget) = webview.inner().toplevel() else {
+                return;
+            };
+            let Ok(window) = widget.downcast::<gtk::Window>() else {
+                return;
+            };
+            let Some(surface) = window.window() else {
+                return;
+            };
+            let logical_w = (target_w as f64 / ms).round().max(1.0) as i32;
+            let logical_h = (target_h as f64 / ms).round().max(1.0) as i32;
+            let rect = if expanded {
+                gtk::cairo::RectangleInt::new(0, 0, logical_w, logical_h)
+            } else {
+                let bar_w = COMPACT_W.round() as i32;
+                let bar_h = (COMPACT_H.round() as i32).min(logical_h);
+                let bar_x = if compact_on_left {
+                    0
+                } else {
+                    logical_w - bar_w
+                };
+                gtk::cairo::RectangleInt::new(bar_x, (logical_h - bar_h) / 2, bar_w, bar_h)
+            };
+            let region = gtk::cairo::Region::create_rectangle(&rect);
+            surface.input_shape_combine_region(&region, 0, 0);
+        });
         // Placement log line: the first thing to check when the notch is not visible
         let log = config::config_path().with_file_name("run.log");
         let _ = std::fs::write(
@@ -1006,7 +1030,41 @@ mod notch_geometry_tests {
         let ui = include_str!("../ui/notch.html");
         assert!(ui.contains("--shell-motion:500ms"));
         assert!(ui.contains("const SHELL_MOTION_MS=500"));
+        assert!(ui.contains("waitForExpandedViewport"));
+        assert!(ui.contains("body.shell-preparing #pill"));
         assert!(ui.contains("body.side-left.shell-opening #pill"));
         assert!(ui.contains("body.side-left.shell-closing #pill"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_resting_and_expanded_states_keep_one_native_geometry() {
+        let cfg = config::Config {
+            notch_y: 0.08,
+            notch_scale: 0.7,
+            ..Default::default()
+        };
+        let monitor = (1920, 0);
+        let size = (1920, 1080);
+        let work_area = (1920, 48, 1920, 1032);
+        let resting = notch_geometry(
+            &cfg,
+            native_shell_expanded(false),
+            monitor,
+            size,
+            work_area,
+            1.0,
+        );
+        let expanded = notch_geometry(
+            &cfg,
+            native_shell_expanded(true),
+            monitor,
+            size,
+            work_area,
+            1.0,
+        );
+
+        assert_eq!(resting, expanded);
+        assert_eq!(resting, ((238, 322), (3602, 48)));
     }
 }

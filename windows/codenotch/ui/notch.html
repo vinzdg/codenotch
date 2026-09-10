@@ -6,7 +6,7 @@
   /* Visual reference: upstream docs/specs/2026-08-28-usage-notch-design.md, reproduced for Windows */
   *{box-sizing:border-box} /* content-box padding once pushed the card past the window's left edge */
   html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overflow:hidden;user-select:none}
-  :root{--shell-motion:500ms;--shell-ease:cubic-bezier(.22,1,.36,1);--rest-width:10px;--rest-inset:0px}
+  :root{--shell-motion:500ms;--shell-ease:cubic-bezier(.22,1,.36,1);--rest-width:10px;--rest-height:88px}
   body{font-family:"Segoe UI",system-ui,sans-serif;color:#fff}
   #root{position:relative;width:100%;height:100%}
 
@@ -19,17 +19,16 @@
     border:1px solid #2e2e2e;border-right:none;
     box-shadow:none;
     display:flex;flex-direction:column;align-items:center;gap:14px;cursor:pointer;
-    clip-path:inset(0 0 0 0 round 0);
-    transition:transform var(--shell-motion) var(--shell-ease),clip-path var(--shell-motion) var(--shell-ease);
-    will-change:transform,clip-path;
+    transition:transform var(--shell-motion) var(--shell-ease);
+    will-change:transform;
   }
   /* The full window is made transparent first, then the notch slides in from the screen edge.
      Leaving only --rest-width visible at the start makes the moving pill continue directly from
      the compact black bar instead of flashing into existence. */
   body.shell-opening #pill,body.shell-closing #pill{
     transform:translateY(-50%) translateX(calc(100% - var(--rest-width)));
-    clip-path:inset(var(--rest-inset) 0 var(--rest-inset) 0 round 6px);
   }
+  body.shell-preparing #pill{visibility:hidden;transition:none}
   /* Fillets: the concave arcs between the pill's top/bottom and the screen edge (the inverse rounded
      corner in the upstream design frame). An R×R black square hugs the edge and a radial gradient
      punches out the circle of radius R centred on its outer corner; what remains is the arc. A 1 px
@@ -110,7 +109,8 @@
 
   /* Unpinned resting state: only this small black grab bar occupies the screen edge. */
   #edgebar{
-    display:none;position:absolute;inset:0;background:#000;border:1px solid #343434;
+    display:none;position:absolute;right:0;top:50%;transform:translateY(-50%);
+    width:var(--rest-width);height:var(--rest-height);background:#000;border:1px solid #343434;
     border-right:none;border-radius:6px 0 0 6px;cursor:pointer;
   }
   body.compact #edgebar{display:block}
@@ -127,7 +127,7 @@
   body.side-left #card{left:80px;right:10px;margin-left:0;margin-right:auto}
   body.side-left #card::after{left:-8px;right:auto;border-left:0;border-right:10px solid #0a0a0a}
   body.side-left #notice{left:80px;right:8px}
-  body.side-left #edgebar{border-left:none;border-right:1px solid #343434;border-radius:0 6px 6px 0}
+  body.side-left #edgebar{left:0;right:auto;border-left:none;border-right:1px solid #343434;border-radius:0 6px 6px 0}
 
   /* Custom context menu: it fits the same safe area as the usage card. */
   #settings{
@@ -371,6 +371,22 @@ let hideTimer=null, shellTarget=false, shellTask=null, settingsSaving=false;
 const nextPaint=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
 const motionDelay=()=>matchMedia('(prefers-reduced-motion: reduce)').matches?0:SHELL_MOTION_MS;
 const waitForMotion=()=>new Promise(resolve=>setTimeout(resolve,motionDelay()));
+async function waitForExpandedViewport(){
+  // GTK applies set_size/set_position asynchronously. Starting while the WebView still reports
+  // the compact 10×88 viewport makes top:50% and CSS zoom jump during the first animation frames.
+  const started=performance.now(),notBefore=started+100;
+  let previous='',stableFrames=0;
+  while(performance.now()-started<400){
+    await new Promise(resolve=>requestAnimationFrame(resolve));
+    const sample=`${innerWidth}x${innerHeight}`;
+    const looksExpanded=innerWidth>100&&innerHeight>100;
+    stableFrames=looksExpanded&&sample===previous?stableFrames+1:0;
+    previous=sample;
+    if(stableFrames>=2&&performance.now()>=notBefore)return true;
+  }
+  jslog(`expanded viewport did not settle: ${innerWidth}x${innerHeight}`);
+  return false;
+}
 function syncShellClasses(){
   document.body.classList.toggle('compact',!shellExpanded);
   document.body.classList.toggle('side-left',notchConfig.side==='left');
@@ -379,8 +395,7 @@ function syncShellClasses(){
 function syncRestGeometry(){
   const scale=Math.max(.1,Number(notchConfig.scale)||1);
   document.documentElement.style.setProperty('--rest-width',`${10/scale}px`);
-  const inset=Math.max(0,(pill.offsetHeight-88/scale)/2);
-  document.documentElement.style.setProperty('--rest-inset',`${inset}px`);
+  document.documentElement.style.setProperty('--rest-height',`${88/scale}px`);
 }
 function useConfig(cfg){
   notchConfig=cfg||notchConfig;
@@ -402,9 +417,12 @@ async function driveShell(){
     if(shellTarget){
       // Keep the pill at the edge while Rust grows and repositions the transparent window.
       document.body.classList.remove('shell-closing');
-      document.body.classList.add('shell-opening');
+      document.body.classList.add('shell-opening','shell-preparing');
       shellExpanded=await callq('set_shell_expanded',{expanded:true});
-      syncShellClasses();reportDpr();renderRing();syncRestGeometry();
+      syncShellClasses();
+      await waitForExpandedViewport();
+      reportDpr();renderRing();syncRestGeometry();
+      document.body.classList.remove('shell-preparing');
       await nextPaint();
       document.body.classList.remove('shell-opening');
       await waitForMotion();
@@ -432,7 +450,7 @@ function requestShell(expanded){
   // Start in a microtask so shellTask is assigned before driveShell can complete
   // synchronously when the shell is already at the requested state.
   if(!shellTask)shellTask=Promise.resolve().then(driveShell).finally(()=>{
-    document.body.classList.remove('shell-opening','shell-closing');
+    document.body.classList.remove('shell-opening','shell-closing','shell-preparing');
     shellTask=null;
   });
   return shellTask;
@@ -471,7 +489,9 @@ function armWatchdog(){
 // Viewport fit (pure front-end fallback, independent of Rust): the window is 340 × primary scale physical px,
 // so if this page's CSS viewport is not 340 wide the WebView's DPR disagrees with the monitor; CSS zoom pulls the layout back to the design size.
 function fitZoom(){
-  if(!shellExpanded){document.documentElement.style.zoom='';return 1;}
+  // Windows still uses a genuinely compact 10×88 native window; never scale that tiny viewport.
+  // Linux keeps the full transparent shell, so its resting state follows the normal full zoom.
+  if(innerWidth<100||innerHeight<100){document.documentElement.style.zoom='';return 1;}
   const z=innerWidth/340;
   document.documentElement.style.zoom=(Math.abs(z-1)>0.02)?String(z):'';
   return z;
