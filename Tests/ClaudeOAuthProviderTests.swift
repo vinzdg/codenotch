@@ -13,6 +13,30 @@ import XCTest
 /// never touching the keychain or the network.
 final class ClaudeOAuthProviderTests: XCTestCase {
 
+    // MARK: - Back-off against the refresh tick
+
+    /// A window that opens in 15ms is open. Refusing it does not delay the
+    /// fetch by 15ms — the caller is a timer, so it delays it by a whole
+    /// refresh interval, and the server's 60s penalty becomes 120s.
+    func testAWindowAboutToOpenCountsAsOpen() {
+        let now = Date()
+        XCTAssertFalse(ClaudeOAuthProvider.shouldHoldOff(
+            until: now.addingTimeInterval(0.015), slack: 1, now: now))
+        XCTAssertFalse(ClaudeOAuthProvider.shouldHoldOff(
+            until: now.addingTimeInterval(0.42), slack: 1, now: now))
+    }
+
+    func testARealPenaltyIsStillHonoured() {
+        let now = Date()
+        XCTAssertTrue(ClaudeOAuthProvider.shouldHoldOff(
+            until: now.addingTimeInterval(45), slack: 1, now: now))
+    }
+
+    func testNoPenaltyMeansNoHoldOff() {
+        XCTAssertFalse(ClaudeOAuthProvider.shouldHoldOff(until: nil, slack: 1))
+    }
+
+
     override func tearDown() {
         StubEndpoint.reset([])
         super.tearDown()

@@ -56,8 +56,28 @@ actor ClaudeOAuthProvider: UsageProvider {
         self.retryNoEarlierThan = archive.loadBackoffUntil(providerID: profile.id)
     }
 
+    /// How close to expiry a back-off counts as already expired.
+    ///
+    /// The server hands back a 60s hint and `UsageStore` also ticks every 60s,
+    /// so the two run at the same period and the tick lands a few milliseconds
+    /// *before* the window opens — `retryAfter: 0.015` in the log. Refusing
+    /// that costs far more than the 15ms it saves: the caller is a timer, not a
+    /// retry loop, so the next attempt is not a moment later but a whole
+    /// refresh interval later. A 60s penalty silently becomes 120s and every
+    /// other tick is spent on nothing.
+    private let backoffSlack: TimeInterval = 1
+
+    /// Pure, so the resonance this exists to break can be tested without a
+    /// timer and a live endpoint.
+    nonisolated static func shouldHoldOff(until: Date?, slack: TimeInterval,
+                                          now: Date = Date()) -> Bool {
+        guard let until else { return false }
+        return until.timeIntervalSince(now) > slack
+    }
+
     func fetchSnapshot() async throws -> ProviderSnapshot {
-        if let retryNoEarlierThan, retryNoEarlierThan > Date() {
+        if Self.shouldHoldOff(until: retryNoEarlierThan, slack: backoffSlack),
+           let retryNoEarlierThan {
             let remaining = retryNoEarlierThan.timeIntervalSinceNow
             Log.usage.debug("skipping fetch, backing off for \(remaining, format: .fixed(precision: 0))s")
             throw UsageProviderError.rateLimited(retryAfter: remaining)
