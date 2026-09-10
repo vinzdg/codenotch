@@ -871,6 +871,38 @@ final class KeychainRefusalTests: XCTestCase {
         XCTAssertFalse(message.contains("Sign in"), "it tells a signed-in user to sign in")
     }
 
+    /// An emptied credential is not the same as never having signed in, and
+    /// the difference is the whole point: the last reading survives. Claude
+    /// Code empties every profile at once after it updates itself, and blanking
+    /// the rings turned an overnight glitch into "the app lost my data".
+    func testAnEmptiedCredentialKeepsTheLastReading() {
+        XCTAssertFalse(UsageStore.supersedesHistory(.signedOutByOwner))
+    }
+
+    /// Whereas a profile nobody ever signed into has nothing worth keeping.
+    func testNeverSignedInStillClearsTheHistory() {
+        XCTAssertTrue(UsageStore.supersedesHistory(.needsAuth))
+    }
+
+    func testAnEmptiedCredentialMapsToItsOwnStatus() {
+        guard case .signedOutByOwner =
+            UsageStore.statusForTesting(UsageProviderError.signedOutByOwner) else {
+            return XCTFail("an emptied credential was reported as something else")
+        }
+    }
+
+    func testTheMessageNamesTheCauseAndSaysSignInAgain() {
+        let snapshot = ProviderSnapshot(
+            id: "claude-work", displayName: "Claude (work)", glyph: .claude,
+            fidelity: .official, status: .signedOutByOwner, windows: []
+        )
+        let message = snapshot.statusMessage ?? ""
+        XCTAssertTrue(message.contains("Claude Code emptied"))
+        XCTAssertTrue(message.contains("updates itself"),
+                      "it has to name the trigger, or this reads as our bug")
+        XCTAssertTrue(message.contains("Sign in again"))
+    }
+
     /// The credential is still valid — we were simply not let in to re-read it.
     /// Throwing the last reading away would punish a mis-click.
     func testARefusalKeepsTheLastReading() {

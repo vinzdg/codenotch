@@ -128,6 +128,18 @@ struct ClaudeCredentials {
             throw UsageProviderError.needsAuth
         }
 
+        // A present-but-emptied credential is a real state, not a theoretical
+        // one: Claude Code rewrites this item with `accessToken: ""`, no
+        // refresh token and `expiresAt: 0`. It decodes perfectly and is worth
+        // nothing. Left alone it becomes `Bearer ` on the wire and a puzzling
+        // 401. Reporting it as `needsAuth` is worse still — that means "never
+        // signed in", which makes `supersedesHistory` erase a perfectly good
+        // archived reading every time the owning app does this.
+        guard !payload.claudeAiOauth.accessToken.isEmpty else {
+            Log.usage.error("\(service, privacy: .public) holds an emptied credential — needs a fresh sign-in")
+            throw UsageProviderError.signedOutByOwner
+        }
+
         return ClaudeCredentials(
             accessToken: payload.claudeAiOauth.accessToken,
             expiresAt: Date(timeIntervalSince1970: payload.claudeAiOauth.expiresAt / 1000),

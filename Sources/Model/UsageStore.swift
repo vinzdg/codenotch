@@ -392,6 +392,10 @@ final class UsageStore: ObservableObject {
         // and still valid, we were simply not let in to re-read it. Discarding
         // the last number would punish someone for pressing the wrong button.
         case .accessDenied:            return false
+        // The account was not closed and the numbers were not wrong — the
+        // owning app dropped its own token. Blanking the ring here is what
+        // turned a recurring overnight glitch into apparent data loss.
+        case .signedOutByOwner:        return false
         case .ok, .stale, .error:      return false
         }
     }
@@ -418,6 +422,8 @@ final class UsageStore: ObservableObject {
             // Not an error the user can do anything about, and the last good
             // reading is still roughly true, so it reads as staleness.
             return .stale(since: Date())
+        case UsageProviderError.signedOutByOwner:
+            return .signedOutByOwner
         case UsageProviderError.accessDenied:
             return .accessDenied
         case UsageProviderError.nothingMetered(let why):
