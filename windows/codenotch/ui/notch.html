@@ -364,7 +364,7 @@ function placeCard(){
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}
 
 /* Resting shell + hover: an unpinned notch retracts to a real 10 px window, then grows inward. */
-const card=document.getElementById('card'), pill=document.getElementById('pill');
+const root=document.getElementById('root'), card=document.getElementById('card'), pill=document.getElementById('pill');
 const edgebar=document.getElementById('edgebar'), settings=document.getElementById('settings');
 const SHELL_MOTION_MS=500;
 let hideTimer=null, shellTarget=false, shellTask=null, settingsSaving=false;
@@ -402,7 +402,7 @@ function useConfig(cfg){
   if(notchConfig.pinned)shellTarget=true;
   const ps=providers();
   if(!ps.some(p=>p.id===hoverId))hoverId=(ps[0]&&ps[0].id)||'claude';
-  syncShellClasses();renderRing();syncRestGeometry();
+  syncShellClasses();fitZoom();renderRing();syncRestGeometry();
   if(card.classList.contains('show'))renderCard();
 }
 function showCard(){
@@ -486,13 +486,24 @@ function armWatchdog(){
     callq('set_expanded',{on:true,rects}).catch(()=>{});
   });
 }
-// Viewport fit (pure front-end fallback, independent of Rust): the window is 340 × primary scale physical px,
-// so if this page's CSS viewport is not 340 wide the WebView's DPR disagrees with the monitor; CSS zoom pulls the layout back to the design size.
+// Viewport fit (pure front-end fallback, independent of Rust): the window is 340 × primary scale physical px.
+// On WebKitGTK, zooming <html> also scales the containing block used by right:0, pulling the notch
+// away from the screen edge. Scale a fixed design-sized root around the selected edge instead.
 function fitZoom(){
   // Windows still uses a genuinely compact 10×88 native window; never scale that tiny viewport.
   // Linux keeps the full transparent shell, so its resting state follows the normal full zoom.
-  if(innerWidth<100||innerHeight<100){document.documentElement.style.zoom='';return 1;}
-  const z=innerWidth/340;
+  if(innerWidth<100||innerHeight<100){document.documentElement.style.zoom='';root.style.cssText='';return 1;}
+  const z=Math.min(innerWidth/340,innerHeight/460);
+  if(/Linux/i.test(navigator.platform||navigator.userAgent)){
+    const left=notchConfig.side==='left';
+    document.documentElement.style.zoom='';
+    root.style.position='absolute';root.style.width='340px';root.style.height='460px';root.style.top='0';
+    root.style.left=left?'0':'auto';root.style.right=left?'auto':'0';
+    root.style.transformOrigin=left?'top left':'top right';
+    root.style.transform=`scale(${z})`;
+    return z;
+  }
+  root.style.cssText='';
   document.documentElement.style.zoom=(Math.abs(z-1)>0.02)?String(z):'';
   return z;
 }

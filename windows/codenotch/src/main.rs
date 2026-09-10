@@ -25,7 +25,7 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Logical size of the notch window: the 70 pt pill column on the right plus room for the hover card on the left.
 pub const NOTCH_W: f64 = 340.0;
 /// Hand-bumped build tag, written to run.log at startup so a log can always be matched to the exe that wrote it.
-pub const BUILD: &str = "r38";
+pub const BUILD: &str = "r39";
 pub const NOTCH_H: f64 = 460.0; // 300 clipped the card once it held three window blocks plus the session list
 const COMPACT_W: f64 = 10.0;
 const COMPACT_H: f64 = 88.0;
@@ -1108,6 +1108,7 @@ mod notch_geometry_tests {
         assert!(ui.contains("--shell-motion:500ms"));
         assert!(ui.contains("const SHELL_MOTION_MS=500"));
         assert!(ui.contains("waitForExpandedViewport"));
+        assert!(ui.contains("root.style.transformOrigin=left?'top left':'top right'"));
         assert!(ui.contains("body.shell-preparing #pill"));
         assert!(ui.contains("body.side-left.shell-opening #pill"));
         assert!(ui.contains("body.side-left.shell-closing #pill"));
