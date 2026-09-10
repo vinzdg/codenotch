@@ -367,6 +367,73 @@ final class AntigravityBridgeTests: XCTestCase {
 final class CredentialCacheTests: XCTestCase {
     private struct Token { let expired: Bool }
 
+    private enum Refusal: Error { case denied, brokenPayload }
+
+    /// The bug this exists for. A failure that was nothing to do with the item
+    /// used to be recorded against the item's modification date, and that date
+    /// does not move when macOS declines to show a prompt — so the error was
+    /// pinned to a version of the item nothing would ever write again, and the
+    /// read was never retried. It cost 2h42m of "signed out" over a token that
+    /// was valid the whole time.
+    func testAnEnvironmentalRefusalIsRetriedOnceItsTimerExpires() {
+        var reads = 0
+        var clock = Date(timeIntervalSince1970: 1_000)
+        let stamp = Date(timeIntervalSince1970: 500)   // never moves
+        let cache = CredentialCache<Token>(
+            retryAfterFailure: 60,
+            now: { clock },
+            isEnvironmental: { _ in true },
+            isExpired: { $0.expired }
+        )
+        for _ in 0..<3 {
+            _ = try? cache.value(itemModifiedAt: { stamp }) {
+                reads += 1
+                throw Refusal.denied
+            }
+        }
+        XCTAssertEqual(reads, 1, "the unchanged item should hold it off for now")
+
+        clock = clock.addingTimeInterval(120)
+        _ = try? cache.value(itemModifiedAt: { stamp }) {
+            reads += 1
+            throw Refusal.denied
+        }
+        XCTAssertEqual(reads, 2, "the timer expired, so it must ask again")
+    }
+
+    /// And the case the stamp is right for is untouched: a payload that will
+    /// not decode answers the same way every time, so re-reading an unchanged
+    /// item is pure noise.
+    func testAFailureCausedByTheItemStaysPinnedToIt() {
+        var reads = 0
+        var clock = Date(timeIntervalSince1970: 1_000)
+        let stamp = Date(timeIntervalSince1970: 500)
+        let cache = CredentialCache<Token>(
+            retryAfterFailure: 60,
+            now: { clock },
+            isEnvironmental: { _ in false },
+            isExpired: { $0.expired }
+        )
+        _ = try? cache.value(itemModifiedAt: { stamp }) {
+            reads += 1
+            throw Refusal.brokenPayload
+        }
+        clock = clock.addingTimeInterval(120)
+        _ = try? cache.value(itemModifiedAt: { stamp }) {
+            reads += 1
+            throw Refusal.brokenPayload
+        }
+        XCTAssertEqual(reads, 1, "an unchanged item cannot decode differently")
+    }
+
+    /// -60008 is what a refusal looks like when a prompt was needed and could
+    /// not be shown — seen five seconds before a clamshell sleep.
+    func testAPromptThatCouldNotBeShownIsTransientNotASignOut() {
+        XCTAssertTrue(ClaudeCredentials.wasTransient(-60008))
+        XCTAssertTrue(ClaudeCredentials.wasTransient(-25320))
+        XCTAssertFalse(ClaudeCredentials.wasTransient(errSecItemNotFound))
+    }
+
     func testItReadsOnceAndThenHoldsWhatItHas() throws {
         var reads = 0
         let cache = CredentialCache<Token> { $0.expired }

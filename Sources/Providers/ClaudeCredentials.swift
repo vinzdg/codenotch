@@ -126,7 +126,12 @@ struct ClaudeCredentials {
     /// would be needed. Security doesn't export a named constant for it, so
     /// the raw value is what there is to check.
     static func wasTransient(_ status: OSStatus) -> Bool {
-        status == -25320   // errSecInDarkWake
+        status == -25320       // errSecInDarkWake
+            // errAuthorizationInternal. What a refusal looks like when macOS
+            // decided a prompt was needed and there was no way to show one —
+            // observed five seconds before a clamshell sleep. The credential is
+            // untouched, so this is "not right now", not "signed out".
+            || status == -60008
     }
 
     static func explain(_ status: OSStatus) -> String {
@@ -152,7 +157,21 @@ final class ClaudeKeychain: @unchecked Sendable {
     /// Read once, then held until the token expires — see `CredentialCache`.
     /// Claude Code rotates this roughly hourly, so this is about one keychain
     /// read an hour instead of two a minute.
-    private let cache = CredentialCache<ClaudeCredentials> { $0.isExpired }
+    /// A refusal and an unanswerable prompt are both environmental: the item is
+    /// fine and macOS simply would not hand it over this time, so remembering
+    /// the failure against the item's modification date — which will not move —
+    /// is remembering it forever.
+    private let cache = CredentialCache<ClaudeCredentials>(
+        isEnvironmental: {
+            switch $0 {
+            case UsageProviderError.accessDenied, UsageProviderError.credentialExpired:
+                return true
+            default:
+                return false
+            }
+        },
+        isExpired: { $0.isExpired }
+    )
 
     init(service: String) {
         self.service = service

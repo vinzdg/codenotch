@@ -32,6 +32,19 @@ final class CredentialCache<Credential>: @unchecked Sendable {
     private var lastError: Error?
 
     private let isExpired: (Credential) -> Bool
+    /// Whether a failure was about the *environment* rather than about the item.
+    ///
+    /// The stamp below is the right memory for a failure the item caused — a
+    /// payload that will not decode gives the same answer every time it is
+    /// read, so asking again is pure noise. It is exactly the wrong memory for
+    /// a failure the item had nothing to do with. A prompt that could not be
+    /// shown because the lid was closing does not change `mdat`, so
+    /// `alreadyAsked` stays true for as long as the owning app leaves the item
+    /// alone — forever, in practice. One such blip cost 2h42m of "signed out"
+    /// over a valid token, ended only by quitting the app.
+    ///
+    /// So these failures fall through to the *timer*, which does expire.
+    private let isEnvironmental: (Error) -> Bool
     /// How long to sit with what we have when the probe cannot tell us whether
     /// the item moved. Long enough not to nag, short enough that a rotation is
     /// picked up while you are still looking at the notch.
@@ -44,10 +57,12 @@ final class CredentialCache<Credential>: @unchecked Sendable {
     init(recheckAfter: TimeInterval = 5 * 60,
          retryAfterFailure: TimeInterval = 5 * 60,
          now: @escaping () -> Date = Date.init,
+         isEnvironmental: @escaping (Error) -> Bool = { _ in false },
          isExpired: @escaping (Credential) -> Bool) {
         self.recheckAfter = recheckAfter
         self.retryAfterFailure = retryAfterFailure
         self.now = now
+        self.isEnvironmental = isEnvironmental
         self.isExpired = isExpired
     }
 
@@ -110,7 +125,12 @@ final class CredentialCache<Credential>: @unchecked Sendable {
             lock.lock()
             // The attempt is recorded, the credential is not: a failure must
             // never be handed back as if it were one.
-            attemptedStamp = current
+            //
+            // `nil` for an environmental failure, so the stamp comparison
+            // cannot match and the retry falls to `retryAfterFailure`. Storing
+            // `current` here would pin the error to a version of an item that
+            // nothing is going to write again.
+            attemptedStamp = isEnvironmental(error) ? nil : current
             attemptedAt = now()
             lastError = error
             lock.unlock()
