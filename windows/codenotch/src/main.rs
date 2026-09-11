@@ -25,7 +25,7 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Logical size of the notch window: the 70 pt pill column on the right plus room for the hover card on the left.
 pub const NOTCH_W: f64 = 340.0;
 /// Hand-bumped build tag, written to run.log at startup so a log can always be matched to the exe that wrote it.
-pub const BUILD: &str = "r43";
+pub const BUILD: &str = "r44";
 pub const NOTCH_H: f64 = 460.0; // 300 clipped the card once it held three window blocks plus the session list
 const COMPACT_W: f64 = 10.0;
 const COMPACT_H: f64 = 88.0;
@@ -795,8 +795,11 @@ fn install_linux_pointer_watchdog(window: &gtk::Window, app: AppHandle) {
             misses = 0;
             return gtk::glib::ControlFlow::Continue;
         }
-        let (under_pointer, x, y, _) = surface.device_position_double(&pointer);
-        let inside = under_pointer.is_some() && point_in_hot_rects(x, y, &rects, 4.0);
+        // The returned child window is optional even while the pointer is inside this toplevel
+        // (WebKitGTK and shaped XWayland surfaces commonly return None). The coordinates are still
+        // current and surface-local, so they are the authoritative containment test.
+        let (_child, x, y, _) = surface.device_position_double(&pointer);
+        let inside = point_in_hot_rects(x, y, &rects, 4.0);
         if inside {
             misses = 0;
         } else {
