@@ -26,13 +26,14 @@ extension View {
 /// crossing-and-notification machinery it switches is Notifications' to
 /// explain.
 private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
-    case accounts, ollama, lmstudio, appearance, notifications, general
+    case accounts, models, ollama, lmstudio, appearance, notifications, general
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .accounts:      return L10n.t("Accounts")
+        case .models:        return L10n.t("Models")
         case .ollama:        return "Ollama"   // a product name, the same in every language
         case .lmstudio:      return "LM Studio"
         case .appearance:    return L10n.t("Appearance")
@@ -44,6 +45,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     var icon: String {
         switch self {
         case .accounts:      return "person.crop.circle.fill"
+        case .models:        return "square.stack.3d.up.fill"
         case .ollama:        return "desktopcomputer"
         case .lmstudio:      return "cpu"
         case .appearance:    return "paintbrush.fill"
@@ -58,6 +60,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     var tint: Color {
         switch self {
         case .accounts:      return .blue
+        case .models:        return .green
         case .ollama:        return .teal
         case .lmstudio:      return .purple
         case .appearance:    return .indigo
@@ -417,6 +420,7 @@ struct SettingsView: View {
     private func paneContent(for section: SettingsSection) -> some View {
         switch section {
         case .accounts:      accountsPane
+        case .models:        ModelsSettingsPane(preferences: preferences, providers: accounts)
         case .ollama:
             if let usageStore {
                 Form {
@@ -453,7 +457,8 @@ struct SettingsView: View {
                                signOut: signOut, signIn: signIn,
                                switchAccount: switchAccount, retry: retry,
                                refresh: { usageStore?.reevaluate(providerID: $0) },
-                               isOrderable: true,
+                               isOrderable: preferences.isShownInNotch(account.id)
+                                   && preferences.isShownInNotch(account.sourceProviderID ?? account.id),
                                drag: drag,
                                cursorRefresh: cursorRefresh,
                                onDrop: { cursorRefresh += 1 },
@@ -466,7 +471,7 @@ struct SettingsView: View {
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else if !connected.isEmpty {
-                    Text(L10n.t("The notch draws these in this order. Drag one by its handle to move it."))
+                    Text(L10n.t("Drag visible items by their handles to reorder the notch. Choose which items appear in Models."))
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -922,11 +927,15 @@ struct SettingsView: View {
     }
 
     private var connected: [ProviderSummary] {
-        ringAccounts.filter { preferences.isConnected($0.id) }
+        ringAccounts.filter {
+            preferences.isConnected($0.id) && ($0.localModel == nil || preferences.isShownInNotch($0.id))
+        }
     }
 
     private var notConnected: [ProviderSummary] {
-        ringAccounts.filter { !preferences.isConnected($0.id) }
+        ringAccounts.filter {
+            !preferences.isConnected($0.id) || ($0.localModel != nil && !preferences.isShownInNotch($0.id))
+        }
     }
 
     /// Nothing to read from anywhere. On a first launch that is the normal
@@ -1179,8 +1188,15 @@ private struct AccountRow: View {
     /// quiet as it was before there was anything to drag.
     @State private var isHovering = false
 
-    private var isConnected: Bool { preferences.isConnected(provider.id) }
+    private var isConnected: Bool {
+        preferences.isConnected(provider.id)
+            && (provider.localModel == nil || preferences.isShownInNotch(provider.id))
+    }
     private var isMuted: Bool { preferences.isMutedAlerts(for: provider.id) }
+    private var isShownInNotch: Bool {
+        preferences.isShownInNotch(provider.id)
+            && preferences.isShownInNotch(provider.sourceProviderID ?? provider.id)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -1230,7 +1246,7 @@ private struct AccountRow: View {
                 }
                 .help(isOrderable
                       ? L10n.t("Drag to reorder. The notch draws the rings in this order.")
-                      : L10n.t("Switch this on to give it a ring in the notch."))
+                      : L10n.t("Choose whether this item appears in Models."))
                 // Two mechanisms, neither of which covers both halves.
                 // `pointerStyle` draws the hand on an ordinary hover but cannot
                 // re-evaluate under a pointer that has not moved, which is the
@@ -1315,6 +1331,13 @@ private struct AccountRow: View {
             detail
                 .font(.caption)
                 .padding(.leading, 48)
+
+            if isConnected, !isShownInNotch {
+                Text(L10n.t("Hidden from the notch. Show it again in Models."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 48)
+            }
 
             // Outside `detail` on purpose. That chain shows the account summary
             // whenever there is an account, and an aged-out token still has
@@ -1605,8 +1628,13 @@ private struct AccountRow: View {
     /// readings as well as stopping the next one.
     private var binding: Binding<Bool> {
         Binding(
-            get: { preferences.isConnected(provider.id) },
+            get: { isConnected },
             set: { wantsOn in
+                if provider.localModel != nil {
+                    preferences.setShownInNotch(wantsOn, for: provider.id)
+                    if wantsOn { didConnect() }
+                    return
+                }
                 if wantsOn {
                     preferences.setConnected(true, for: provider.id)
                     // After the switch, not before: where it belongs depends on

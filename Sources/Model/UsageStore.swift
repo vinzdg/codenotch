@@ -11,6 +11,9 @@ final class UsageStore: ObservableObject {
     }
     /// Settings and every display share the same ordered, visible model cells.
     @Published private(set) var notchSnapshots: [ProviderSnapshot] = []
+    /// Keep discovered cells in their existing order while some are hidden.
+    /// Re-enabling a model should restore its place without a fresh poll.
+    private var notchCells: [ProviderSnapshot] = []
     /// Providers with a fetch in flight, so the cell can show it happening.
     @Published private(set) var refreshing: Set<String> = []
     /// Providers whose last fetch was refused by macOS, cleared as soon as one
@@ -27,6 +30,15 @@ final class UsageStore: ObservableObject {
     @Published private(set) var needsRenewal: Set<String> = []
 
     private let providers: [UsageProvider]
+    /// Hiding is only a display projection; raw readings, archives and polling
+    /// continue unchanged. A runtime ID hides all of its model cells.
+    @Published var hiddenNotchProviders: Set<String> = [] {
+        didSet {
+            guard hiddenNotchProviders != oldValue else { return }
+            updateNotchSnapshots()
+        }
+    }
+
     /// Provider IDs block fetching before credential access. Model IDs only hide
     /// their cells so disabling one model does not stop the shared runtime.
     @Published var disconnected: Set<String> = [] {
@@ -145,6 +157,7 @@ final class UsageStore: ObservableObject {
         refreshDeadline: TimeInterval = 60,
         archive: UsageArchive = UsageArchive(),
         disconnected: Set<String> = [],
+        hiddenNotchProviders: Set<String> = [],
         order: [String] = [],
         pollingNow: @escaping () -> Date = Date.init
     ) {
@@ -165,6 +178,7 @@ final class UsageStore: ObservableObject {
         // `lastGood` is still empty, so it wrote an empty archive and destroyed
         // every remembered reading on any launch with a provider switched off.
         _disconnected = Published(initialValue: disconnected)
+        _hiddenNotchProviders = Published(initialValue: hiddenNotchProviders)
         _order = Published(initialValue: order)
         lastGood = archive.load()
         for provider in providers where provider.kind == .localRuntime {
@@ -195,14 +209,18 @@ final class UsageStore: ObservableObject {
     }
 
     private func updateNotchSnapshots() {
-        let cells = ProviderOrder.cells(from: snapshots, keeping: notchSnapshots)
-        notchSnapshots = ProviderOrder.arrange(cells, by: order, id: \.id)
-            .filter { !disconnected.contains($0.id) }
+        let cells = ProviderOrder.cells(from: snapshots, keeping: notchCells)
+        notchCells = ProviderOrder.arrange(cells, by: order, id: \.id)
+        notchSnapshots = notchCells.filter {
+            !disconnected.contains($0.id)
+                && !hiddenNotchProviders.contains($0.id)
+                && !hiddenNotchProviders.contains($0.providerID)
+        }
     }
 
     /// Model discovery does not need to re-read any cloud account's credential.
     var localModelSummaries: [ProviderSummary] {
-        ProviderOrder.cells(from: snapshots, keeping: notchSnapshots).compactMap { cell in
+        notchCells.compactMap { cell in
             guard let model = cell.localModel else { return nil }
             let runtime = providers.first { $0.id == cell.providerID }?.displayName ?? cell.displayName
             return ProviderSummary(kind: .localRuntime, localModel: model,

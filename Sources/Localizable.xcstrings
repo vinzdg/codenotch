@@ -11476,6 +11476,383 @@
           }
         }
       }
+    },
+    "Models": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modèles"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデル"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelos"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型"
+          }
+        }
+      }
+    },
+    "Choose which assistants and local models appear in the notch. Hidden items keep monitoring, and your choices are saved automatically.": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez les assistants et les modèles locaux qui apparaissent dans l'encoche. Les éléments masqués restent surveillés, et vos choix sont enregistrés automatiquement."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノッチに表示するアシスタントとローカルモデルを選べます。非表示にした項目も監視は続き、選択は自動的に保存されます。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha quais assistentes e modelos locais aparecem no notch. Os itens ocultos continuam sendo monitorados, e suas escolhas são salvas automaticamente."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择哪些助手和本地模型出现在刘海里。隐藏的项目仍会继续监测，你的选择会自动保存。"
+          }
+        }
+      }
+    },
+    "Assistants": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assistants"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アシスタント"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assistentes"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "助手"
+          }
+        }
+      }
+    },
+    "Loaded models appear here automatically when runtime monitoring is enabled.": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les modèles chargés apparaissent ici automatiquement lorsque la surveillance du runtime est activée."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ランタイムの監視がオンなら、読み込まれたモデルがここに自動で表示されます。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os modelos carregados aparecem aqui automaticamente quando o monitoramento do runtime está ativado."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启运行时监测后，已加载的模型会自动出现在这里。"
+          }
+        }
+      }
+    },
+    "No models available": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun modèle disponible"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用できるモデルがありません"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum modelo disponível"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可用的模型"
+          }
+        }
+      }
+    },
+    "Connect an assistant in Accounts or enable a local runtime to get started.": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez un assistant dans Comptes ou activez un runtime local pour commencer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まずはアカウントでアシスタントを接続するか、ローカルランタイムを有効にしてください。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecte um assistente em Contas ou ative um runtime local para começar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先在账号里连接一个助手，或启用一个本地运行时。"
+          }
+        }
+      }
+    },
+    "Connect in Accounts to show this assistant.": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-le dans Comptes pour afficher cet assistant."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアシスタントを表示するには、アカウントで接続してください。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecte em Contas para mostrar este assistente."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在账号里连接后才能显示这个助手。"
+          }
+        }
+      }
+    },
+    "Enable monitoring in the runtime's settings to show its models.": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activez la surveillance dans les réglages du runtime pour afficher ses modèles."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルを表示するには、ランタイムの設定で監視を有効にしてください。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ative o monitoramento nos ajustes do runtime para mostrar seus modelos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在该运行时的设置里开启监测，才能显示它的模型。"
+          }
+        }
+      }
+    },
+    "Show loaded models. Individual choices are kept when this is off.": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les modèles chargés. Les choix individuels sont conservés lorsque ceci est désactivé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込まれたモデルを表示します。オフにしても個別の設定は保持されます。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar os modelos carregados. As escolhas individuais são mantidas quando esta opção está desativada."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示已加载的模型。关闭后，单个模型的选择仍会保留。"
+          }
+        }
+      }
+    },
+    "Show or hide this item in the notch without changing its connection.": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher ou masquer cet élément dans l'encoche sans modifier sa connexion."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続はそのままに、この項目をノッチで表示/非表示にします。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar ou ocultar este item no notch sem alterar sua conexão."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在刘海里显示或隐藏这一项，不改变它的连接。"
+          }
+        }
+      }
+    },
+    "Drag visible items by their handles to reorder the notch. Choose which items appear in Models.": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faites glisser les éléments visibles par leur poignée pour réordonner l'encoche. Choisissez les éléments affichés dans Modèles."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示中の項目はハンドルをドラッグしてノッチの順番を変えられます。表示する項目はモデルで選べます。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arraste os itens visíveis pelas alças para reordenar o notch. Escolha quais itens aparecem em Modelos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖动可见项目的手柄即可改刘海的顺序。在模型里选择显示哪些项目。"
+          }
+        }
+      }
+    },
+    "Hidden from the notch. Show it again in Models.": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masqué de l'encoche. Réaffichez-le dans Modèles."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノッチでは非表示です。モデルで再表示できます。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculto no notch. Mostre-o novamente em Modelos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已从刘海隐藏。可在模型里重新显示。"
+          }
+        }
+      }
+    },
+    "Choose whether this item appears in Models.": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez dans Modèles si cet élément apparaît."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この項目を表示するかはモデルで選べます。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha em Modelos se este item aparece."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在模型里选择这一项是否显示。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

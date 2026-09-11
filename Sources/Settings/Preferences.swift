@@ -13,6 +13,12 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(Array(disconnectedProviders), forKey: Keys.disconnected) }
     }
 
+    /// Display choices are separate from connections: hidden providers keep
+    /// polling, and hidden local models keep running.
+    @Published var hiddenNotchProviders: Set<String> {
+        didSet { defaults.set(Array(hiddenNotchProviders), forKey: Keys.hiddenNotchProviders) }
+    }
+
     @Published var ollamaMetricsEnabled: Bool {
         didSet { defaults.set(ollamaMetricsEnabled, forKey: Keys.ollamaMetricsEnabled) }
     }
@@ -264,6 +270,7 @@ final class Preferences: ObservableObject {
     private enum Keys {
         /// The old name. Kept so existing choices survive the rename.
         static let disconnected = "hiddenProviders"
+        static let hiddenNotchProviders = "hiddenNotchProviders"
         static let ollamaEndpoint = "ollamaEndpoint"
         static let lmstudioEndpoint = "lmstudioEndpoint"
         static let introducedOllama = "introducedOllama"
@@ -386,6 +393,7 @@ final class Preferences: ObservableObject {
         }
         let disconnected = Set(defaults.stringArray(forKey: Keys.disconnected) ?? [])
         self.disconnectedProviders = disconnected
+        self.hiddenNotchProviders = Set(defaults.stringArray(forKey: Keys.hiddenNotchProviders) ?? [])
         self.ollamaMetricsEnabled = defaults.object(forKey: Keys.ollamaMetricsEnabled) as? Bool
             ?? (defaults.bool(forKey: Keys.introducedOllama)
                 && !disconnected.contains("ollama-local"))
@@ -499,6 +507,31 @@ final class Preferences: ObservableObject {
         } else {
             disconnectedProviders.insert(providerID)
         }
+    }
+
+    func isShownInNotch(_ providerID: String) -> Bool {
+        !hiddenNotchProviders.contains(providerID)
+            && !(Self.isLocalModelID(providerID) && disconnectedProviders.contains(providerID))
+    }
+
+    func setShownInNotch(_ shown: Bool, for providerID: String) {
+        if shown {
+            hiddenNotchProviders.remove(providerID)
+            // Earlier versions stored local model visibility with connection
+            // choices. Restore those cells without reconnecting any provider.
+            if Self.isLocalModelID(providerID) {
+                disconnectedProviders.remove(providerID)
+            }
+        } else {
+            hiddenNotchProviders.insert(providerID)
+        }
+    }
+
+    /// Matched on the shape every runtime builds its cells with
+    /// (`<runtime>:model:<model>`), not on a list of runtime names — the next
+    /// local runtime added should inherit this without touching Preferences.
+    private static func isLocalModelID(_ id: String) -> Bool {
+        id.contains(":model:")
     }
 
     /// Record a new order, keeping the ids that are not on this Mac today.
