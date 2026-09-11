@@ -405,9 +405,11 @@ function useConfig(cfg){
   syncShellClasses();fitZoom();renderRing();syncRestGeometry();
   if(card.classList.contains('show'))renderCard();
 }
-function showCard(){
+function showCard(reason='unknown'){
   if(settingsOpen||!shellExpanded)return;
-  clearTimeout(hideTimer);card.classList.add('show');renderCard();armWatchdog();
+  clearTimeout(hideTimer);
+  if(!card.classList.contains('show'))jslog(`show card: ${reason}`);
+  card.classList.add('show');renderCard();armWatchdog();
 }
 function hideCard(){
   card.classList.remove('show');
@@ -542,25 +544,34 @@ function pointerInHot(x,y){
   return inRect(x,y,u,0);
 }
 let hideLogged=0;
+// Resizing a transparent WebKitGTK window can dispatch mousemove again at the old cursor
+// coordinates. Only a real outside -> pill transition may open a hidden card.
+let pointerWasOnPill=false;
 edgebar.addEventListener('mouseenter',()=>expandShell(true));
 document.addEventListener('mousemove',e=>{
   if(dragging||!shellExpanded)return; // no card while dragging or retracted
+  const onPill=inRect(e.clientX,e.clientY,pill.getBoundingClientRect(),4);
+  const enteredPill=onPill&&!pointerWasOnPill;
+  pointerWasOnPill=onPill;
   const hot=pointerInHot(e.clientX,e.clientY);
   if(hot){
     clearTimeout(hideTimer);
     if(!shellTarget){
-      requestShell(true).then(()=>{if(!settingsOpen&&shellExpanded)showCard();}).catch(err=>notice(String(err)));
+      requestShell(true).then(()=>{if(enteredPill&&!settingsOpen&&shellExpanded)showCard('pill re-entry');}).catch(err=>notice(String(err)));
       return;
     }
     if(settingsOpen)return;
     const id=cellAt(e.clientX,e.clientY);
     if(id&&id!==hoverId){ hoverId=id; if(card.classList.contains('show')){ renderCard(); armWatchdog(); } }
-    if(!card.classList.contains('show')) showCard();
+    if(enteredPill&&!card.classList.contains('show'))showCard('pill entry');
   }
   else if(!notchConfig.pinned||card.classList.contains('show')){ if(hideLogged++<5) jslog(`mousemove left the hot area -> collapse at ${e.clientX},${e.clientY}`); scheduleHide(); }
 });
 document.addEventListener('mouseout',e=>{ // relatedTarget null = the cursor left the page
-  if(!e.relatedTarget&&shellExpanded&&!settingsOpen){if(hideLogged++<5)jslog('mouseout left the page -> collapse');scheduleHide();}
+  if(!e.relatedTarget){
+    pointerWasOnPill=false;
+    if(shellExpanded&&!settingsOpen){if(hideLogged++<5)jslog('mouseout left the page -> collapse');scheduleHide();}
+  }
 });
 listen('pointer_left',()=>{if(!settingsOpen){clearTimeout(hideTimer);hideCard();collapseShell();}}).catch(()=>{});
 // Card content changes change its height -> report the hot rectangles again
