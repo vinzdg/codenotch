@@ -1,13 +1,15 @@
-# Codenotch for Windows
+# Codenotch desktop port (Windows and Linux)
 
-A Windows port of [Codenotch](https://github.com/vinzdg/codenotch) — the usage notch that
-sits on the edge of your screen and answers two questions at a glance:
+A Rust/Tauri port of [Codenotch](https://github.com/vinzdg/codenotch) for Windows
+and experimental Linux support — the usage notch that sits on the edge of your
+screen and answers two questions at a glance:
 **how much of my AI allowance is left**, and **is Claude still working**.
 
 Same design language as the macOS original (inverse-rounded pill, colour-graded rings,
-hover card with per-window bars), rebuilt for Windows in Rust + Tauri 2 / WebView2.
-No code is copied from the Swift app; the providers are reimplemented from their
-documented behaviour and the wire formats.
+hover card with per-window bars), rebuilt in Rust + Tauri 2. Windows uses
+WebView2; Linux uses WebKitGTK and currently targets Arch Linux/KDE through
+XWayland. No code is copied from the Swift app; the providers are reimplemented
+from their documented behaviour and wire formats.
 
 ## What it shows
 
@@ -20,7 +22,7 @@ documented behaviour and the wire formats.
 
 Providers that are not installed simply do not get a cell.
 
-## Install / build
+## Windows install / build
 
 Prerequisites: Rust (MSVC toolchain), WebView2 runtime (ships with Windows 11).
 
@@ -34,11 +36,30 @@ cargo build --release
 Tray menu: refresh now, reset position, open data folder (`%APPDATA%\codenotch` — logs,
 persisted readings, icon overrides), start with Windows, install/uninstall Claude Code hooks.
 
+## Arch Linux install / build
+
+Run the following from the repository root:
+
+```sh
+just setup
+just health
+just arch build       # debug binaries
+just arch release     # optimized binaries
+install -Dm755 windows/target/release/codenotch "$HOME/.local/bin/codenotch"
+codenotch doctor
+codenotch
+```
+
+The complete package list, XWayland behavior, system-wide installation commands,
+runtime logs, removal steps, and current limitations are documented in the root
+[Linux section](../README.md#linux-arch-experimental).
+
 ### Icons
 
 Provider marks are the SVGs from [`@lobehub/icons-static-svg`](https://github.com/lobehub/lobe-icons)
 (MIT), embedded unmodified — see `codenotch/glyphs/NOTICE.md`. Drop your own
-`claude|codex|cursor|gemini.svg` (or `.png`) into `%APPDATA%\codenotch\glyphs\` to override.
+`claude|codex|cursor|gemini.svg` (or `.png`) into `%APPDATA%\codenotch\glyphs\` on
+Windows or `${XDG_CONFIG_HOME:-$HOME/.config}/codenotch/glyphs/` on Linux to override.
 The marks remain the trademarks of their owners.
 
 ## Layout

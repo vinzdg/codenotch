@@ -3,13 +3,13 @@
 ![Codenotch](docs/design/codenotch-banner.png)
 
 [![CI](https://github.com/vinzdg/codenotch/actions/workflows/ci.yml/badge.svg)](https://github.com/vinzdg/codenotch/actions/workflows/ci.yml)
-![Platform](https://img.shields.io/badge/platform-macOS%2026%2B-black)
+![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-black)
 ![Swift](https://img.shields.io/badge/swift-5-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-**A macOS app that pins a small black notch to a screen edge, showing how much
-of each coding assistant's usage limit you have burned — and whether it is
-still working, done, or waiting on you.**
+**A desktop app that pins a small black notch to a screen edge, showing how
+much of each coding assistant's usage limit you have burned — and whether it
+is still working, done, or waiting on you.**
 
 ![Collapsed notch with hover tooltip](docs/design/frame-124-hover-tooltip.png)
 
@@ -41,18 +41,22 @@ If macOS says the app is *damaged*, that is the quarantine flag rather than a ba
 Universal binary. macOS 15 or later. To build and install a copy from source
 instead, see [Building](#building).
 
+The native macOS application is the primary release. The Rust/Tauri desktop
+port currently supports Windows and an experimental Arch Linux build.
+
 ## Windows
 
 A Windows port — Rust/Tauri 2, same design and providers — lives in [`windows/`](windows/README.md).
 
 ## Linux (Arch, experimental)
 
-The Rust/Tauri port under `windows/` is also the Linux codebase. It compiles on
-Arch Linux. In Wayland sessions Codenotch automatically uses XWayland (when
-`DISPLAY` is available), because edge pinning requires global window
-coordinates that native Wayland intentionally does not expose. Set
-`CODENOTCH_NATIVE_WAYLAND=1` to opt out, with the caveat that the compositor may
-ignore the requested position.
+The Rust/Tauri port under `windows/` is also the Linux codebase. The currently
+verified target is Arch Linux x86_64 with KDE Plasma. In a Wayland session,
+Codenotch automatically uses XWayland when `DISPLAY` is available: absolute
+edge placement is not available to ordinary native Wayland clients. Set
+`CODENOTCH_NATIVE_WAYLAND=1` to force native Wayland, but expect the compositor
+to choose or ignore the requested position and treat hover behavior as
+best-effort.
 
 Install the Tauri system dependencies, Rust and `just`:
 
@@ -67,47 +71,81 @@ rustup default stable
 The package list follows the official
 [Tauri 2 Linux prerequisites](https://v2.tauri.app/start/prerequisites/).
 
-Initialize the project, then choose one of the two Arch build recipes:
+Initialize the project, check its dependencies, then choose one of the two Arch
+build recipes:
 
 ```sh
 just setup
+just health
 just arch build       # debug: windows/target/debug/{codenotch,codenotch-hook}
 just arch release     # optimized: windows/target/release/{codenotch,codenotch-hook}
 ```
 
-For a manual system-wide installation, build the release and install both
-binaries together so the Claude hook can find the main application:
+If `just health` reports missing packages, preview and apply the generated
+pacman command with `just cure-plan` and `just cure`.
+
+For a per-user installation, build the release and install the application in
+`~/.local/bin`:
+
+```sh
+just arch release
+install -Dm755 windows/target/release/codenotch "$HOME/.local/bin/codenotch"
+export PATH="$HOME/.local/bin:$PATH"  # also add this to your shell profile
+codenotch doctor
+codenotch
+```
+
+For a system-wide manual installation, use `/usr/local/bin` instead:
 
 ```sh
 just arch release
 sudo install -Dm755 windows/target/release/codenotch /usr/local/bin/codenotch
-sudo install -Dm755 windows/target/release/codenotch-hook /usr/local/bin/codenotch-hook
 codenotch doctor
 codenotch
 ```
 
 On Linux, `codenotch` starts the interface in the background and immediately
 returns control to the terminal. Use `codenotch --foreground` when debugging
-and you want GTK/Tauri diagnostics to remain attached to the shell.
+and you want GTK/Tauri diagnostics to remain attached to the shell. If startup
+reports that neither `libayatana-appindicator3` nor `libappindicator3` can be
+loaded, install `libayatana-appindicator` and run `just health` again.
 
-To remove this manual installation:
+Runtime state and diagnostics are kept under
+`${XDG_CONFIG_HOME:-$HOME/.config}/codenotch/`:
+
+- `config.json` — notch position, size, providers, and pin state;
+- `run.log` — display backend, geometry, and hover diagnostics;
+- `crash.log` — stderr from the detached GUI process;
+- `doctor.log` — the latest `codenotch doctor` report.
+
+To remove a per-user installation:
 
 ```sh
-sudo rm -f /usr/local/bin/codenotch /usr/local/bin/codenotch-hook
+rm -f "$HOME/.local/bin/codenotch"
+```
+
+To remove a system-wide installation:
+
+```sh
+sudo rm -f /usr/local/bin/codenotch
 ```
 
 This is currently a binary-only installation: it does not install a desktop
-entry, autostart file or pacman package. Those belong to the Linux packaging
-milestone described in
+entry, Linux autostart file, pacman package, or Linux Claude hook integration.
+The build does produce `codenotch-hook`, but automatic Linux hook wiring is not
+implemented yet. Those items belong to the Linux packaging milestones described
+in
 [`docs/plans/2026-09-09-linux-arch-installation-plan.md`](docs/plans/2026-09-09-linux-arch-installation-plan.md).
 
 ### Notch controls
 
 When unpinned, Codenotch rests as a small black bar on the configured screen
-edge. Hover over it to reveal the provider rings and usage card. Right-click
-the bar or the expanded notch to change its screen side, vertical position,
-size, visible providers, or to pin the full notch in place. These choices are
-saved in `~/.config/codenotch/config.json` on Linux.
+edge. Hover over it to reveal the provider rings and usage card; moving outside
+the pill and card hides the details again. Right-click the bar or the expanded
+notch to change its screen side, vertical position, size, visible providers,
+or to pin the full notch in place. Pinning keeps the provider pill visible, but
+the usage card still follows hover. These choices survive restarts in
+`${XDG_CONFIG_HOME:-$HOME/.config}/codenotch/config.json`.
 
 ## What it reads
 

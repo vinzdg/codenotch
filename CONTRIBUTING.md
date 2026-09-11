@@ -22,9 +22,30 @@ certificate, notarizes with Apple, and regenerates the Sparkle auto-update
 feed. That's the maintainer's job for cutting an official build, and it needs
 credentials only the maintainer has. You won't need it to contribute.
 
+### Rust/Tauri port (Windows and Linux)
+
+On Arch Linux, install or audit prerequisites with the repository's Justfile,
+then build either profile:
+
+```sh
+just setup
+just health            # use just cure-plan / just cure if required
+just arch build
+just arch release
+just tests all
+```
+
+The Rust workspace lives under `windows/` for historical reasons and is shared
+by Windows and Linux. Linux runtime behavior is currently verified on KDE
+Plasma through XWayland. See the root README's
+[Linux section](README.md#linux-arch-experimental) for installation and runtime
+diagnostics.
+
 ## Before opening a PR
 
 - `make test` passes.
+- Rust/Tauri changes pass `just tests all`; Arch-specific changes also pass
+  `just arch release`.
 - New behavior has a test. `Tests/` mirrors `Sources/` by concern, not by
   file — look for the existing test class closest to what you're changing
   before adding a new one.

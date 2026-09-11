@@ -1,7 +1,7 @@
 # Linux and Arch installation plan
 
-Status: proposed, with the first Linux build blocker fixed on
-`feat/linux-installation`.
+Status: M0 complete and the first Arch/KDE runtime slice verified on
+`feat/customizable-collapsible-notch`; native packaging remains planned.
 
 ## Goal
 
@@ -64,10 +64,24 @@ Reference environment for that result:
 - OpenSSL 3.6.4;
 - librsvg 2.62.3.
 
-This proves source-level portability, not runtime correctness. Several Linux
-branches deliberately return `false`, `None`, or do nothing, and a successful
-compile does not exercise window placement, transparency, focus, autostart, or
-packaging.
+The initial check proved source-level portability. Since then the Arch build has
+also been run on KDE Plasma in a Wayland session through XWayland, including the
+tray, fixed edge placement, persistent notch preferences, pin/hover behavior,
+and detached terminal launch. Remaining Linux gaps are called out below.
+
+### Verified development baseline (2026-09-11)
+
+- Arch Linux x86_64 with KDE Plasma and Wayland; the app selects XWayland when
+  both `WAYLAND_DISPLAY` and `DISPLAY` are present.
+- Both `just arch build` and `just arch release` produce `codenotch` and
+  `codenotch-hook`.
+- The Rust suite contains 13 passing tests, including Linux geometry, scaling,
+  input-region, animation, configuration round-trip, and hover-exit coverage.
+- A release binary was installed in `~/.local/bin`, launched detached, and
+  validated with `codenotch doctor`.
+- Hover exit was exercised against the real X11 window: an open panel uses the
+  transparent shell as a temporary exit guard, then restores the pill-only
+  input region after the details close.
 
 ## Recommended architecture
 
@@ -262,7 +276,7 @@ configuration will make a Linux bundling command select the wrong installer.
 
 - [x] Add a PNG application icon to Tauri's bundle inputs.
 - [x] Pass `cargo check --workspace --all-targets --locked` on Arch.
-- [x] Pass the Rust test command on Arch (currently zero Rust tests are defined).
+- [x] Pass the Rust test command on Arch (13 tests as of 2026-09-11).
 - [x] Run `codenotch doctor` on Arch with an isolated XDG config directory.
 - [ ] Split Windows and Linux Tauri bundle configuration.
 - [ ] Add an Arch CI compile/test job.
@@ -272,10 +286,11 @@ locked workspace without modifying `Cargo.lock`.
 
 ### M1 — visible Arch runtime
 
-- [ ] Start with fixed demo data on KDE X11/XWayland.
-- [ ] Verify transparency, always-on-top, tray, hover, and scaling.
-- [ ] Add backend selection and diagnostics.
-- [ ] Replace Windows-only URL/directory opening.
+- [x] Start with live local data on KDE/XWayland.
+- [x] Verify transparency, always-on-top, tray, hover, and scaling on the Arch
+  development host.
+- [x] Add backend selection and diagnostics.
+- [x] Replace Windows-only URL/directory opening with `xdg-open`.
 - [ ] Implement Linux locale detection.
 
 Exit criterion: a developer can run the notch for an hour without focus theft,
@@ -283,7 +298,7 @@ black backgrounds, clipping, or disappearing behind normal windows.
 
 ### M2 — provider and session integration
 
-- [ ] Fix Linux executable and config discovery.
+- [x] Fix and verify Linux executable and XDG config discovery.
 - [ ] Port the Claude hook paths and launch behavior.
 - [ ] Validate each provider with fixtures before live credentials.
 - [ ] Implement X11 session focus and explicit Wayland degradation.
