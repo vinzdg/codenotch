@@ -480,8 +480,8 @@ function jslog(m){invoke('log_js',{msg:String(m)}).catch(()=>{});}
 function callq(cmd,args){ // invoke with visible failure: any command error is reported on screen (a silent .catch used to swallow them)
   return invoke(cmd,args).catch(e=>{notice(cmd+' failed: '+(e&&e.message||e));throw e;});
 }
-// Hot rectangles are reported in physical pixels for the Windows/WebView2 pointer watchdog.
-// Linux/WebKitGTK uses the DOM geometry below because Wayland does not expose global coordinates.
+// Windows reports physical pixels; Linux reports logical pixels. The X11 watchdog converts the
+// global cursor to logical coordinates, while native Wayland falls back to DOM pointer events.
 const IS_LINUX=/Linux/i.test(navigator.platform||navigator.userAgent);
 function rectOf(el){const r=el.getBoundingClientRect(),k=IS_LINUX?1:(window.devicePixelRatio||1);return [r.left*k,r.top*k,r.width*k,r.height*k];}
 function armWatchdog(){

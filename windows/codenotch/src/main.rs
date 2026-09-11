@@ -25,7 +25,7 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Logical size of the notch window: the 70 pt pill column on the right plus room for the hover card on the left.
 pub const NOTCH_W: f64 = 340.0;
 /// Hand-bumped build tag, written to run.log at startup so a log can always be matched to the exe that wrote it.
-pub const BUILD: &str = "r44";
+pub const BUILD: &str = "r45";
 pub const NOTCH_H: f64 = 460.0; // 300 clipped the card once it held three window blocks plus the session list
 const COMPACT_W: f64 = 10.0;
 const COMPACT_H: f64 = 88.0;
@@ -559,10 +559,9 @@ fn open_provider_page(provider: String) -> Result<(), String> {
     open_target(std::ffi::OsStr::new(url))
 }
 
-/// Card expansion state: Some(hot rectangles, in **physical pixels** relative to the window's
-/// top-left as x,y,w,h) = expanded; None = collapsed. The page converts the rectangles with its
-/// own devicePixelRatio before reporting them, so no scale conversion happens on this side —
-/// WebView2's DPR and the window's scale_factor can disagree (see report_dpr).
+/// Card expansion state: Some(hot rectangles relative to the window's top-left as x,y,w,h) =
+/// expanded; None = collapsed. Windows reports physical pixels. Linux reports logical pixels, so
+/// its X11 watchdog converts the global cursor using the window scale factor before comparing it.
 static HOT: Mutex<Option<Vec<[f64; 4]>>> = Mutex::new(None);
 
 fn point_in_hot_rects(x: f64, y: f64, rects: &[[f64; 4]], pad: f64) -> bool {
@@ -703,16 +702,21 @@ fn report_dpr(app: AppHandle, dpr: f64, w: f64, h: f64) {
     }
 }
 
-/// WebView2's mouseleave is unreliable inside a NOACTIVATE transparent window — a cursor that
-/// leaves quickly often produces no WM_MOUSELEAVE, and the card stays up. Rather than trust DOM
-/// events, the Rust side watches the system cursor while the card is expanded and emits
-/// pointer_left once the cursor is outside; the page collapses after its 250 ms grace period.
+/// Mouseleave can be lost by WebView2 and by WebKitGTK when the cursor crosses a shaped X11 input
+/// region. The Rust side therefore watches the system cursor while the card is expanded and emits
+/// pointer_left once the cursor is outside; the page collapses after its grace period.
 /// "Outside the window" is not the test, though: the window has a 340×460 transparent area, so
 /// the cursor is compared against the hot rectangles the page reports (pill, card, and the gap
 /// between them), and two consecutive misses (300 ms) count as leaving.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn start_pointer_watchdog(app: AppHandle) {
+    #[cfg(target_os = "linux")]
+    if std::env::var("GDK_BACKEND").as_deref() != Ok("x11") {
+        applog("pointer watchdog: native Wayland uses DOM leave events");
+        return;
+    }
     std::thread::spawn(move || {
+        applog("global pointer watchdog ready");
         let mut miss = 0u8;
         loop {
             std::thread::sleep(std::time::Duration::from_millis(150));
@@ -729,15 +733,26 @@ fn start_pointer_watchdog(app: AppHandle) {
             }
             let Some(w) = app.get_webview_window("notch") else { continue };
             let (Ok(pos), Ok(cur)) = (w.outer_position(), app.cursor_position()) else { continue };
-            // Cursor position relative to the window's top-left, in physical pixels; the hot rectangles are physical too, so no scale conversion
+            // Cursor position relative to the window's top-left. Windows compares physical pixels;
+            // Linux converts them to the logical coordinates reported by WebKitGTK.
             let lx = cur.x - pos.x as f64;
             let ly = cur.y - pos.y as f64;
-            const PAD: f64 = 10.0;
+            let scale = if cfg!(target_os = "linux") {
+                w.scale_factor().unwrap_or(1.0)
+            } else {
+                1.0
+            };
+            let (hot_x, hot_y) = if cfg!(target_os = "linux") {
+                (lx / scale, ly / scale)
+            } else {
+                (lx, ly)
+            };
+            let pad = if cfg!(target_os = "linux") { 4.0 } else { 10.0 };
             let in_window = w
                 .outer_size()
                 .map(|s| lx >= 0.0 && ly >= 0.0 && lx < s.width as f64 && ly < s.height as f64)
                 .unwrap_or(true);
-            let inside = in_window && point_in_hot_rects(lx, ly, &rects, PAD);
+            let inside = in_window && point_in_hot_rects(hot_x, hot_y, &rects, pad);
             static LOGGED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
             if LOGGED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 12 {
                 applog(&format!(
@@ -757,96 +772,6 @@ fn start_pointer_watchdog(app: AppHandle) {
             }
         }
     });
-}
-
-/// WebKitGTK does not reliably emit DOM mouseout when the cursor crosses from a shaped input
-/// region into the transparent part of the same Wayland surface. GDK can still report whether its
-/// pointer device is over the surface and provide surface-local coordinates. Two misses avoid
-/// reacting to a transient input-shape update.
-#[cfg(target_os = "linux")]
-fn install_linux_pointer_watchdog(window: &gtk::Window, app: AppHandle) {
-    use gtk::gdk::prelude::SeatExt;
-    use gtk::prelude::WidgetExt;
-
-    let Some(surface) = window.window() else {
-        applog("linux pointer watchdog unavailable after realize: GDK surface missing");
-        return;
-    };
-    let Some(pointer) = surface
-        .display()
-        .default_seat()
-        .and_then(|seat| seat.pointer())
-    else {
-        applog("linux pointer watchdog unavailable: pointer device missing");
-        return;
-    };
-    let mut misses = 0u8;
-    let mut announced = false;
-    gtk::glib::timeout_add_local(std::time::Duration::from_millis(120), move || {
-        if !announced {
-            applog("linux pointer watchdog ready");
-            announced = true;
-        }
-        let Some(rects) = HOT.lock().unwrap().clone() else {
-            misses = 0;
-            return gtk::glib::ControlFlow::Continue;
-        };
-        if rects.len() < 2 {
-            misses = 0;
-            return gtk::glib::ControlFlow::Continue;
-        }
-        // The returned child window is optional even while the pointer is inside this toplevel
-        // (WebKitGTK and shaped XWayland surfaces commonly return None). The coordinates are still
-        // current and surface-local, so they are the authoritative containment test.
-        let (_child, x, y, _) = surface.device_position_double(&pointer);
-        let inside = point_in_hot_rects(x, y, &rects, 4.0);
-        if inside {
-            misses = 0;
-        } else {
-            misses += 1;
-            if misses >= 2 {
-                misses = 0;
-                *HOT.lock().unwrap() = None;
-                applog(&format!(
-                    "linux watchdog: pointer left hot region at ({x:.0},{y:.0})"
-                ));
-                let _ = app.emit("pointer_left", ());
-            }
-        }
-        gtk::glib::ControlFlow::Continue
-    });
-}
-
-#[cfg(target_os = "linux")]
-fn start_pointer_watchdog(app: AppHandle) {
-    let Some(win) = app.get_webview_window("notch") else {
-        applog("linux pointer watchdog unavailable: notch window missing");
-        return;
-    };
-    if let Err(error) = win.with_webview(move |webview| {
-        use gtk::prelude::{Cast, WidgetExt};
-
-        let Some(widget) = webview.inner().toplevel() else {
-            applog("linux pointer watchdog unavailable: GTK toplevel missing");
-            return;
-        };
-        let Ok(window) = widget.downcast::<gtk::Window>() else {
-            applog("linux pointer watchdog unavailable: GTK toplevel is not a window");
-            return;
-        };
-        if window.window().is_some() {
-            install_linux_pointer_watchdog(&window, app);
-        } else {
-            applog("linux pointer watchdog deferred until GDK realize");
-            window.connect_realize(move |window| {
-                install_linux_pointer_watchdog(window, app.clone());
-            });
-        }
-    }) {
-        applog(&format!(
-            "linux pointer watchdog unavailable: with_webview failed: {error}"
-        ));
-    }
 }
 
 /// Log channel for the page: JS writes key diagnostics into run.log (if invoke itself fails, the page reports on screen instead)
@@ -1154,8 +1079,8 @@ fn main() {
             // Collecting glyphs may read icon resources out of a few executables; do it off the main thread and push when done
             let gh = handle.clone();
             std::thread::spawn(move || reload_glyphs(&gh));
-            // Windows uses global cursor coordinates; Linux uses GDK surface-local coordinates so
-            // it also works on Wayland when WebKit misses mouseout across a shaped input region.
+            // Windows and Linux/X11 use global cursor coordinates. Native Wayland cannot expose
+            // them, so that opt-in backend continues to rely on DOM pointer events.
             #[cfg(any(windows, target_os = "linux"))]
             start_pointer_watchdog(handle.clone());
             // Seen-clears-it scan
