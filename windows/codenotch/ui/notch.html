@@ -480,8 +480,8 @@ function jslog(m){invoke('log_js',{msg:String(m)}).catch(()=>{});}
 function callq(cmd,args){ // invoke with visible failure: any command error is reported on screen (a silent .catch used to swallow them)
   return invoke(cmd,args).catch(e=>{notice(cmd+' failed: '+(e&&e.message||e));throw e;});
 }
-// Windows reports physical pixels; Linux reports logical pixels. The X11 watchdog converts the
-// global cursor to logical coordinates, while native Wayland falls back to DOM pointer events.
+// Windows reports physical pixels; Linux reports logical pixels. While a Linux panel is open its
+// full transparent shell acts as an exit guard, keeping XWayland pointer events alive outside it.
 const IS_LINUX=/Linux/i.test(navigator.platform||navigator.userAgent);
 function rectOf(el){const r=el.getBoundingClientRect(),k=IS_LINUX?1:(window.devicePixelRatio||1);return [r.left*k,r.top*k,r.width*k,r.height*k];}
 function armWatchdog(){
@@ -526,7 +526,8 @@ matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener('cha
 
 /* Collapse test: no trust in element-level mouseenter/mouseleave/e.target at all —
    pure geometry: is the cursor (clientX/Y) inside pill rect ∪ card rect ∪ their bounding box?
-   Leaving the window: document mouseout (relatedTarget=null) plus the Windows Rust watchdog as a second line. */
+   Linux keeps the full transparent shell interactive only while a panel is open, giving this
+   geometry check room to observe the pointer after it leaves the visible content. */
 function inRect(x,y,r,pad){return x>=r.left-pad&&y>=r.top-pad&&x<r.right+pad&&y<r.bottom+pad;}
 function cellAt(x,y){
   for(const el of pill.querySelectorAll('.cell')){ if(inRect(x,y,el.getBoundingClientRect(),6)) return el.dataset.p; }

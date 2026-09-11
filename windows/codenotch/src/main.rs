@@ -25,7 +25,7 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Logical size of the notch window: the 70 pt pill column on the right plus room for the hover card on the left.
 pub const NOTCH_W: f64 = 340.0;
 /// Hand-bumped build tag, written to run.log at startup so a log can always be matched to the exe that wrote it.
-pub const BUILD: &str = "r45";
+pub const BUILD: &str = "r46";
 pub const NOTCH_H: f64 = 460.0; // 300 clipped the card once it held three window blocks plus the session list
 const COMPACT_W: f64 = 10.0;
 const COMPACT_H: f64 = 88.0;
@@ -590,8 +590,36 @@ fn point_in_hot_rects(x: f64, y: f64, rects: &[[f64; 4]], pad: f64) -> bool {
 }
 
 #[cfg(target_os = "linux")]
+fn linux_input_rectangles(
+    rects: &[[f64; 4]],
+    logical_size: Option<(f64, f64)>,
+) -> Vec<[f64; 4]> {
+    // KWin stops updating XWayland's pointer position as soon as it leaves the shaped input
+    // region. While a card/settings panel is open, keep the whole transparent shell interactive:
+    // its empty area becomes an exit guard where WebKit can observe a real outside movement.
+    // Once the panel closes, restore the narrow shape so the invisible shell does not steal input.
+    if rects.len() >= 2 {
+        if let Some((width, height)) = logical_size {
+            if width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0 {
+                return vec![[0.0, 0.0, width, height]];
+            }
+        }
+    }
+    rects.to_vec()
+}
+
+#[cfg(target_os = "linux")]
 fn set_linux_input_region(app: &AppHandle, rects: &[[f64; 4]]) {
-    let rectangles = rects
+    let Some(window) = app.get_webview_window("notch") else {
+        return;
+    };
+    let scale = window.scale_factor().unwrap_or(1.0).max(f64::EPSILON);
+    let logical_size = window
+        .inner_size()
+        .ok()
+        .map(|size| (size.width as f64 / scale, size.height as f64 / scale));
+    let input_rects = linux_input_rectangles(rects, logical_size);
+    let rectangles = input_rects
         .iter()
         .filter(|r| r.iter().all(|value| value.is_finite()) && r[2] > 0.0 && r[3] > 0.0)
         .map(|r| {
@@ -606,9 +634,6 @@ fn set_linux_input_region(app: &AppHandle, rects: &[[f64; 4]]) {
     if rectangles.is_empty() {
         return;
     }
-    let Some(window) = app.get_webview_window("notch") else {
-        return;
-    };
     let _ = window.with_webview(move |webview| {
         use gtk::prelude::{Cast, WidgetExt};
 
@@ -702,9 +727,9 @@ fn report_dpr(app: AppHandle, dpr: f64, w: f64, h: f64) {
     }
 }
 
-/// Mouseleave can be lost by WebView2 and by WebKitGTK when the cursor crosses a shaped X11 input
-/// region. The Rust side therefore watches the system cursor while the card is expanded and emits
-/// pointer_left once the cursor is outside; the page collapses after its grace period.
+/// Mouseleave can be lost by WebView2. On Linux/XWayland the full-shell input guard keeps pointer
+/// coordinates updating after they leave the visible card. The Rust side watches those coordinates
+/// while the card is expanded and emits pointer_left once the cursor is outside the hot content.
 /// "Outside the window" is not the test, though: the window has a 340×460 transparent area, so
 /// the cursor is compared against the hot rectangles the page reports (pill, card, and the gap
 /// between them), and two consecutive misses (300 ms) count as leaving.
@@ -1230,6 +1255,19 @@ mod notch_geometry_tests {
         assert!(point_in_hot_rects(310.0, 160.0, &rects, 4.0));
         assert!(!point_in_hot_rects(390.0, 175.0, &rects, 4.0));
         assert!(!point_in_hot_rects(180.0, 270.0, &rects, 4.0));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_open_panel_uses_the_transparent_shell_as_an_exit_guard() {
+        let pill = [342.0, 190.0, 49.0, 150.0];
+        let card = [163.0, 169.0, 172.0, 193.0];
+
+        assert_eq!(linux_input_rectangles(&[pill], Some((391.0, 529.0))), vec![pill]);
+        assert_eq!(
+            linux_input_rectangles(&[pill, card], Some((391.0, 529.0))),
+            vec![[0.0, 0.0, 391.0, 529.0]]
+        );
     }
 
     #[cfg(target_os = "linux")]
