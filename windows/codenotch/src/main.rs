@@ -25,7 +25,7 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Logical size of the notch window: the 70 pt pill column on the right plus room for the hover card on the left.
 pub const NOTCH_W: f64 = 340.0;
 /// Hand-bumped build tag, written to run.log at startup so a log can always be matched to the exe that wrote it.
-pub const BUILD: &str = "r41";
+pub const BUILD: &str = "r43";
 pub const NOTCH_H: f64 = 460.0; // 300 clipped the card once it held three window blocks plus the session list
 const COMPACT_W: f64 = 10.0;
 const COMPACT_H: f64 = 88.0;
@@ -255,25 +255,21 @@ pub fn place_notch(app: &AppHandle) {
             let region = gtk::cairo::Region::create_rectangle(&rect);
             surface.input_shape_combine_region(&region, 0, 0);
         });
-        // Placement log line: the first thing to check when the notch is not visible
-        let log = config::config_path().with_file_name("run.log");
-        let _ = std::fs::write(
-            log,
-            format!(
-                "notch placed build={BUILD}: expanded={expanded} side={} scale={:.2} pos=({x},{y}) size=({ww}x{wh}) inner={:?} win_scale={scale} mon_scale={ms} monitor=({},{} {}x{}) workarea=({},{} {}x{})\n",
-                cfg.notch_side,
-                cfg.notch_scale,
-                w.inner_size().map(|s| (s.width, s.height)).unwrap_or((0, 0)),
-                mon.position().x,
-                mon.position().y,
-                mon.size().width,
-                mon.size().height,
-                work_area.0,
-                work_area.1,
-                work_area.2,
-                work_area.3
-            ),
-        );
+        // Placement is allowed to happen repeatedly; keep earlier diagnostics from this run.
+        applog(&format!(
+            "notch placed build={BUILD}: expanded={expanded} side={} scale={:.2} pos=({x},{y}) size=({ww}x{wh}) inner={:?} win_scale={scale} mon_scale={ms} monitor=({},{} {}x{}) workarea=({},{} {}x{})",
+            cfg.notch_side,
+            cfg.notch_scale,
+            w.inner_size().map(|s| (s.width, s.height)).unwrap_or((0, 0)),
+            mon.position().x,
+            mon.position().y,
+            mon.size().width,
+            mon.size().height,
+            work_area.0,
+            work_area.1,
+            work_area.2,
+            work_area.3
+        ));
     }
 }
 
@@ -569,6 +565,31 @@ fn open_provider_page(provider: String) -> Result<(), String> {
 /// WebView2's DPR and the window's scale_factor can disagree (see report_dpr).
 static HOT: Mutex<Option<Vec<[f64; 4]>>> = Mutex::new(None);
 
+fn point_in_hot_rects(x: f64, y: f64, rects: &[[f64; 4]], pad: f64) -> bool {
+    if rects.iter().any(|r| {
+        x >= r[0] - pad
+            && y >= r[1] - pad
+            && x < r[0] + r[2] + pad
+            && y < r[1] + r[3] + pad
+    }) {
+        return true;
+    }
+    if rects.len() < 2 {
+        return false;
+    }
+    let x0 = rects.iter().map(|r| r[0]).fold(f64::MAX, f64::min);
+    let y0 = rects.iter().map(|r| r[1]).fold(f64::MAX, f64::min);
+    let x1 = rects
+        .iter()
+        .map(|r| r[0] + r[2])
+        .fold(f64::MIN, f64::max);
+    let y1 = rects
+        .iter()
+        .map(|r| r[1] + r[3])
+        .fold(f64::MIN, f64::max);
+    x >= x0 && y >= y0 && x < x1 && y < y1
+}
+
 #[cfg(target_os = "linux")]
 fn set_linux_input_region(app: &AppHandle, rects: &[[f64; 4]]) {
     let rectangles = rects
@@ -702,6 +723,10 @@ fn start_pointer_watchdog(app: AppHandle) {
                     continue;
                 }
             };
+            if rects.len() < 2 {
+                miss = 0;
+                continue;
+            }
             let Some(w) = app.get_webview_window("notch") else { continue };
             let (Ok(pos), Ok(cur)) = (w.outer_position(), app.cursor_position()) else { continue };
             // Cursor position relative to the window's top-left, in physical pixels; the hot rectangles are physical too, so no scale conversion
@@ -712,17 +737,7 @@ fn start_pointer_watchdog(app: AppHandle) {
                 .outer_size()
                 .map(|s| lx >= 0.0 && ly >= 0.0 && lx < s.width as f64 && ly < s.height as f64)
                 .unwrap_or(true);
-            let mut inside = in_window && rects.iter().any(|r| {
-                lx >= r[0] - PAD && ly >= r[1] - PAD && lx < r[0] + r[2] + PAD && ly < r[1] + r[3] + PAD
-            });
-            // The gap between hot rectangles (pill and card) counts as inside: use the bounding box of all of them
-            if !inside && in_window && rects.len() > 1 {
-                let x0 = rects.iter().map(|r| r[0]).fold(f64::MAX, f64::min);
-                let y0 = rects.iter().map(|r| r[1]).fold(f64::MAX, f64::min);
-                let x1 = rects.iter().map(|r| r[0] + r[2]).fold(f64::MIN, f64::max);
-                let y1 = rects.iter().map(|r| r[1] + r[3]).fold(f64::MIN, f64::max);
-                inside = lx >= x0 && ly >= y0 && lx < x1 && ly < y1;
-            }
+            let inside = in_window && point_in_hot_rects(lx, ly, &rects, PAD);
             static LOGGED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
             if LOGGED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 12 {
                 applog(&format!(
@@ -742,6 +757,93 @@ fn start_pointer_watchdog(app: AppHandle) {
             }
         }
     });
+}
+
+/// WebKitGTK does not reliably emit DOM mouseout when the cursor crosses from a shaped input
+/// region into the transparent part of the same Wayland surface. GDK can still report whether its
+/// pointer device is over the surface and provide surface-local coordinates. Two misses avoid
+/// reacting to a transient input-shape update.
+#[cfg(target_os = "linux")]
+fn install_linux_pointer_watchdog(window: &gtk::Window, app: AppHandle) {
+    use gtk::gdk::prelude::SeatExt;
+    use gtk::prelude::WidgetExt;
+
+    let Some(surface) = window.window() else {
+        applog("linux pointer watchdog unavailable after realize: GDK surface missing");
+        return;
+    };
+    let Some(pointer) = surface
+        .display()
+        .default_seat()
+        .and_then(|seat| seat.pointer())
+    else {
+        applog("linux pointer watchdog unavailable: pointer device missing");
+        return;
+    };
+    let mut misses = 0u8;
+    let mut announced = false;
+    gtk::glib::timeout_add_local(std::time::Duration::from_millis(120), move || {
+        if !announced {
+            applog("linux pointer watchdog ready");
+            announced = true;
+        }
+        let Some(rects) = HOT.lock().unwrap().clone() else {
+            misses = 0;
+            return gtk::glib::ControlFlow::Continue;
+        };
+        if rects.len() < 2 {
+            misses = 0;
+            return gtk::glib::ControlFlow::Continue;
+        }
+        let (under_pointer, x, y, _) = surface.device_position_double(&pointer);
+        let inside = under_pointer.is_some() && point_in_hot_rects(x, y, &rects, 4.0);
+        if inside {
+            misses = 0;
+        } else {
+            misses += 1;
+            if misses >= 2 {
+                misses = 0;
+                *HOT.lock().unwrap() = None;
+                applog(&format!(
+                    "linux watchdog: pointer left hot region at ({x:.0},{y:.0})"
+                ));
+                let _ = app.emit("pointer_left", ());
+            }
+        }
+        gtk::glib::ControlFlow::Continue
+    });
+}
+
+#[cfg(target_os = "linux")]
+fn start_pointer_watchdog(app: AppHandle) {
+    let Some(win) = app.get_webview_window("notch") else {
+        applog("linux pointer watchdog unavailable: notch window missing");
+        return;
+    };
+    if let Err(error) = win.with_webview(move |webview| {
+        use gtk::prelude::{Cast, WidgetExt};
+
+        let Some(widget) = webview.inner().toplevel() else {
+            applog("linux pointer watchdog unavailable: GTK toplevel missing");
+            return;
+        };
+        let Ok(window) = widget.downcast::<gtk::Window>() else {
+            applog("linux pointer watchdog unavailable: GTK toplevel is not a window");
+            return;
+        };
+        if window.window().is_some() {
+            install_linux_pointer_watchdog(&window, app);
+        } else {
+            applog("linux pointer watchdog deferred until GDK realize");
+            window.connect_realize(move |window| {
+                install_linux_pointer_watchdog(window, app.clone());
+            });
+        }
+    }) {
+        applog(&format!(
+            "linux pointer watchdog unavailable: with_webview failed: {error}"
+        ));
+    }
 }
 
 /// Log channel for the page: JS writes key diagnostics into run.log (if invoke itself fails, the page reports on screen instead)
@@ -929,6 +1031,18 @@ fn main() {
         }
     }
 
+    // Start each real GUI process with one coherent diagnostic log. Placement changes append to
+    // it instead of erasing the evidence needed to diagnose later pointer/config transitions.
+    let run_log = config::config_path().with_file_name("run.log");
+    if let Some(directory) = run_log.parent() {
+        let _ = std::fs::create_dir_all(directory);
+    }
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(run_log);
+
     // Must run before Tauri/GTK is initialized.
     configure_linux_display_backend();
     if let Some(cmd) = args.get(1) {
@@ -1037,9 +1151,9 @@ fn main() {
             // Collecting glyphs may read icon resources out of a few executables; do it off the main thread and push when done
             let gh = handle.clone();
             std::thread::spawn(move || reload_glyphs(&gh));
-            // The global-coordinate watchdog is a WebView2/Win32 workaround. Native DOM pointer
-            // events are reliable on WebKitGTK; Wayland returns unusable (0,0) global coordinates.
-            #[cfg(windows)]
+            // Windows uses global cursor coordinates; Linux uses GDK surface-local coordinates so
+            // it also works on Wayland when WebKit misses mouseout across a shaped input region.
+            #[cfg(any(windows, target_os = "linux"))]
             start_pointer_watchdog(handle.clone());
             // Seen-clears-it scan
             let acker = handle.clone();
@@ -1177,6 +1291,17 @@ mod notch_geometry_tests {
         assert!(ui.contains("body.shell-preparing #pill"));
         assert!(ui.contains("body.side-left.shell-opening #pill"));
         assert!(ui.contains("body.side-left.shell-closing #pill"));
+    }
+
+    #[test]
+    fn pointer_watchdog_keeps_only_the_card_pill_and_bridge_hot() {
+        let rects = [[320.0, 100.0, 50.0, 150.0], [100.0, 120.0, 200.0, 100.0]];
+
+        assert!(point_in_hot_rects(345.0, 175.0, &rects, 4.0));
+        assert!(point_in_hot_rects(180.0, 160.0, &rects, 4.0));
+        assert!(point_in_hot_rects(310.0, 160.0, &rects, 4.0));
+        assert!(!point_in_hot_rects(390.0, 175.0, &rects, 4.0));
+        assert!(!point_in_hot_rects(180.0, 270.0, &rects, 4.0));
     }
 
     #[cfg(target_os = "linux")]
