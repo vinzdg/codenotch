@@ -72,12 +72,20 @@ Most providers borrow a credential or session from a tool already on your Mac.
 DeepSeek is the explicit browser-login exception: it never reads a browser's
 cookies or credentials, and only makes requests after you choose **Sign in to
 DeepSeek** from Codenotch.
-Ollama Cloud accepts an API key in Settings. Switching a provider off stops its
-usage polling and forgets its readings; borrowed accounts stay signed in to
-the tools that own them.
+Ollama Cloud accepts an API key in Settings. Disconnecting a provider in
+**Settings → Accounts** stops its usage polling and forgets its readings;
+borrowed accounts stay signed in to the tools that own them.
+
+**Settings → Models** lets you show or hide assistants and loaded Ollama or
+LM Studio model cells to keep the notch focused. These choices are remembered
+across launches. Hidden items keep their connections, monitoring and readings.
+Each local runtime also has a switch for all of its model cells; switching it
+off preserves the individual model choices for when you show it again. Hiding
+a model does not unload it from Ollama or LM Studio.
 
 **Local Ollama is detected automatically.** Configure its address or stop monitoring in **Settings → Ollama**.
-Each loaded model gets a notch cell; reorder or hide it in **Settings → Accounts**.
+Each loaded model gets a notch cell; hide or show it in **Settings → Models**
+and reorder visible cells in **Settings → Accounts**.
 Hover for RAM/VRAM, unload time, context limit and quantization.
 
 For generation speed (**tok/s**) and live **Thinking**, enable **Measure speed and thinking**
@@ -109,11 +117,10 @@ set to require an API token, paste one in Settings → LM Studio (or export `LM_
 one, requests are sent with no Authorization header at all.
 See [LM Studio details](docs/plans/2026-09-10-lm-studio-provider-plan.md).
 
-Settings lists the connected providers in the order the notch draws them, and
-you can drag one by its handle to move it. The order is remembered across
-launches. A provider you switch back on joins the end of that list rather than
-reclaiming an older position, so nothing you cannot currently see jumps ahead
-of something you placed deliberately.
+**Settings → Accounts** manages connections and lists the connected providers;
+drag a visible item by its handle to change the notch order. The order is
+remembered across launches. Hiding and showing an item in Models preserves its
+position. Reconnecting a provider in Accounts adds it to the end of the notch.
 
 It also answers **"is it still working?"** — a thin arc spins inside a
 provider's ring while a session is busy, and becomes a pulsing amber ring when

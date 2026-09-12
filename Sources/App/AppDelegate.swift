@@ -138,6 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                        })]
                     + webProviders,
                 disconnected: preferences.disconnectedProviders,
+                hiddenNotchProviders: preferences.hiddenNotchProviders,
                 // Passed at construction, not left to the sink below, for the
                 // same reason `disconnected` is: the sink delivers a run loop
                 // turn later, so without this every launch draws the built-in
@@ -407,6 +408,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             preferences.$disconnectedProviders
                 .receive(on: RunLoop.main)
                 .sink { [weak store] in store?.disconnected = $0 }
+                .store(in: &cancellables)
+
+            preferences.$hiddenNotchProviders
+                .receive(on: RunLoop.main)
+                .sink { [weak store] in store?.hiddenNotchProviders = $0 }
                 .store(in: &cancellables)
 
             preferences.$ollamaEndpoint
