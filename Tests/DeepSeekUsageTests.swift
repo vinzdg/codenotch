@@ -54,6 +54,28 @@ final class DeepSeekUsageTests: XCTestCase {
         ), .offPeak)
     }
 
+    func testPricingSupportsMoreThanTwoPeakWindows() throws {
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        let schedule = DeepSeekPricing.Schedule(
+            peakWeekdays: [2],
+            windows: [
+                .init(startMinute: 60, endMinute: 120),
+                .init(startMinute: 360, endMinute: 420),
+                .init(startMinute: 1_080, endMinute: 1_140)
+            ]
+        )
+
+        XCTAssertEqual(DeepSeekPricing.phase(
+            at: try XCTUnwrap(formatter.date(from: "2026-09-14T18:30:00Z")),
+            schedule: schedule
+        ), .peak)
+        XCTAssertEqual(DeepSeekPricing.phase(
+            at: try XCTUnwrap(formatter.date(from: "2026-09-14T19:00:00Z")),
+            schedule: schedule
+        ), .offPeak)
+    }
+
     func testDisablingPricingOnlyRemovesPricingRowsFromTheCardHeight() {
         XCTAssertGreaterThan(
             NotchLayout.usageDetailHeight(1, showsPricing: true),

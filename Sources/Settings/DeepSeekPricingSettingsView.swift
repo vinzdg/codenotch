@@ -43,12 +43,21 @@ struct DeepSeekPricingSettingsView: View {
                     }
                 }
 
-                PeakWindowRow(title: L10n.t("Window 1"),
-                              start: timeBinding(window: 0, start: true),
-                              end: timeBinding(window: 0, start: false))
-                PeakWindowRow(title: L10n.t("Window 2"),
-                              start: timeBinding(window: 1, start: true),
-                              end: timeBinding(window: 1, start: false))
+                ForEach(schedule.windows.indices, id: \.self) { index in
+                    PeakWindowRow(
+                        title: String(format: L10n.t("Window %lld"), index + 1),
+                        start: timeBinding(window: index, start: true),
+                        end: timeBinding(window: index, start: false),
+                        canRemove: schedule.windows.count > 1,
+                        onRemove: { removeWindow(at: index) }
+                    )
+                }
+
+                Button {
+                    addWindow()
+                } label: {
+                    Label(L10n.t("Add peak window"), systemImage: "plus")
+                }
             }
             .disabled(!preferences.deepSeekPricingEnabled)
 
@@ -93,7 +102,7 @@ struct DeepSeekPricingSettingsView: View {
             get: {
                 let window = schedule.windows.indices.contains(index)
                     ? schedule.windows[index]
-                    : DeepSeekPricing.Schedule.current.windows[index]
+                    : .init(startMinute: 0, endMinute: 30)
                 return start ? window.startMinute : window.endMinute
             },
             set: { value in
@@ -101,14 +110,41 @@ struct DeepSeekPricingSettingsView: View {
                 guard next.windows.indices.contains(index) else { return }
                 var window = next.windows[index]
                 if start {
-                    window.startMinute = min(value, max(0, window.endMinute - 30))
+                    window.startMinute = min(max(value, 0), max(0, window.endMinute - 1))
                 } else {
-                    window.endMinute = max(value, min(1_440, window.startMinute + 30))
+                    window.endMinute = max(min(value, 1_440), min(1_440, window.startMinute + 1))
                 }
                 next.windows[index] = window
                 preferences.deepSeekPricingSchedule = next
             }
         )
+    }
+
+    private func addWindow() {
+        var next = schedule
+        let duration = 60
+        let sortedWindows = next.windows.sorted { $0.startMinute < $1.startMinute }
+        var candidateStart = 0
+
+        for window in sortedWindows {
+            if window.startMinute - candidateStart >= duration { break }
+            candidateStart = max(candidateStart, window.endMinute)
+        }
+
+        if candidateStart + duration > 1_440 {
+            candidateStart = 1_440 - duration
+        }
+        next.windows.append(.init(startMinute: candidateStart,
+                                  endMinute: candidateStart + duration))
+        preferences.deepSeekPricingSchedule = next
+    }
+
+    private func removeWindow(at index: Int) {
+        guard schedule.windows.count > 1,
+              schedule.windows.indices.contains(index) else { return }
+        var next = schedule
+        next.windows.remove(at: index)
+        preferences.deepSeekPricingSchedule = next
     }
 }
 
@@ -116,29 +152,68 @@ private struct PeakWindowRow: View {
     let title: String
     @Binding var start: Int
     @Binding var end: Int
+    let canRemove: Bool
+    let onRemove: () -> Void
 
     var body: some View {
         HStack {
             Text(title)
             Spacer()
-            Picker(L10n.t("Start"), selection: $start) {
-                ForEach(Array(stride(from: 0, through: 1_440, by: 30)), id: \.self) { minute in
-                    Text(timeText(minute)).tag(minute)
-                }
-            }
-            .labelsHidden()
+            PeakTimePicker(label: L10n.t("Start"), minuteOfDay: $start)
             Text(L10n.t("to"))
                 .foregroundStyle(.secondary)
-            Picker(L10n.t("End"), selection: $end) {
-                ForEach(Array(stride(from: 0, through: 1_440, by: 30)), id: \.self) { minute in
-                    Text(timeText(minute)).tag(minute)
+            PeakTimePicker(label: L10n.t("End"), minuteOfDay: $end)
+            if canRemove {
+                Button(role: .destructive, action: onRemove) {
+                    Image(systemName: "minus.circle")
                 }
+                .buttonStyle(.borderless)
+                .help(L10n.t("Remove peak window"))
             }
-            .labelsHidden()
+        }
+    }
+}
+
+private struct PeakTimePicker: View {
+    let label: String
+    @Binding var minuteOfDay: Int
+
+    var body: some View {
+        HStack(spacing: 6) {
+            DatePicker(label, selection: dateBinding, displayedComponents: [.hourAndMinute])
+                .datePickerStyle(.stepperField)
+                .labelsHidden()
+                .environment(\.timeZone, Self.utcTimeZone)
         }
     }
 
-    private func timeText(_ minute: Int) -> String {
-        String(format: "%02d:%02d", minute / 60, minute % 60)
+    private static let utcTimeZone = TimeZone(secondsFromGMT: 0)!
+
+    private static var utcCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = utcTimeZone
+        return calendar
+    }
+
+    private static let anchorDate = Date(timeIntervalSince1970: 0)
+
+    private var dateBinding: Binding<Date> {
+        Binding(
+            get: {
+                let minute = min(max(minuteOfDay, 0), 1_440)
+                if minute == 1_440 {
+                    return Self.utcCalendar.date(byAdding: .day, value: 1,
+                                                 to: Self.anchorDate) ?? Self.anchorDate
+                }
+                return Self.utcCalendar.date(bySettingHour: minute / 60,
+                                             minute: minute % 60,
+                                             second: 0,
+                                             of: Self.anchorDate) ?? Self.anchorDate
+            },
+            set: { date in
+                let components = Self.utcCalendar.dateComponents([.hour, .minute], from: date)
+                minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+            }
+        )
     }
 }

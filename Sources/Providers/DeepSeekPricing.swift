@@ -28,15 +28,19 @@ enum DeepSeekPricing {
         )
 
         /// Keep values loaded from UserDefaults safe even if a future build
-        /// changes the editor or an older build wrote malformed data.
+        /// changes the editor or an older build wrote malformed data. The
+        /// number of windows is intentionally unbounded: DeepSeek may publish
+        /// more than the two windows in today's default rule.
         var normalized: Schedule {
             let weekdays = peakWeekdays.filter { (1...7).contains($0) }
-            var validWindows = windows.prefix(2).map { window in
-                Window(startMinute: min(max(window.startMinute, 0), 1_440),
-                       endMinute: min(max(window.endMinute, 0), 1_440))
+            var validWindows = windows.compactMap { window -> Window? in
+                let startMinute = min(max(window.startMinute, 0), 1_440)
+                let endMinute = min(max(window.endMinute, 0), 1_440)
+                guard startMinute < endMinute else { return nil }
+                return Window(startMinute: startMinute, endMinute: endMinute)
             }
-            while validWindows.count < 2 {
-                validWindows.append(Self.current.windows[validWindows.count])
+            if validWindows.isEmpty {
+                validWindows = [Self.current.windows[0]]
             }
             return Schedule(peakWeekdays: weekdays,
                             windows: validWindows)

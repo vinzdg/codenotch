@@ -210,13 +210,18 @@ final class PreferencesMigrationTests: XCTestCase {
         preferences.deepSeekPricingEnabled = false
         preferences.deepSeekPricingSchedule = DeepSeekPricing.Schedule(
             peakWeekdays: [2],
-            windows: [.init(startMinute: 120, endMinute: 180)]
+            windows: [
+                .init(startMinute: 120, endMinute: 180),
+                .init(startMinute: 360, endMinute: 420),
+                .init(startMinute: 900, endMinute: 960)
+            ]
         )
 
         let reloaded = Preferences(defaults: UserDefaults(suiteName: name)!)
         XCTAssertFalse(reloaded.deepSeekPricingEnabled)
         XCTAssertEqual(reloaded.deepSeekPricingSchedule.peakWeekdays, [2])
-        XCTAssertEqual(reloaded.deepSeekPricingSchedule.windows.first?.startMinute, 120)
+        XCTAssertEqual(reloaded.deepSeekPricingSchedule.windows.count, 3)
+        XCTAssertEqual(reloaded.deepSeekPricingSchedule.windows[2].startMinute, 900)
 
         reloaded.resetDeepSeekPricingSchedule()
         XCTAssertEqual(reloaded.deepSeekPricingSchedule, .current)
