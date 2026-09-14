@@ -32,6 +32,44 @@ enum ReleaseNotes {
     static var all: [ReleaseNote] {
         [
             ReleaseNote(
+                version: "1.11.0",
+                headline: L10n.t("Kiro and MiniMax, German, a daily pace ring for Claude, and a switch for folding over full-screen apps."),
+                changes: [
+                    ReleaseNote.Change(
+                        title: L10n.t("Kiro and MiniMax"),
+                        detail: L10n.t("Kiro reads the kiro-cli sign-in already on this Mac. MiniMax signs in from Codenotch, with a choice of international or China region.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("Deutsch"),
+                        detail: L10n.t("German joins the app's languages, and the limit and reset notifications are now in Simplified Chinese too.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("A daily pace ring for Claude"),
+                        detail: L10n.t("Optionally, Claude's main ring shows today's share of the weekly limit, a seventh a day, with the session moving to the thin ring.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("Codex's extra limits"),
+                        detail: L10n.t("The hover card lists Spark and code review when your account has them, and Appearance can hide them.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("Fold for full-screen apps"),
+                        detail: L10n.t("The automatic fold over full-screen apps can now be switched off, for anyone whose maximised windows kept folding the notch.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("DeepSeek pricing windows"),
+                        detail: L10n.t("Peak and off-peak hours are fully configurable, and signing in picks up DeepSeek's login more reliably.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("Alerts on time"),
+                        detail: L10n.t("Usage refreshes the moment a limit window rolls over, so reset and limit alerts arrive when they happen, even without a notch on screen.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("Smaller fixes"),
+                        detail: L10n.t("New providers stay off until you switch them on, the recenter button gives clearer feedback, hovering is ignored while Option-dragging, the Codex completion sound keeps its setting, and the Windows rings and hover card match the Mac's.")
+                    ),
+                ]
+            ),
+            ReleaseNote(
                 version: "1.10.0",
                 headline: L10n.t("Tells you when a limit resets or runs out, speaks Russian, and reads Kimi."),
                 changes: [
