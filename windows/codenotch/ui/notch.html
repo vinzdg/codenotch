@@ -136,91 +136,199 @@ let agSnap={status:'absent',windows:[],fetched_at:0,note:''};
 let glyphs={}; // id → {kind:'mark'|'appicon', url}
 let activity=[]; // working state of the non-Claude providers: {provider,state:'busy'|'waiting',name,detail,since}
 let uiLang='en';
-const RU_TEXT={
-  'Included usage':'Включённое использование',
-  'API usage':'Использование API',
-  'On demand':'По запросу',
-  'Usage':'Использование',
-  'Current session':'Текущий сеанс',
-  'Weekly (all models)':'Недельный (все модели)',
-  'Weekly (Opus)':'Недельный (Opus)',
-  'Weekly (model-scoped)':'Недельный (для выбранной модели)',
-  'Weekly limit':'Недельный лимит',
-  'Weekly Limit':'Недельный лимит',
-  '5-Hour Limit':'Лимит на 5 часов',
-  '5-hour Limit':'Лимит на 5 часов',
-  'Gemini Models':'Модели Gemini',
-  'Claude and GPT models':'Модели Claude и GPT',
-  'Monthly limit':'Месячный лимит',
-  'Monthly Limit':'Месячный лимит',
-  'Longer window':'Более длительный период',
-  'Requests today · no limit published':'Запросы сегодня · лимит не опубликован',
-  'Updated':'Обновлено',
-  'Resetting…':'Сброс…',
-  'Resets at':'Сброс в',
-  'Resets':'Сброс',
-  'Used':'Использовано',
-  'Working':'Работа',
-  'Waiting':'Ожидание',
-  'Streaming (network)':'Потоковая передача (сеть)',
-  'Rate limited, retrying in':'Превышен лимит, повтор через',
-  'Rate limited — retrying in':'Превышен лимит — повтор через',
-  'request today':'запрос сегодня',
-  'requests today':'запросов сегодня',
-  'no requests today':'сегодня запросов нет',
-  'Waiting for first reading…':'Ожидание первого показания…',
-  'Sign in to Claude Code to see usage.':'Войдите в Claude Code, чтобы увидеть использование.',
-  'Sign in to Cursor to see usage.':'Войдите в Cursor, чтобы увидеть использование.',
-  'Sign in to Codex to see usage.':'Войдите в Codex, чтобы увидеть использование.',
-  'Sign in to Antigravity to see usage.':'Войдите в Antigravity, чтобы увидеть использование.',
-  'needs your input':'требуется ваш ответ',
-  'Working in':'Работает в',
-  'Notch size':'Размер панели'
+// The tray menu already speaks four languages: i18n.rs resolves the user's locale to zh, ja, ko
+// or ru, and main.rs hands the result to this page as `lang_resolved`. The card understood only
+// Russian, so a Chinese machine showed a translated menu above an English card. Everything a
+// provider or this page can put on the card is keyed by that same language code below:
+// TEXT for whole strings, PATTERNS for the ones carrying a number or a plan name, UI for the
+// words the card writes itself. A language with no table falls back to English rather than
+// showing half a translation, so adding one is only ever data.
+const TEXT={
+  ru:{
+    'Included usage':'Включённое использование',
+    'API usage':'Использование API',
+    'On demand':'По запросу',
+    'Usage':'Использование',
+    'Current session':'Текущий сеанс',
+    'Weekly (all models)':'Недельный (все модели)',
+    'Weekly (Opus)':'Недельный (Opus)',
+    'Weekly (model-scoped)':'Недельный (для выбранной модели)',
+    'Weekly limit':'Недельный лимит',
+    'Weekly Limit':'Недельный лимит',
+    '5-Hour Limit':'Лимит на 5 часов',
+    '5-hour Limit':'Лимит на 5 часов',
+    'Gemini Models':'Модели Gemini',
+    'Claude and GPT models':'Модели Claude и GPT',
+    'Monthly limit':'Месячный лимит',
+    'Monthly Limit':'Месячный лимит',
+    'Longer window':'Более длительный период',
+    'Requests today · no limit published':'Запросы сегодня · лимит не опубликован',
+    'Updated':'Обновлено',
+    'Resetting…':'Сброс…',
+    'Resets at':'Сброс в',
+    'Resets':'Сброс',
+    'Used':'Использовано',
+    'Working':'Работа',
+    'Waiting':'Ожидание',
+    'Streaming (network)':'Потоковая передача (сеть)',
+    'Rate limited, retrying in':'Превышен лимит, повтор через',
+    'Rate limited — retrying in':'Превышен лимит — повтор через',
+    'request today':'запрос сегодня',
+    'requests today':'запросов сегодня',
+    'no requests today':'сегодня запросов нет',
+    'Waiting for first reading…':'Ожидание первого показания…',
+    'Sign in to Claude Code to see usage.':'Войдите в Claude Code, чтобы увидеть использование.',
+    'Sign in to Cursor to see usage.':'Войдите в Cursor, чтобы увидеть использование.',
+    'Sign in to Codex to see usage.':'Войдите в Codex, чтобы увидеть использование.',
+    'Sign in to Antigravity to see usage.':'Войдите в Antigravity, чтобы увидеть использование.',
+    'needs your input':'требуется ваш ответ',
+    'Working in':'Работает в',
+    'Notch size':'Размер панели'
+  },
+  zh:{
+    'Included usage':'包含用量',
+    'API usage':'API 用量',
+    'On demand':'按需用量',
+    'Usage':'用量',
+    'Current session':'当前会话',
+    'Weekly (all models)':'每周（全部模型）',
+    'Weekly (Opus)':'每周（Opus）',
+    'Weekly (model-scoped)':'每周（指定模型）',
+    'Weekly limit':'每周限额',
+    'Weekly Limit':'每周限额',
+    '5-Hour Limit':'5 小时限额',
+    '5-hour Limit':'5 小时限额',
+    'Gemini Models':'Gemini 模型',
+    'Claude and GPT models':'Claude 与 GPT 模型',
+    'Monthly limit':'每月限额',
+    'Monthly Limit':'每月限额',
+    'Longer window':'更长的周期',
+    'Requests today · no limit published':'今日请求数 · 未公布限额',
+    'Updated':'更新于',
+    'Resetting…':'正在重置…',
+    'Resets at':'重置于',
+    'Resets':'重置',
+    'Used':'已用',
+    'Working':'工作中',
+    'Waiting':'等待中',
+    'Streaming (network)':'正在传输（网络）',
+    'Rate limited, retrying in':'已限流，稍后重试',
+    'Rate limited — retrying in':'已限流 — 稍后重试',
+    'request today':'次请求（今日）',
+    'requests today':'次请求（今日）',
+    'no requests today':'今日没有请求',
+    'Waiting for first reading…':'正在等待第一次读数…',
+    'Sign in to Claude Code to see usage.':'请登录 Claude Code 以查看用量。',
+    'Sign in to Cursor to see usage.':'请登录 Cursor 以查看用量。',
+    'Sign in to Codex to see usage.':'请登录 Codex 以查看用量。',
+    'Sign in to Antigravity to see usage.':'请登录 Antigravity 以查看用量。',
+    'needs your input':'等待你的输入',
+    'Working in':'工作于',
+    'Notch size':'胶囊尺寸',
+  },
 };
+// Kept as patterns rather than exact keys: each one carries a number, a plan name or an error
+// the provider wrote, so the whole string can never be a dictionary key.
+const PATTERNS={
+  ru:[
+    [/^(\d+)m limit$/,'Лимит на $1 мин'],
+    [/^(\d+)h limit$/,'Лимит на $1 ч'],
+    [/^(\d+)d limit$/,'Лимит на $1 дн.'],
+    [/^Rate limited, retrying in (\d+)s$/,'Превышен лимит, повтор через $1 с'],
+    [/^Rate limited — retrying in (\d+)s$/,'Превышен лимит — повтор через $1 с'],
+    [/^Unlimited on the (.+) plan — nothing to meter$/,'Безлимитный тариф $1 — нечего измерять'],
+    [/^The (.+) plan has nothing for Cursor to meter yet$/,'В тарифе $1 пока нечего измерять Cursor'],
+    [/^(.+) · Google publishes no quota for this account$/,'$1 · Google не публикует лимит для этого аккаунта'],
+    [/^Live read failed \((.+)\)$/,'Ошибка чтения онлайн-данных ($1)'],
+    [/Weekly \(all models\)/g,'Недельный (все модели)'],
+    [/Weekly \(Opus\)/g,'Недельный (Opus)'],
+    [/Weekly \(model-scoped\)/g,'Недельный (для выбранной модели)'],
+    [/Weekly limit/g,'Недельный лимит'],
+    [/Monthly limit/g,'Месячный лимит'],
+    [/\bWeekly\b/g,'Недельный'],
+    [/\bMonthly\b/g,'Месячный'],
+    [/ · via /g,' · через '],
+    [/needs your input/g,'требуется ваш ответ'],
+    [/^Working in /,'Работает в '],
+    [/via Antigravity CLI/g,'через CLI Antigravity'],
+    [/via Antigravity/g,'через Antigravity'],
+    [/via Google/g,'через Google'],
+    [/No Claude Code credential found/g,'Учётные данные Claude Code не найдены'],
+    [/Credential expired — run any claude command \(or chat with Claude\) to refresh it/g,'Учётные данные истекли — выполните любую команду claude (или начните чат с Claude), чтобы обновить их'],
+    [/Credential rejected \(switched accounts\?\)/g,'Учётные данные отклонены (вы сменили аккаунт?)'],
+    [/Codex sign-in expired — open Codex once to refresh it/g,'Срок входа в Codex истёк — откройте Codex для обновления'],
+    [/Codex rejected its sign-in — sign in to Codex again/g,'Codex отклонил вход — войдите в Codex снова'],
+    [/Codex reported no usage windows/g,'Codex не сообщил окна использования'],
+    [/Codex has not recorded a usage snapshot yet/g,'Codex ещё не записал снимок использования'],
+    [/from last Codex run/g,'из последнего запуска Codex'],
+    [/Waiting for Antigravity CLI quota/g,'Ожидание квоты Antigravity CLI'],
+    [/Open Antigravity to read its quota/g,'Откройте Antigravity, чтобы получить квоту'],
+    [/Antigravity's Google session was rejected — sign in again in Antigravity/g,'Сеанс Google в Antigravity отклонён — войдите в Antigravity снова'],
+    [/Antigravity is closed — last reading kept/g,'Antigravity закрыт — сохранено последнее показание'],
+    [/Sign in to Cursor \(the editor\) to see usage\./g,'Войдите в Cursor (редактор), чтобы увидеть использование.'],
+    [/Cursor session was rejected — sign in again in the editor/g,'Сеанс Cursor отклонён — снова войдите в редакторе'],
+  ],
+  zh:[
+    [/^(\d+)m limit$/,'$1 分钟限额'],
+    [/^(\d+)h limit$/,'$1 小时限额'],
+    [/^(\d+)d limit$/,'$1 天限额'],
+    [/^Rate limited, retrying in (\d+)s$/,'已限流，$1 秒后重试'],
+    [/^Rate limited — retrying in (\d+)s$/,'已限流 — $1 秒后重试'],
+    [/^Unlimited on the (.+) plan — nothing to meter$/,'$1 套餐不限量 — 没有可计量的项目'],
+    [/^The (.+) plan has nothing for Cursor to meter yet$/,'$1 套餐暂时没有可供 Cursor 计量的用量'],
+    [/^(.+) · Google publishes no quota for this account$/,'$1 · Google 未公布该账号的配额'],
+    [/^Live read failed \((.+)\)$/,'实时读取失败（$1）'],
+    [/Weekly \(all models\)/g,'每周（全部模型）'],
+    [/Weekly \(Opus\)/g,'每周（Opus）'],
+    [/Weekly \(model-scoped\)/g,'每周（指定模型）'],
+    [/Weekly limit/g,'每周限额'],
+    [/Monthly limit/g,'每月限额'],
+    [/\bWeekly\b/g,'每周'],
+    [/\bMonthly\b/g,'每月'],
+    [/ · via /g,' · 来自 '],
+    [/needs your input/g,'等待你的输入'],
+    [/^Working in /,'工作于 '],
+    [/via Antigravity CLI/g,'来自 Antigravity CLI'],
+    [/via Antigravity/g,'来自 Antigravity'],
+    [/via Google/g,'来自 Google'],
+    [/No Claude Code credential found/g,'未找到 Claude Code 凭证'],
+    [/Credential expired — run any claude command \(or chat with Claude\) to refresh it/g,'凭证已过期 — 运行任意 claude 命令（或与 Claude 对话）即可刷新'],
+    [/Credential rejected \(switched accounts\?\)/g,'凭证被拒绝（换过账号？）'],
+    [/Codex sign-in expired — open Codex once to refresh it/g,'Codex 登录已过期 — 打开一次 Codex 即可刷新'],
+    [/Codex rejected its sign-in — sign in to Codex again/g,'Codex 拒绝了它的登录 — 请重新登录 Codex'],
+    [/Codex reported no usage windows/g,'Codex 没有报告任何用量周期'],
+    [/Codex has not recorded a usage snapshot yet/g,'Codex 还没有记录过用量快照'],
+    [/from last Codex run/g,'来自上次 Codex 运行'],
+    [/Waiting for Antigravity CLI quota/g,'正在等待 Antigravity CLI 的配额'],
+    [/Open Antigravity to read its quota/g,'打开 Antigravity 以读取配额'],
+    [/Antigravity's Google session was rejected — sign in again in Antigravity/g,'Antigravity 的 Google 会话被拒绝 — 请在 Antigravity 中重新登录'],
+    [/Antigravity is closed — last reading kept/g,'Antigravity 已关闭 — 保留上一次读数'],
+    [/Sign in to Cursor \(the editor\) to see usage\./g,'请登录 Cursor（编辑器）以查看用量。'],
+    [/Cursor session was rejected — sign in again in the editor/g,'Cursor 会话被拒绝 — 请在编辑器中重新登录'],
+  ],
+};
+// Grammar differs enough that a format string would not carry it — Russian puts the verb last,
+// Chinese puts it after the time — so each language writes its own short function.
+const UI={
+  en:{locale:'en-US',title:n=>n+' Usage',resetsIn:m=>`Resets in ${m} min`,resetsAt:t=>`Resets at ${t}`,
+      resetsOn:(d,t)=>`Resets ${d} ${t}`,ago:m=>m<60?`${m}m ago`:`${Math.round(m/60)}h ago`},
+  ru:{locale:'ru-RU',title:n=>'Использование '+n,resetsIn:m=>`Сброс через ${m} мин`,resetsAt:t=>`Сброс в ${t}`,
+      resetsOn:(d,t)=>`Сброс ${d} ${t}`,ago:m=>m<60?`${m} мин назад`:`${Math.round(m/60)} ч назад`},
+  zh:{locale:'zh-CN',title:n=>n+' 用量',resetsIn:m=>`${m} 分钟后重置`,resetsAt:t=>`${t} 重置`,
+      resetsOn:(d,t)=>`${d} ${t} 重置`,ago:m=>m<60?`${m} 分钟前`:`${Math.round(m/60)} 小时前`},
+};
+function ui(){return UI[uiLang]||UI.en;}
 function textCopy(value){
   if(!value) return '';
-  if(uiLang!=='ru') return value;
-  if(RU_TEXT[value]) return RU_TEXT[value];
-  return String(value)
-    .replace(/^(\d+)m limit$/,'Лимит на $1 мин')
-    .replace(/^(\d+)h limit$/,'Лимит на $1 ч')
-    .replace(/^(\d+)d limit$/,'Лимит на $1 дн.')
-    .replace(/^Rate limited, retrying in (\d+)s$/,'Превышен лимит, повтор через $1 с')
-    .replace(/^Rate limited — retrying in (\d+)s$/,'Превышен лимит — повтор через $1 с')
-    .replace(/^Unlimited on the (.+) plan — nothing to meter$/,'Безлимитный тариф $1 — нечего измерять')
-    .replace(/^The (.+) plan has nothing for Cursor to meter yet$/,'В тарифе $1 пока нечего измерять Cursor')
-    .replace(/^(.+) · Google publishes no quota for this account$/,'$1 · Google не публикует лимит для этого аккаунта')
-    .replace(/^Live read failed \((.+)\)$/,'Ошибка чтения онлайн-данных ($1)')
-    .replace(/Weekly \(all models\)/g,'Недельный (все модели)')
-    .replace(/Weekly \(Opus\)/g,'Недельный (Opus)')
-    .replace(/Weekly \(model-scoped\)/g,'Недельный (для выбранной модели)')
-    .replace(/Weekly limit/g,'Недельный лимит')
-    .replace(/Monthly limit/g,'Месячный лимит')
-    .replace(/\bWeekly\b/g,'Недельный')
-    .replace(/\bMonthly\b/g,'Месячный')
-    .replace(/ · via /g,' · через ')
-    .replace(/needs your input/g,'требуется ваш ответ')
-    .replace(/^Working in /,'Работает в ')
-    .replace(/via Antigravity CLI/g,'через CLI Antigravity')
-    .replace(/via Antigravity/g,'через Antigravity')
-    .replace(/via Google/g,'через Google')
-    .replace(/No Claude Code credential found/g,'Учётные данные Claude Code не найдены')
-    .replace(/Credential expired — run any claude command \(or chat with Claude\) to refresh it/g,'Учётные данные истекли — выполните любую команду claude (или начните чат с Claude), чтобы обновить их')
-    .replace(/Credential rejected \(switched accounts\?\)/g,'Учётные данные отклонены (вы сменили аккаунт?)')
-    .replace(/Codex sign-in expired — open Codex once to refresh it/g,'Срок входа в Codex истёк — откройте Codex для обновления')
-    .replace(/Codex rejected its sign-in — sign in to Codex again/g,'Codex отклонил вход — войдите в Codex снова')
-    .replace(/Codex reported no usage windows/g,'Codex не сообщил окна использования')
-    .replace(/Codex has not recorded a usage snapshot yet/g,'Codex ещё не записал снимок использования')
-    .replace(/from last Codex run/g,'из последнего запуска Codex')
-    .replace(/Waiting for Antigravity CLI quota/g,'Ожидание квоты Antigravity CLI')
-    .replace(/Open Antigravity to read its quota/g,'Откройте Antigravity, чтобы получить квоту')
-    .replace(/Antigravity's Google session was rejected — sign in again in Antigravity/g,'Сеанс Google в Antigravity отклонён — войдите в Antigravity снова')
-    .replace(/Antigravity is closed — last reading kept/g,'Antigravity закрыт — сохранено последнее показание')
-    .replace(/Sign in to Cursor \(the editor\) to see usage\./g,'Войдите в Cursor (редактор), чтобы увидеть использование.')
-    .replace(/Cursor session was rejected — sign in again in the editor/g,'Сеанс Cursor отклонён — снова войдите в редакторе');
+  const table=TEXT[uiLang];
+  if(!table) return value;
+  if(table[value]) return table[value];
+  let out=String(value);
+  for(const [re,to] of PATTERNS[uiLang]||[]) out=out.replace(re,to);
+  return out;
 }
 function setUiLanguage(lang){
-  const next=lang==='ru'?'ru':'en';
+  const next=TEXT[lang]?lang:'en';
   if(uiLang===next) return;
   uiLang=next;
   renderRing();
@@ -342,21 +450,17 @@ function renderRing(){
 function resetCopy(ms){
   if(!ms) return '';
   const diff=ms-Date.now();
-  if(diff<=0) return uiLang==='ru'?'Сброс…':'Resetting…';
-  if(diff<60*60*1000) return uiLang==='ru'
-    ? `Сброс через ${Math.max(1,Math.round(diff/60000))} мин`
-    : `Resets in ${Math.max(1,Math.round(diff/60000))} min`;
-  const d=new Date(ms);
-  const locale=uiLang==='ru'?'ru-RU':'en-US';
+  if(diff<=0) return textCopy('Resetting…');
+  if(diff<60*60*1000) return ui().resetsIn(Math.max(1,Math.round(diff/60000)));
+  const d=new Date(ms), locale=ui().locale;
   const t=d.toLocaleTimeString(locale,{hour:'numeric',minute:'2-digit'});
-  if(diff<24*60*60*1000) return `${uiLang==='ru'?'Сброс в':'Resets at'} ${t}`;
-  return `${uiLang==='ru'?'Сброс':'Resets'} ${d.toLocaleDateString(locale,{weekday:'short'})} ${t}`;
+  if(diff<24*60*60*1000) return ui().resetsAt(t);
+  return ui().resetsOn(d.toLocaleDateString(locale,{weekday:'short'}),t);
 }
 
 function ago(ms){
   const m=Math.round((Date.now()-ms)/60000);
-  if(uiLang==='ru') return m<60?`${m} мин назад`:`${Math.round(m/60)} ч назад`;
-  return m<60?`${m}m ago`:`${Math.round(m/60)}h ago`;
+  return ui().ago(m);
 }
 
 const STATE_DOT={running:RUNGREEN,attention:AMBER,done:'#57c7ff'};
@@ -367,7 +471,7 @@ function renderCard(){
   const p=providers().find(x=>x.id===hoverId)||providers()[0];
   const snap=p.snap;
   const headIcon=glyphHtml(p,true);
-  let html=`<div class="c-head">${headIcon}<span class="c-title">${uiLang==='ru'?'Использование '+p.name:p.name+' Usage'}</span></div>`;
+  let html=`<div class="c-head">${headIcon}<span class="c-title">${ui().title(p.name)}</span></div>`;
   if(staleOf(snap)&&snap.fetched_at) html+=`<div class="c-sub">${textCopy('Updated')} ${ago(snap.fetched_at)}</div>`;
   if(snap.status==='needsAuth'){
     const who={claude:'Sign in to Claude Code to see usage.',cursor:'Sign in to Cursor to see usage.',codex:'Sign in to Codex to see usage.',gemini:'Sign in to Antigravity to see usage.'}[p.id]||'';
