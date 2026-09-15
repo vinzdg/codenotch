@@ -20,6 +20,27 @@ documented behaviour and the wire formats.
 
 Providers that are not installed simply do not get a cell.
 
+### Codex quota recovery
+
+The direct usage endpoint remains the first choice. If it fails, Codenotch can
+ask an installed **native** `codex.exe` via the documented
+[`account/rateLimits/read`](https://learn.chatgpt.com/docs/app-server#6-rate-limits-chatgpt)
+app-server method before falling back to a rollout snapshot. The desktop's
+`%LOCALAPPDATA%\OpenAI\Codex\bin` installation is checked as well as native CLI
+candidates. No `.cmd`/Node wrapper is launched. The owned process is hidden,
+limited to 20 seconds, and terminated/reaped after the read; no inference or
+login command is sent. Existing HTTP 429 backoff and five-minute polling remain.
+
+The main ring/tray selects only core `primary`/`secondary` windows, never a Spark
+or code-review replacement. App-server multi-bucket replies prefer `codex`;
+rollout fallback ignores explicitly different bucket ids and finds resumed
+threads by modification time even in older date directories. Missing data is
+not a zero. Percentages retain the existing **used** semantics; this is quota
+utilization, not an exact token count or a model-specific allowance.
+
+Regression checks: `cargo test --locked` and `node --test test-codex-headline.cjs`
+from `windows/`. Tests use synthetic quota fixtures, not account credentials.
+
 ### Antigravity
 
 - **Official CLI (Preferred)**: When the official Antigravity CLI (`agy.exe`) is installed (`%LOCALAPPDATA%\agy\bin\agy.exe` or on `PATH`) and signed in, Codenotch reads official quotas directly without keeping the full IDE running.
