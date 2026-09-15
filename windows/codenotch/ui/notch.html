@@ -306,7 +306,7 @@ function headlineOf(snap,id){
   const ws=snap.windows; if(!ws.length) return null;
   const byId=x=>ws.find(w=>w.id===x)||null;
   if(id==='claude') return byId('session');
-  if(id==='codex') return ws[0];
+  if(id==='codex') return byId('primary')||byId('secondary');
   if(id==='cursor') return byId('included')||byId('api');
   const fam=ws.filter(w=>laneFamily(w)===agPrefs.model), lanes=fam.length?fam:ws;
   if(agPrefs.limit!=='automatic'){ const w=tightestOf(lanes.filter(w=>laneIs(w,agPrefs.limit))); if(w) return w; }

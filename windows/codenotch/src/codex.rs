@@ -1,16 +1,17 @@
 //! Codex usage adapter, implemented from the upstream Codenotch's documented behaviour.
 //!
-//! Two data paths (the same trade-off upstream made in 1.5.0):
+//! Live endpoint, native-client recovery, and a local rollout fallback:
 //!   1. Live: borrow the session Codex keeps in `~/.codex/auth.json` (`tokens.access_token` +
 //!      `tokens.account_id`) and GET `https://chatgpt.com/backend-api/wham/usage`. The reply carries
 //!      `rate_limit.{primary_window,secondary_window}` with `used_percent / limit_window_seconds /
 //!      reset_at (seconds) | reset_after_seconds`, plus a top-level `plan_type`. That is the number
 //!      for *now*, and it starts no process. The token is read only — never refreshed, never written
 //!      back; 401/403 becomes needsAuth and Codex renews it on its own.
-//!      (The earlier `codex app-server` JSON-RPC route spawned a node process tree every five
-//!      minutes, needed taskkill to clean up, and only ever reported the weekly window; the
-//!      five-hour window came back with the endpoint.)
-//!   2. Fallback: Codex writes the limits it saw on each turn into the thread's rollout log
+//!   2. If the direct read fails (but not during a 429 backoff), a native codex.exe can read
+//!      account/rateLimits/read using Codex's own authentication. No cmd/node wrapper is spawned;
+//!      the owned process is hidden, bounded to 20 seconds, killed and reaped. The explicit
+//!      `codex` bucket wins over the legacy single-bucket view, which can refer to Spark.
+//!   3. Fallback: Codex writes the limits it saw on each turn into the thread's rollout log
 //!      `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`, as lines like
 //!      `{"timestamp":"…","type":"event_msg","payload":{"type":"token_count","rate_limits":{
 //!         "primary":{"used_percent":0.0,"window_minutes":300,"resets_at":1790585719},
@@ -19,7 +20,8 @@
 //!      too). This is the number from the *last run* — reading a file always succeeds instantly, so
 //!      the reading is marked stale by the line's own timestamp (> 5 min).
 //!      Upstream finds the newest rollout through the thread index in state_5.sqlite; this port
-//!      walks the dated directories newest-first and picks by mtime, with no SQLite involved (and
+//!      walks all dated directories and picks by mtime (resumed threads retain their creation
+//!      directory), with no SQLite involved (and
 //!      none of the immutable/WAL pitfalls).
 //!
 //! Credentials are borrowed, never managed: the numbers come from Codex's own sign-in and Codex's
@@ -32,7 +34,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 
-const POLL_SECS: u64 = 300; // Codex has no session state to key off, so a fixed 5 min (upstream cadence; a tray refresh interrupts it)
+const POLL_SECS: u64 = 300; // Preserve the upstream cadence; a tray refresh interrupts it.
 const TAIL_BYTES: u64 = 256 * 1024;
 const CURRENT_FOR_MS: u64 = 5 * 60 * 1000;
 const ENDPOINT: &str = "https://chatgpt.com/backend-api/wham/usage";
@@ -290,7 +292,7 @@ fn names_spark(extra: &serde_json::Value) -> bool {
     })
 }
 
-/// Spark / code review sit after the main pair so `windows.first` stays primary.
+/// Spark / code review sit after the main pair and remain separate detail rows.
 /// The group is what the hover card uses to box them; omitting it leaves them
 /// as extra ungrouped bars under the main windows.
 fn append_extra(
@@ -365,13 +367,17 @@ fn windows_from_usage(v: &serde_json::Value) -> Vec<LimitWindow> {
 
 // ---------------- Fallback: the rollout snapshot ----------------
 
-/// The most recently modified rollout: dated directories newest-first, looking only at the three most recent days that have files
+/// Creation dates do not indicate activity: resumed threads keep their original directory.
 pub fn newest_rollout() -> Option<PathBuf> {
     let root = codex_home()?.join("sessions");
+    newest_rollout_in(&root)
+}
+
+fn newest_rollout_in(root: &Path) -> Option<PathBuf> {
     let mut days: Vec<PathBuf> = Vec::new();
-    let mut years = list_dirs(&root);
+    let mut years = list_dirs(root);
     years.sort_by(|a, b| b.cmp(a));
-    'outer: for y in years {
+    for y in years {
         let mut months = list_dirs(&y);
         months.sort_by(|a, b| b.cmp(a));
         for m in months {
@@ -379,9 +385,6 @@ pub fn newest_rollout() -> Option<PathBuf> {
             ds.sort_by(|a, b| b.cmp(a));
             for d in ds {
                 days.push(d);
-                if days.len() >= 3 {
-                    break 'outer;
-                }
             }
         }
     }
@@ -430,6 +433,12 @@ pub fn snapshot_from_rollout(text: &str) -> Option<(Vec<LimitWindow>, Option<u64
             .or_else(|| v.pointer("/payload/rate_limits"))
             .filter(|x| x.is_object());
         let Some(rl) = rl else { continue };
+        // Multiple buckets are emitted separately. Spark must never stand in for core Codex.
+        // Legacy snapshots without an id are still accepted.
+        if rl.get("limit_id").or_else(|| rl.get("limitId"))
+            .and_then(|v| v.as_str()).map(|id| id != "codex").unwrap_or(false) {
+            continue;
+        }
         let recorded = v
             .get("timestamp")
             .and_then(|x| x.as_str())
@@ -459,9 +468,91 @@ pub fn snapshot_from_rollout(text: &str) -> Option<(Vec<LimitWindow>, Option<u64
 
 // ---------------- Putting it together ----------------
 
+/// Prefer the installed native Codex client: it understands the desktop's managed sign-in.
+/// Only initialize + account/rateLimits/read are sent; no login or inference commands.
+fn native_codex() -> Option<PathBuf> {
+    if let Some(local) = dirs::data_local_dir() {
+        let mut bins = list_dirs(&local.join("OpenAI/Codex/bin"));
+        bins.sort_by_key(|p| std::cmp::Reverse(std::fs::metadata(p).and_then(|m| m.modified()).ok()));
+        if let Some(exe) = bins.into_iter().map(|p| p.join("codex.exe")).find(|p| p.is_file()) {
+            return Some(exe);
+        }
+    }
+    find_executable().filter(|p| p.extension().and_then(|x| x.to_str()) == Some("exe"))
+}
+
+fn app_server_snapshot(result: &serde_json::Value) -> Option<UsageSnapshot> {
+    // A present multi-bucket map is authoritative: never substitute a legacy Spark bucket
+    // (or a legacy bucket with no id) when the map does not contain core Codex.
+    let core = match result.get("rateLimitsByLimitId").filter(|v| !v.is_null()) {
+        Some(buckets) => buckets.get("codex")?,
+        None => result.get("rateLimits")?,
+    };
+    if core.get("limitId").and_then(|x| x.as_str()).map(|id| id != "codex").unwrap_or(false) {
+        return None;
+    }
+    let mut windows = Vec::new();
+    for id in ["primary", "secondary"] {
+        let Some(w) = core.get(id).filter(|v| v.is_object()) else { continue };
+        let Some(used) = w.get("usedPercent").and_then(|x| x.as_f64()) else { continue };
+        windows.push(LimitWindow {
+            id: id.into(),
+            label: label_for(w.get("windowDurationMins").and_then(|x| x.as_f64()), id),
+            used: (used / 100.0).clamp(0.0, 1.0),
+            resets_at: w.get("resetsAt").and_then(|x| x.as_u64()).map(|s| s.saturating_mul(1000)),
+            ..Default::default()
+        });
+    }
+    if windows.is_empty() { return None; }
+    Some(UsageSnapshot { status: "ok".into(), windows, fetched_at: now_ms(),
+        note: "via Codex app-server".into(), ..Default::default() })
+}
+
+fn read_app_server() -> Option<UsageSnapshot> {
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Command, Stdio};
+    let mut command = Command::new(native_codex()?);
+    command.arg("app-server").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
+    #[cfg(windows)]
+    { use std::os::windows::process::CommandExt; command.creation_flags(0x0800_0000); }
+    let mut child = command.spawn().ok()?;
+    let result = (|| {
+        let mut input = child.stdin.take()?;
+        let output = child.stdout.take()?;
+        let (tx, rx) = std::sync::mpsc::sync_channel(16);
+        std::thread::spawn(move || {
+            for line in BufReader::new(output).lines().map_while(Result::ok) {
+                if tx.send(line).is_err() { break; }
+            }
+        });
+        writeln!(input, "{}", serde_json::json!({"id":1,"method":"initialize","params":{"clientInfo":{"name":"codenotch","version":env!("CARGO_PKG_VERSION")}}})).ok()?;
+        input.flush().ok()?;
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        loop {
+            let line = rx.recv_timeout(deadline.checked_duration_since(std::time::Instant::now())?).ok()?;
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+            match v.get("id").and_then(|x| x.as_u64()) {
+                Some(1) => {
+                    v.get("result")?;
+                    writeln!(input, "{}", serde_json::json!({"method":"initialized","params":{}})).ok()?;
+                    writeln!(input, "{}", serde_json::json!({"id":2,"method":"account/rateLimits/read"})).ok()?;
+                    input.flush().ok()?;
+                }
+                Some(2) => return app_server_snapshot(v.get("result")?),
+                _ => {}
+            }
+        }
+    })();
+    // This is a directly launched native executable, never a cmd/node wrapper or a running app.
+    let _ = child.kill();
+    let _ = child.wait();
+    result
+}
+
 /// Is Codex present on this machine (CLI installed, signed in, or has had sessions)? If not, no cell is shown
 pub fn present() -> bool {
-    find_executable().is_some()
+    native_codex().is_some()
+        || find_executable().is_some()
         || auth_path().map(|p| p.is_file()).unwrap_or(false)
         || codex_home().map(|h| h.join("sessions").is_dir()).unwrap_or(false)
 }
@@ -518,6 +609,13 @@ fn read_once() -> UsageSnapshot {
                     live_note = Some(format!("Live read failed ({e})"));
                 }
             },
+        }
+    }
+    // Keep the no-process HTTP path first, and do not use a second transport to bypass
+    // its Retry-After. The native client can handle managed sign-in that auth.json cannot.
+    if snap.backoff_until <= now_ms() {
+        if let Some(native) = read_app_server() {
+            return native;
         }
     }
     // Fallback: rollout
@@ -637,6 +735,99 @@ pub fn probe() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn app_server_uses_core_bucket_not_legacy_spark() {
+        let value = serde_json::json!({"rateLimits":{"limitId":"codex_bengalfox","primary":{"usedPercent":0}},
+            "rateLimitsByLimitId":{"codex":{"limitId":"codex","primary":{"usedPercent":32,"windowDurationMins":10080,"resetsAt":1789878630}}}});
+        let snapshot = app_server_snapshot(&value).unwrap();
+        assert_eq!(snapshot.windows[0].used, 0.32);
+        assert_eq!(snapshot.windows[0].label, "Weekly limit");
+        assert_eq!(snapshot.windows[0].resets_at, Some(1789878630000));
+        assert!(app_server_snapshot(&serde_json::json!({"rateLimits":{"limitId":"codex_bengalfox","primary":{"usedPercent":0}}})).is_none());
+    }
+
+    #[test]
+    fn app_server_legacy_core_and_both_windows_are_supported() {
+        let value = serde_json::json!({"rateLimits": {
+            "primary": {"usedPercent": 25, "windowDurationMins": 300, "resetsAt": 1800000000u64},
+            "secondary": {"usedPercent": 42, "windowDurationMins": 10080}
+        }, "rateLimitsByLimitId": null});
+        let snap = app_server_snapshot(&value).unwrap();
+        assert_eq!(ids(&snap.windows), ["primary", "secondary"]);
+        assert_eq!(labels(&snap.windows), ["5h limit", "Weekly limit"]);
+        assert_eq!(snap.windows[0].used, 0.25);
+        assert_eq!(snap.windows[1].used, 0.42);
+        assert_eq!(snap.windows[0].resets_at, Some(1800000000000));
+        assert_eq!(snap.windows[1].resets_at, None);
+    }
+
+    #[test]
+    fn app_server_missing_core_or_usage_is_not_zero() {
+        for value in [
+            serde_json::json!({}),
+            serde_json::json!({"rateLimits": {"primary": {"usedPercent": null}}}),
+            serde_json::json!({"rateLimitsByLimitId": {}, "rateLimits": {"primary": {"usedPercent": 7}}}),
+            serde_json::json!({"rateLimitsByLimitId": {"codex": null}}),
+            serde_json::json!({"rateLimitsByLimitId": {"codex": {"limitId": "other", "primary": {"usedPercent": 7}}}}),
+        ] {
+            assert!(app_server_snapshot(&value).is_none(), "{value}");
+        }
+    }
+
+    #[test]
+    fn app_server_skips_malformed_windows_and_clamps_percentages() {
+        let value = serde_json::json!({"rateLimits": {"limitId": "codex",
+            "primary": {"usedPercent": -5}, "secondary": {"usedPercent": 150}}});
+        let snap = app_server_snapshot(&value).unwrap();
+        assert_eq!(snap.windows[0].used, 0.0);
+        assert_eq!(snap.windows[1].used, 1.0);
+        let value = serde_json::json!({"rateLimits": {"limitId": "codex",
+            "primary": "invalid", "secondary": {"usedPercent": 20}}});
+        assert_eq!(ids(&app_server_snapshot(&value).unwrap().windows), ["secondary"]);
+    }
+
+    #[test]
+    fn rollout_keeps_legacy_core_and_filters_camel_case_buckets() {
+        let core = r#"{"rate_limits":{"secondary":{"used_percent":45,"window_minutes":10080}}}"#;
+        let other = r#"{"rate_limits":{"limitId":"other","primary":{"used_percent":1}}}"#;
+        let (ws, _, _) = snapshot_from_rollout(&format!("{core}\n{other}")).unwrap();
+        assert_eq!(ids(&ws), ["secondary"]);
+        assert_eq!(ws[0].used, 0.45);
+        assert!(snapshot_from_rollout(other).is_none());
+    }
+
+    #[test]
+    fn rollout_ignores_newer_spark_events() {
+        let core = r#"{"timestamp":"2026-09-14T07:00:00Z","payload":{"rate_limits":{"limit_id":"codex","primary":{"used_percent":32,"window_minutes":10080}}}}"#;
+        let spark = r#"{"timestamp":"2026-09-14T07:00:01Z","payload":{"rate_limits":{"limit_id":"codex_bengalfox","primary":{"used_percent":0,"window_minutes":300}}}}"#;
+        let (ws, _, _) = snapshot_from_rollout(&format!("{core}\n{spark}")).unwrap();
+        assert_eq!(ws[0].used, 0.32);
+        assert_eq!(ws[0].label, "Weekly limit");
+        assert!(snapshot_from_rollout(spark).is_none());
+    }
+
+    #[test]
+    fn resumed_thread_in_old_date_directory_is_found() {
+        let root = std::env::temp_dir().join(format!("codenotch-rollout-test-{}-{}", std::process::id(), now_ms()));
+        std::fs::create_dir(&root).unwrap();
+        for day in ["2026/07/31", "2026/09/10", "2026/09/11", "2026/09/12"] {
+            std::fs::create_dir_all(root.join(day)).unwrap();
+        }
+        let earlier = UNIX_EPOCH + Duration::from_secs(1700000000);
+        for day in ["2026/09/10", "2026/09/11", "2026/09/12"] {
+            let file = std::fs::File::create(root.join(day).join("rollout-inactive.jsonl")).unwrap();
+            file.set_times(std::fs::FileTimes::new().set_modified(earlier)).unwrap();
+        }
+        let active = root.join("2026/07/31/rollout-active.jsonl");
+        std::fs::write(&active, "{}").unwrap();
+        assert_eq!(newest_rollout_in(&root), Some(active.clone()));
+        // The same creation directory can become inactive again; select by modification time.
+        std::fs::File::options().write(true).open(&active).unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(earlier - Duration::from_secs(60))).unwrap();
+        assert_ne!(newest_rollout_in(&root), Some(active));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     fn windows(json: &str) -> Vec<LimitWindow> {
         windows_from_usage(&serde_json::from_str(json).unwrap())
