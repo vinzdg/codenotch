@@ -220,3 +220,64 @@ enum CodexStore {
             .first { FileManager.default.fileExists(atPath: $0.path) }
     }
 }
+
+/// One monitor's memory of the two Codex stores, so a tick where neither
+/// database moved costs a handful of `stat`s rather than a SQLite open and
+/// scan — `state_5.sqlite` alone runs to hundreds of megabytes, and the
+/// monitor asks every two seconds.
+///
+/// Codex's writes land in the `-wal` file before the database proper — the
+/// main file's mtime does not move until a checkpoint — so a database counts
+/// as changed when either file's stamp does.
+final class CodexStoreCache {
+    private struct Stamp: Equatable {
+        let modified: Date?
+        let size: UInt64
+    }
+
+    private var rolloutStamp: Stamp?
+    private var rollout: URL?
+    private var desktopStamp: Stamp?
+    private var desktop: (title: String, updatedAt: Date)?
+
+    /// `CodexStore.newestRollout`, or the last answer when the store has not
+    /// changed. A cached path whose file has since gone away is asked for
+    /// again — the next row down may still exist.
+    func newestRollout(in store: URL) -> URL? {
+        let stamp = Self.stamp(of: store)
+        if stamp == rolloutStamp, let rollout,
+           FileManager.default.fileExists(atPath: rollout.path) {
+            return rollout
+        }
+        let found = CodexStore.newestRollout(in: store)
+        rolloutStamp = stamp
+        rollout = found
+        return found
+    }
+
+    /// `CodexStore.newestDesktopThread`, or the last answer when the
+    /// catalogue has not changed.
+    func newestDesktopThread(in store: URL) -> (title: String, updatedAt: Date)? {
+        let stamp = Self.stamp(of: store)
+        if stamp == desktopStamp { return desktop }
+        let found = CodexStore.newestDesktopThread(in: store)
+        desktopStamp = stamp
+        desktop = found
+        return found
+    }
+
+    /// `(mtime, size)` of the database merged with its `-wal`, either of
+    /// which moves first. A missing file contributes nothing — an absent
+    /// store is also an answer worth remembering rather than re-paying for.
+    private static func stamp(of url: URL) -> Stamp {
+        func pair(_ url: URL) -> (Date?, UInt64) {
+            let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+            return (attributes?[.modificationDate] as? Date,
+                    (attributes?[.size] as? NSNumber)?.uint64Value ?? 0)
+        }
+        let db = pair(url)
+        let wal = pair(URL(fileURLWithPath: url.path + "-wal"))
+        return Stamp(modified: [db.0, wal.0].compactMap { $0 }.max(),
+                     size: db.1 + wal.1)
+    }
+}

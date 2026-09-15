@@ -12,33 +12,62 @@ struct CodexRolloutActivity {
         case success
     }
 
+    /// One window into the end of the rollout. Rollouts run to hundreds of
+    /// megabytes, so the file is walked backwards in slices rather than read
+    /// whole — the same `tail` trick the Claude and Antigravity readers use.
+    private static let windowBytes: UInt64 = 256 * 1024
+    /// How far back a lifecycle event may be before the search gives up. A
+    /// mid-turn rollout keeps its `task_started` arbitrarily far behind the
+    /// writes streaming in — walking to it would read the whole file on every
+    /// tick. A fresh file with no lifecycle event in its last megabyte is a
+    /// turn in progress in every realistic case, and the caller maps a miss
+    /// to `.busy` — the same answer the full scan would give.
+    private static let maxWindows = 4
+
     static func state(from url: URL) -> State? {
-        guard let data = try? Data(contentsOf: url),
-              let text = String(data: data, encoding: .utf8) else { return nil }
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard var windowEnd = try? handle.seekToEnd() else { return nil }
 
-        var state: State?
-        for line in text.split(whereSeparator: \.isNewline) {
-            guard let lineData = line.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: lineData),
-                  let record = object as? [String: Any],
-                  record["type"] as? String == "event_msg",
-                  let payload = record["payload"] as? [String: Any],
-                  let type = payload["type"] as? String else { continue }
+        // The newest lifecycle event wins, so windows are scanned newest
+        // first and the first match is the answer. A window's first line is
+        // cut in half by the read; the fragment is carried into the earlier
+        // window, where the rest of it lives, rather than parsed half a line.
+        var carried = Data()
+        var windows = 0
+        while windowEnd > 0, windows < maxWindows {
+            windows += 1
+            let windowStart = windowEnd > windowBytes ? windowEnd - windowBytes : 0
+            guard (try? handle.seek(toOffset: windowStart)) != nil,
+                  var window = try? handle.read(upToCount: Int(windowEnd - windowStart))
+            else { return nil }
+            window.append(carried)
 
-            switch type {
-            case "task_started":
-                state = .busy
-            case "task_complete":
-                state = .success
-            case "turn_aborted":
-                // An aborted turn is not a successful completion. Returning
-                // nil lets the activity monitor drop it without announcing.
-                state = nil
-            default:
-                continue
+            var lines = window.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: true)
+            carried = windowStart > 0 && !lines.isEmpty ? Data(lines.removeFirst()) : Data()
+
+            for line in lines.reversed() {
+                guard let record = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
+                      record["type"] as? String == "event_msg",
+                      let payload = record["payload"] as? [String: Any],
+                      let type = payload["type"] as? String else { continue }
+
+                switch type {
+                case "task_started":
+                    return .busy
+                case "task_complete":
+                    return .success
+                case "turn_aborted":
+                    // An aborted turn is not a successful completion. Returning
+                    // nil lets the activity monitor drop it without announcing.
+                    return nil
+                default:
+                    continue
+                }
             }
+            windowEnd = windowStart
         }
-        return state
+        return nil
     }
 }
 
@@ -96,25 +125,32 @@ final class CodexActivityMonitor: ObservableObject, AgentActivityMonitor {
         timer = nil
     }
 
+    private let storeCache = CodexStoreCache()
+
     private func rescan() {
         let found = Self.read(stateStore: stateStore, desktopStore: desktopStore,
-                              staleAfter: staleAfter, profile: profile)
+                              staleAfter: staleAfter, profile: profile, cache: storeCache)
         guard found != sessions else { return }
         sessions = found
     }
 
     static func read(stateStore: URL, desktopStore: URL,
                      staleAfter: TimeInterval, now: Date = Date(),
-                     profile: CodexProfile = .default()) -> [AgentSession] {
+                     profile: CodexProfile = .default(),
+                     cache: CodexStoreCache = CodexStoreCache()) -> [AgentSession] {
         // Both surfaces, because "Codex" is two programs that record their work
         // in different places: the CLI and the VS Code extension append to a
         // rollout, and the desktop app writes to its own catalogue. Whichever
         // moved last is the one that is working.
         var candidates: [(id: String, name: String, at: Date, state: AgentSession.State)] = []
 
-        if let rollout = CodexStore.newestRollout(in: stateStore),
+        if let rollout = cache.newestRollout(in: stateStore),
            let modified = (try? FileManager.default
-               .attributesOfItem(atPath: rollout.path))?[.modificationDate] as? Date {
+               .attributesOfItem(atPath: rollout.path))?[.modificationDate] as? Date,
+           // A stale rollout never survives `session` below, so parsing it is
+           // wasted work — and the parse is the expensive part. Only a file
+           // fresh enough to matter reaches `state(from:)`.
+           now.timeIntervalSince(modified) <= staleAfter {
             let state: AgentSession.State
             switch CodexRolloutActivity.state(from: rollout) {
             case .success: state = .success
@@ -123,7 +159,7 @@ final class CodexActivityMonitor: ObservableObject, AgentActivityMonitor {
             candidates.append((id: "\(profile.id).\(rollout.lastPathComponent)",
                                name: profile.displayName, at: modified, state: state))
         }
-        if let desktop = CodexStore.newestDesktopThread(in: desktopStore) {
+        if let desktop = cache.newestDesktopThread(in: desktopStore) {
             candidates.append((id: "\(profile.id).desktop", name: desktop.title,
                                at: desktop.updatedAt, state: .busy))
         }

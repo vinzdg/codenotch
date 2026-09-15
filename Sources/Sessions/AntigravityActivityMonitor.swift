@@ -70,12 +70,21 @@ final class AntigravityActivityMonitor: AgentActivityMonitor {
 
         var newest: (url: URL, modified: Date)?
         for trajectory in trajectories {
-            let transcript = trajectory
-                .appendingPathComponent(".system_generated/logs/transcript.jsonl")
-            guard let modified = (try? manager.attributesOfItem(atPath: transcript.path))?[.modificationDate] as? Date
-            else { continue }
+            // String path, not `appendingPathComponent`: that constructor
+            // touches the filesystem per call, which is one syscall too many
+            // in a loop over every conversation ever written, on every tick.
+            // The same goes for `attributesOfItem`, which pulls every
+            // extended attribute along with the date — `stat` is the one
+            // syscall that answers this.
+            let transcriptPath = trajectory.path
+                + "/.system_generated/logs/transcript.jsonl"
+            var info = stat()
+            guard stat(transcriptPath, &info) == 0 else { continue }
+            let modified = Date(timeIntervalSince1970:
+                TimeInterval(info.st_mtimespec.tv_sec)
+                + TimeInterval(info.st_mtimespec.tv_nsec) / 1_000_000_000)
             if newest == nil || modified > newest!.modified {
-                newest = (transcript, modified)
+                newest = (URL(fileURLWithPath: transcriptPath), modified)
             }
         }
 
