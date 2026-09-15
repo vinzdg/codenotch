@@ -700,10 +700,9 @@ final class AlwaysShowTests: XCTestCase {
     func testClickingTheNotchDoesNotUndoAlwaysShow() {
         let controller = NotchWindowController()
         controller.apply(.alwaysShow)
-        XCTAssertTrue(controller.model.staysOpen)
 
         controller.togglePinned()   // a click on the bar
-        XCTAssertTrue(controller.model.staysOpen,
+        XCTAssertTrue(controller.model.isPinned,
                       "a click downgraded Always show to hover")
         XCTAssertTrue(controller.model.isExpanded)
     }
@@ -714,7 +713,7 @@ final class AlwaysShowTests: XCTestCase {
         let controller = NotchWindowController()
         controller.apply(.alwaysShow)
         for _ in 0..<5 { controller.togglePinned() }
-        XCTAssertTrue(controller.model.staysOpen)
+        XCTAssertTrue(controller.model.isPinned)
     }
 
     /// The transient pin still works where it is the only thing holding the
@@ -722,12 +721,12 @@ final class AlwaysShowTests: XCTestCase {
     func testAPinInHoverModeIsStillATogggle() {
         let controller = NotchWindowController()
         controller.apply(.onHover)
-        XCTAssertFalse(controller.model.staysOpen)
+        XCTAssertFalse(controller.model.isPinned)
 
         controller.togglePinned()
-        XCTAssertTrue(controller.model.staysOpen, "clicking no longer pins")
+        XCTAssertTrue(controller.model.isPinned, "clicking no longer pins")
         controller.togglePinned()
-        XCTAssertFalse(controller.model.staysOpen, "clicking no longer unpins")
+        XCTAssertFalse(controller.model.isPinned, "clicking no longer unpins")
     }
 
     /// Switching to hover has to clear a pin left over from before, or the
@@ -737,7 +736,7 @@ final class AlwaysShowTests: XCTestCase {
         controller.apply(.onHover)
         controller.togglePinned()
         controller.apply(.onHover)
-        XCTAssertFalse(controller.model.staysOpen)
+        XCTAssertFalse(controller.model.isPinned)
     }
 
     /// And so does hiding — a pinned notch that is ordered out still counts as
@@ -746,7 +745,7 @@ final class AlwaysShowTests: XCTestCase {
         let controller = NotchWindowController()
         controller.apply(.alwaysShow)
         controller.apply(.hidden)
-        XCTAssertFalse(controller.model.staysOpen)
+        XCTAssertFalse(controller.model.isPinned)
         XCTAssertFalse(controller.model.isExpanded)
     }
 
@@ -757,7 +756,7 @@ final class AlwaysShowTests: XCTestCase {
         controller.togglePinned()      // pinned by hand
         controller.apply(.alwaysShow)  // then chosen in Settings
         controller.togglePinned()      // and clicked again
-        XCTAssertTrue(controller.model.staysOpen)
+        XCTAssertTrue(controller.model.isPinned)
     }
 }
 

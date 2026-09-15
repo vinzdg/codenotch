@@ -99,8 +99,6 @@ final class NotchViewModel: ObservableObject {
     /// toggles a pin; only Settings moves this.
     @Published var isAlwaysOn = false
 
-    /// Held open, by either route. What the folding logic actually asks.
-    var staysOpen: Bool { isPinned || isAlwaysOn }
     /// Providers with a fetch in flight, driven by the store.
     @Published var refreshing: Set<String> = []
     /// Bumped each time the settings orb is clicked, by either route.
