@@ -164,7 +164,11 @@ final class NotchWindowController {
             for: NSWorkspace.activeSpaceDidChangeNotification
         )
         .sink { [weak self] _ in
-            MainActor.assumeIsolated { self?.handleActiveSpaceOrAppChange() }
+            MainActor.assumeIsolated {
+                FullScreenDetector.invalidateCache()
+                self?.handleActiveSpaceOrAppChange()
+                self?.scheduleFollowUpSpaceCheck()
+            }
         }
         .store(in: &cancellables)
 
@@ -172,7 +176,11 @@ final class NotchWindowController {
             for: NSWorkspace.didActivateApplicationNotification
         )
         .sink { [weak self] _ in
-            MainActor.assumeIsolated { self?.handleActiveSpaceOrAppChange() }
+            MainActor.assumeIsolated {
+                FullScreenDetector.invalidateCache()
+                self?.handleActiveSpaceOrAppChange()
+                self?.scheduleFollowUpSpaceCheck()
+            }
         }
         .store(in: &cancellables)
 
@@ -228,7 +236,26 @@ final class NotchWindowController {
         )
     }
 
+    private var pendingSpaceCheckWork: DispatchWorkItem?
+
+    private func scheduleFollowUpSpaceCheck() {
+        pendingSpaceCheckWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.pendingSpaceCheckWork = nil
+                FullScreenDetector.invalidateCache()
+                self.handleActiveSpaceOrAppChange()
+            }
+        }
+        pendingSpaceCheckWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+    }
+
     func stop() {
+        pendingSpaceCheckWork?.cancel()
+        pendingSpaceCheckWork = nil
+        lastPolledMouseLocation = nil
         setPointing(false)
         peekUntil = nil
         peekWork?.cancel()
@@ -328,6 +355,8 @@ final class NotchWindowController {
             Log.usage.debug("panel \(NSStringFromRect(panel.frame), privacy: .public) on screen \(NSStringFromRect(screen.frame), privacy: .public)")
         }
         updateInteractiveRects()
+        lastPolledMouseLocation = nil
+        cursorMoved()
     }
 
     /// Feeds a raw pointer delta from an ⌥-drag into `model.alongOffset` and
@@ -501,7 +530,10 @@ final class NotchWindowController {
         }
         hostingView?.interactiveRects = rects
         if let panel {
-            panel.ignoresMouseEvents = !rects.contains { $0.contains(localCursor(in: panel.frame)) }
+            let shouldIgnore = !rects.contains { $0.contains(localCursor(in: panel.frame)) }
+            if panel.ignoresMouseEvents != shouldIgnore {
+                panel.ignoresMouseEvents = shouldIgnore
+            }
         }
     }
 
@@ -514,13 +546,21 @@ final class NotchWindowController {
     /// produces no events at all — so a notch that appears, resizes or is
     /// re-anchored underneath a parked pointer would otherwise sit there with
     /// stale hover state until the user jogged the mouse.
+    private var lastPolledMouseLocation: CGPoint?
+
     private func startWatchingCursor() {
         let poll = Timer(timeInterval: 0.3, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.handleActiveSpaceOrAppChange()
-                self?.cursorMoved()
+                guard let self else { return }
+                let mouse = NSEvent.mouseLocation
+                if mouse == self.lastPolledMouseLocation && !self.model.isExpanded {
+                    return
+                }
+                self.lastPolledMouseLocation = mouse
+                self.cursorMoved()
             }
         }
+        poll.tolerance = 0.1
         RunLoop.main.add(poll, forMode: .common)
         cursorTimer = poll
 
@@ -548,6 +588,15 @@ final class NotchWindowController {
     // drive the event fold through handleActiveSpaceOrAppChange.
     func cursorMoved() {
         guard let panel, !isOptionDragging else { return }
+
+        // Fast path: when the notch is folded shut and the cursor is outside
+        // the panel, there are no hover targets or state changes to process.
+        let mouseLocation = NSEvent.mouseLocation
+        let isInsidePanel = panel.frame.contains(mouseLocation)
+        if !model.isExpanded && !isInsidePanel {
+            return
+        }
+
         let local = localCursor(in: panel.frame)
         let overTooltip = model.hoveredIndex
             .flatMap(tooltipRect(index:))
@@ -606,7 +655,7 @@ final class NotchWindowController {
 
     /// Opens on contact, folds shut after a pause — unless it has been pinned
     /// open, in which case the pointer is not what decides.
-    private func setExpanded(_ wanted: Bool, ignoreAlwaysOn: Bool = false) {
+    private func setExpanded(_ wanted: Bool, ignoreAlwaysOn: @autoclosure () -> Bool = false) {
         if wanted {
             foldWork?.cancel()
             foldWork = nil
@@ -618,13 +667,14 @@ final class NotchWindowController {
         // A peek holds the notch open for its own duration; only after that
         // does the pointer get a say again.
         if let peekUntil, peekUntil > Date() { return }
-        let holdsOpen = ignoreAlwaysOn ? model.isPinned : model.staysOpen
+        let shouldIgnore = model.isExpanded && model.isAlwaysOn && !model.isPinned && ignoreAlwaysOn()
+        let holdsOpen = shouldIgnore ? model.isPinned : model.staysOpen
         guard model.isExpanded, !holdsOpen, foldWork == nil else { return }
         let work = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.foldWork = nil
-                let stillHoldsOpen = ignoreAlwaysOn ? self.model.isPinned : self.model.staysOpen
+                let stillHoldsOpen = shouldIgnore ? self.model.isPinned : self.model.staysOpen
                 guard !stillHoldsOpen else { return }
                 withAnimation(NotchMotion.unfold) {
                     self.model.isExpanded = false

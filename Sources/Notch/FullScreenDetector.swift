@@ -43,6 +43,17 @@ enum FullScreenDetector {
         return false
     }
 
+    private static let cacheLock = NSLock()
+    private static var cachedResult: (timestamp: Date, screenFrame: CGRect, frontPID: pid_t, result: Bool)?
+    private static let cacheTTL: TimeInterval = 0.5
+
+    /// Invalidates cached full-screen detection results when spaces or active apps change.
+    static func invalidateCache() {
+        cacheLock.lock()
+        cachedResult = nil
+        cacheLock.unlock()
+    }
+
     /// Queries WindowServer and NSWorkspace to determine if the frontmost app
     /// is occupying the entire `screen`.
     static func isFullScreenAppFrontmost(on screen: NSScreen? = NSScreen.main) -> Bool {
@@ -51,6 +62,28 @@ enum FullScreenDetector {
 
         // Ignore Codenotch itself (settings panel, etc.)
         guard frontApp.bundleIdentifier != Bundle.main.bundleIdentifier else { return false }
+
+        let frontPID = frontApp.processIdentifier
+        cacheLock.lock()
+        if let cached = cachedResult,
+           cached.screenFrame == screen.frame,
+           cached.frontPID == frontPID,
+           Date().timeIntervalSince(cached.timestamp) < cacheTTL {
+            cacheLock.unlock()
+            return cached.result
+        }
+        cacheLock.unlock()
+
+        let result = evaluateFullScreenAppFrontmost(screen: screen, frontApp: frontApp)
+
+        cacheLock.lock()
+        cachedResult = (timestamp: Date(), screenFrame: screen.frame, frontPID: frontPID, result: result)
+        cacheLock.unlock()
+
+        return result
+    }
+
+    private static func evaluateFullScreenAppFrontmost(screen: NSScreen, frontApp: NSRunningApplication) -> Bool {
 
         // Convert NSScreen (AppKit coordinates: origin bottom-left of primary screen)
         // to CoreGraphics coordinates (origin top-left of primary screen).

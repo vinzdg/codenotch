@@ -228,4 +228,22 @@ final class FullScreenAutoFoldTests: XCTestCase {
         controller.handleActiveSpaceOrAppChange()
         XCTAssertTrue(controller.model.isExpanded, "Always-on notch should unfold again when leaving full screen")
     }
+
+    func testCursorMovedSkipsFullScreenCheckWhenFoldedAndCursorOutside() {
+        let controller = NotchWindowController()
+        controller.show()
+        defer { controller.stop() }
+
+        controller.model.isExpanded = false
+        var queried = false
+        controller.isFullScreenActive = {
+            queried = true
+            return false
+        }
+
+        controller.cursorMoved()
+        if let frame = controller.panelFrameForTesting, !frame.contains(NSEvent.mouseLocation) {
+            XCTAssertFalse(queried, "cursorMoved should exit early without checking full-screen when folded and pointer is outside panel")
+        }
+    }
 }
