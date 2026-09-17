@@ -59,6 +59,24 @@ The installer is not code-signed, so the first time it runs SmartScreen says *Wi
 your PC*. Choose **More info**, then **Run anyway**. Every Windows change also leaves an
 installer on its [Windows Package run](../../actions/workflows/windows-package.yml).
 
+## Linux
+
+An **x86_64 AppImage** — Rust/Tauri 2 / WebKitGTK, same design and providers as the
+Windows port — lives in [`linux/`](linux/README.md). It is built on Ubuntu 22.04 so the
+glibc is old enough for **Bazzite, Fedora, Ubuntu 22.04+ and Debian 12+**. It is not a
+universal Linux binary: no ARM, no musl/Alpine, no Ubuntu 20.04.
+
+The file is a **thin** AppImage (~5 MB). It uses the host’s `webkit2gtk-4.1` rather than
+shipping Ubuntu’s WebKit (that helper crashes on Fedora/Bazzite and leaves Settings blank).
+Install the distro package (`webkit2gtk4.1` on Fedora, `libwebkit2gtk-4.1-0` on Ubuntu/Debian)
+and FUSE, then `chmod +x` and run it on the host.
+
+Every Linux packaging change leaves an AppImage on its
+[Linux Package run](../../actions/workflows/linux-package.yml). The overlay notch is
+best-effort on GNOME Wayland; the tray icon and Settings window still show usage.
+Config: `~/.config/codenotch`. See [linux/README.md](linux/README.md) for the full
+compatibility table.
+
 ## Connect your phone
 
 The Codenotch phone app (iOS and Android) can show the same usage

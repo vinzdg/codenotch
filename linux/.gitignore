@@ -1,0 +1,4 @@
+target/
+*.log
+*.AppImage
+codenotch/gen/

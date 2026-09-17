@@ -1,0 +1,50 @@
+[package]
+name = "codenotch"
+version = "1.13.1"
+edition = "2021"
+description = "Codenotch for Linux — usage notch for Claude, Codex, Cursor and Antigravity"
+license = "MIT"
+repository = "https://github.com/Im-Midi/codenotch-windows"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2.11", features = ["tray-icon", "image-png"] }
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tiny_http = "0.12"
+dirs = "5"
+notify = "6"
+ureq = { version = "2", features = ["json", "native-tls"] } # native-tls: the Antigravity local bridge's self-signed certificate is accepted for 127.0.0.1 only
+native-tls = "0.2"
+png = "0.17" # application icon → PNG (provider marks taken from the installed app's resources)
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+# Cursor's credential lives in state.vscdb (SQLite); bundled = compile the SQLite C sources with the crate, which adds 1–2 minutes to the first build
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Same crates Tauri 2.11 already links; used to turn off WebKit GPU/sandbox and to clip
+# the notch's input region to the pill (so hover works without eating clicks behind it).
+webkit2gtk = { version = "2.0.2", features = ["v2_40"] }
+gtk = { version = "0.18", features = ["v3_24"] }
+# Watchdog reads the real pointer on X11; GDK's position freezes on the last pixel
+# inside the overlay, which left the usage card stuck open after mouse-leave.
+x11 = { version = "2.21", features = ["xlib"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_Security_Credentials",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_System_Threading",
+  "Win32_System_JobObjects",
+  "Win32_System_Pipes",
+  "Win32_Globalization",
+  "Win32_System_Console",
+  "Win32_System_Registry",
+] }

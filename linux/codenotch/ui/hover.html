@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  html,body{margin:0;padding:0;background:#0a0a0a;color:#e8e8ea;font-family:"Segoe UI",system-ui,sans-serif;overflow:hidden}
+  #card{padding:16px;width:246px;box-sizing:border-box;color:#e8e8ea}
+  .c-head{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+  .c-title{font-size:14px;font-weight:700;color:#fff}
+  .c-sub{font-size:11px;color:#808080;margin-bottom:10px}
+  .win{margin-top:10px}
+  .w-row{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;flex-wrap:wrap;column-gap:8px}
+  .w-label{color:#e8e8ea;font-weight:600;white-space:nowrap}
+  .w-reset{color:#808080;font-size:11px;white-space:nowrap;margin-left:auto}
+  .w-track{height:4px;border-radius:2px;background:#2d2d2d;margin:6px 0 4px;overflow:hidden}
+  .w-fill{height:100%;border-radius:2px}
+  .w-used{font-size:11px;color:#808080}
+  .g-head{font-size:12px;font-weight:700;color:#e8e8ea;margin-top:12px}
+  .g-box{border:1px solid #242424;border-radius:10px;padding:0 10px 8px;margin-top:6px}
+  .c-note{font-size:12px;color:#c8c8c8;line-height:1.5;margin-top:6px}
+  .c-sessions{margin-top:12px;border-top:1px solid #1e1e1e;padding-top:8px}
+  .s-row{display:flex;align-items:center;gap:6px;font-size:11px;color:#b0b0b3;padding:2px 0}
+  .s-dot{width:6px;height:6px;border-radius:3px;flex:0 0 auto}
+  .s-more{font-size:11px;color:#808080;padding:2px 0}
+  .c-head .mark{display:inline-block;width:16px;height:16px;color:#e8e8ea;margin-right:2px}
+  .c-head .mark svg{width:16px;height:16px;fill:currentColor}
+  .c-head img{width:16px;height:16px;object-fit:contain}
+</style>
+</head>
+<body>
+<div id="card"></div>
+<script>
+const invoke = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
+const listen = window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.listen;
+const card = document.getElementById('card');
+function paint(html){
+  if(html==null) html='';
+  card.innerHTML = String(html);
+  if(html && invoke){
+    const r = card.getBoundingClientRect();
+    invoke('hover_fit', { w: Math.max(246, Math.ceil(r.width)+8), h: Math.max(80, Math.ceil(r.height)+8) }).catch(()=>{});
+  }
+}
+if(listen) listen('hover_paint', e=>paint(e.payload)).catch(()=>{});
+if(invoke) invoke('get_hover_html').then(paint).catch(()=>{});
+document.addEventListener('mouseenter', ()=>{ if(invoke) invoke('hover_keep').catch(()=>{}); });
+document.addEventListener('mouseleave', ()=>{ if(invoke) invoke('hover_hide').catch(()=>{}); });
+</script>
+</body>
+</html>

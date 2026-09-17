@@ -33,6 +33,21 @@ certificate, notarizes with Apple, and regenerates the Sparkle auto-update
 feed. That's the maintainer's job for cutting an official build, and it needs
 credentials only the maintainer has. You won't need it to contribute.
 
+## Linux (AppImage)
+
+The Linux port lives in `linux/` and is built as a thin x86_64 AppImage on Ubuntu 22.04.
+See [`linux/README.md`](linux/README.md) for where it runs, host packages, and Distrobox
+build steps. From that directory:
+
+```sh
+node scripts/check-ui-scripts.mjs
+cargo test --locked
+./build-appimage.sh
+```
+
+Do not mix Linux packaging into `windows/`. Do not commit `linux/target/` or `.AppImage`
+files; CI uploads the artifact.
+
 ## Before opening a PR
 
 - `make test` passes.
@@ -66,8 +81,7 @@ credentials only the maintainer has. You won't need it to contribute.
 - Don't freeze `L10n.t` in a `static let` — lookup has to see the current
   language.
 - Follow System plus the in-app Language setting; don't set `AppleLanguages`.
-- Windows `windows/codenotch/src/i18n.rs` is a separate system — don't merge
-  the two.
+- Windows `windows/codenotch/src/i18n.rs` and Linux `linux/codenotch/src/i18n.rs` are separate systems — don't merge the two (or the Mac catalog) together.
 
 ## Adding a provider
 

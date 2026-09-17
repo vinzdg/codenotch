@@ -1,0 +1,88 @@
+name: Linux Package
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'linux/**'
+      - '.github/workflows/linux-package.yml'
+  pull_request:
+    paths:
+      - 'linux/**'
+      - '.github/workflows/linux-package.yml'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  package:
+    if: github.repository == 'vinzdg/codenotch' || github.event_name == 'workflow_dispatch'
+    name: AppImage
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: linux
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install WebKitGTK and AppImage tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev \
+            pkg-config build-essential fuse libfuse2 file libsoup-3.0-dev
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: linux
+
+      - name: Build the hook
+        run: cargo build --release --locked -p codenotch-hook --target-dir target/hook
+
+      - name: Build the AppImage
+        working-directory: linux/codenotch
+        run: npx --yes @tauri-apps/cli@2.11.4 build --config tauri.bundle.conf.json -- --locked
+
+      - name: Drop bundled Ubuntu WebKit so the host WebKitGTK is used
+        run: bash pack-appimage-host-webkit.sh
+
+      - name: Name the AppImage
+        run: |
+          shopt -s nullglob
+          images=(target/release/bundle/appimage/*.AppImage)
+          if [ "${#images[@]}" -ne 1 ]; then
+            echo "expected one AppImage, found ${#images[@]}" >&2
+            ls -la target/release/bundle/appimage || true
+            exit 1
+          fi
+          cp "${images[0]}" Codenotch.AppImage
+          chmod +x Codenotch.AppImage
+
+      - name: Run doctor
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          ./Codenotch.AppImage doctor | tee doctor.txt
+          if ! grep -q 'Codenotch doctor' doctor.txt; then
+            echo 'AppImage doctor did not run:' >&2
+            cat doctor.txt || true
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Codenotch-AppImage-${{ github.sha }}
+          path: linux/Codenotch.AppImage
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" Codenotch.AppImage --clobber
+        working-directory: linux
