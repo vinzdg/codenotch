@@ -152,6 +152,12 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
         ("ru", "quit_app") => "Выйти из Codenotch",
         ("uk", "quit_app") => "Вийти з Codenotch",
         (_, "quit_app") => "Quit Codenotch",
+        ("zh", "peek_notch") => "显示挖孔 5 秒",
+        ("ja", "peek_notch") => "ノッチを5秒表示",
+        ("ko", "peek_notch") => "노치 5초 보이기",
+        ("ru", "peek_notch") => "Показать вырез на 5 секунд",
+        ("uk", "peek_notch") => "Показати виріз на 5 секунд",
+        (_, "peek_notch") => "Show the notch for 5 seconds",
         ("zh", "settings") => "设置…",
         ("ja", "settings") => "設定…",
         ("ko", "settings") => "설정…",
@@ -177,6 +183,7 @@ mod tests {
         ("refresh_all", "Обновить всё"),
         ("waiting", "Ожидание первых данных…"),
         ("quit_app", "Выйти из Codenotch"),
+        ("peek_notch", "Показать вырез на 5 секунд"),
         ("quit", "Выйти"),
         ("install", "Установить хуки Claude Code"),
         ("uninstall", "Удалить хуки"),
@@ -213,6 +220,7 @@ mod tests {
         ("refresh_all", "Оновити все"),
         ("waiting", "Очікування першого показника…"),
         ("quit_app", "Вийти з Codenotch"),
+        ("peek_notch", "Показати виріз на 5 секунд"),
         ("settings", "Налаштування…"),
     ];
 

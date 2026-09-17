@@ -608,6 +608,65 @@ const WATCHDOG_MS: u64 = 50;
 /// Kept at the original 300 ms rather than falling out of the faster poll, which would make the
 /// card twitchy.
 const LEAVE_MS: u64 = 300;
+/// How long the cursor has to be off an auto-hidden notch before it slides away again. Longer than
+/// the card's own grace period: losing the pill the instant the pointer slips off it, while reading
+/// the card, is the thing that makes an auto-hiding strip annoying.
+const AUTOHIDE_LEAVE_MS: u64 = 900;
+/// How deep into the screen edge the cursor has to reach to bring an auto-hidden notch back, in
+/// logical pixels. Thin, because the edge is a place the pointer arrives at deliberately.
+const REVEAL_BAND: f64 = 4.0;
+
+/// How long a peek offers the notch, matching the Mac's `PeekDuration.standard`. Its reasoning
+/// holds here: under a second or two the notch is gone before a glance lands on it, and much past
+/// ten it stops reading as an offer and becomes a thing parked on the edge to be waited out.
+const PEEK_MS: u64 = 5_000;
+
+/// When the current peek runs out, as ms since the epoch; 0 = not peeking.
+static PEEK_UNTIL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn peek_active() -> bool {
+    let until = PEEK_UNTIL.load(std::sync::atomic::Ordering::Relaxed);
+    until != 0 && now_ms() < until
+}
+
+/// Shows an auto-hidden notch for a few seconds — the way in when it is not under the pointer and
+/// the edge it hides at is on some other screen. The pointer watchdog holds it open until the
+/// offer runs out, and hands back to the ordinary hover fold if the pointer arrives meanwhile, so
+/// a peek that turns into use does not snatch itself away mid-read.
+pub fn peek_notch(app: &AppHandle) {
+    let auto = {
+        let st = app.state::<AppState>();
+        let c = st.cfg.lock().unwrap();
+        c.notch_visible && c.notch_autohide
+    };
+    if !auto {
+        return; // Always-show has nothing to offer, and Hide means the notch is off, not shy
+    }
+    PEEK_UNTIL.store(now_ms() + PEEK_MS, std::sync::atomic::Ordering::Relaxed);
+    if let Some(w) = app.get_webview_window("notch") {
+        let _ = w.show();
+    }
+    applog("autohide: peeking");
+}
+
+/// The strip of screen edge that brings an auto-hidden notch back: only the edge it is pinned to,
+/// and only along the pill's own extent, so reaching for a scrollbar elsewhere on that edge does
+/// not summon it. Before the page has reported a rectangle the whole window edge is used — the
+/// window is the notch's own area, so that is the safe default rather than a dead strip.
+fn reveal_hit(edge: &str, rects: &[[f64; 4]], lx: f64, ly: f64, ww: f64, wh: f64, band: f64) -> bool {
+    let (ax0, ax1, ay0, ay1) = match rects.first() {
+        Some(r) => (r[0], r[0] + r[2], r[1], r[1] + r[3]),
+        None => (0.0, ww, 0.0, wh),
+    };
+    let along_x = lx >= ax0 && lx <= ax1;
+    let along_y = ly >= ay0 && ly <= ay1;
+    match edge {
+        "left" => lx >= 0.0 && lx <= band && along_y,
+        "top" => ly >= 0.0 && ly <= band && along_x,
+        "bottom" => ly >= wh - band && ly <= wh && along_x,
+        _ => lx >= ww - band && lx <= ww && along_y,
+    }
+}
 
 /// WebView2's mouseleave is unreliable inside a NOACTIVATE transparent window — a cursor that
 /// leaves quickly often produces no WM_MOUSELEAVE, and the card stays up. Rather than trust DOM
@@ -623,7 +682,9 @@ const LEAVE_MS: u64 = 300;
 fn start_pointer_watchdog(app: AppHandle) {
     std::thread::spawn(move || {
         let need = (LEAVE_MS / WATCHDOG_MS).max(1) as u8;
+        let away_need = (AUTOHIDE_LEAVE_MS / WATCHDOG_MS).max(1) as u16;
         let mut miss = 0u8;
+        let mut away = 0u16;
         // Last value pushed: this changes only when the cursor crosses an edge
         let mut click_through: Option<bool> = None;
         loop {
@@ -636,6 +697,46 @@ fn start_pointer_watchdog(app: AppHandle) {
             let ly = cur.y - pos.y as f64;
             let size = w.outer_size().ok().map(|s| (s.width as f64, s.height as f64));
             let inside = cursor_in_hot(&rects, lx, ly, size);
+
+            // Auto-hide. This loop already has everything it needs — the cursor, the window's
+            // corner and the pill's own rectangle — so the reveal costs no second poll.
+            let (auto, edge) = {
+                let st = app.state::<AppState>();
+                let c = st.cfg.lock().unwrap();
+                (c.notch_visible && c.notch_autohide, config::edge_or_right(&c.notch_edge))
+            };
+            if auto {
+                let (ww, wh) = size.unwrap_or((0.0, 0.0));
+                let band = REVEAL_BAND * w.scale_factor().unwrap_or(1.0);
+                let peeking = peek_active();
+                if !w.is_visible().unwrap_or(true) {
+                    if reveal_hit(&edge, &rects, lx, ly, ww, wh, band) {
+                        let _ = w.show();
+                        applog("autohide: revealed at the edge");
+                    }
+                    // Off the screen there is nothing to be click-through for, and no card to collapse
+                    away = 0;
+                    miss = 0;
+                    continue;
+                }
+                // A peek holds it open on its own. Without this the fold below would take it away
+                // again within the second, because during a peek the pointer is almost never on it.
+                if inside || peeking {
+                    away = 0;
+                } else {
+                    away += 1;
+                    if away >= away_need {
+                        away = 0;
+                        EXPANDED.store(false, std::sync::atomic::Ordering::Relaxed);
+                        let _ = app.emit("pointer_left", ());
+                        let _ = w.hide();
+                        applog("autohide: hidden again");
+                        continue;
+                    }
+                }
+            } else {
+                away = 0;
+            }
 
             if click_through != Some(!inside) {
                 set_click_through(&app, !inside);
@@ -971,6 +1072,7 @@ fn get_app_icon() -> Option<String> {
 #[derive(serde::Serialize)]
 struct UiFlags {
     notch_visible: bool,
+    notch_autohide: bool,
     tray_visible: bool,
 }
 
@@ -978,21 +1080,27 @@ struct UiFlags {
 fn get_ui_flags(app: AppHandle) -> UiFlags {
     let st = app.state::<AppState>();
     let c = st.cfg.lock().unwrap();
-    UiFlags { notch_visible: c.notch_visible, tray_visible: c.tray_visible }
+    UiFlags { notch_visible: c.notch_visible, notch_autohide: c.notch_autohide, tray_visible: c.tray_visible }
 }
 
 /// Hiding both would leave the app running with nothing to click, so the tray icon is kept
-/// whenever the notch is off. The answer says what was actually stored, so the settings window can
-/// show the corrected state rather than a lie.
+/// whenever the notch is off. Auto-hide is not "off": the notch is still reachable at its edge, so
+/// it does not hold the tray icon on. The answer says what was actually stored, so the settings
+/// window can show the corrected state rather than a lie.
 #[tauri::command]
-fn set_ui_flags(app: AppHandle, notch_visible: bool, tray_visible: bool) -> UiFlags {
+fn set_ui_flags(app: AppHandle, notch_visible: bool, notch_autohide: bool, tray_visible: bool) -> UiFlags {
     let flags = {
         let st = app.state::<AppState>();
         let mut c = st.cfg.lock().unwrap();
         c.notch_visible = notch_visible;
+        c.notch_autohide = notch_visible && notch_autohide;
         c.tray_visible = if notch_visible { tray_visible } else { true };
         config::save(&c);
-        UiFlags { notch_visible: c.notch_visible, tray_visible: c.tray_visible }
+        UiFlags {
+            notch_visible: c.notch_visible,
+            notch_autohide: c.notch_autohide,
+            tray_visible: c.tray_visible,
+        }
     };
     apply_visibility(&app);
     flags
@@ -1016,6 +1124,8 @@ pub fn apply_visibility(app: &AppHandle) {
     if let Some(t) = app.tray_by_id("main") {
         let _ = t.set_visible(tray_on);
     }
+    // The peek item comes and goes with the Show setting, and this is where that setting lands
+    tray::refresh_menu(app);
 }
 
 // ---------------- settings that used to live in the tray menu ----------------
@@ -1416,7 +1526,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{cursor_in_hot, notch_window_size, ring_window, HOT_PAD, NOTCH_H, NOTCH_W};
+    use super::{cursor_in_hot, notch_window_size, reveal_hit, ring_window, HOT_PAD, NOTCH_H, NOTCH_W};
     use crate::usage::LimitWindow;
 
     #[test]
@@ -1446,6 +1556,60 @@ mod tests {
     #[test]
     fn the_pill_is_hot() {
         assert!(cursor_in_hot(&[PILL], 450.0, 300.0, WINDOW));
+    }
+
+    // ---- auto-hide reveal strip ----
+    // A 500 x 600 window whose pill sits between y = 200 and y = 400 on the right-hand edge.
+    const RW: f64 = 500.0;
+    const RH: f64 = 600.0;
+    const RPILL: [f64; 4] = [420.0, 200.0, 80.0, 200.0];
+
+    #[test]
+    fn the_edge_reveals_only_beside_the_pill() {
+        // at the edge, level with the pill
+        assert!(reveal_hit("right", &[RPILL], 498.0, 300.0, RW, RH, 5.0));
+        // at the edge, but far above it — a scrollbar, not the notch
+        assert!(!reveal_hit("right", &[RPILL], 498.0, 40.0, RW, RH, 5.0));
+    }
+
+    #[test]
+    fn reaching_short_of_the_edge_does_not_reveal() {
+        assert!(!reveal_hit("right", &[RPILL], 470.0, 300.0, RW, RH, 5.0));
+    }
+
+    #[test]
+    fn each_edge_watches_its_own_side() {
+        let flat: [f64; 4] = [150.0, 0.0, 200.0, 100.0];
+        assert!(reveal_hit("top", &[flat], 250.0, 2.0, RW, RH, 5.0));
+        assert!(!reveal_hit("top", &[flat], 250.0, RH - 2.0, RW, RH, 5.0));
+        assert!(reveal_hit("bottom", &[flat], 250.0, RH - 2.0, RW, RH, 5.0));
+        assert!(reveal_hit("left", &[[0.0, 200.0, 80.0, 200.0]], 2.0, 300.0, RW, RH, 5.0));
+    }
+
+    #[test]
+    fn before_the_page_reports_the_whole_window_edge_answers() {
+        // Otherwise an auto-hidden notch that has never rendered could not be summoned at all
+        assert!(reveal_hit("right", &[], 498.0, 40.0, RW, RH, 5.0));
+    }
+
+    #[test]
+    fn a_peek_holds_the_notch_open_and_then_stops() {
+        use super::{peek_active, PEEK_UNTIL};
+        use std::sync::atomic::Ordering;
+        let was = PEEK_UNTIL.load(Ordering::Relaxed);
+
+        PEEK_UNTIL.store(0, Ordering::Relaxed);
+        assert!(!peek_active(), "no peek has been asked for");
+
+        PEEK_UNTIL.store(super::now_ms() + 5_000, Ordering::Relaxed);
+        assert!(peek_active(), "the offer is still open");
+
+        // Expiry is what hands the notch back to the hover fold; a peek that never ended would
+        // leave an auto-hiding notch parked on the edge for good.
+        PEEK_UNTIL.store(super::now_ms().saturating_sub(1), Ordering::Relaxed);
+        assert!(!peek_active(), "the offer has run out");
+
+        PEEK_UNTIL.store(was, Ordering::Relaxed);
     }
 
     #[test]

@@ -76,6 +76,10 @@ pub struct Config {
     /// false = the pill is kept off the screen edge entirely; the tray icon is then the only way in
     #[serde(default = "yes")]
     pub notch_visible: bool,
+    /// true = the pill stays off the screen until the cursor reaches the edge it is pinned to, the
+    /// way the taskbar does. Only meaningful while `notch_visible` is true.
+    #[serde(default)]
+    pub notch_autohide: bool,
     /// false = the tray icon is hidden. Refused while the notch is also hidden, because that would
     /// leave the app running with no way to reach it.
     #[serde(default = "yes")]
@@ -157,6 +161,7 @@ impl Default for Config {
             antigravity_limit: default_antigravity_limit(),
             antigravity_model: default_antigravity_model(),
             notch_visible: true,
+            notch_autohide: false,
             tray_visible: true,
         }
     }

@@ -146,7 +146,7 @@
       <section class="pane" id="pane-appearance" role="tabpanel" aria-labelledby="tab-appearance" hidden>
         <div class="sec">Notch</div>
         <div class="group">
-          <div class="item"><span>Show</span><span class="seg" id="seg-show"><button data-v="show">Always show</button><button data-v="hide">Hide</button></span></div>
+          <div class="item"><span>Show</span><span class="seg" id="seg-show"><button data-v="show">Always show</button><button data-v="auto">Auto-hide</button><button data-v="hide">Hide</button></span></div>
           <div class="item cap" id="cap-show" data-dynamic></div>
           <div class="item"><span>Size</span><span class="seg" id="seg-size"><button data-v="0.8">Small</button><button data-v="1">Medium</button><button data-v="1.25">Large</button></span></div>
           <div class="item cap" id="cap-size" data-dynamic></div>
@@ -433,6 +433,8 @@ const KO_STATIC = {
   'A thinner ring for the weekly limit, drawn inside the main one. It shares the gap with the working indicator.':'주간 제한을 나타내는 더 얇은 링으로, 메인 링 안쪽에 그려집니다. 작동 표시기와 간격을 공유합니다.',
   'A thinner ring for the weekly limit, drawn around the main one, in the margin between the ring and the notch edge.':'주간 제한을 나타내는 더 얇은 링으로, 메인 링 주위에 그려지며 링과 노치 가장자리 사이의 여백에 위치합니다.',
   'The notch stays open with every reading visible.':'노치가 열려 있고 모든 읽기 값이 표시됩니다.',
+  'Auto-hide':'자동 숨기기',
+  'The pill stays off the screen until the pointer reaches the edge it is pinned to, then slides back out — the way the taskbar does. Dragging it to another edge moves the strip that summons it.':'필이 화면에서 빠져 있다가, 붙어 있는 가장자리에 포인터가 닿으면 다시 나옵니다 — 작업 표시줄과 같은 방식입니다. 필을 다른 가장자리로 옮기면 불러내는 띠도 따라 옮겨집니다.',
   'Edge':'가장자리',
   'Left':'왼쪽',
   'Right':'오른쪽',
@@ -766,12 +768,14 @@ const TRAY_WHY = 'The small icon down by the clock. Right-clicking it opens this
 const NO_TRAY_WHY = 'No icon in the system tray. Open Codenotch again from the Start menu to bring these settings back.';
 const HELD_ON = 'Held on: the notch is hidden, so this icon is the only way left to reach Codenotch. Switch the notch back on first if you want to hide it.';
 const KEPT_ON = 'The taskbar icon has been kept on. With the notch hidden it is the only way left to open this window or to quit Codenotch, so Codenotch will not let both of them be switched off at the same time.';
-let flags = { notch:true, tray:true }, flagsBusy = false, flagsCorrected = false;
+const AUTO_WHY = 'The pill stays off the screen until the pointer reaches the edge it is pinned to, then slides back out — the way the taskbar does. Dragging it to another edge moves the strip that summons it.';
+let flags = { notch:true, autohide:false, tray:true }, flagsBusy = false, flagsCorrected = false;
 
 function readFlags(v){
   const nv = v && (v.notch_visible !== undefined ? v.notch_visible : v.notchVisible);
+  const ah = v && (v.notch_autohide !== undefined ? v.notch_autohide : v.notchAutohide);
   const tv = v && (v.tray_visible !== undefined ? v.tray_visible : v.trayVisible);
-  return { notch: nv !== false, tray: tv !== false };
+  return { notch: nv !== false, autohide: ah === true, tray: tv !== false };
 }
 function drawSeg(id, value, disabled){
   for(const b of document.querySelectorAll('#' + id + ' button')){
@@ -781,23 +785,25 @@ function drawSeg(id, value, disabled){
     b.disabled = flagsBusy || (disabled || []).indexOf(b.dataset.v) >= 0;
   }
 }
+function showMode(){ return flags.notch ? (flags.autohide ? 'auto' : 'show') : 'hide'; }
 function renderFlags(){
-  drawSeg('seg-show', flags.notch ? 'show' : 'hide');
+  drawSeg('seg-show', showMode());
   drawSeg('seg-tray', flags.tray ? 'tray' : 'none', flags.notch ? [] : ['none']);
-  document.getElementById('cap-show').textContent = flags.notch ? ui(SHOW_WHY, SHOW_WHY) : ui(HIDE_WHY, HIDE_WHY);
+  const why = flags.notch ? (flags.autohide ? AUTO_WHY : SHOW_WHY) : HIDE_WHY;
+  document.getElementById('cap-show').textContent = ui(why, why);
   const trayWhy = !flags.notch ? HELD_ON : flags.tray ? TRAY_WHY : NO_TRAY_WHY;
   document.getElementById('cap-tray').textContent = ui(trayWhy, trayWhy);
   const fix = document.getElementById('flags-fix');
   fix.hidden = !flagsCorrected;
   fix.textContent = ui(KEPT_ON, KEPT_ON);
 }
-function saveFlags(wantNotch, wantTray){
+function saveFlags(wantNotch, wantAuto, wantTray){
   if(flagsBusy) return;
   flagsBusy = true;
-  const asked = { notch:wantNotch, tray:wantTray };
+  const asked = { notch:wantNotch, autohide:wantAuto, tray:wantTray };
   flags = asked;
   renderFlags();
-  invoke('set_ui_flags', { notchVisible: wantNotch, trayVisible: wantTray })
+  invoke('set_ui_flags', { notchVisible: wantNotch, notchAutohide: wantAuto, trayVisible: wantTray })
     .then(v => {
       flags = readFlags(v);
       flagsCorrected = flags.notch !== asked.notch || flags.tray !== asked.tray;
@@ -812,15 +818,15 @@ function saveFlags(wantNotch, wantTray){
 }
 document.getElementById('seg-show').addEventListener('click', e => {
   const b = e.target.closest('button');
-  if(!b || b.disabled) return;
-  const notch = b.dataset.v === 'show';
-  if(notch !== flags.notch) saveFlags(notch, flags.tray);
+  if(!b || b.disabled || b.dataset.v === showMode()) return;
+  // Hide is the notch off altogether; auto-hide leaves it on and lets the edge summon it
+  saveFlags(b.dataset.v !== 'hide', b.dataset.v === 'auto', flags.tray);
 });
 document.getElementById('seg-tray').addEventListener('click', e => {
   const b = e.target.closest('button');
   if(!b || b.disabled) return;
   const tray = b.dataset.v === 'tray';
-  if(tray !== flags.tray) saveFlags(flags.notch, tray);
+  if(tray !== flags.tray) saveFlags(flags.notch, flags.autohide, tray);
 });
 
 /* ---- Appearance: size ------------------------------------------------------ */
