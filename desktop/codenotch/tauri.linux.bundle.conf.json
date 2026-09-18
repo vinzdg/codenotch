@@ -1,0 +1,11 @@
+{
+  "bundle": {
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/bin/codenotch-hook": "../target/hook/release/codenotch-hook"
+        }
+      }
+    }
+  }
+}

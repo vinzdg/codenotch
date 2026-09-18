@@ -1,0 +1,61 @@
+name: Linux
+
+# The shared crate under desktop/ is Rust. CI and Package only ever run Xcode,
+# and Windows.yml only ever runs on windows-latest, so a Linux change could
+# merge on a green check that never compiled it. Its own file.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'linux/**'
+      - '.github/workflows/linux.yml'
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'linux/**'
+      - '.github/workflows/linux.yml'
+
+jobs:
+  build:
+    if: github.repository == 'vinzdg/codenotch'
+    name: Build and test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install WebKitGTK and X11 headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libx11-dev \
+            libssl-dev \
+            patchelf
+        working-directory: .
+
+      - name: Check the UI pages parse
+        run: node scripts/check-ui-scripts.mjs
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+
+      - name: Build
+        run: cargo build --locked
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Clippy
+        run: cargo clippy --all-targets --locked

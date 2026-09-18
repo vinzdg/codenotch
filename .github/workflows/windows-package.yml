@@ -8,10 +8,12 @@ on:
   push:
     branches: [main]
     paths:
+      - 'desktop/**'
       - 'windows/**'
       - '.github/workflows/windows-package.yml'
   pull_request:
     paths:
+      - 'desktop/**'
       - 'windows/**'
       - '.github/workflows/windows-package.yml'
   # A v* release is cut from a Mac by `make publish`. This is what puts the
@@ -33,7 +35,7 @@ jobs:
     defaults:
       run:
         shell: pwsh
-        working-directory: windows
+        working-directory: desktop
     steps:
       - uses: actions/checkout@v7
 
@@ -43,7 +45,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: windows
+          workspaces: desktop
 
       # Its own target dir for two reasons. The bundler copies resources next to
       # the app in target/release, so a hook built there would be copied onto
@@ -59,7 +61,7 @@ jobs:
       # tauri.bundle.conf.json is merged only here, so a plain `cargo build`
       # never looks for a hook binary that has not been built.
       - name: Build the installer
-        working-directory: windows/codenotch
+        working-directory: desktop/codenotch
         run: npx --yes @tauri-apps/cli@2.11.4 build --config tauri.bundle.conf.json -- --locked
 
       # The bundler names the file after the version, which would change the
@@ -98,7 +100,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: Codenotch-Setup-${{ github.sha }}
-          path: windows/Codenotch-Setup.exe
+          path: desktop/Codenotch-Setup.exe
           if-no-files-found: error
 
       # SmartScreen's warning names neither the fix nor the reason, so the

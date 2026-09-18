@@ -89,18 +89,18 @@ fn default_notch_y() -> f64 {
     0.5
 }
 fn default_notch_edge() -> String {
-    "right".into()
+    crate::platform::default_notch_edge().into()
 }
 
 /// The four edges, in the order Settings lists them.
 pub const EDGES: [&str; 4] = ["left", "right", "top", "bottom"];
 
-/// An unreadable edge means the right-hand one, the layout every earlier build used.
+/// An unreadable edge means the platform default (right on Windows, top on Linux).
 pub fn edge_or_right(value: &str) -> String {
     if EDGES.contains(&value) {
         value.to_string()
     } else {
-        "right".into()
+        default_notch_edge()
     }
 }
 
@@ -232,5 +232,19 @@ mod tests {
         assert_eq!(weekly_ring_or_off("outside"), "outside");
         assert_eq!(weekly_ring_or_off("Inside"), "off");
         assert_eq!(weekly_ring_or_off(""), "off");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_defaults_to_the_top_edge() {
+        assert_eq!(super::default_notch_edge(), "top");
+        assert_eq!(super::Config::default().notch_edge, "top");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_defaults_to_the_right_edge() {
+        assert_eq!(super::default_notch_edge(), "right");
+        assert_eq!(super::Config::default().notch_edge, "right");
     }
 }
