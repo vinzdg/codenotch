@@ -63,10 +63,11 @@ installer on its [Windows Package run](../../actions/workflows/windows-package.y
 ## Linux
 
 A Linux port of the same desktop crate — Mint / Cinnamon / X11 first — lives in
-[`linux/`](linux/README.md). Build and run from there (`./install-deps.sh`, then `./run.sh`);
-the source is [`desktop/`](desktop/README.md), not a second copy of the Windows tree.
-A pull request that touches `desktop/` or `linux/` is built on Ubuntu by
-[Linux](../../actions/workflows/linux.yml).
+[`linux/`](linux/README.md). The package is [`Codenotch.deb`](linux/README.md), named
+the same way in every release. Build it with `linux/package.sh`; a pull request that
+touches `desktop/` or `linux/` is compiled on Ubuntu by
+[Linux](../../actions/workflows/linux.yml) and packaged by
+[Linux Package](../../actions/workflows/linux-package.yml).
 
 ## Connect your phone
 
