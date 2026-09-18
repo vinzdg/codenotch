@@ -56,8 +56,8 @@ cargo build --release
 .\target\release\codenotch.exe doctor   # self-diagnosis: credentials, data sources, icons, hooks
 ```
 
-On Linux, see [`../linux/README.md`](../linux/README.md); `../linux/run.sh` is the same
-`cargo run --release` from here.
+On Linux, see [`../linux/README.md`](../linux/README.md). `../linux/run.sh` is a release
+build from here; `../linux/package.sh` produces `linux/dist/Codenotch.deb`.
 
 To build the installer the way the Windows Package workflow does:
 
