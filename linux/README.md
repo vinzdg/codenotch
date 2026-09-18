@@ -20,7 +20,32 @@ it is already on; it does not hop to another side mid-drag.
 That installs GTK, WebKitGTK 4.1, Ayatana app indicator, X11 headers and the
 usual build tools. Rust is assumed via [rustup](https://rustup.rs).
 
-## Run
+## Install / build
+
+Download [`Codenotch.deb`](https://github.com/vinzdg/codenotch/releases/latest/download/Codenotch.deb)
+from the latest release, or take the artifact from a
+[Linux Package run](../../actions/workflows/linux-package.yml). It is built for
+**Linux Mint / Ubuntu 24.04** (amd64) and pulls in WebKitGTK 4.1 and the Ayatana
+tray library.
+
+```sh
+sudo apt install ./Codenotch.deb
+codenotch            # notch on the top edge
+codenotch doctor     # credentials, Cursor store, icons, hooks
+```
+
+To build the `.deb` from source:
+
+```sh
+./install-deps.sh
+./package.sh         # → dist/Codenotch.deb
+```
+
+Needs Node (for the Tauri CLI) in addition to the GTK/WebKit packages. Settings,
+logs and persisted readings go in `~/.config/codenotch`. Autostart writes
+`~/.config/autostart/codenotch.desktop`.
+
+## Run from a tree (no package)
 
 ```sh
 ./run.sh
@@ -44,8 +69,7 @@ writes `~/.config/autostart/codenotch.desktop`.
 - Cursor usage from the editor's own `state.vscdb`
 - Move handle that slides along the current edge
 
-Not in this change: Wayland pointer-follow, a `.deb` / AppImage, or duplicating
-the Windows installer pipeline.
+Not in this change: Wayland pointer-follow or an AppImage.
 
 ## Sending this to the community repo
 
