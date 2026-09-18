@@ -265,10 +265,17 @@ fn wait_for(flag: &AtomicU32, seq: u32, ms: u64) -> bool {
     false
 }
 
-/// Alt+drag on the pill. The page empties once the overlay has the notch drawn; from then on the
-/// pointer is followed here and its place on the border sent to the overlay, until the button comes up.
+/// Alt+drag on the pill, and the move handle. On Windows the page empties once the overlay has the
+/// notch drawn; from then on the pointer is followed here and its place on the border sent to the
+/// overlay, until the button comes up. On Linux the same two gestures slide the notch along the
+/// edge it is already on and never open the overlay.
 #[tauri::command]
 pub fn begin_carry(app: AppHandle, shape: serde_json::Value) {
+    if crate::platform::drag_slides_along_edge() {
+        let _ = shape;
+        crate::slide_along_current_edge(app);
+        return;
+    }
     if crate::DRAGGING.swap(true, SeqCst) {
         return;
     }

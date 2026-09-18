@@ -468,10 +468,14 @@ function start(init){
   requestAnimationFrame(() => requestAnimationFrame(() => invoke('carry_shown', { seq: init.seq }).catch(() => {})));
 }
 
-listen('carry_init', e => start(e.payload)).catch(() => {});
-listen('carry_target', e => { if(st && !settling) target = e.payload; }).catch(() => {});
-listen('carry_release', () => { if(st){ releasedAt = Date.now(); letGo(); } }).catch(() => {});
-invoke('get_carry').then(v => { if(v && (!st || st.seq !== v.seq)) start(v); }).catch(() => {});
+// Linux slides the notch along its edge and never opens this overlay, so it does not
+// listen for carry_init / carry_target / carry_release or ask for a carry in progress.
+if(!/Linux/.test(navigator.platform)){
+  listen('carry_init', e => start(e.payload)).catch(() => {});
+  listen('carry_target', e => { if(st && !settling) target = e.payload; }).catch(() => {});
+  listen('carry_release', () => { if(st){ releasedAt = Date.now(); letGo(); } }).catch(() => {});
+  invoke('get_carry').then(v => { if(v && (!st || st.seq !== v.seq)) start(v); }).catch(() => {});
+}
 </script>
 </body>
 </html>

@@ -1,34 +1,10 @@
 //! Rust-side (tray menu) strings. The page has its own dictionary; keys are kept identical on both sides.
 
 pub fn resolve_auto() -> &'static str {
-    #[cfg(windows)]
-    unsafe {
-        use windows::Win32::Globalization::GetUserDefaultLocaleName;
-        let mut buf = [0u16; 85];
-        let n = GetUserDefaultLocaleName(&mut buf);
-        if n > 0 {
-            let name = String::from_utf16_lossy(&buf[..(n as usize - 1)]).to_lowercase();
-            if let Some(lang) = language_from_windows_locale(&name) {
-                return lang;
-            }
-        }
-    }
-    #[cfg(not(windows))]
-    {
-        // POSIX locale environment, most specific first: "pt_BR.UTF-8" → "pt-br"
-        for key in ["LC_ALL", "LC_MESSAGES", "LANG"] {
-            let Ok(value) = std::env::var(key) else { continue };
-            let name = value.split('.').next().unwrap_or("").replace('_', "-").to_lowercase();
-            if name.is_empty() || name == "c" || name == "posix" {
-                continue;
-            }
-            if let Some(lang) = language_from_windows_locale(&name) {
-                return lang;
-            }
-            return "en";
-        }
-    }
-    "en"
+    // Windows reads GetUserDefaultLocaleName; Linux reads LC_ALL, LC_MESSAGES, then LANG.
+    crate::platform::system_locale()
+        .and_then(|name| language_from_windows_locale(&name))
+        .unwrap_or("en")
 }
 
 /// Map a Windows locale name onto a language code this crate ships.

@@ -46,9 +46,9 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Windows: %APPDATA%\Cursor\User\globalStorage\state.vscdb (macOS: ~/Library/Application Support/Cursor/...)
+/// Editor `state.vscdb`. Windows: `%APPDATA%\Cursor\...`. Linux: `~/.config/Cursor/...` first, then Snap.
 pub fn store_url() -> Option<PathBuf> {
-    dirs::config_dir().map(|c| c.join("Cursor").join("User").join("globalStorage").join("state.vscdb"))
+    crate::platform::cursor_state_db()
 }
 
 fn store_path() -> PathBuf {
@@ -129,7 +129,7 @@ fn read_credentials() -> Option<Creds> {
 
 /// For doctor: contains no secret values
 pub fn probe() -> String {
-    let Some(p) = store_url() else { return "Cursor: cannot locate %APPDATA%".into() };
+    let Some(p) = store_url() else { return "Cursor: cannot locate config directory".into() };
     if !p.is_file() {
         return format!("Cursor: {} not found (not installed, or not signed in)", p.display());
     }
