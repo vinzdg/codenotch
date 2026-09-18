@@ -62,11 +62,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Every Claude Code configuration directory on this Mac — `~/.claude` and
-    /// any `~/.claude-<slug>` — found once at launch. Each gets a usage
-    /// provider and a session monitor of its own, keyed by the same id, so a
-    /// work login's sessions spin the work ring and nobody else's.
-    private let claudeProfiles = ClaudeProfile.discover()
+    /// Every Claude organization signed in on this Mac, found once at launch by
+    /// walking the configuration directories — `~/.claude` and any
+    /// `~/.claude-<slug>` — and keeping one profile per organization. Each gets
+    /// a usage provider and a session monitor of its own, keyed by the same id,
+    /// so a work login's sessions spin the work ring and nobody else's.
+    ///
+    /// Once at launch, so signing a directory into a different organization
+    /// takes a relaunch to show up as its own ring — the same as adding the
+    /// directory in the first place.
+    private let claudeGroups = ClaudeProfile.discoverGrouped()
+    private var claudeProfiles: [ClaudeProfile] { claudeGroups.map(\.profile) }
     private let codexProfiles = CodexProfile.discover()
     /// Held as concrete providers, not just handed to the store: the token
     /// refresher needs to ask one of them how long its token has left, and the
@@ -663,14 +669,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "gemini-api": GeminiAPIActivityMonitor(),
             "kimi": KimiActivityMonitor(),
         ]
+        // One monitor per *directory*, but registered under the ring's id: two
+        // directories on one organization were merged into a single provider,
+        // and the sessions running in the merged one are that ring's sessions.
+        // A group of one — every install without a duplicate login — registers
+        // its monitor directly, so nothing is wrapped that does not need to be.
         var claudeMonitors: [ClaudeSessionMonitor] = []
-        for profile in claudeProfiles {
-            let monitor = ClaudeSessionMonitor(
-                directory: profile.sessionsDirectory,
-                projects: profile.projectsDirectory
-            )
-            claudeMonitors.append(monitor)
-            monitors[profile.id] = monitor
+        for group in claudeGroups {
+            let built = group.allProfiles.map { profile in
+                ClaudeSessionMonitor(
+                    directory: profile.sessionsDirectory,
+                    projects: profile.projectsDirectory
+                )
+            }
+            claudeMonitors.append(contentsOf: built)
+            monitors[group.profile.id] = built.count == 1
+                ? built[0]
+                : CombinedClaudeSessionMonitor(built)
         }
         for profile in codexProfiles {
             monitors[profile.id] = CodexActivityMonitor(profile: profile)

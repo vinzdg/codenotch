@@ -52,6 +52,10 @@ struct ClaudeProfile: Equatable, Hashable {
     /// only postpone the next one. The credential can: no token, no account,
     /// no ring.
     ///
+    /// A third test runs last and is not about directories at all: two of them
+    /// signed into the same organization are one account's one limit, and get
+    /// one ring between them. See `oneRingPerOrganization`.
+    ///
     /// `hasCredential` is injected so discovery stays testable — the real one
     /// reads the login keychain, which a test has no business touching. It only
     /// enumerates attributes and takes a persistent reference, neither of which
@@ -60,6 +64,32 @@ struct ClaudeProfile: Equatable, Hashable {
                          fileManager: FileManager = .default,
                          hasCredential: (ClaudeProfile) -> Bool = Self.hasKeychainCredential)
     -> [ClaudeProfile] {
+        discoverGrouped(home: home, fileManager: fileManager, hasCredential: hasCredential)
+            .map(\.profile)
+    }
+
+    /// One ring, and the directories behind it.
+    ///
+    /// What `discover` returns, plus the thing it has to throw away to return a
+    /// flat list: which *other* directories merged into each surviving profile.
+    /// Only `AppDelegate` needs that, and only for one reason — sessions. A
+    /// merged directory still has Claude Code running in it, and its sessions
+    /// belong to the ring that absorbed it, so they have to be watched under
+    /// the surviving profile's id rather than dropped with the duplicate.
+    struct Discovered: Equatable {
+        let profile: ClaudeProfile
+        /// Empty in the ordinary case of one directory per organization.
+        let merged: [ClaudeProfile]
+
+        /// Every directory whose sessions belong to this ring, the surviving
+        /// profile's own first.
+        var allProfiles: [ClaudeProfile] { [profile] + merged }
+    }
+
+    static func discoverGrouped(home: URL = homeDirectory,
+                                fileManager: FileManager = .default,
+                                hasCredential: (ClaudeProfile) -> Bool = Self.hasKeychainCredential)
+    -> [Discovered] {
         let names = (try? fileManager.contentsOfDirectory(atPath: home.path)) ?? []
         let extras = names.compactMap { name -> ClaudeProfile? in
             guard let slug = slug(fromDirectoryName: name) else { return nil }
@@ -72,8 +102,89 @@ struct ClaudeProfile: Equatable, Hashable {
             }
             return candidate
         }
-        return [ClaudeProfile.default(home: home)]
-            + extras.sorted { $0.slug! < $1.slug! }
+        return oneRingPerOrganization(
+            [ClaudeProfile.default(home: home)] + extras.sorted { $0.slug! < $1.slug! },
+            hasCredential: hasCredential
+        )
+    }
+
+    /// One ring per organization, whatever the directories say.
+    ///
+    /// A limit belongs to an organization, not to the folder a login happened
+    /// to be aliased to. Two directories signed into the same organization
+    /// report the same numbers by construction — the Desktop cache is keyed by
+    /// organization, `/usage` answers for the one the profile is on, and the
+    /// token is minted for it — so the second ring is a copy of the first.
+    ///
+    /// That is worse than redundant. One account can front a personal
+    /// organization and a Team one, and two Claude rings read as both of them
+    /// covered: the organization that has no directory of its own gets no ring,
+    /// and its limit goes unwatched behind a duplicate of its neighbour's. This
+    /// is what turns that into a missing ring somebody can notice.
+    ///
+    /// Only a *readable* uuid merges. An organization that cannot be read is
+    /// not evidence of anything, and treating nil as a value would collapse
+    /// every unreadable profile into a single ring.
+    ///
+    /// Which one survives is decided twice over. A profile that still has a
+    /// token outranks one that does not: signing out leaves `~/.claude.json`
+    /// behind with the organization still in it, and preferring that stale
+    /// default would merge a working login into a ring that can never refresh.
+    /// Among equals the input order stands — the default first, then slugs
+    /// alphabetically — so the surviving ring keeps the id its archived
+    /// readings and connection choices are filed under, and keeps it from one
+    /// launch to the next.
+    private static func oneRingPerOrganization(
+        _ profiles: [ClaudeProfile],
+        hasCredential: (ClaudeProfile) -> Bool
+    ) -> [Discovered] {
+        // Read once per profile. `organizationID()` opens and decodes the
+        // account file, and the comparisons below would otherwise re-read every
+        // candidate they touch — and could see two different answers for one
+        // profile if Claude Code rewrote the file in between, which is exactly
+        // what switching organization does.
+        let organizations = profiles.reduce(into: [ClaudeProfile: String]()) { seen, profile in
+            seen[profile] = profile.organizationID()
+        }
+
+        var winners: [String: ClaudeProfile] = [:]
+        for profile in profiles {
+            guard let organization = organizations[profile] else { continue }
+            guard let held = winners[organization] else {
+                winners[organization] = profile
+                continue
+            }
+            // Asked only on a collision, which is rare — and it enumerates
+            // keychain attributes rather than reading a secret, so it costs no
+            // prompt even when it is.
+            if !hasCredential(held), hasCredential(profile) {
+                winners[organization] = profile
+            }
+        }
+
+        // Each loser filed under the winner that absorbed it, in the order they
+        // were found, so the surviving ring's session directories keep a stable
+        // order too.
+        var merged: [ClaudeProfile: [ClaudeProfile]] = [:]
+        for profile in profiles {
+            guard let organization = organizations[profile],
+                  let winner = winners[organization],
+                  winner != profile
+            else { continue }
+            merged[winner, default: []].append(profile)
+            Log.usage.notice("""
+                \(profile.displayPath, privacy: .public) is signed into the same organization as \
+                \(winner.displayPath, privacy: .public) (\(organization, privacy: .public)) — one ring for both
+                """)
+        }
+
+        return profiles.compactMap { profile in
+            guard let organization = organizations[profile] else {
+                return Discovered(profile: profile, merged: [])
+            }
+            guard winners[organization] == profile else { return nil }
+            return Discovered(profile: profile, merged: merged[profile] ?? [])
+        }
     }
 
     /// Whether Claude Code has ever filed a token for this profile's directory.
