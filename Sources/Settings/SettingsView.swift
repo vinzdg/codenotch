@@ -1444,7 +1444,7 @@ private struct AccountRow: View {
                 HStack(spacing: 10) {
                     if isOrderable { handle }
 
-                    ProviderGlyphView(glyph: provider.glyph, size: 16)
+                    ProviderGlyphView(glyph: provider.glyph, size: 16, providerID: provider.id)
                         .foregroundStyle(isConnected ? .primary : .tertiary)
 
                     Text(provider.name)
@@ -1470,7 +1470,7 @@ private struct AccountRow: View {
                     // a lot of translucent furniture to move a ring one place
                     // up.
                     HStack(spacing: 6) {
-                        ProviderGlyphView(glyph: provider.glyph, size: 12)
+                        ProviderGlyphView(glyph: provider.glyph, size: 12, providerID: provider.id)
                         Text(provider.name)
                     }
                     .padding(.horizontal, 8)

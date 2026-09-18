@@ -95,7 +95,7 @@ struct UsageResetCard: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center, spacing: NotchLayout.headerGap) {
-                    ProviderGlyphView(glyph: event.glyph)
+                    ProviderGlyphView(glyph: event.glyph, providerID: event.providerID)
                         .foregroundStyle(Palette.textPrimary)
 
                     VStack(alignment: .leading, spacing: 0) {

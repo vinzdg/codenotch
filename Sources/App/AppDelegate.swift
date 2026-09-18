@@ -74,6 +74,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var claudeProviders: [ClaudeOAuthProvider] = []
     /// MiniMax Platform sign-in sheet. Not a UsageProvider — that is MiniMaxProvider.
     private var miniMaxWeb: WebSessionProvider?
+    /// Runtime-registered plugins (see `docs/design/plugin-protocol.md`).
+    private var pluginCoordinator: PluginCoordinator?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set here, not in the Info.plist: this call is applied at launch and
@@ -98,6 +100,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // notch would already have flashed on the default edge.
         let fleet = NotchFleet(scope: preferences.notchScope, edge: preferences.notchEdge)
         self.notchFleet = fleet
+
+        // Set in the non-demo branch below; the plugin coordinator wires them
+        // up once the store and the activity coordinator exist.
+        var pluginRegistry: PluginRegistry?
+        var discoveredPlugins: [PluginRegistry.RegisteredPlugin] = []
 
         // `CODENOTCH_DEMO=1` puts the design frame's three providers on screen
         // with its numbers, for screenshots and for eyeballing the layout.
@@ -140,7 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Log.usage.info("codex profiles: \(self.codexProfiles.map(\.displayPath).joined(separator: ", "), privacy: .public)")
             let claudeProviders = claudeProfiles.map { ClaudeOAuthProvider(profile: $0) }
             self.claudeProviders = claudeProviders
-            let allProviders: [UsageProvider] = claudeProviders
+            var allProviders: [UsageProvider] = claudeProviders
                 + [CursorLocalProvider()]
                 + codexProfiles.map { CodexLocalProvider(profile: $0) }
                 + [AntigravityProvider(),
@@ -156,6 +163,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                        Preferences.storedGeminiAPIMonthlyTokenBudget()
                    })]
                 + webProviders
+
+            // Runtime-registered plugins ride the same array from here on:
+            // reconcile, ordering, archiving and rendering are all keyed on
+            // the provider id and do not care where the provider came from.
+            //
+            // Frozen now, before plugins join the array: a closure over the
+            // `var` would see them on later rescans and reject every plugin
+            // as colliding with itself.
+            let builtInIDs = Set(allProviders.map(\.id))
+            let registry = PluginRegistry(
+                directory: PluginRegistry.defaultDirectory(),
+                builtInIDs: { builtInIDs }
+            )
+            discoveredPlugins = registry.scan()
+            pluginRegistry = registry
+            allProviders += discoveredPlugins.map { ExternalPluginProvider(manifest: $0.manifest) }
+            // A manifest exists because someone ran the vendor's installer on
+            // purpose, so a plugin the preferences have never seen starts
+            // connected — unlike a discovered Claude profile, which can appear
+            // without anyone asking Codenotch to watch it.
+            for plugin in discoveredPlugins where !preferences.seenProviders.contains(plugin.manifest.id) {
+                preferences.setConnected(true, for: plugin.manifest.id)
+            }
             preferences.reconcile(discoveredIDs: allProviders.map(\.id))
             let store = UsageStore(
                 providers: allProviders,
@@ -717,14 +747,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.announceCompletions(sessions: fleet.sessions)
         }
         self.activityCoordinator = activity
-        let monitorIDs = Set(monitors.keys)
-        activity.setEnabled(Set(monitorIDs.filter { preferences.isConnected($0) }))
+
+        // Plugins found at launch need their glyphs and activity monitors
+        // attached; from here the coordinator also watches the plugins
+        // directory and registers/deregisters providers live. Done before the
+        // initial `setEnabled` so a plugin's monitor is in `monitorIDs` when
+        // the enabled set is first computed.
+        if let pluginRegistry, let store = self.store {
+            let coordinator = PluginCoordinator(registry: pluginRegistry, store: store,
+                                                preferences: preferences, activity: activity)
+            coordinator.bootstrap(discoveredPlugins)
+            coordinator.start()
+            self.pluginCoordinator = coordinator
+        }
+
+        activity.setEnabled(Set(activity.monitorIDs.filter { preferences.isConnected($0) }))
         preferences.$connectedProviders
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak activity, weak preferences] _ in
-                guard let preferences else { return }
-                activity?.setEnabled(Set(monitorIDs.filter { preferences.isConnected($0) }))
+                guard let preferences, let activity else { return }
+                activity.setEnabled(Set(activity.monitorIDs.filter { preferences.isConnected($0) }))
             }
             .store(in: &cancellables)
         store?.isBusy = { [weak self, weak activity] in
