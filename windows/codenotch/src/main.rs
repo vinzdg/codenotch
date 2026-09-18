@@ -935,7 +935,7 @@ fn ring_window<'a>(
     let by_id = |id: &str| windows.iter().find(|w| w.id == id);
     match provider {
         "claude" => by_id("session"),
-        "codex" => windows.first(),
+        "codex" => by_id("primary"),
         "cursor" => by_id("included").or_else(|| by_id("api")),
         "grok" => by_id("credits").or_else(|| windows.first()),
         _ => antigravity_lane(windows, antigravity_limit, antigravity_model),
@@ -1771,10 +1771,18 @@ mod tests {
     }
 
     #[test]
-    fn codex_means_its_first_window_and_cursor_its_included_usage() {
+    fn codex_means_its_core_window_and_cursor_its_included_usage() {
         assert_eq!(pick("codex", &[win("primary", 0.2), win("secondary", 0.9)]), Some("primary"));
         assert_eq!(pick("cursor", &[win("included", 0.3), win("api", 0.9)]), Some("included"));
         assert_eq!(pick("cursor", &[win("api", 0.9), win("on_demand", 0.95)]), Some("api"));
+    }
+
+    #[test]
+    fn codex_never_substitutes_an_extra_bucket_for_core_usage() {
+        assert_eq!(pick("codex", &[win("spark", 0.1), win("primary", 0.32)]), Some("primary"));
+        assert_eq!(pick("codex", &[win("spark", 0.1), win("secondary", 0.4)]), None);
+        assert_eq!(pick("codex", &[win("secondary", 0.4)]), None);
+        assert_eq!(pick("codex", &[win("spark", 0.1), win("code-review", 0.2)]), None);
     }
 
     #[test]

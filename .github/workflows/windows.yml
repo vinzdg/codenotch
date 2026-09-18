@@ -46,6 +46,9 @@ jobs:
       - name: Test
         run: cargo test --locked
 
+      - name: Test Codex headline selection
+        run: node --test test-codex-headline.cjs
+
       # Reported rather than enforced: the crate already carries warnings, and
       # failing on them would hold every change hostage to that cleanup.
       - name: Clippy

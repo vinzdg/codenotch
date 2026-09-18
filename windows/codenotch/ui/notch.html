@@ -605,19 +605,22 @@ function laneIs(w,limit){
   return limit==='weekly'?t.includes('weekly'):['5h','5-hour','five hour','five-hour','hourly','session'].some(k=>t.includes(k));
 }
 // The window a provider's ring shows: the same rule as ring_window in main.rs, which draws the tray
+// BEGIN TESTABLE HEADLINE SELECTOR
 function headlineOf(snap,id){
   const ws=snap.windows; if(!ws.length) return null;
   const byId=x=>ws.find(w=>w.id===x)||null;
   if(id==='claude') return byId('session');
-  if(id==='codex') return ws[0];
+  if(id==='codex') return byId('primary');
   if(id==='cursor') return byId('included')||byId('api');
   if(id==='grok') return byId('credits')||ws[0];
   const fam=ws.filter(w=>laneFamily(w)===agPrefs.model), lanes=fam.length?fam:ws;
   if(agPrefs.limit!=='automatic'){ const w=tightestOf(lanes.filter(w=>laneIs(w,agPrefs.limit))); if(w) return w; }
   return tightestOf(lanes.filter(w=>w.used<1))||tightestOf(lanes)||lanes[0];
 }
+// END TESTABLE HEADLINE SELECTOR
 // The weekly window each provider reports, or null where there is none: Claude names it seven_day,
 // Codex calls its second window secondary, and Antigravity has one per model family. Cursor has none.
+// BEGIN TESTABLE WEEKLY SELECTOR
 function weeklyOf(snap,id){
   const ws=snap.windows.filter(w=>w.count==null); if(!ws.length) return null;
   const byId=x=>ws.find(w=>w.id===x)||null;
@@ -628,6 +631,7 @@ function weeklyOf(snap,id){
   const fam=ws.filter(w=>laneFamily(w)===agPrefs.model), lanes=fam.length?fam:ws;
   return tightestOf(lanes.filter(w=>laneIs(w,'weekly')));
 }
+// END TESTABLE WEEKLY SELECTOR
 function staleOf(snap){ if(snap.status==='stale') return true; return snap.fetched_at>0 && (Date.now()-snap.fetched_at)>5*60*1000; }
 let stateSnap={sessions:[],agg:'idle'};
 
