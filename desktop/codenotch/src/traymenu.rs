@@ -328,8 +328,13 @@ fn local_systemtime(ms: u64) -> Option<windows::Win32::Foundation::SYSTEMTIME> {
 }
 
 #[cfg(not(windows))]
-fn system_datetime(_ms: u64) -> String {
-    String::new()
+fn system_datetime(ms: u64) -> String {
+    use chrono::{Local, TimeZone};
+    Local
+        .timestamp_millis_opt(ms as i64)
+        .single()
+        .map(|t| t.format("%a, %H:%M").to_string())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

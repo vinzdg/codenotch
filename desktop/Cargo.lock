@@ -523,6 +523,7 @@ dependencies = [
  "tiny_http",
  "ureq",
  "windows 0.58.0",
+ "x11-dl",
 ]
 
 [[package]]

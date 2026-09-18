@@ -3,6 +3,7 @@
 mod autostart;
 mod config;
 mod doctor;
+mod platform;
 mod focus;
 mod hooks_install;
 mod i18n;
@@ -256,6 +257,15 @@ fn along_at(pos: i32, len: i32, start: i32, span: i32) -> f64 {
     (((pos - start) as f64 + len as f64 / 2.0) / span.max(1) as f64).clamp(0.0, 1.0)
 }
 
+/// Position along the current edge as a 0–1 ratio of the monitor, from a pointer in physical pixels.
+pub(crate) fn ratio_along_edge(edge: &str, s: &Screen, px: f64, py: f64) -> f64 {
+    if config::edge_is_vertical(edge) {
+        ((py - s.y as f64) / s.h.max(1) as f64).clamp(0.0, 1.0)
+    } else {
+        ((px - s.x as f64) / s.w.max(1) as f64).clamp(0.0, 1.0)
+    }
+}
+
 /// How far the taskbar (or anything else outside the work area) covers each side of a window at
 /// (x, y, ww, wh), in physical pixels: top, right, bottom, left. `edge_origin` keeps the pill itself
 /// out of the taskbar, so what is left here is the window's other three sides — an upright notch is
@@ -405,7 +415,7 @@ pub fn reset_bar(app: &AppHandle) {
         let st = app.state::<AppState>();
         let mut c = st.cfg.lock().unwrap();
         if stranded {
-            c.notch_edge = "right".into();
+            c.notch_edge = crate::platform::default_notch_edge().into();
             c.notch_monitor = None;
         }
         // Only the edge it is on: the others keep wherever they were left, as on the Mac
@@ -421,16 +431,13 @@ pub fn reset_bar(app: &AppHandle) {
 /// starts moving). Only the axis along the notch's edge follows it: this slides the notch along the
 /// edge it is on and never takes it to another, which is the move handle's job — the Mac's ⌥-drag
 /// (`NotchWindowController.dragged`). Releasing it saves that place for that edge alone.
+///
+/// On Linux the same slide is used, but a (0×0) window during instance overlap is ignored rather
+/// than followed.
 static DRAGGING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-#[cfg(windows)]
 fn left_button_down() -> bool {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
-    unsafe { (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0 }
-}
-#[cfg(not(windows))]
-fn left_button_down() -> bool {
-    false
+    crate::platform::left_button_down()
 }
 
 /// Which edge a point belongs to: the screen split into four triangles about its centre, as on the
@@ -555,6 +562,52 @@ fn begin_move(app: AppHandle, depth: f64, length: f64) {
     });
 }
 
+fn slide_along_current_edge(app: &AppHandle, w: &tauri::WebviewWindow, ww: i32, wh: i32) {
+    let Some(mon) = target_screen(app) else {
+        DRAGGING.store(false, std::sync::atomic::Ordering::SeqCst);
+        let _ = app.emit("drag_end", false);
+        return;
+    };
+    let edge = {
+        let st = app.state::<AppState>();
+        let c = st.cfg.lock().unwrap();
+        config::edge_or_right(&c.notch_edge)
+    };
+    let mut last_ratio = {
+        let st = app.state::<AppState>();
+        let c = st.cfg.lock().unwrap();
+        c.notch_y.clamp(0.0, 1.0)
+    };
+    let mut moved = false;
+    loop {
+        if !left_button_down() {
+            break;
+        }
+        if let Ok(cur) = app.cursor_position() {
+            let ratio = ratio_along_edge(&edge, &mon, cur.x, cur.y);
+            if (ratio - last_ratio).abs() > 0.0005 {
+                last_ratio = ratio;
+                moved = true;
+                let (x, y) = edge_origin(&mon, &edge, ww, wh, ratio);
+                let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(8));
+    }
+    if moved {
+        {
+            let st = app.state::<AppState>();
+            let mut c = st.cfg.lock().unwrap();
+            c.notch_y = last_ratio;
+            config::save(&c);
+        }
+        applog(&format!("notch slide: edge={edge} ratio={last_ratio:.3} monitor={:?}", mon.name));
+        place_notch(app);
+    }
+    DRAGGING.store(false, std::sync::atomic::Ordering::SeqCst);
+    let _ = app.emit("drag_end", moved);
+}
+
 #[tauri::command]
 fn drag_begin(app: AppHandle) {
     if DRAGGING.swap(true, std::sync::atomic::Ordering::SeqCst) {
@@ -565,6 +618,20 @@ fn drag_begin(app: AppHandle) {
             DRAGGING.store(false, std::sync::atomic::Ordering::SeqCst);
             return;
         };
+        // Linux-only: a transient (0×0) window during instance overlap must not start a slide.
+        if crate::platform::drag_slides_along_edge() {
+            let Ok(size) = w.outer_size() else {
+                DRAGGING.store(false, std::sync::atomic::Ordering::SeqCst);
+                return;
+            };
+            let (ww, wh) = (size.width as i32, size.height as i32);
+            if ww <= 0 || wh <= 0 {
+                DRAGGING.store(false, std::sync::atomic::Ordering::SeqCst);
+                return;
+            }
+            slide_along_current_edge(&app, &w, ww, wh);
+            return;
+        }
         let (Ok(start_cur), Ok(start_pos), Ok(size)) = (app.cursor_position(), w.outer_position(), w.outer_size()) else {
             DRAGGING.store(false, std::sync::atomic::Ordering::SeqCst);
             return;
@@ -727,14 +794,7 @@ pub fn reload_glyphs(app: &AppHandle) {
 fn open_data_dir() {
     let dir = config::config_path().parent().map(|p| p.to_path_buf()).unwrap_or_default();
     let _ = std::fs::create_dir_all(glyphs::user_dir());
-    let mut cmd = std::process::Command::new("explorer");
-    cmd.arg(dir.as_os_str());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    let _ = cmd.spawn();
+    crate::platform::open_path(&dir);
 }
 
 #[tauri::command]
@@ -767,14 +827,7 @@ pub(crate) fn provider_page(provider: &str) -> Option<(&'static str, &'static st
 
 pub(crate) fn open_provider_page(provider: &str) {
     let Some((url, _)) = provider_page(provider) else { return };
-    let mut cmd = std::process::Command::new("cmd");
-    cmd.args(["/C", "start", "", url]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    let _ = cmd.spawn();
+    crate::platform::open_url(url);
 }
 
 /// Hot rectangles in **physical pixels**, window-relative, as x,y,w,h: the pill, plus the card
@@ -1753,6 +1806,7 @@ fn main() {
             settings_window::open_author_page
         ])
         .setup(move |app| {
+            crate::platform::init();
             let handle = app.handle().clone();
             place_notch(&handle);
             if let Some(w) = handle.get_webview_window("notch") {
@@ -1817,8 +1871,8 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        cursor_in_hot, notch_window_size, provider_page, ring_window, work_insets, Screen, HOT_PAD,
-        NOTCH_W, TRAY_PROVIDER_IDS,
+        cursor_in_hot, edge_origin, notch_window_size, provider_page, ratio_along_edge, ring_window,
+        work_insets, Screen, HOT_PAD, NOTCH_H, NOTCH_W, TRAY_PROVIDER_IDS,
     };
     use crate::usage::LimitWindow;
 
@@ -1955,6 +2009,24 @@ mod tests {
         assert!(!super::same_screen(&main, &old));
         // The same place with no name reported is still the same screen
         assert!(super::same_screen(&Screen { name: None, ..old.clone() }, &old));
+    }
+
+    #[test]
+    fn sliding_along_an_edge_keeps_the_other_axis_pinned() {
+        let s = Screen { name: None, x: 100, y: 50, w: 1920, h: 1080, scale: 1.0, work: (100, 50, 1920, 1080) };
+        let (ww, wh) = (288, 520);
+        // Right: X stays on the right edge; cursor Y maps along the monitor
+        let r = ratio_along_edge("right", &s, 9999.0, 50.0 + 1080.0 * 0.25);
+        assert!((r - 0.25).abs() < 1e-9);
+        assert_eq!(edge_origin(&s, "right", ww, wh, r).0, 100 + 1920 - ww);
+        // Top: Y stays at the top; cursor X maps along the monitor
+        let r = ratio_along_edge("top", &s, 100.0 + 1920.0 * 0.8, 0.0);
+        assert!((r - 0.8).abs() < 1e-9);
+        assert_eq!(edge_origin(&s, "top", ww, wh, r).1, 50);
+        // A pointer off the left still stays on the left edge
+        let r = ratio_along_edge("left", &s, -40.0, 50.0 + 540.0);
+        assert!((r - 0.5).abs() < 1e-9);
+        assert_eq!(edge_origin(&s, "left", ww, wh, r).0, 100);
     }
 
     /// The pill sits in the middle of the window, so half of it, a fillet and the settings orb's reach
