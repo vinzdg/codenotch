@@ -26885,6 +26885,12 @@
     "Usage Limits": {
       "extractionState": "manual",
       "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用量のしきい値"
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
@@ -26908,6 +26914,12 @@
     "Watch limit": {
       "extractionState": "manual",
       "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "注意のしきい値"
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
@@ -26931,6 +26943,12 @@
     "Critical limit": {
       "extractionState": "manual",
       "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "危険のしきい値"
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
@@ -26954,6 +26972,12 @@
     "Reset to defaults": {
       "extractionState": "manual",
       "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既定値に戻す"
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
@@ -26977,6 +27001,12 @@
     "Dashed weekly ring": {
       "extractionState": "manual",
       "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "週間のリングを破線にする"
+          }
+        },
         "uk": {
           "stringUnit": {
             "state": "translated",
@@ -27258,6 +27288,1139 @@
           "stringUnit": {
             "state": "translated",
             "value": "登入 QianwenAI 以讀取 Token Plan 用量"
+          }
+        }
+      }
+    },
+    "Fixes a crash on Chinese Macs, and a Deny on the keychain question now means no.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中国語環境の Mac でのクラッシュを修正し、キーチェーンの確認で「拒否」を選んだら拒否として扱うようになりました。"
+          }
+        }
+      }
+    },
+    "No more crash in Simplified Chinese": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "简体中文 でクラッシュしないように"
+          }
+        }
+      }
+    },
+    "With the app in 简体中文, a provider past 80% crashed Codenotch a few seconds after launch. Every translation is now checked for this.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリを 简体中文 にしていると、80% を超えたサービスがあるときに、起動の数秒後に Codenotch がクラッシュしていました。今はすべての翻訳をこの観点で検査しています。"
+          }
+        }
+      }
+    },
+    "Deny means no": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「拒否」は拒否として扱う"
+          }
+        }
+      }
+    },
+    "Answering Deny when macOS asks about a saved login now stops Codenotch reading that account from any source, until you choose Allow access… again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存済みログインについて macOS に尋ねられて「拒否」を選ぶと、「アクセスを許可…」を選び直すまで、Codenotch はそのアカウントをどの取得元からも読まなくなりました。"
+          }
+        }
+      }
+    },
+    "Fewer file access prompts": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルアクセスの確認を削減"
+          }
+        }
+      }
+    },
+    "Renewing Claude's login no longer starts your MCP servers and hooks, and Kimi sessions are matched without looking inside your folders, so macOS no longer asks about Documents, Desktop or network volumes on Codenotch's behalf.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude のログイン更新で MCP サーバーやフックが起動しなくなり、Kimi のセッションもフォルダの中を見ずに照合するようになりました。そのため macOS が Codenotch のために「書類」「デスクトップ」やネットワークボリュームへのアクセスを尋ねることがなくなりました。"
+          }
+        }
+      }
+    },
+    "Smaller fixes": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "細かな修正"
+          }
+        }
+      }
+    },
+    "Kiro reads usage from newer kiro-cli versions, GLM Start Plan says why it has no usage, a Claude account with no published limits says so instead of waiting, and the Windows notch clears a stuck waiting card after a day.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiro が新しい kiro-cli のバージョンからも使用量を読み取り、GLM Start Plan は使用量が無い理由を表示し、公表された上限のない Claude アカウントは待機せずにその旨を表示し、Windows 版のノッチは固まった待機カードを 1 日後に解消します。"
+          }
+        }
+      }
+    },
+    "Much lighter on your battery, Grok and screen edges on Windows, and a Windows Settings window that opens again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バッテリーへの負荷が大幅に軽くなり、Windows 版に Grok と画面の辺の選択が加わり、Windows の設定ウインドウがまた開くようになりました。"
+          }
+        }
+      }
+    },
+    "Lighter on the battery": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バッテリーへの負荷を軽減"
+          }
+        }
+      }
+    },
+    "Codenotch idles at a fraction of the CPU it used, and moving the pointer costs less than half as much. The working spinner is drawn by the system instead of redrawing the notch every frame, and full-screen apps are checked every two seconds rather than on every movement.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機時の CPU 使用率が従来のごく一部になり、ポインタを動かしたときの負荷も半分以下になりました。作業中のスピナーはノッチを毎フレーム描き直すのではなくシステムに描かせ、フルスクリーンのアプリの確認も移動のたびではなく 2 秒ごとになりました。"
+          }
+        }
+      }
+    },
+    "Windows Settings opens again": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows の設定がまた開くように"
+          }
+        }
+      }
+    },
+    "In 1.12.0 the Settings window on Windows opened empty. It is fixed, and a check now stops that kind of mistake from shipping.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.12.0 では Windows の設定ウインドウが空で開いていました。修正し、この種の不具合が出荷されないよう検査も追加しました。"
+          }
+        }
+      }
+    },
+    "Grok, any screen edge, and readings in the tray on Windows": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows 版に Grok、任意の画面の辺、トレイでの読み取り表示"
+          }
+        }
+      }
+    },
+    "Grok joins the Windows notch, the notch can sit on any edge of any monitor, and the tray menu shows each provider's readings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok が Windows のノッチに加わり、ノッチはどのモニタのどの辺にも置けるようになり、トレイのメニューに各サービスの読み取りが表示されます。"
+          }
+        }
+      }
+    },
+    "Ghostty tabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty のタブ"
+          }
+        }
+      }
+    },
+    "Clicking a session running in Ghostty selects its tab rather than only bringing Ghostty forward.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty で動いているセッションをクリックすると、Ghostty を前面に出すだけでなく、そのタブが選ばれます。"
+          }
+        }
+      }
+    },
+    "Codex sessions are read from the end of the file instead of all of it, the Codex card hides an empty reset-credits section, and a Claude token on Windows that fails to renew is retried instead of freezing the card.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex のセッションはファイル全体ではなく末尾から読み取り、Codex のカードは空のリセットクレジット欄を隠し、Windows で更新に失敗した Claude のトークンはカードを固まらせず再試行します。"
+          }
+        }
+      }
+    },
+    "An installer for Windows, Ukrainian, Dark glass, and limits you set yourself.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows 版のインストーラー、ウクライナ語、ダークガラス、そして自分で決めるしきい値。"
+          }
+        }
+      }
+    },
+    "Codenotch for Windows, installable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows 版 Codenotch をインストール可能に"
+          }
+        }
+      }
+    },
+    "Every release now carries Codenotch-Setup.exe, which installs for the current user without administrator rights. It is not signed yet, so Windows asks once. The port also gains the Mac's settings window, Small, Medium and Large sizes, a ring for the weekly limit, and Chinese, Japanese, Korean and Ukrainian.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのリリースに Codenotch-Setup.exe が付くようになりました。管理者権限なしで現在のユーザー向けにインストールします。まだ署名されていないため、Windows が一度確認します。移植版には Mac と同じ設定ウインドウ、小・中・大のサイズ、週間上限のリング、そして中国語・日本語・韓国語・ウクライナ語も加わりました。"
+          }
+        }
+      }
+    },
+    "Українська": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Українська"
+          }
+        }
+      }
+    },
+    "A seventh language, on the Mac and on Windows.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7 つ目の言語。Mac でも Windows でも使えます。"
+          }
+        }
+      }
+    },
+    "A third surface for the notch, dark whatever the Mac's appearance is set to.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノッチの 3 つ目の表面。Mac の外観の設定にかかわらず常にダークです。"
+          }
+        }
+      }
+    },
+    "Your own watch and critical limits": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "注意と危険のしきい値を自分で決める"
+          }
+        }
+      }
+    },
+    "The points where a ring turns amber and red are yours to move, and the weekly ring can be dashed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リングがアンバーと赤に変わる地点を自由に動かせます。週間のリングは破線にもできます。"
+          }
+        }
+      }
+    },
+    "Quieter in the background": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックグラウンドでより静かに"
+          }
+        }
+      }
+    },
+    "A provider you have switched off is no longer watched at all, sessions are read from the end of the file rather than the whole of it, and the notch no longer folds on hover when folding for full-screen apps is off.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフにしたサービスは一切監視しなくなり、セッションはファイル全体ではなく末尾から読み取り、フルスクリーン時の折りたたみをオフにしているときはホバーでノッチが折りたたまれなくなりました。"
+          }
+        }
+      }
+    },
+    "Windows keeps its Claude reading": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows 版が Claude の読み取りを保持"
+          }
+        }
+      }
+    },
+    "An expired token is renewed rather than read as a rate limit, the notch no longer takes focus, and it holds still when Windows animation effects are off.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "期限切れのトークンはレート制限とみなさず更新するようになり、ノッチがフォーカスを奪わなくなり、Windows のアニメーション効果がオフのときは動かずに留まります。"
+          }
+        }
+      }
+    },
+    "Japanese, complete": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日本語が完訳に"
+          }
+        }
+      }
+    },
+    "Every string in the app now has a Japanese translation, and fifty-five strings that newer features never got are translated too.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリのすべての文言に日本語訳が付きました。新しい機能に付いていなかった 55 件の文言も翻訳されています。"
+          }
+        }
+      }
+    },
+    "Kiro and MiniMax, German, a daily pace ring for Claude, and a switch for folding over full-screen apps.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiro と MiniMax、ドイツ語、Claude の日次ペースリング、そしてフルスクリーン時の折りたたみの切り替え。"
+          }
+        }
+      }
+    },
+    "Kiro and MiniMax": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiro と MiniMax"
+          }
+        }
+      }
+    },
+    "Kiro reads the kiro-cli sign-in already on this Mac. MiniMax signs in from Codenotch, with a choice of international or China region.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiro は、この Mac にすでにある kiro-cli のサインインを読み取ります。MiniMax は Codenotch からサインインし、国際と中国本土のどちらかの地域を選べます。"
+          }
+        }
+      }
+    },
+    "Deutsch": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deutsch"
+          }
+        }
+      }
+    },
+    "German joins the app's languages, and the limit and reset notifications are now in Simplified Chinese too.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドイツ語がアプリの言語に加わりました。上限とリセットの通知も簡体中文に対応しています。"
+          }
+        }
+      }
+    },
+    "A daily pace ring for Claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude の日次ペースリング"
+          }
+        }
+      }
+    },
+    "Optionally, Claude's main ring shows today's share of the weekly limit, a seventh a day, with the session moving to the thin ring.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任意で、Claude の主リングに週間上限の当日分（1 日あたり 7 分の 1）を表示できます。セッションは細いリングに移ります。"
+          }
+        }
+      }
+    },
+    "Codex's extra limits": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex の追加の上限"
+          }
+        }
+      }
+    },
+    "The hover card lists Spark and code review when your account has them, and Appearance can hide them.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントに Spark とコードレビューがある場合、ホバーカードに表示されます。「外観」で非表示にもできます。"
+          }
+        }
+      }
+    },
+    "The automatic fold over full-screen apps can now be switched off, for anyone whose maximised windows kept folding the notch.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルスクリーンのアプリに対する自動の折りたたみをオフにできるようになりました。最大化したウインドウでノッチが折りたたまれ続けていた方向けです。"
+          }
+        }
+      }
+    },
+    "DeepSeek pricing windows": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek の料金時間帯"
+          }
+        }
+      }
+    },
+    "Peak and off-peak hours are fully configurable, and signing in picks up DeepSeek's login more reliably.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピークとオフピークの時間帯を自由に設定できます。サインインも DeepSeek のログインをより確実に拾うようになりました。"
+          }
+        }
+      }
+    },
+    "Alerts on time": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知が時間どおりに"
+          }
+        }
+      }
+    },
+    "Usage refreshes the moment a limit window rolls over, so reset and limit alerts arrive when they happen, even without a notch on screen.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上限の期間が切り替わった瞬間に使用量を更新するので、リセットと上限の通知が実際のタイミングで届きます。画面にノッチが出ていなくても同じです。"
+          }
+        }
+      }
+    },
+    "New providers stay off until you switch them on, the recenter button gives clearer feedback, hovering is ignored while Option-dragging, the Codex completion sound keeps its setting, and the Windows rings and hover card match the Mac's.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいサービスはオンにするまでオフのままになり、「中央に戻す」の反応が分かりやすくなり、⌥ ドラッグ中はホバーを無視し、Codex の完了音が設定を保持し、Windows 版のリングとホバーカードが Mac 版と揃いました。"
+          }
+        }
+      }
+    },
+    "Tells you when a limit resets or runs out, speaks Russian, and reads Kimi.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上限のリセットと使い切りを知らせ、ロシア語を話し、Kimi を読み取ります。"
+          }
+        }
+      }
+    },
+    "A card when a limit resets, and when one runs out": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上限のリセット時と使い切り時にカードを表示"
+          }
+        }
+      }
+    },
+    "The notch slides out a card the moment a provider's limit rolls over, and again when a session or weekly limit reaches 100%. Notifications in Settings chooses which of those you want, with an optional chime.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サービスの上限が切り替わった瞬間、そしてセッションまたは週間の上限が 100% に達したときに、ノッチからカードが滑り出します。どちらを出すかは設定の「通知」で選べ、チャイムも任意で付けられます。"
+          }
+        }
+      }
+    },
+    "Kimi": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kimi"
+          }
+        }
+      }
+    },
+    "Its weekly and 5-hour limits, the sessions it is running, and clicking one now raises the exact terminal tab it is in rather than only the app.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "週間と 5 時間の上限、実行中のセッション、そしてセッションをクリックすると、アプリだけでなくそれが開かれているターミナルのタブ自体が前面に出ます。"
+          }
+        }
+      }
+    },
+    "Русский": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Русский"
+          }
+        }
+      }
+    },
+    "A fifth language, on the Mac and on Windows.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 つ目の言語。Mac でも Windows でも使えます。"
+          }
+        }
+      }
+    },
+    "Quit from Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定から終了"
+          }
+        }
+      }
+    },
+    "A quit action in the Settings sidebar, for when the menu bar icon is switched off.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定のサイドバーに終了の項目を追加しました。メニューバーのアイコンをオフにしているとき向けです。"
+          }
+        }
+      }
+    },
+    "A web page cannot reach Codenotch's local servers": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web ページから Codenotch のローカルサーバーに到達できないように"
+          }
+        }
+      }
+    },
+    "The Ollama relay and the Windows event server now refuse browser requests from other sites, and raw responses are kept out of the system log. Reading DeepSeek also checks the page's address exactly, where a lookalike domain could have passed before.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama のリレーと Windows のイベントサーバーが、他サイトからのブラウザのリクエストを拒否するようになりました。生の応答もシステムログに残しません。DeepSeek の読み取りでもページのアドレスを厳密に確認します。以前は似せたドメインが通り得ました。"
+          }
+        }
+      }
+    },
+    "Windows": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows"
+          }
+        }
+      }
+    },
+    "Diagnostics print the shape of a value rather than the value, so nothing sensitive lands in a report, and the port's build is checked on every change.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "診断情報では値そのものではなく値の形を出力するので、機微な内容がレポートに残りません。移植版のビルドも変更のたびに検証されます。"
+          }
+        }
+      }
+    },
+    "The move handle lines up with the camera housing, and more of Settings is translated into Simplified Chinese.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動ハンドルがカメラ部と揃うようになり、設定の簡体中文の翻訳が増えました。"
+          }
+        }
+      }
+    },
+    "LM Studio, DeepSeek and Devin, Japanese and Portuguese, and no more keychain password on a timer.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LM Studio、DeepSeek と Devin、日本語とポルトガル語、そしてキーチェーンのパスワードがタイマーで出なくなりました。"
+          }
+        }
+      }
+    },
+    "LM Studio": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LM Studio"
+          }
+        }
+      }
+    },
+    "Loaded models, whether each is thinking or queued, generation speed, how full its context is, and a daily ledger of the tokens it used. Read from LM Studio on this Mac.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込まれたモデル、それぞれが思考中か待機中か、生成速度、コンテキストの埋まり具合、そして使用トークンの日次の記録。この Mac の LM Studio から読み取ります。"
+          }
+        }
+      }
+    },
+    "DeepSeek and Devin": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek と Devin"
+          }
+        }
+      }
+    },
+    "DeepSeek's platform balance and spend, with a card of daily usage, and Devin's usage.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek のプラットフォーム残高と支出を、日次使用量のカードとともに。Devin の使用量にも対応しました。"
+          }
+        }
+      }
+    },
+    "日本語 and Português (Brasil)": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日本語 と Português (Brasil)"
+          }
+        }
+      }
+    },
+    "Two more languages, and the language picker is now a menu so all of them fit.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "言語が 2 つ増え、言語の選択がメニュー形式になって全部収まるようになりました。"
+          }
+        }
+      }
+    },
+    "The keychain password stops coming back": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーチェーンのパスワードが出続けないように"
+          }
+        }
+      }
+    },
+    "Claude Code and Antigravity recreate their saved logins in a way macOS will not let an Always Allow outlast, so the password dialogue kept returning. Background refreshes no longer show it at all; Allow access in Settings is the one place it can still appear.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code と Antigravity は保存済みログインを作り直すため、macOS の「常に許可」が引き継がれず、パスワードのダイアログが出続けていました。バックグラウンドの更新では一切出なくなり、出る可能性があるのは設定の「アクセスを許可」だけになりました。"
+          }
+        }
+      }
+    },
+    "Carry the notch to another edge": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノッチを別の辺へ運ぶ"
+          }
+        }
+      }
+    },
+    "Hold the arc above the notch and drop it on any edge. Appearance can hide the arc if you would rather not see it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノッチの上にある弧を長押しして、好きな辺に落とします。弧を見せたくない場合は「外観」で隠せます。"
+          }
+        }
+      }
+    },
+    "More on the hover card": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホバーカードの情報を追加"
+          }
+        }
+      }
+    },
+    "The account's plan under the title, and Codex rate-limit resets you have not used yet.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルの下にアカウントのプラン、そして Codex のまだ使っていないレート制限のリセット分を表示します。"
+          }
+        }
+      }
+    },
+    "A Claude login that Claude Code empties keeps its reading": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code が空にした Claude のログインでも読み取りを保持"
+          }
+        }
+      }
+    },
+    "After Claude Code updates itself it can clear every profile's saved login at once. The last numbers now stay, dimmed, instead of vanishing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code が自身を更新したあと、全プロファイルの保存済みログインを一度に消してしまうことがあります。最後の数値が消えず、淡く表示されたまま残るようになりました。"
+          }
+        }
+      }
+    },
+    "Antigravity reads the same numbers from every source": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity がどの取得元でも同じ数値を読む"
+          }
+        }
+      }
+    },
+    "Its local server and Google's own endpoint are read by one parser, so the ring does not change depending on which answered. In automatic mode an exhausted limit only leads when every limit is exhausted.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルサーバーと Google 自身のエンドポイントを 1 つのパーサーで読むので、どちらが応答したかでリングが変わりません。自動モードでは、すべての上限を使い切ったときにだけ、使い切った上限が主になります。"
+          }
+        }
+      }
+    },
+    "Gemini API counts OpenCode and Hermes": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini API が OpenCode と Hermes を集計"
+          }
+        }
+      }
+    },
+    "Turns made through OpenCode and Hermes now count toward the Gemini API ring.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode と Hermes を経由したやり取りが、Gemini API のリングに数えられるようになりました。"
+          }
+        }
+      }
+    },
+    "Recentre moves the notch at once; full-screen auto-fold accounts for the camera housing; and a rate-limit wait no longer costs a whole extra refresh.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「中央に戻す」が即座にノッチを動かし、フルスクリーンの自動折りたたみがカメラ部を考慮し、レート制限の待機で更新が 1 回まるごと無駄にならなくなりました。"
+          }
+        }
+      }
+    },
+    "Speaks Chinese, watches local models think, and stays welded to the edge.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中国語を話し、ローカルモデルの思考を見守り、画面の端に張り付いたままになります。"
+          }
+        }
+      }
+    },
+    "简体中文": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "简体中文"
+          }
+        }
+      }
+    },
+    "A Language picker in Appearance: follow the Mac, or hold the app to English or Simplified Chinese whatever the Mac is set to. Copy added since the translation was written falls back to English rather than going blank.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「外観」に言語の選択を追加しました。Mac に従うか、Mac の設定にかかわらず English か 简体中文 に固定できます。翻訳後に追加された文言は、空白ではなく英語にフォールバックします。"
+          }
+        }
+      }
+    },
+    "Ollama models show thinking and generation speed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama のモデルが思考と生成速度を表示"
+          }
+        }
+      }
+    },
+    "Each loaded model gets its own cell, with the tokens per second of its last response and a mark while it is thinking. The measurement is taken locally and nothing about a prompt leaves the machine.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込まれたモデルごとにセルが並び、直前の応答の毎秒トークン数と、思考中であることを示す印が出ます。計測はローカルで行われ、プロンプトに関する情報がマシンの外に出ることはありません。"
+          }
+        }
+      }
+    },
+    "Claude Code sessions started from the desktop app are counted": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップアプリから始めた Claude Code のセッションも数える"
+          }
+        }
+      }
+    },
+    "A session launched from Claude for Mac now reaches the notch like any other. The sign-in also renews itself in the background, so a ring stops ageing out after a week of use.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude for Mac から起動したセッションも、他と同じようにノッチに届くようになりました。サインインもバックグラウンドで更新されるので、1 週間使ったあとにリングが古びて消えることがなくなります。"
+          }
+        }
+      }
+    },
+    "The notch is welded to the screen edge": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノッチが画面の端に溶接されたように"
+          }
+        }
+      }
+    },
+    "No hairline of wallpaper behind it at any size, and it stays anchored while the size slider is dragged instead of drifting and catching up at the end.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どのサイズでも背後に壁紙の細い線が出ず、サイズのスライダーをドラッグしている間も位置がずれません。以前は動いてから最後に追いついていました。"
+          }
+        }
+      }
+    },
+    "Set the size by slider as well as by preset": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイズをプリセットだけでなくスライダーでも指定"
+          }
+        }
+      }
+    },
+    "Three named sizes for a decision made for you, or a slider when you have a particular size in mind.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "決めてほしいときは 3 つの名前付きサイズ、狙ったサイズがあるときはスライダー。"
+          }
+        }
+      }
+    },
+    "The notch folds away for a full-screen app": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルスクリーンのアプリではノッチが折りたたまれる"
+          }
+        }
+      }
+    },
+    "Whatever is frontmost and full-screen gets the whole screen; the notch comes back when you leave it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前面のフルスクリーンのアプリが画面を独占し、そこから離れるとノッチが戻ります。"
+          }
+        }
+      }
+    },
+    "The settings gear is a toggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定の歯車がトグルに"
+          }
+        }
+      }
+    },
+    "It turns and presses in as it is clicked, and a second click closes Settings rather than doing nothing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリックすると回って押し込まれ、もう一度クリックすると何も起きないのではなく設定が閉じます。"
+          }
+        }
+      }
+    },
+    "Cursor stops showing work that finished months ago": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor が数か月前に終わった作業を表示し続けないように"
+          }
+        }
+      }
+    },
+    "Finished background agents were leaving the ring amber indefinitely. Only a real, current chat counts as waiting now.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了したバックグラウンドのエージェントが、リングをアンバーのままにし続けていました。今は実際に進行中のチャットだけが待機として数えられます。"
+          }
+        }
+      }
+    },
+    "Antigravity reads a CLI-only install": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity が CLI だけのインストールも読む"
+          }
+        }
+      }
+    },
+    "An install with no desktop app is a real account rather than a missing one, and its daily quota is read directly.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップアプリのないインストールも、欠けたものではなく実アカウントとして扱われ、日次の割り当てを直接読み取ります。"
+          }
+        }
+      }
+    },
+    "A ready-made download, no Xcode needed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xcode 不要の、すぐ使えるダウンロード"
+          }
+        }
+      }
+    },
+    "Every build now produces an app bundle you can run, so trying Codenotch no longer starts with a developer setup.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのビルドで実行可能なアプリバンドルが作られるようになり、Codenotch を試すのに開発環境の用意から始める必要がなくなりました。"
           }
         }
       }
