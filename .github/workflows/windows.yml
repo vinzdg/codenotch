@@ -1,16 +1,18 @@
 name: Windows
 
-# The port under windows/ is Rust, and CI and Package only ever run Xcode, so a
-# Windows change could merge on a green check that never compiled it. Its own
-# file, so those two stay about the Mac app.
+# The shared crate under desktop/ is Rust, and CI and Package only ever run
+# Xcode, so a Windows change could merge on a green check that never compiled
+# it. Its own file, so those two stay about the Mac app.
 on:
   push:
     branches: [main]
     paths:
+      - 'desktop/**'
       - 'windows/**'
       - '.github/workflows/windows.yml'
   pull_request:
     paths:
+      - 'desktop/**'
       - 'windows/**'
       - '.github/workflows/windows.yml'
 
@@ -21,7 +23,7 @@ jobs:
     runs-on: windows-latest
     defaults:
       run:
-        working-directory: windows
+        working-directory: desktop
     steps:
       - uses: actions/checkout@v7
 
@@ -38,7 +40,7 @@ jobs:
       # Tauri and the windows crate make a cold build several minutes long.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: windows
+          workspaces: desktop
 
       - name: Build
         run: cargo build --locked
