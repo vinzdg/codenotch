@@ -25,6 +25,7 @@ final class NotchFleet {
     private(set) var scope: NotchScreenScope
     private var edge: NotchEdge
     private var visibility: NotchVisibility = .onHover
+    private var pinned: Bool = false
     private var snapshots: [ProviderSnapshot] = []
     private(set) var thinkingModels: [String: Date] = [:]
     /// Per source, the way the view model keeps them: the Ollama relay and
@@ -146,6 +147,23 @@ final class NotchFleet {
         self.visibility = visibility
         for controller in controllers.values {
             controller.apply(visibility)
+        }
+    }
+
+    func applyPinned(_ pinned: Bool) {
+        self.pinned = pinned
+        for controller in controllers.values {
+            controller.model.isPinned = pinned
+            if pinned && !controller.model.isExpanded {
+                controller.unfoldForPin()
+            } else if !pinned && self.visibility == .onHover {
+                // If we unpin while in hover mode, evaluate the pointer to fold immediately if it's not hovering.
+                if Runtime.isUnderTest {
+                    controller.model.isExpanded = false
+                } else {
+                    controller.cursorMoved()
+                }
+            }
         }
     }
 
@@ -427,6 +445,10 @@ final class NotchFleet {
         controller.model.surfaceStyle = surfaceStyle
         controller.model.deepSeekPricingEnabled = deepSeekPricingEnabled
         controller.model.deepSeekPricingSchedule = deepSeekPricingSchedule
+        controller.model.isPinned = pinned
+        if pinned {
+            controller.unfoldForPin()
+        }
         controller.onRefresh = onRefresh
         controller.onRefreshProvider = onRefreshProvider
         controller.onOpenSettings = onOpenSettings

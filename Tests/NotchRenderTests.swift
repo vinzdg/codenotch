@@ -698,66 +698,110 @@ final class EdgeArrivalTests: XCTestCase {
 @MainActor
 final class AlwaysShowTests: XCTestCase {
     func testClickingTheNotchDoesNotUndoAlwaysShow() {
+        let prefs = Preferences(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        prefs.notchVisibility = .alwaysShow
+        
         let controller = NotchWindowController()
         controller.apply(.alwaysShow)
-        XCTAssertTrue(controller.model.staysOpen)
+        controller.onToggleKeepOpen = { prefs.notchPinned.toggle() }
 
         controller.togglePinned()   // a click on the bar
-        XCTAssertTrue(controller.model.staysOpen,
+        XCTAssertEqual(prefs.notchVisibility, .alwaysShow,
                       "a click downgraded Always show to hover")
         XCTAssertTrue(controller.model.isExpanded)
+        XCTAssertTrue(prefs.notchPinned) // The model tracks it independently now
     }
 
     /// However many times. The report said "sometimes", which is what a toggle
     /// looks like from outside.
     func testItSurvivesRepeatedClicks() {
+        let prefs = Preferences(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        prefs.notchVisibility = .alwaysShow
+        
         let controller = NotchWindowController()
         controller.apply(.alwaysShow)
+        controller.onToggleKeepOpen = { prefs.notchPinned.toggle() }
+        
         for _ in 0..<5 { controller.togglePinned() }
-        XCTAssertTrue(controller.model.staysOpen)
+        XCTAssertEqual(prefs.notchVisibility, .alwaysShow)
     }
 
     /// The transient pin still works where it is the only thing holding the
     /// notch open — that is what clicking is *for* in hover mode.
     func testAPinInHoverModeIsStillATogggle() {
+        let prefs = Preferences(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        prefs.notchVisibility = .onHover
+        
         let controller = NotchWindowController()
         controller.apply(.onHover)
-        XCTAssertFalse(controller.model.staysOpen)
+        controller.onToggleKeepOpen = { prefs.notchPinned.toggle() }
+        
+        XCTAssertFalse(prefs.notchPinned)
 
         controller.togglePinned()
-        XCTAssertTrue(controller.model.staysOpen, "clicking no longer pins")
+        XCTAssertTrue(prefs.notchPinned, "clicking no longer pins")
         controller.togglePinned()
-        XCTAssertFalse(controller.model.staysOpen, "clicking no longer unpins")
-    }
-
-    /// Switching to hover has to clear a pin left over from before, or the
-    /// notch stays open and the new choice looks ignored.
-    func testSwitchingToHoverClearsAStalePin() {
-        let controller = NotchWindowController()
-        controller.apply(.onHover)
-        controller.togglePinned()
-        controller.apply(.onHover)
-        XCTAssertFalse(controller.model.staysOpen)
+        XCTAssertFalse(prefs.notchPinned, "clicking no longer unpins")
     }
 
     /// And so does hiding — a pinned notch that is ordered out still counts as
     /// held open, and would refuse to fold if it came back.
     func testHidingClearsBothHolds() {
+        let prefs = Preferences(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        prefs.notchVisibility = .alwaysShow
+        
         let controller = NotchWindowController()
         controller.apply(.alwaysShow)
+        controller.onToggleKeepOpen = { prefs.notchPinned.toggle() }
+        
+        controller.togglePinned()
+        prefs.notchVisibility = .hidden
         controller.apply(.hidden)
-        XCTAssertFalse(controller.model.staysOpen)
+        
+        XCTAssertFalse(controller.model.isExpanded)
+        XCTAssertFalse(prefs.notchPinned)
+    }
+
+    /// Switching to hover has to clear a pin left over from before, or the
+    /// notch stays open and the new choice looks ignored.
+    func testSwitchingToHoverClearsAStalePin() {
+        let prefs = Preferences(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        prefs.notchVisibility = .alwaysShow
+        prefs.notchPinned = true
+        
+        let fleet = NotchFleet(scope: .mainDisplay, edge: .top)
+        fleet.apply(.alwaysShow)
+        fleet.applyPinned(true)
+        
+        // Ensure the fleet actually has at least one controller to test on
+        fleet.apply(scope: .allDisplays)
+        fleet.reconcileForTesting()
+        
+        // Changing to hover should wipe the pin and close the notch.
+        prefs.notchVisibility = .onHover
+        fleet.apply(.onHover)
+        fleet.applyPinned(prefs.notchPinned)
+        
+        let controller = fleet.controllersForTesting.first!
+        XCTAssertFalse(controller.model.isPinned)
         XCTAssertFalse(controller.model.isExpanded)
     }
 
     /// Coming back from hover to always-on, with a stale pin in between.
     func testAlwaysShowOutlastsAPinAndAnUnpin() {
+        let prefs = Preferences(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        prefs.notchVisibility = .onHover
+        
         let controller = NotchWindowController()
         controller.apply(.onHover)
+        controller.onToggleKeepOpen = { prefs.notchPinned.toggle() }
+        
         controller.togglePinned()      // pinned by hand
-        controller.apply(.alwaysShow)  // then chosen in Settings
+        prefs.notchVisibility = .alwaysShow // then chosen in Settings
+        controller.apply(.alwaysShow)
         controller.togglePinned()      // and clicked again
-        XCTAssertTrue(controller.model.staysOpen)
+        
+        XCTAssertEqual(prefs.notchVisibility, .alwaysShow)
     }
 }
 

@@ -67,7 +67,8 @@ final class FullScreenAutoFoldTests: XCTestCase {
         defer { controller.stop() }
 
         controller.model.isExpanded = true
-        controller.model.isPinned = true
+        controller.model.isPinned = false
+        controller.model.isAlwaysOn = true
         controller.isFullScreenActive = { true }
 
         // Post active space changed notification
@@ -77,7 +78,24 @@ final class FullScreenAutoFoldTests: XCTestCase {
         )
 
         XCTAssertFalse(controller.model.isExpanded, "The notch must fold when entering a full-screen space")
-        XCTAssertFalse(controller.model.isPinned, "The notch must unpin when folded for full-screen")
+    }
+
+    func testControllerDoesNotFoldWhenPinnedAndActiveSpaceChangesToFullScreen() {
+        let controller = NotchWindowController()
+        controller.show()
+        defer { controller.stop() }
+
+        controller.model.isExpanded = true
+        controller.model.isPinned = true
+        controller.isFullScreenActive = { true }
+
+        NSWorkspace.shared.notificationCenter.post(
+            name: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil
+        )
+
+        XCTAssertTrue(controller.model.isExpanded, "A pinned notch must survive entering a full-screen space")
+        XCTAssertTrue(controller.model.isPinned)
     }
 
     func testControllerAutoFoldsWhenFullscreenAppActivates() {

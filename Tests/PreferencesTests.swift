@@ -135,6 +135,36 @@ final class PreferencesMigrationTests: XCTestCase {
         XCTAssertTrue(again.isConnected("claude"))
     }
 
+    func testNotchPinnedIsClearedWhenVisibilityChanges() {
+        let (fresh, _) = makeDefaults()
+        let preferences = Preferences(defaults: fresh)
+        
+        preferences.notchPinned = true
+        XCTAssertTrue(preferences.notchPinned)
+        
+        // Changing to a new setting clears the pin
+        preferences.notchVisibility = .alwaysShow
+        XCTAssertFalse(preferences.notchPinned)
+        
+        // Re-applying the same setting does not clear it
+        preferences.notchPinned = true
+        preferences.notchVisibility = .alwaysShow
+        XCTAssertTrue(preferences.notchPinned)
+        
+        // Switching back to hover clears it
+        preferences.notchVisibility = .onHover
+        XCTAssertFalse(preferences.notchPinned)
+    }
+
+    func testNotchPinnedSurvivesRelaunch() {
+        let (fresh, name) = makeDefaults()
+        let preferences = Preferences(defaults: fresh)
+        preferences.notchPinned = true
+        
+        let reloaded = Preferences(defaults: UserDefaults(suiteName: name)!)
+        XCTAssertTrue(reloaded.notchPinned)
+    }
+
     func testHiddenProvidersInvertAgainstWhatThisMacHas() {
         let (fresh, _) = makeDefaults()
         fresh.set(["glm", "cursor"], forKey: "hiddenProviders")

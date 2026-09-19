@@ -396,6 +396,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak fleet] in fleet?.apply($0) }
                 .store(in: &cancellables)
 
+            preferences.$notchPinned
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet] in fleet?.applyPinned($0) }
+                .store(in: &cancellables)
+
             preferences.$foldsForFullScreen
                 .receive(on: RunLoop.main)
                 .sink { [weak fleet] in fleet?.apply(foldsForFullScreen: $0) }
@@ -485,7 +490,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             
             fleet.onToggleKeepOpen = { [weak preferences] in
                 guard let prefs = preferences else { return }
-                prefs.notchVisibility = (prefs.notchVisibility == .alwaysShow) ? .onHover : .alwaysShow
+                prefs.notchPinned.toggle()
             }
 
             // Writing the preference is the whole of it: `notchEdge` is
