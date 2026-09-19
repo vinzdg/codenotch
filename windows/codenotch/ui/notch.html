@@ -651,7 +651,7 @@ function workState(id){
   return 'idle';
 }
 function glyphHtml(p,small){
-  const g=glyphs[p.id];
+  const g=glyphs[p.base||p.id];
   if(g&&g.kind==='svg'&&g.svg) return `<span class="mark">${g.svg}</span>`;
   if(g&&g.url) return `<img class="${g.kind}" src="${g.url}" alt="${p.name}"${small?' style="width:16px;height:16px;border-radius:4px"':''}>`;
   return small?'':p.glyph; // fallback letter
@@ -664,14 +664,36 @@ function slotFor(id){
   for(const s of notchSlots){ if(s&&s.provider===id) return s; }
   return null;
 }
+// One cell per Claude account. Each account's windows arrive carrying its heading in `group` and,
+// past the default account, an `@slug` id; the cell gets that account's windows under the ids they
+// would have had on their own, so headlineOf and weeklyOf need no rule about accounts. `base` is the
+// provider the cell belongs to (glyph, activity, slot choice); `id` is what makes the cell unique.
+function claudeCells(){
+  const ws=Array.isArray(usage.windows)?usage.windows:[];
+  const accounts=[];
+  for(const w of ws){
+    const g=w.group||'';
+    if(!accounts.some(a=>a.g===g)) accounts.push({g:g,slug:(String(w.id).split('@')[1]||'')});
+  }
+  // One account (or a reading with no headings yet) is the single cell it has always been
+  if(accounts.length<2) return [{id:'claude',base:'claude',name:'Claude',glyph:'C',snap:usage}];
+  return accounts.map(a=>({
+    id:a.slug?'claude@'+a.slug:'claude',
+    base:'claude',
+    name:a.g||'Claude',
+    glyph:'C',
+    snap:Object.assign({},usage,{windows:ws.filter(w=>(w.group||'')===a.g)
+      .map(w=>Object.assign({},w,{id:String(w.id).split('@')[0]}))})
+  }));
+}
 function providers(){
-  const list=[{id:'claude',name:'Claude',glyph:'C',snap:usage}];
-  if(codexSnap.status!=='absent') list.push({id:'codex',name:'Codex',glyph:'Cx',snap:codexSnap});
-  if(cursorSnap.status!=='absent') list.push({id:'cursor',name:'Cursor',glyph:'Cu',snap:cursorSnap});
-  if(grokSnap.status!=='absent') list.push({id:'grok',name:'Grok',glyph:'Gk',snap:grokSnap});
-  if(agSnap.status!=='absent') list.push({id:'gemini',name:'Antigravity',glyph:'Ag',snap:agSnap});
+  const list=claudeCells();
+  if(codexSnap.status!=='absent') list.push({id:'codex',base:'codex',name:'Codex',glyph:'Cx',snap:codexSnap});
+  if(cursorSnap.status!=='absent') list.push({id:'cursor',base:'cursor',name:'Cursor',glyph:'Cu',snap:cursorSnap});
+  if(grokSnap.status!=='absent') list.push({id:'grok',base:'grok',name:'Grok',glyph:'Gk',snap:grokSnap});
+  if(agSnap.status!=='absent') list.push({id:'gemini',base:'gemini',name:'Antigravity',glyph:'Ag',snap:agSnap});
   if(Array.isArray(notchSlots)&&notchSlots.length){
-    const picked=list.filter(p=>!!slotFor(p.id));
+    const picked=list.filter(p=>!!slotFor(p.base));
     // Never leave the notch with nothing in it: an empty result means the choice no longer matches
     // any available provider, so fall back to showing everything rather than an empty pill.
     if(picked.length) return picked;
@@ -736,24 +758,24 @@ function svgArc(r,frac,color,width,extra=''){
 function renderRing(){
   const ps=providers();
   // Rebuild the DOM only when the structure changes (never swap the element under the cursor)
-  const want=ps.map(p=>p.id+':'+(glyphs[p.id]?glyphs[p.id].kind:'-')).join(',');
+  const want=ps.map(p=>p.id+':'+(glyphs[p.base]?glyphs[p.base].kind:'-')).join(',');
   if(pill.dataset.cells!==want){
     pill.innerHTML=ps.map(p=>`<div class="cell" data-p="${p.id}">
-      <div class="ringwrap"><svg class="ring" viewBox="0 0 56 56"></svg><svg class="reading" viewBox="0 0 56 56"></svg><svg class="activity" viewBox="0 0 56 56"></svg><div class="glyph ${(!glyphs[p.id]&&p.glyph.length>1)?'small':''}">${glyphHtml(p)}</div></div>
+      <div class="ringwrap"><svg class="ring" viewBox="0 0 56 56"></svg><svg class="reading" viewBox="0 0 56 56"></svg><svg class="activity" viewBox="0 0 56 56"></svg><div class="glyph ${(!glyphs[p.base]&&p.glyph.length>1)?'small':''}">${glyphHtml(p)}</div></div>
       <div class="pct">—</div></div>`).join('');
     pill.dataset.cells=want;
   }
   for(const p of ps){
     const cell=pill.querySelector(`.cell[data-p="${p.id}"]`); if(!cell) continue;
     const svg=cell.querySelector('svg.ring'), reading=cell.querySelector('svg.reading'), activity=cell.querySelector('svg.activity'), pct=cell.querySelector('.pct'), glyph=cell.querySelector('.glyph'), wrap=cell.querySelector('.ringwrap');
-    const h=headlineOf(p.snap,p.id);
+    const h=headlineOf(p.snap,p.base);
     let inner=`<circle cx="28" cy="28" r="22" fill="#2a2a2a"/><circle cx="28" cy="28" r="25" fill="none" stroke="${TRACK}" stroke-width="5"/>`;
     wrap.classList.toggle('pressed',!!refreshing[p.id]);
     reading.innerHTML=h && h.count==null?svgArc(25,Math.min(h.used,1),tone(h.used),5):'';
     if(weeklyRing!=='off'){ // the week, thinner and at its own radius, in its own colour: a session at 12% beside a week at 91% is the case this exists for
-      const wk=weeklyOf(p.snap,p.id);
+      const wk=weeklyOf(p.snap,p.base);
       // Inside, it shares the gap with the working indicator, so it stands down while that is showing
-      const taken=weeklyRing==='inside'&&workState(p.id)!=='idle';
+      const taken=weeklyRing==='inside'&&workState(p.base)!=='idle';
       if(wk&&(!h||wk.id!==h.id)&&!taken){
         const r=weeklyRing==='inside'?16:31;
         inner+=`<circle cx="28" cy="28" r="${r}" fill="none" stroke="${TRACK}" stroke-width="2.4" opacity="0.7"/>`
@@ -763,7 +785,7 @@ function renderRing(){
     svg.innerHTML=inner;
     { // thin inner arc: spinning white = working, yellow pulse = waiting on you (one animation for all four, different sources)
       // Its own layer, so a stale reading can dim around it without dimming it: see `.ringwrap.stale`
-      const ws=workState(p.id);
+      const ws=workState(p.base);
       if(ws==='running') activity.innerHTML=`<g class="arc-spin">${svgArc(19,0.28,INK,2.5)}</g>`;
       else if(ws==='attention') activity.innerHTML=`<g class="arc-pulse"><circle cx="28" cy="28" r="19" fill="none" stroke="${WATCH}" stroke-width="2.5"/></g>`;
       else activity.innerHTML='';
@@ -816,7 +838,7 @@ function renderCard(){
   let html=`<div class="c-head">${headIcon}<span class="c-title">${ui().title(p.name)}</span></div>`;
   if(staleOf(snap)&&snap.fetched_at) html+=`<div class="c-sub">${textCopy('Updated')} ${ago(snap.fetched_at)}</div>`;
   if(snap.status==='needsAuth'){
-    const who={claude:'Sign in to Claude Code to see usage.',cursor:'Sign in to Cursor to see usage.',codex:'Sign in to Codex to see usage.',grok:'Run grok login to see usage.',gemini:'Sign in to Antigravity to see usage.'}[p.id]||'';
+    const who={claude:'Sign in to Claude Code to see usage.',cursor:'Sign in to Cursor to see usage.',codex:'Sign in to Codex to see usage.',grok:'Run grok login to see usage.',gemini:'Sign in to Antigravity to see usage.'}[p.base]||'';
     html+=`<div class="c-note">${textCopy(who)}<br>${esc(textCopy(snap.note||''))}</div>`;
   }else if(!snap.windows.length){
     html+=`<div class="c-note">${esc(textCopy(snap.note||'Waiting for first reading…'))}</div>`;
@@ -843,7 +865,7 @@ function renderCard(){
     if(group) html+=`</div>`;
     if(snap.note) html+=`<div class="c-note">${esc(textCopy(snap.note))}</div>`;
   }
-  if(p.id==='claude'){ // live sessions (a full list with jump-to-session is a follow-up)
+  if(p.base==='claude'){ // live sessions (a full list with jump-to-session is a follow-up)
     const act=stateSnap.sessions.filter(s=>s.state!=='idle');
     if(act.length){
       html+=`<div class="c-sessions">`;
@@ -854,7 +876,7 @@ function renderCard(){
     }
   }else{ // other providers: detected activity rows (Cursor reports state; Codex/Antigravity are inferred from recent writes)
     // Waiting before busy, newest first within each, so what gets cut is what matters least
-    const acts=activity.filter(a=>a.provider===p.id).sort((a,b)=>(b.state==='waiting')-(a.state==='waiting')||b.since-a.since);
+    const acts=activity.filter(a=>a.provider===p.base).sort((a,b)=>(b.state==='waiting')-(a.state==='waiting')||b.since-a.since);
     if(acts.length){
       html+=`<div class="c-sessions">`;
       for(const a of acts.slice(0,SESSION_ROWS)){
