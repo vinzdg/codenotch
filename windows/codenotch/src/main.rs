@@ -16,6 +16,7 @@ mod codex;
 mod cursor;
 mod grok;
 mod antigravity;
+mod glm;
 mod agy_cli;
 mod glyphs;
 mod trayicon;
@@ -48,6 +49,8 @@ pub struct AppState {
     /// Grok Build credits, read from the Grok CLI's own session
     pub grok: Mutex<usage::UsageSnapshot>,
     pub antigravity: Mutex<usage::UsageSnapshot>,
+    /// GLM Coding Plan snapshot, read from the existing Z.AI tool credentials.
+    pub glm: Mutex<usage::UsageSnapshot>,
     /// Provider glyph cache, collected at launch and again on a tray refresh
     pub glyphs: Mutex<std::collections::HashMap<String, glyphs::Glyph>>,
     /// Working state of the non-Claude providers (Cursor reports it; Codex and Antigravity are inferred from recent writes)
@@ -199,7 +202,7 @@ static NOTCH_INSETS: Mutex<[f64; 4]> = Mutex::new([0.0; 4]);
 /// The notch window's logical size for an edge.
 ///
 /// Upright on the left and right, the pill is a column and 360 wide is plenty; its length is what
-/// needs room, hence `NOTCH_UPRIGHT_H`. Lying flat on the top and bottom it is a row: five 56 px
+/// needs room, hence `NOTCH_UPRIGHT_H`. Lying flat on the top and bottom it is a row: six 56 px
 /// rings, their gaps, the padding, both fillets and the settings orb come to about 506 px, so a
 /// 360 px window clipped the pill once a fifth provider was on. The flat window keeps the full
 /// height too, for the hover card that opens below or above the pill.
@@ -207,7 +210,7 @@ pub fn notch_window_size(edge: &str) -> (f64, f64) {
     if config::edge_is_vertical(edge) {
         (NOTCH_W, NOTCH_UPRIGHT_H)
     } else {
-        (NOTCH_H, NOTCH_H)
+        (NOTCH_UPRIGHT_H, NOTCH_H)
     }
 }
 
@@ -574,6 +577,7 @@ pub(crate) fn refresh_provider(app: &AppHandle, provider: &str) -> bool {
         "cursor" => cursor::request_refresh(),
         "grok" => grok::request_refresh(),
         "gemini" => antigravity::request_refresh(),
+        "glm" => glm::request_refresh(),
         _ => return false,
     }
     true
@@ -596,6 +600,11 @@ fn refresh_ring(app: AppHandle, provider: String) -> bool {
 #[tauri::command]
 fn get_antigravity(state: tauri::State<AppState>) -> usage::UsageSnapshot {
     state.antigravity.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn get_glm(state: tauri::State<AppState>) -> usage::UsageSnapshot {
+    state.glm.lock().unwrap().clone()
 }
 
 #[tauri::command]
@@ -653,6 +662,7 @@ pub(crate) fn provider_page(provider: &str) -> Option<(&'static str, &'static st
         "cursor" => ("https://cursor.com/dashboard", "cursor.com"),
         "grok" => ("https://grok.com/?_s=usage", "grok.com"),
         "gemini" => ("https://antigravity.google", "antigravity.google"),
+        "glm" => ("https://z.ai/manage-apikey/apikey-list", "z.ai"),
         _ => return None,
     })
 }
@@ -1047,6 +1057,7 @@ pub(crate) fn snapshot_of(app: &AppHandle, id: &str) -> usage::UsageSnapshot {
         "cursor" => st.cursor.lock().unwrap().clone(),
         "grok" => st.grok.lock().unwrap().clone(),
         "gemini" => st.antigravity.lock().unwrap().clone(),
+        "glm" => st.glm.lock().unwrap().clone(),
         _ => st.usage.lock().unwrap().clone(),
     }
 }
@@ -1384,12 +1395,13 @@ pub fn provider_label(id: &str) -> &'static str {
         "cursor" => "Cursor",
         "grok" => "Grok",
         "gemini" => "Antigravity",
+        "glm" => "z.ai",
         _ => "Claude",
     }
 }
 
 /// Every provider the tray menu can offer, in the order the notch shows them.
-pub const TRAY_PROVIDER_IDS: [&str; 5] = ["claude", "codex", "cursor", "grok", "gemini"];
+pub const TRAY_PROVIDER_IDS: [&str; 6] = ["claude", "codex", "glm", "cursor", "grok", "gemini"];
 
 /// Keeps the tray menu current. macOS rebuilds its menu as it opens; Tauri has no such hook, so it
 /// is rebuilt whenever a reading changes, and once a minute besides — otherwise "Resets in 12 min"
@@ -1532,6 +1544,7 @@ fn main() {
             cursor: Mutex::new(cursor::load_persisted()),
             grok: Mutex::new(grok::load_persisted()),
             antigravity: Mutex::new(antigravity::load_persisted()),
+            glm: Mutex::new(glm::load_persisted()),
             glyphs: Mutex::new(Default::default()),
             activity: Mutex::new(Vec::new()),
         })
@@ -1542,6 +1555,7 @@ fn main() {
             get_cursor,
             get_grok,
             get_antigravity,
+            get_glm,
             get_glyphs,
             get_activity,
             open_data_dir,
@@ -1605,6 +1619,7 @@ fn main() {
             cursor::start(handle.clone());
             grok::start(handle.clone());
             antigravity::start(handle.clone());
+            glm::start(handle.clone());
             activity::start(handle.clone());
             // Collecting glyphs may read icon resources out of a few executables; do it off the main thread and push when done
             let gh = handle.clone();
@@ -1701,9 +1716,9 @@ mod tests {
     }
 
     #[test]
-    fn a_flat_notch_is_wide_enough_for_five_rings() {
-        // 5 × 56 px rings + 4 × 14 px gaps + 36 px padding + 2 × 38.7 px fillets + the orb's 28.5 px reach
-        let pill = 5.0 * 56.0 + 4.0 * 14.0 + 36.0 + 2.0 * (38.7 + 28.5);
+    fn a_flat_notch_is_wide_enough_for_six_rings() {
+        // 6 × 56 px rings + 5 × 14 px gaps + 36 px padding + 2 × 38.7 px fillets + the orb's 28.5 px reach
+        let pill = 6.0 * 56.0 + 5.0 * 14.0 + 36.0 + 2.0 * (38.7 + 28.5);
         for edge in ["top", "bottom"] {
             let (w, h) = notch_window_size(edge);
             assert!(w >= pill, "{edge}: {w} px cannot hold a {pill} px pill");

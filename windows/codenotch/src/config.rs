@@ -73,6 +73,10 @@ pub struct Config {
     /// The model family that choice looks at, as the Mac app's "Model data": "gemini" or "3p"
     #[serde(default = "default_antigravity_model")]
     pub antigravity_model: String,
+    /// One-shot migration flag: a config saved before the GLM ring existed gets GLM added to the
+    /// notch once; an explicit later un-tick is respected and never overridden.
+    #[serde(default)]
+    pub glm_notch_fixed: bool,
     /// false = the pill is kept off the screen edge entirely; the tray icon is then the only way in
     #[serde(default = "yes")]
     pub notch_visible: bool,
@@ -159,6 +163,7 @@ impl Default for Config {
             notch_slots: Vec::new(),     // filled in by load(), from notch_providers
             antigravity_limit: default_antigravity_limit(),
             antigravity_model: default_antigravity_model(),
+            glm_notch_fixed: true, // a fresh install picks from the full list already
             notch_visible: true,
             tray_visible: true,
             show_move_handle: true,
@@ -191,6 +196,9 @@ pub fn load() -> Config {
             .collect();
     }
 
+    // A selection saved before GLM existed gets the GLM ring back exactly once.
+    migrate_glm_notch(&mut cfg, &raw);
+
     // Both hidden would leave the app unreachable: no pill, no tray icon, no way to open settings.
     if !cfg.notch_visible && !cfg.tray_visible {
         cfg.tray_visible = true;
@@ -200,6 +208,21 @@ pub fn load() -> Config {
     cfg.scale = snap_scale(cfg.scale);
     cfg.weekly_ring = weekly_ring_or_off(&cfg.weekly_ring);
     cfg
+}
+
+fn migrate_glm_notch(cfg: &mut Config, raw: &Option<String>) {
+    let predates = raw
+        .as_deref()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
+        .map(|v| v.get("glm_notch_fixed").is_none())
+        .unwrap_or(false);
+    if !predates {
+        return;
+    }
+    if !cfg.notch_slots.is_empty() && !cfg.notch_slots.iter().any(|s| s.provider == "glm") {
+        cfg.notch_slots.push(TraySlot { provider: "glm".into() });
+    }
+    cfg.glm_notch_fixed = true;
 }
 
 pub fn save(cfg: &Config) {
