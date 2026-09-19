@@ -68,7 +68,7 @@ extension UsageProvider {
     var kind: ProviderKind { .usage }
 }
 
-enum UsageProviderError: Error {
+enum UsageProviderError: Error, Equatable {
     /// No usable credential — the user has to sign in again.
     case needsAuth
     /// The credential is there, and macOS refused to hand it over — the

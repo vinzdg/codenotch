@@ -32,6 +32,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let previewResetAlert: (() -> Void)?
     private let previewSessionLimitAlert: (() -> Void)?
     private let previewWeeklyLimitAlert: (() -> Void)?
+    private let pendingPlugins: () -> [PluginCoordinator.PendingPlugin]
+    private let approvePlugin: (String) -> Void
 
     init(preferences: Preferences,
          providers: @escaping () -> [ProviderSummary],
@@ -47,7 +49,11 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
          previewWeeklyLimitAlert: (() -> Void)? = nil,
          usageStore: UsageStore? = nil,
          ollamaRelay: OllamaActivityRelay? = nil,
-         lmstudioMetrics: LMStudioMetrics? = nil, phoneLinkPairing: PhoneLinkPairing? = nil, phoneLinkRegistry: PhoneLinkRegistry? = nil, phoneLinkServerStatus: PhoneLinkServerStatus? = nil) {
+         lmstudioMetrics: LMStudioMetrics? = nil, phoneLinkPairing: PhoneLinkPairing? = nil, phoneLinkRegistry: PhoneLinkRegistry? = nil, phoneLinkServerStatus: PhoneLinkServerStatus? = nil,
+         pendingPlugins: @escaping () -> [PluginCoordinator.PendingPlugin] = { [] },
+         approvePlugin: @escaping (String) -> Void = { _ in }) {
+        self.pendingPlugins = pendingPlugins
+        self.approvePlugin = approvePlugin
         self.ollamaRelay = ollamaRelay
         self.lmstudioMetrics = lmstudioMetrics
         self.usageStore = usageStore
@@ -256,7 +262,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         window.initialFirstResponder = nil
         window.contentView = NSHostingView(
             rootView: SettingsView(preferences: preferences,
-                                   providers: providers, phoneLinkPairing: phoneLinkPairing, phoneLinkRegistry: phoneLinkRegistry, phoneLinkServerStatus: phoneLinkServerStatus,
+                                   providers: providers, pendingPlugins: pendingPlugins, approvePlugin: approvePlugin,
+                                   phoneLinkPairing: phoneLinkPairing, phoneLinkRegistry: phoneLinkRegistry, phoneLinkServerStatus: phoneLinkServerStatus,
                                    signOut: signOut,
                                    signIn: signIn,
                                    switchAccount: switchAccount,

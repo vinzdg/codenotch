@@ -21,6 +21,13 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(Array(seenProviders), forKey: Keys.seen) }
     }
 
+    /// Plugin id → the SHA-256 content hash the user approved. A plugin whose
+    /// current hash matches runs; anything else sits pending in Settings until
+    /// the user enables that exact build again.
+    @Published private(set) var pluginApprovals: [String: String] {
+        didSet { defaults.set(pluginApprovals, forKey: Keys.pluginApprovals) }
+    }
+
     /// Loaded-model cells hide without stopping the shared runtime. Stored as
     /// the ones that are off: a model Ollama or LM Studio loads later stays
     /// visible until someone hides it. Providers cannot share this list —
@@ -403,6 +410,8 @@ final class Preferences: ObservableObject {
         static let disconnected = "hiddenProviders"
         static let connected = "connectedProviders"
         static let seen = "seenProviders"
+        // A new key, so there is nothing under the old app name to migrate.
+        static let pluginApprovals = "pluginApprovals"
         static let disabledModels = "disabledModels"
         static let ollamaEndpoint = "ollamaEndpoint"
         static let phoneLinkEnabled = "phoneLinkEnabled"
@@ -597,6 +606,7 @@ final class Preferences: ObservableObject {
         }
         self.connectedProviders = connected.filter { !Self.isModelCell($0) }
         self.seenProviders = seen.filter { !Self.isModelCell($0) }
+        self.pluginApprovals = defaults.dictionary(forKey: Keys.pluginApprovals) as? [String: String] ?? [:]
         self.pendingHidden = hidden
         let models: Set<String>
         if let storedDisabled = defaults.stringArray(forKey: Keys.disabledModels) {
@@ -812,6 +822,17 @@ final class Preferences: ObservableObject {
             connectedProviders.remove(providerID)
         }
         seenProviders.insert(providerID)
+    }
+
+    func approvedHash(forPlugin pluginID: String) -> String? {
+        pluginApprovals[pluginID]
+    }
+
+    /// Pin this exact build of the plugin and connect it. `setConnected` also
+    /// marks the id seen, so a later version cannot treat it as novel.
+    func approvePlugin(_ pluginID: String, hash: String) {
+        pluginApprovals[pluginID] = hash
+        setConnected(true, for: pluginID)
     }
 
     /// Fold this Mac's current provider ids into the stored on-list.

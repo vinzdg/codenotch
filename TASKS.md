@@ -1726,6 +1726,29 @@ VoiceOver text keep the true number. Pinned by
 `testASmallContextStillReadsAsAnArc` and `testTheMinimumArcIsLongerThanItsCaps`
 in `NotchLayoutTests`.
 
+## Provider plugins (runtime-registered)
+- [x] Manifest + exec protocol (`docs/design/plugin-protocol.md`): a plugin is
+      a `plugin.json` in `~/Library/Application Support/Codenotch/Plugins/<id>/`;
+      Codenotch spawns it per poll and renders the JSON snapshot natively.
+      Design: `docs/specs/2026-09-18-provider-plugins-design.md`
+- [x] `PluginRegistry` — scan + validate + `DispatchSource` watch, live
+      register/deregister (`Sources/Plugins/`)
+- [x] `ExternalPluginProvider` — actor `UsageProvider` over the plugin process;
+      exit codes → `UsageProviderError`; account from the payload
+- [x] `UsageStore.register`/`deregister` — dynamic providers; plugins register
+      only after per-plugin approval in Settings (hash-pinned, re-asked on
+      change)
+- [x] `ProviderGlyph.external` + `PluginGlyphStore` — archive-safe plugin marks
+- [x] `ActivityCoordinator.setMonitor`/`removeMonitor` — plugin manifests can
+      attach a `claudeSessions` activity monitor
+- [x] Reference plugin ships with its vendor: `integrations/codenotch` in
+      `codemie-ai/codemie-code` registers `codemie-budget` (all buckets with a
+      Total headline) and `codemie-claude` (per-bucket session spending),
+      reading CodeMie's own SSO credentials and the `budget_usage` endpoint
+      the CodeMie statusline uses
+- [x] Tests: 45 app-side (swift-testing), 49 plugin-side, plus a machine-local
+      cross-E2E (real registered plugin consumed through the app)
+
 ## Decisions needed
 - [ ] Final app name (`Codenotch` is a placeholder)
 - [x] ~~Which service is the third glyph in the mockup?~~ Perplexity — its mark,

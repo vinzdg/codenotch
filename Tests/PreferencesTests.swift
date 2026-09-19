@@ -1,3 +1,4 @@
+import Testing
 import XCTest
 @testable import Codenotch
 
@@ -394,4 +395,30 @@ final class NotchPositionPersistenceTests: XCTestCase {
             XCTAssertEqual(reopened.offset(for: edge), CGFloat(index * 150 - 225))
         }
     }
+}
+
+/// Approving a plugin pins the hash of the build the user looked at and
+/// connects it in the same move — the approval would be meaningless if the
+/// provider stayed dark, and connecting without pinning would run whatever
+/// the executable becomes next.
+@MainActor
+@Test func approvingAPluginPinsTheHashAndConnectsIt() {
+    let suite = "PreferencesTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let preferences = Preferences(defaults: defaults)
+
+    #expect(preferences.approvedHash(forPlugin: "codemie-budget") == nil)
+    #expect(!preferences.isConnected("codemie-budget"))
+
+    preferences.approvePlugin("codemie-budget", hash: "deadbeef")
+
+    #expect(preferences.approvedHash(forPlugin: "codemie-budget") == "deadbeef")
+    #expect(preferences.isConnected("codemie-budget"))
+    #expect(preferences.seenProviders.contains("codemie-budget"))
+
+    // Persisted: a fresh Preferences over the same suite sees the approval.
+    let reloaded = Preferences(defaults: defaults)
+    #expect(reloaded.approvedHash(forPlugin: "codemie-budget") == "deadbeef")
+    #expect(reloaded.isConnected("codemie-budget"))
 }

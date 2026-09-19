@@ -30,7 +30,11 @@ final class UsageStore: ObservableObject {
     /// summaries without re-reading every credential on every polling pass.
     @Published private(set) var providerAccountRevision = 0
 
-    private let providers: [UsageProvider]
+    /// Not constant: runtime-registered plugins join (and leave) while the
+    /// app runs. Everything downstream already keys off the provider id, so a
+    /// late arrival flows through ordering, connection state and rendering
+    /// exactly like a provider that was here at launch.
+    private(set) var providers: [UsageProvider]
 
     /// Provider ids plus any model cells currently on screen.
     var knownIDs: [String] {
@@ -230,10 +234,39 @@ final class UsageStore: ObservableObject {
                             account: disconnected.contains(provider.id) ? nil : provider.account(),
                             signIn: provider.signInRoute,
                             wasRefusedAccess: refusedAccess.contains(provider.id),
-                            needsSignInRenewal: needsRenewal.contains(provider.id))
+                            needsSignInRenewal: needsRenewal.contains(provider.id),
+                            isPlugin: provider is ExternalPluginProvider)
             return [summary] + models.filter { $0.sourceProviderID == provider.id }
         }
         return ProviderOrder.arrange(summaries, by: order, id: \.id)
+    }
+
+    /// Add a provider discovered after launch — today that is a registered
+    /// plugin. Publishes a placeholder immediately so the cell exists before
+    /// the first fetch answers, then fetches.
+    func register(_ provider: UsageProvider) {
+        guard !providers.contains(where: { $0.id == provider.id }) else { return }
+        providers.append(provider)
+        guard !disconnected.contains(provider.id) else { return }
+        publish(Self.placeholder(provider))
+        _ = refresh(providerID: provider.id)
+    }
+
+    /// Remove a provider whose plugin was unregistered. Everything it ever
+    /// showed goes with it — cell, archived reading, in-flight fetch — the
+    /// same treatment `signOut` gives, minus the credential work there is
+    /// none of here. Ordering keeps the id: a reinstalled plugin returns to
+    /// the slot the user put it in.
+    func deregister(providerID: String) {
+        guard providers.contains(where: { $0.id == providerID }) else { return }
+        cancelRefresh(providerID: providerID)
+        providers.removeAll { $0.id == providerID }
+        snapshots.removeAll { $0.id == providerID }
+        refreshing.remove(providerID)
+        refusedAccess.remove(providerID)
+        needsRenewal.remove(providerID)
+        lastGood.removeValue(forKey: providerID)
+        archive.save(lastGood)
     }
 
     func start() {

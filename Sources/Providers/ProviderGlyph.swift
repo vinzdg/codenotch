@@ -38,6 +38,14 @@ enum ProviderGlyph: String, Codable, Equatable {
     /// from the local Qwen model brand in `.qwen` — a ring wearing this one is
     /// the platform account, not a model.
     case qianwenAI = "qianwenai"
+    /// A runtime-registered plugin's mark. The image itself is not an asset —
+    /// it is loaded from the plugin's directory into `PluginGlyphStore`, keyed
+    /// by provider id, and `ProviderGlyphView` resolves it there. One case
+    /// serves every plugin: the enum is persisted inside `UsageArchive`, so a
+    /// case per plugin would make today's archives undecodable to any build
+    /// that predates the plugin, and a removed plugin would do the same in
+    /// reverse.
+    case external
 
     /// If an asset with this name is in the bundle it wins over the traced
     /// outline — drop a PDF/SVG export from Figma in and it is picked up.
@@ -78,6 +86,9 @@ enum ProviderGlyph: String, Codable, Equatable {
         // with `rsvg-convert -w 512`. Claude's outline fills 0.997 at 0.97, so
         // the same scale brings this ink to the same extent.
         case .qianwenAI: return 0.97
+        // A plugin's own scale comes from its manifest via `PluginGlyphStore`;
+        // this is only the fallback when no plugin image is registered.
+        case .external: return 1.0
         case .devin, .qwen, .gemma, .meta, .deepseek, .mistral: return 1.0
         }
     }
@@ -94,7 +105,7 @@ enum ProviderGlyph: String, Codable, Equatable {
         // glyph-kimi in the asset catalogue are drawn instead.
         case .glm:    return GlyphOutline.glm
         case .devin, .qwen, .gemma, .meta, .deepseek, .mistral, .lmstudio,
-             .qianwenAI: return []
+             .qianwenAI, .external: return []
         case .grok:   return GlyphOutline.grok
         case .opencode: return GlyphOutline.opencode
         case .commandcode: return GlyphOutline.commandcode
@@ -132,10 +143,27 @@ struct GlyphShape: Shape {
 struct ProviderGlyphView: View {
     let glyph: ProviderGlyph
     var size: CGFloat = Design.px(46)
+    /// Which provider the glyph belongs to. Only consulted for `.external`:
+    /// the plugin's image is looked up by id in `PluginGlyphStore`, so an
+    /// archived reading drawn after its plugin was removed falls back to a
+    /// generic mark rather than crashing or drawing nothing.
+    var providerID: String? = nil
 
     var body: some View {
         Group {
-            if let image = NSImage(named: glyph.assetName) {
+            if glyph == .external {
+                if let id = providerID, let entry = PluginGlyphStore.shared.entry(for: id) {
+                    Image(nsImage: entry.image)
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .scaleEffect(entry.opticalScale)
+                } else {
+                    Image(systemName: "puzzlepiece.extension")
+                        .resizable()
+                        .scaledToFit()
+                }
+            } else if let image = NSImage(named: glyph.assetName) {
                 Image(nsImage: image)
                     .renderingMode(.template)
                     .resizable()
@@ -147,8 +175,8 @@ struct ProviderGlyphView: View {
         }
         // Scaled inside a frame of the fixed size, so the *layout* stays on a
         // single grid — every row still reserves the same width — while the ink
-        // is evened out within it.
-        .scaleEffect(glyph.opticalScale)
+        // is evened out within it. A plugin's own scale was applied above.
+        .scaleEffect(glyph == .external ? 1 : glyph.opticalScale)
         .frame(width: size, height: size)
     }
 }

@@ -13,6 +13,8 @@ struct ProviderRing: View {
     /// there is no arc to draw, and inventing one would be a lie in a shape.
     let usedFraction: Double?
     let glyph: ProviderGlyph
+    /// Resolves `.external` plugin glyphs; unused by every built-in mark.
+    var providerID: String? = nil
     var isStale: Bool = false
     /// Blocked right now. Shown as spent whatever the arc says, because that is
     /// what it means for you — a ring reading 16% while the account is paused
@@ -155,7 +157,7 @@ struct ProviderRing: View {
                         .animation(NotchMotion.reading, value: weeklyBand)
                 }
 
-                ProviderGlyphView(glyph: glyph)
+                ProviderGlyphView(glyph: glyph, providerID: providerID)
                     .foregroundStyle(Palette.textPrimary)
                     // A spent limit dims its glyph so the ring reads as "waiting".
                     // Under reduce-transparency, boost opacity so it stays legible without low alpha.
@@ -273,6 +275,7 @@ struct ProviderCell: View {
             ProviderRing(
                 usedFraction: snapshot.localModel == nil && snapshot.hasReading ? snapshot.ringFraction : nil,
                 glyph: snapshot.glyph,
+                providerID: snapshot.id,
                 isStale: snapshot.status.isStale || !snapshot.hasReading,
                 isBlocked: snapshot.block != nil,
                 activity: activity,

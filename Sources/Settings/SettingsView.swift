@@ -366,6 +366,8 @@ private extension AnyTransition {
 struct SettingsView: View {
     @ObservedObject var preferences: Preferences
     let providers: () -> [ProviderSummary]
+    var pendingPlugins: () -> [PluginCoordinator.PendingPlugin] = { [] }
+    var approvePlugin: (String) -> Void = { _ in }
     var phoneLinkPairing: PhoneLinkPairing?
     var phoneLinkRegistry: PhoneLinkRegistry?
     var phoneLinkServerStatus: PhoneLinkServerStatus?
@@ -374,6 +376,7 @@ struct SettingsView: View {
     /// another app, so the user is always coming *back* here to see it — which
     /// makes returning focus the exact moment the old value is wrong.
     @State private var accounts: [ProviderSummary] = []
+    @State private var pending: [PluginCoordinator.PendingPlugin] = []
     @State private var displays: [DisplayOption] = []
     @State private var selection: SettingsSection = .accounts
     /// Whether Accounts shows its provider panes. Remembered, so someone who
@@ -713,6 +716,29 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // Pending plugins sit between the two provider groups: they are
+            // neither connected nor safe to treat as ordinary "off" rows,
+            // because enabling one is a trust decision about code.
+            if !pending.isEmpty {
+                Section(L10n.t("Plugins awaiting approval")) {
+                    ForEach(pending) { plugin in
+                        PendingPluginRow(plugin: plugin) {
+                            approvePlugin(plugin.id)
+                            pending = pendingPlugins()
+                            // The just-approved provider is registered
+                            // synchronously, so re-read the rows too — waiting
+                            // for the next window-key refresh would strand the
+                            // plugin out of both groups until then.
+                            accounts = providers()
+                        }
+                    }
+                    Text(L10n.t("A plugin is an executable another tool installed. It runs on every refresh as Codenotch — enable only one you installed yourself."))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             // Absent rather than empty when everything is on: a titled, empty
@@ -1212,6 +1238,7 @@ struct SettingsView: View {
 
     private func refreshVisibleState() {
         accounts = providers()
+        pending = pendingPlugins()
         displays = DisplayOption.connected
     }
 
@@ -1559,11 +1586,13 @@ private struct AccountRow: View {
                 HStack(spacing: 10) {
                     if isOrderable { handle }
 
-                    ProviderGlyphView(glyph: provider.glyph, size: 16)
+                    ProviderGlyphView(glyph: provider.glyph, size: 16, providerID: provider.id)
                         .foregroundStyle(isConnected ? .primary : .tertiary)
 
                     Text(provider.name)
                         .foregroundStyle(isConnected ? .primary : .secondary)
+
+                    if provider.isPlugin { PluginBadge() }
                 }
                 // Without this only the drawn pixels are grabbable, and the
                 // gaps between the three of them are not.
@@ -1585,7 +1614,7 @@ private struct AccountRow: View {
                     // a lot of translucent furniture to move a ring one place
                     // up.
                     HStack(spacing: 6) {
-                        ProviderGlyphView(glyph: provider.glyph, size: 12)
+                        ProviderGlyphView(glyph: provider.glyph, size: 12, providerID: provider.id)
                         Text(provider.name)
                     }
                     .padding(.horizontal, 8)
