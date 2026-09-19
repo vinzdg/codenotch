@@ -148,6 +148,8 @@
         <div class="group">
           <div class="item"><span>Show</span><span class="seg" id="seg-show"><button data-v="show">Always show</button><button data-v="hide">Hide</button></span></div>
           <div class="item cap" id="cap-show" data-dynamic></div>
+          <div class="item"><span>Edge bar</span><span class="seg" id="seg-autohide"><button data-v="auto">Auto-hide</button><button data-v="always">Always visible</button></span></div>
+          <div class="item cap" id="cap-autohide" data-dynamic></div>
           <div class="item"><span>Size</span><span class="seg" id="seg-size"><button data-v="0.8">Small</button><button data-v="1">Medium</button><button data-v="1.25">Large</button></span></div>
           <div class="item cap" id="cap-size" data-dynamic></div>
           <div class="item"><span>Weekly ring</span><span class="seg" id="seg-weekly"><button data-v="off">Off</button><button data-v="inside">Inside</button><button data-v="outside">Outside</button></span></div>
@@ -950,6 +952,8 @@ accountsPane.addEventListener('change', e => {
    whenever the notch is hidden, and its answer says what was actually stored. */
 const SHOW_WHY = 'The notch stays open with every reading visible.';
 const HIDE_WHY = 'The black pill against the right-hand edge of the screen, with one ring per tool. Turn it off and the pill disappears; Codenotch keeps counting your usage either way.';
+const AUTO_HIDE_WHY = 'Leaves an 8 px tab on the selected edge when the pointer leaves. Move over the tab to reveal the full pill.';
+const ALWAYS_VISIBLE_WHY = 'Keeps the full pill visible on the selected edge.';
 const TRAY_WHY = 'The small icon down by the clock. Right-clicking it opens this window, refreshes the readings, or quits Codenotch.';
 const NO_TRAY_WHY = 'No icon in the system tray. Open Codenotch again from the Start menu to bring these settings back.';
 const HELD_ON = 'Held on: the notch is hidden, so this icon is the only way left to reach Codenotch. Switch the notch back on first if you want to hide it.';
@@ -978,6 +982,14 @@ function renderFlags(){
   const fix = document.getElementById('flags-fix');
   fix.hidden = !flagsCorrected;
   fix.textContent = ui(KEPT_ON, KEPT_ON);
+}
+let autoHide = true, autoHideBusy = false;
+function renderAutoHide(){
+  for(const b of document.querySelectorAll('#seg-autohide button')){
+    const on = b.dataset.v === (autoHide ? 'auto' : 'always');
+    b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); b.disabled = autoHideBusy;
+  }
+  document.getElementById('cap-autohide').textContent = autoHide ? AUTO_HIDE_WHY : ALWAYS_VISIBLE_WHY;
 }
 function saveFlags(wantNotch, wantTray){
   if(flagsBusy) return;
@@ -1009,6 +1021,17 @@ document.getElementById('seg-tray').addEventListener('click', e => {
   if(!b || b.disabled) return;
   const tray = b.dataset.v === 'tray';
   if(tray !== flags.tray) saveFlags(flags.notch, tray);
+});
+document.getElementById('seg-autohide').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if(!b || b.disabled) return;
+  const want = b.dataset.v === 'auto';
+  if(want === autoHide) return;
+  autoHideBusy = true; autoHide = want; renderAutoHide();
+  invoke('set_auto_hide', { on: want })
+    .then(v => { if(typeof v === 'boolean') autoHide = v; toast(); })
+    .catch(err => call('get_auto_hide', undefined, null).then(v => { if(typeof v === 'boolean') autoHide = v; }))
+    .then(() => { autoHideBusy = false; renderAutoHide(); });
 });
 
 /* ---- Appearance: size ------------------------------------------------------ */
@@ -1192,6 +1215,7 @@ document.getElementById('author').addEventListener('click', () => {
 function renderAll(){
   renderAccounts();
   renderFlags();
+  renderAutoHide();
   renderSize();
   renderEdge();
   renderScreens();
@@ -1217,6 +1241,8 @@ function boot(){
   refreshScreens();
   call('get_weekly_ring', undefined, null).then(v => { if(typeof v === 'string') weeklyRing = v; renderWeekly(); });
   call('get_ui_flags', undefined, null).then(v => { if(v && typeof v === 'object') flags = readFlags(v); renderFlags(); });
+  call('get_auto_hide', undefined, null).then(v => { if(typeof v === 'boolean') autoHide = v; renderAutoHide(); });
+  try { window.__TAURI__.event.listen('auto_hide', e => { if(typeof e.payload === 'boolean'){ autoHide = e.payload; renderAutoHide(); } }); } catch(e) { /* saved state is still read */ }
   Promise.all([call('get_lang', undefined, 'auto'), call('get_lang_resolved', undefined, 'en')]).then(([raw, resolved]) => {
     const l = (typeof raw === 'string' && LANGS.indexOf(raw) >= 0) ? raw : 'auto';
     const sel = document.getElementById('lang');

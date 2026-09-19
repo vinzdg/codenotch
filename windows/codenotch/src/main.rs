@@ -682,6 +682,10 @@ static HOT: Mutex<Vec<[f64; 4]>> = Mutex::new(Vec::new());
 /// clickable whether or not the card is up.
 static EXPANDED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Auto-hide leaves an 8 px tab inside the selected edge. The watchdog uses that tab to restore
+/// the full pill before the WebView must receive the first mouse move.
+static RETRACTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 #[tauri::command]
 fn set_hot(rects: Vec<[f64; 4]>, expanded: bool) {
     *HOT.lock().unwrap() = rects;
@@ -823,6 +827,14 @@ const WATCHDOG_MS: u64 = 50;
 /// card twitchy.
 const LEAVE_MS: u64 = 300;
 
+fn set_notch_retracted(app: &AppHandle, retracted: bool) {
+    use std::sync::atomic::Ordering;
+    if RETRACTED.load(Ordering::Relaxed) == retracted { return; }
+    RETRACTED.store(retracted, Ordering::Relaxed);
+    let event = if retracted { "auto_hide_retract" } else { "auto_hide_reveal" };
+    let _ = app.emit(event, ());
+}
+
 /// WebView2's mouseleave is unreliable inside a NOACTIVATE transparent window — a cursor that
 /// leaves quickly often produces no WM_MOUSELEAVE, and the card stays up. Rather than trust DOM
 /// events, the Rust side watches the system cursor and emits pointer_left once it is outside; the
@@ -868,18 +880,24 @@ fn start_pointer_watchdog(app: AppHandle) {
                 ));
             }
 
-            if !EXPANDED.load(std::sync::atomic::Ordering::Relaxed) {
-                miss = 0;
-                continue;
-            }
             if inside {
                 miss = 0;
+                if RETRACTED.load(std::sync::atomic::Ordering::Relaxed) {
+                    set_notch_retracted(&app, false);
+                }
             } else {
                 miss += 1;
                 if miss >= need {
                     miss = 0;
-                    EXPANDED.store(false, std::sync::atomic::Ordering::Relaxed);
-                    let _ = app.emit("pointer_left", ());
+                    if EXPANDED.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                        let _ = app.emit("pointer_left", ());
+                    }
+                    let auto_hide = {
+                        let st = app.state::<AppState>();
+                        let value = st.cfg.lock().unwrap().auto_hide;
+                        value
+                    };
+                    if auto_hide { set_notch_retracted(&app, true); }
                 }
             }
         }
@@ -1198,6 +1216,31 @@ fn set_ui_flags(app: AppHandle, notch_visible: bool, tray_visible: bool) -> UiFl
     };
     apply_visibility(&app);
     flags
+}
+
+#[tauri::command]
+fn get_auto_hide(app: AppHandle) -> bool {
+    let st = app.state::<AppState>();
+    let value = st.cfg.lock().unwrap().auto_hide;
+    value
+}
+
+#[tauri::command]
+fn get_auto_hide_retracted() -> bool {
+    RETRACTED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[tauri::command]
+fn set_auto_hide(app: AppHandle, on: bool) -> bool {
+    {
+        let st = app.state::<AppState>();
+        let mut cfg = st.cfg.lock().unwrap();
+        cfg.auto_hide = on;
+        config::save(&cfg);
+    }
+    if !on { set_notch_retracted(&app, false); }
+    let _ = app.emit("auto_hide", on);
+    on
 }
 
 /// Puts the two switches into effect.
@@ -1566,6 +1609,9 @@ fn main() {
             get_app_icon,
             get_ui_flags,
             set_ui_flags,
+            get_auto_hide,
+            get_auto_hide_retracted,
+            set_auto_hide,
             get_lang,
             get_lang_resolved,
             get_autostart,
