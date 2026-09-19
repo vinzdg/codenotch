@@ -185,22 +185,33 @@ private struct SettingsSidebarRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            icon
-                .frame(width: 18)
-                .foregroundStyle(.white.opacity(isSelected ? 0.95 : isHovered ? 0.85 : 0.6))
-                // Leans toward the pointer's row a hair, and pops once on selection.
-                .offset(x: isHovered && !isSelected && !reduceMotion ? 1.5 : 0)
-            Text(section.title)
-                .font(.system(size: 13, weight: isSelected ? .medium : .regular))
-                .foregroundStyle(.white.opacity(isSelected ? 0.95 : isHovered ? 0.92 : 0.78))
-                .lineLimit(1)
-            Spacer(minLength: 4)
-            if let count {
-                Text("\(count)")
-                    .font(.system(size: 11, weight: .medium).monospacedDigit())
-                    .foregroundStyle(.white.opacity(isHovered || isSelected ? 0.55 : 0.42))
-                    .contentTransition(.numericText())
+            HStack(spacing: 10) {
+                icon
+                    .frame(width: 18)
+                    .foregroundStyle(.white.opacity(isSelected ? 0.95 : isHovered ? 0.85 : 0.6))
+                    // Leans toward the pointer's row a hair, and pops once on selection.
+                    .offset(x: isHovered && !isSelected && !reduceMotion ? 1.5 : 0)
+                Text(section.title)
+                    .font(.system(size: 13, weight: isSelected ? .medium : .regular))
+                    .foregroundStyle(.white.opacity(isSelected ? 0.95 : isHovered ? 0.92 : 0.78))
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                if let count {
+                    Text("\(count)")
+                        .font(.system(size: 11, weight: .medium).monospacedDigit())
+                        .foregroundStyle(.white.opacity(isHovered || isSelected ? 0.55 : 0.42))
+                        .contentTransition(.numericText())
+                }
             }
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in if !isPressed { isPressed = true } }
+                    .onEnded { value in
+                        isPressed = false
+                        if abs(value.translation.width) < 6, abs(value.translation.height) < 6 { activate() }
+                    }
+            )
             if let disclosure {
                 DisclosureChevron(isExpanded: disclosure)
             }
@@ -228,28 +239,30 @@ private struct SettingsSidebarRow: View {
                 }
             }
         }
-        .contentShape(Self.pill)
         .scaleEffect(isPressed && !reduceMotion ? 0.97 : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.6), value: isPressed)
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.14)) { isHovered = hovering }
         }
-        // Pressed on touch-down, released on lift: the row answers the finger,
-        // not only the click.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in if !isPressed { isPressed = true } }
-                .onEnded { value in
-                    isPressed = false
-                    if abs(value.translation.width) < 6, abs(value.translation.height) < 6 { select() }
-                }
-        )
         .onChange(of: isSelected) { selected in
             if selected { bounce += 1 }
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-        .accessibilityAction { select() }
+        .accessibilityAction { activate() }
+    }
+
+    /// Selecting Accounts should not also change its disclosure state. Once
+    /// Accounts is already selected, the row remains a convenient larger
+    /// target for folding its provider panes; the chevron stays an independent
+    /// control in either state.
+    private func activate() {
+        if let disclosure, isSelected {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                disclosure.wrappedValue.toggle()
+            }
+        }
+        select()
     }
 
     @ViewBuilder
