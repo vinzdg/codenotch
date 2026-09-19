@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// The Mac's notch sizes, as multiples of the designed size: Small, Medium, Large.
@@ -39,12 +40,16 @@ pub struct Config {
     /// Allow dragging + wheel resizing (tray toggle, off by default to prevent accidental drags)
     #[serde(default)]
     pub drag_enabled: bool,
-    /// Position of the notch along its edge: the window centre as a fraction of the monitor's height
-    /// (left/right edges) or width (top/bottom edges), 0 = top/left, 1 = bottom/right, default 0.5;
-    /// saved after a drag. Named `notch_y` from when the right edge was the only one, so an existing
-    /// config keeps its place.
-    #[serde(default = "default_notch_y")]
+    /// The one position every edge used to share, read once so `load` can hand it to the edge the
+    /// notch is on and never written again. `notch_along` replaces it.
+    #[serde(default = "default_notch_y", skip_serializing)]
     pub notch_y: f64,
+    /// Where along each edge the notch sits: the window centre as a fraction of that edge's span in
+    /// the work area, 0 = top/left, 1 = bottom/right, 0.5 = centred (the default for an edge with
+    /// no entry). One per edge, as the Mac keeps one offset per edge: sliding it along the right
+    /// edge should not also move it on the top.
+    #[serde(default)]
+    pub notch_along: BTreeMap<String, f64>,
     /// Which screen edge the notch is pinned to: "right" (the default), "left", "top" or "bottom".
     #[serde(default = "default_notch_edge")]
     pub notch_edge: String,
@@ -109,6 +114,28 @@ pub fn edge_or_right(value: &str) -> String {
 pub fn edge_is_vertical(edge: &str) -> bool {
     matches!(edge, "left" | "right")
 }
+
+/// Migration: the one position every edge used to share becomes the position for the edge the notch
+/// was on, so an existing config keeps its place; the other edges start centred. `notch_y` is never
+/// written back, so this runs once and a later `load` finds `notch_along` already filled in.
+fn carry_shared_position(cfg: &mut Config) {
+    if cfg.notch_along.is_empty() && (cfg.notch_y - 0.5).abs() > f64::EPSILON {
+        let edge = edge_or_right(&cfg.notch_edge);
+        let along = cfg.notch_y;
+        cfg.set_along(&edge, along);
+    }
+}
+
+impl Config {
+    /// Where the notch sits along `edge`: centred until it has been slid somewhere on that edge.
+    pub fn along(&self, edge: &str) -> f64 {
+        self.notch_along.get(edge).copied().unwrap_or(0.5).clamp(0.0, 1.0)
+    }
+    pub fn set_along(&mut self, edge: &str, along: f64) {
+        self.notch_along.insert(edge.to_string(), along.clamp(0.0, 1.0));
+    }
+}
+
 fn default_scale() -> f64 {
     1.0
 }
@@ -151,6 +178,7 @@ impl Default for Config {
             bar_w: None,
             drag_enabled: false,
             notch_y: default_notch_y(),
+            notch_along: BTreeMap::new(),
             notch_edge: default_notch_edge(),
             notch_monitor: None,
             scale: default_scale(),
@@ -191,6 +219,8 @@ pub fn load() -> Config {
             .collect();
     }
 
+    carry_shared_position(&mut cfg);
+
     // Both hidden would leave the app unreachable: no pill, no tray icon, no way to open settings.
     if !cfg.notch_visible && !cfg.tray_visible {
         cfg.tray_visible = true;
@@ -214,7 +244,44 @@ pub fn save(cfg: &Config) {
 
 #[cfg(test)]
 mod tests {
-    use super::{snap_scale, weekly_ring_or_off};
+    use super::{carry_shared_position, snap_scale, weekly_ring_or_off, Config};
+
+    /// The Mac keeps one offset per edge; sliding the notch along one must not move it on another.
+    #[test]
+    fn each_edge_keeps_its_own_place() {
+        let mut c = Config::default();
+        assert_eq!(c.along("right"), 0.5, "an edge never slid along is centred");
+        c.set_along("right", 0.2);
+        assert_eq!(c.along("right"), 0.2);
+        assert_eq!(c.along("top"), 0.5, "sliding it on the right left the top where it was");
+        c.set_along("top", 7.0);
+        assert_eq!(c.along("top"), 1.0, "and it can never be put past the end of an edge");
+    }
+
+    #[test]
+    fn the_shared_position_moves_to_the_edge_the_notch_was_on() {
+        let mut c = Config { notch_y: 0.3, notch_edge: "left".into(), ..Default::default() };
+        carry_shared_position(&mut c);
+        assert_eq!(c.along("left"), 0.3, "an existing config keeps its place");
+        assert_eq!(c.along("right"), 0.5, "the edges it was not on start centred");
+        // Once carried over, a later load leaves it alone even though notch_y still reads 0.3
+        c.set_along("left", 0.8);
+        carry_shared_position(&mut c);
+        assert_eq!(c.along("left"), 0.8);
+        // A centred config has nothing to carry, so nothing is written for it
+        let mut centred = Config::default();
+        carry_shared_position(&mut centred);
+        assert!(centred.notch_along.is_empty());
+    }
+
+    #[test]
+    fn the_shared_position_is_read_but_never_written_again() {
+        let mut v = serde_json::to_value(Config { notch_y: 0.3, ..Default::default() }).unwrap();
+        assert!(v.get("notch_y").is_none(), "{v}");
+        v["notch_y"] = serde_json::json!(0.3);
+        let back: Config = serde_json::from_value(v).unwrap();
+        assert_eq!(back.notch_y, 0.3);
+    }
 
     #[test]
     fn a_saved_scale_snaps_to_the_nearest_size() {

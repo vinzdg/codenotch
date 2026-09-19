@@ -1027,9 +1027,11 @@ function settle(id){
   delete refreshing[id];
   renderRing();
 }
-pill.addEventListener('mousedown',e=>{ if(e.button!==0)return; press={x:e.clientX,y:e.clientY,id:cellAt(e.clientX,e.clientY)||hoverId}; });
+// Alt+drag, the Mac's ⌥-drag. Without Alt a press on the pill is only ever a click — a ring
+// refreshes (#244) — so one that slips can no longer carry the notch off (#251).
+pill.addEventListener('mousedown',e=>{ if(e.button!==0)return; press={x:e.clientX,y:e.clientY,id:cellAt(e.clientX,e.clientY)||hoverId,alt:e.altKey}; });
 document.addEventListener('mousemove',e=>{
-  if(!press||dragging)return;
+  if(!press||dragging||!press.alt)return;
   if(Math.abs(e.clientY-press.y)>4||Math.abs(e.clientX-press.x)>4){
     dragging=true; clearTimeout(hideTimer); hideCard();
     invoke('drag_begin').catch(err=>{notice('drag_begin failed: '+err);dragging=false;});

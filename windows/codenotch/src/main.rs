@@ -116,9 +116,6 @@ impl Screen {
             (self.x, self.y, self.w, self.h)
         }
     }
-    fn contains(&self, x: i32, y: i32) -> bool {
-        x >= self.x && x < self.x + self.w && y >= self.y && y < self.y + self.h
-    }
 }
 
 /// Every attached monitor, primary first so a stale name always falls back to something sensible.
@@ -176,6 +173,13 @@ fn edge_origin(s: &Screen, edge: &str, ww: i32, wh: i32, ratio: f64) -> (i32, i3
         "bottom" => (ax + along(aw, ww), ay + ah - wh),
         _ => (ax + aw - ww, ay + along(ah, wh)),
     }
+}
+
+/// `edge_origin` run backwards along one axis: where a window at `pos`, `len` long, has its centre,
+/// as a fraction of the span from `start`. What a slide along the edge saves, so it lands exactly
+/// where it was let go.
+fn along_at(pos: i32, len: i32, start: i32, span: i32) -> f64 {
+    (((pos - start) as f64 + len as f64 / 2.0) / span.max(1) as f64).clamp(0.0, 1.0)
 }
 
 /// How far the taskbar (or anything else outside the work area) covers each side of a window at
@@ -244,11 +248,10 @@ pub fn place_notch(app: &AppHandle) {
             .outer_size()
             .map(|s| (s.width as i32, s.height as i32))
             .unwrap_or((target.width as i32, target.height as i32));
-        // The position along the edge comes from the config (it persists across a drag)
         let ratio = {
             let st = app.state::<AppState>();
             let c = st.cfg.lock().unwrap();
-            c.notch_y.clamp(0.0, 1.0)
+            c.along(&edge)
         };
         let (x, y) = edge_origin(&mon, &edge, ww, wh, ratio);
         let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
@@ -326,21 +329,23 @@ pub fn reset_bar(app: &AppHandle) {
     {
         let st = app.state::<AppState>();
         let mut c = st.cfg.lock().unwrap();
-        c.notch_y = 0.5;
         if stranded {
             c.notch_edge = "right".into();
             c.notch_monitor = None;
         }
+        // Only the edge it is on: the others keep wherever they were left, as on the Mac
+        let edge = config::edge_or_right(&c.notch_edge);
+        c.set_along(&edge, 0.5);
         config::save(&c);
     }
     place_notch(app);
 }
 
-/// Drag. The page calls this once after a press on the pill moves more than 4 px; from then on a
-/// Rust thread follows the system cursor (WebView mousemove is unreliable once the window itself
-/// starts moving). The window is free in both axes while the button is down; releasing it snaps the
-/// notch to the nearest edge of whichever monitor it was dropped on, and that edge, that monitor and
-/// the position along the edge are written back to the config.
+/// Drag. The page calls this once after an Alt-press on the pill moves more than 4 px; from then on
+/// a Rust thread follows the system cursor (WebView mousemove is unreliable once the window itself
+/// starts moving). Only the axis along the notch's edge follows it: this slides the notch along the
+/// edge it is on and never takes it to another, which is the move handle's job — the Mac's ⌥-drag
+/// (`NotchWindowController.dragged`). Releasing it saves that place for that edge alone.
 static DRAGGING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(windows)]
@@ -427,10 +432,9 @@ fn begin_move(app: AppHandle, depth: f64, length: f64) {
             {
                 let st = app.state::<AppState>();
                 let mut c = st.cfg.lock().unwrap();
+                // It lands where it was last left on that edge — centred, like the zone it was
+                // offered, on an edge it has never been slid along
                 c.notch_edge = target.clone();
-                // Centred, because the zone that was shown is centred: it lands where it was offered,
-                // not at whatever fraction along it happened to sit on the edge it came from
-                c.notch_y = 0.5;
                 config::save(&c);
             }
             place_notch(&app);
@@ -453,18 +457,19 @@ fn drag_begin(app: AppHandle) {
             DRAGGING.store(false, std::sync::atomic::Ordering::SeqCst);
             return;
         };
-        let all = screens(&app);
-        if all.is_empty() {
+        let Some(mon) = target_screen(&app) else {
             DRAGGING.store(false, std::sync::atomic::Ordering::SeqCst);
             return;
-        }
+        };
+        let edge = {
+            let st = app.state::<AppState>();
+            let c = st.cfg.lock().unwrap();
+            config::edge_or_right(&c.notch_edge)
+        };
+        let vertical = config::edge_is_vertical(&edge);
         let (ww, wh) = (size.width as i32, size.height as i32);
-        // The whole desktop, so the window can be carried across monitors before it is dropped
-        let (vx0, vy0) = (all.iter().map(|s| s.x).min().unwrap(), all.iter().map(|s| s.y).min().unwrap());
-        let (vx1, vy1) = (
-            all.iter().map(|s| s.x + s.w).max().unwrap(),
-            all.iter().map(|s| s.y + s.h).max().unwrap(),
-        );
+        // The span `edge_origin` places against, so it cannot be slid under the taskbar
+        let (ax, ay, aw, ah) = mon.area();
         let (mut last_x, mut last_y) = (start_pos.x, start_pos.y);
         let mut moved = false;
         loop {
@@ -472,8 +477,13 @@ fn drag_begin(app: AppHandle) {
                 break;
             }
             if let Ok(cur) = app.cursor_position() {
-                let nx = ((start_pos.x as f64 + (cur.x - start_cur.x)).round() as i32).clamp(vx0, (vx1 - ww).max(vx0));
-                let ny = ((start_pos.y as f64 + (cur.y - start_cur.y)).round() as i32).clamp(vy0, (vy1 - wh).max(vy0));
+                let (nx, ny) = if vertical {
+                    let y = (start_pos.y as f64 + (cur.y - start_cur.y)).round() as i32;
+                    (start_pos.x, y.clamp(ay, (ay + ah - wh).max(ay)))
+                } else {
+                    let x = (start_pos.x as f64 + (cur.x - start_cur.x)).round() as i32;
+                    (x.clamp(ax, (ax + aw - ww).max(ax)), start_pos.y)
+                };
                 if nx != last_x || ny != last_y {
                     last_x = nx;
                     last_y = ny;
@@ -484,41 +494,14 @@ fn drag_begin(app: AppHandle) {
             std::thread::sleep(std::time::Duration::from_millis(8));
         }
         if moved {
-            // Dropped: the monitor under the window's centre owns it, and the nearest of that
-            // monitor's four edges is where it snaps back to.
-            let (cx, cy) = (last_x + ww / 2, last_y + wh / 2);
-            let mon = all
-                .iter()
-                .find(|s| s.contains(cx, cy))
-                .cloned()
-                .unwrap_or_else(|| all[0].clone());
-            let d = [
-                ("left", (cx - mon.x).max(0)),
-                ("right", (mon.x + mon.w - cx).max(0)),
-                ("top", (cy - mon.y).max(0)),
-                ("bottom", (mon.y + mon.h - cy).max(0)),
-            ];
-            let edge = d.iter().min_by_key(|(_, v)| *v).map(|(e, _)| *e).unwrap_or("right");
-            // Measured against the work area, because that is the span `edge_origin` reads the ratio
-            // back against: on the monitor's, a drop next to the taskbar landed short of the pointer.
-            let (ax, ay, aw, ah) = mon.area();
-            let ratio = if config::edge_is_vertical(edge) {
-                ((cy - ay) as f64 / ah.max(1) as f64).clamp(0.0, 1.0)
-            } else {
-                ((cx - ax) as f64 / aw.max(1) as f64).clamp(0.0, 1.0)
-            };
+            let along = if vertical { along_at(last_y, wh, ay, ah) } else { along_at(last_x, ww, ax, aw) };
             {
                 let st = app.state::<AppState>();
                 let mut c = st.cfg.lock().unwrap();
-                c.notch_y = ratio;
-                c.notch_edge = edge.into();
-                c.notch_monitor = mon.name.clone();
+                c.set_along(&edge, along);
                 config::save(&c);
             }
-            applog(&format!(
-                "notch drag: dropped at ({last_x},{last_y}) -> edge={edge} ratio={ratio:.3} monitor={:?}",
-                mon.name
-            ));
+            applog(&format!("notch slid along {edge} to {along:.3}"));
             place_notch(&app);
         }
         DRAGGING.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -1285,8 +1268,8 @@ fn get_notch_edge(app: AppHandle) -> String {
     config::edge_or_right(&c.notch_edge)
 }
 
-/// Moving to another edge keeps the position along it, so the notch stays where the eye expects it:
-/// a notch two thirds down the right-hand edge arrives two thirds along the top one.
+/// Moving to another edge puts the notch where it was last left on that edge, or centred if it has
+/// never been slid along it — each edge keeps its own place, as on the Mac.
 #[tauri::command]
 fn set_notch_edge(app: AppHandle, edge: String) -> String {
     let value = {
@@ -1678,6 +1661,22 @@ mod tests {
         // A taskbar on the left
         let s = Screen { work: (72, 0, 3128, 2000), ..s };
         assert_eq!(work_insets(&s, 0, 700, 432, 624), [0, 0, 0, 72]);
+    }
+
+    /// A slide along the edge saves `along_at` and the next placement reads it back through
+    /// `edge_origin`, so the two must be exact inverses or the notch jumps when it is let go.
+    #[test]
+    fn a_slid_notch_lands_where_it_was_let_go() {
+        let s = Screen { name: None, x: 0, y: 0, w: 3200, h: 2000, scale: 1.5, work: (0, 0, 3200, 1928) };
+        for along in [0.2, 0.5, 0.73] {
+            let (_, y) = super::edge_origin(&s, "right", 432, 624, along);
+            assert!((super::along_at(y, 624, 0, 1928) - along).abs() < 1e-3, "right at {along}");
+            let (x, _) = super::edge_origin(&s, "top", 624, 624, along);
+            assert!((super::along_at(x, 624, 0, 3200) - along).abs() < 1e-3, "top at {along}");
+        }
+        // Pushed hard against an end, what it saves is the end it stopped at, not the pointer
+        let (_, y) = super::edge_origin(&s, "right", 432, 624, 0.0);
+        assert_eq!(super::edge_origin(&s, "right", 432, 624, super::along_at(y, 624, 0, 1928)).1, y);
     }
 
     /// A notch on the edge the taskbar is docked to used to sit under it.

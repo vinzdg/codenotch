@@ -160,7 +160,7 @@
             <select id="screen" aria-label="Screen"></select>
           </div>
           <div class="item cap" id="cap-screen" data-dynamic hidden></div>
-          <div class="item"><span class="hint">The pill can also be dragged: pick it up and drop it anywhere, and it snaps to the nearest edge of the screen you dropped it on. Recentre puts it back in the middle of the edge it is on, or on the main screen's right-hand edge if the screen it was on has been unplugged.</span><button class="btn" id="btn-recentre">Recentre</button></div>
+          <div class="item"><span class="hint">Hold Alt and drag the notch to slide it along its edge. Each edge remembers where you left it. Recentre puts it back in the middle of the edge it is on, or on the main screen's right-hand edge if the screen it was on has been unplugged.</span><button class="btn" id="btn-recentre">Recentre</button></div>
         </div>
         <div class="sec">App</div>
         <div class="group">
@@ -255,7 +255,7 @@ const RU_STATIC = {
   'The notch stays open with every reading visible.':'Выемка остаётся открытой, и все данные видны.',
   'The black pill against the right-hand edge of the screen, with one ring per tool. Turn it off and the pill disappears; Codenotch keeps counting your usage either way.':'Чёрная панель у правого края экрана с отдельным кольцом для каждого инструмента. При выключении панель исчезает, но Codenotch продолжает считать использование.',
   'Recentre':'По центру',
-  'The pill can also be dragged: pick it up and drop it anywhere, and it snaps to the nearest edge of the screen you dropped it on. Recentre puts it back in the middle of the edge it is on, or on the main screen\'s right-hand edge if the screen it was on has been unplugged.':'Капсулу также можно перетаскивать: захватите её и отпустите в любом месте, и она прилипнет к ближайшему краю того экрана, на котором вы её оставили. Кнопка «По центру» возвращает её на середину текущего края или на правый край главного экрана, если монитор, на котором она находилась, был отключен.',
+  'Hold Alt and drag the notch to slide it along its edge. Each edge remembers where you left it. Recentre puts it back in the middle of the edge it is on, or on the main screen\'s right-hand edge if the screen it was on has been unplugged.':'Удерживайте Alt и перетаскивайте панель вдоль края. Для каждого края запоминается последнее положение. Кнопка «По центру» возвращает её на середину текущего края или на правый край главного экрана, если монитор, на котором она находилась, был отключен.',
   'The notch is back in the middle':'Панель возвращена в центр',
   'App':'Приложение', 'App icon':'Значок приложения', 'System tray':'Системный трей', 'Neither':'Ни то ни другое',
   'The small icon down by the clock. Right-clicking it opens this window, refreshes the readings, or quits Codenotch.':'Небольшой значок рядом с часами. Щелчок правой кнопкой открывает это окно, обновляет данные или завершает работу Codenotch.',
@@ -310,7 +310,7 @@ const ZH_STATIC = {
   'The notch stays open with every reading visible.':'刘海保持展开，所有读数都看得见。',
   'The black pill against the right-hand edge of the screen, with one ring per tool. Turn it off and the pill disappears; Codenotch keeps counting your usage either way.':'屏幕右侧边缘的黑色胶囊，每个工具对应一个圆环。关闭它后胶囊会消失；无论哪种情况，Codenotch 都会继续统计你的使用情况。',
   'Recentre':'重新居中',
-  'The pill can also be dragged: pick it up and drop it anywhere, and it snaps to the nearest edge of the screen you dropped it on. Recentre puts it back in the middle of the edge it is on, or on the main screen\'s right-hand edge if the screen it was on has been unplugged.':'悬浮窗也可以拖动：将其拖放到任何地方，它会自动吸附到你放下它时所在屏幕的最近边缘。“重新居中”操作会将其放回当前所在边缘的中间；如果它所在的屏幕已被断开连接，则会将其放回主屏幕的右侧边缘。',
+  'Hold Alt and drag the notch to slide it along its edge. Each edge remembers where you left it. Recentre puts it back in the middle of the edge it is on, or on the main screen\'s right-hand edge if the screen it was on has been unplugged.':'按住 Alt 拖动刘海，沿边缘滑动。每条边都会记住你放的位置。“重新居中”操作会将其放回当前所在边缘的中间；如果它所在的屏幕已被断开连接，则会将其放回主屏幕的右侧边缘。',
   'The notch is back in the middle':'刘海已回到中间',
   'App':'应用',
   'App icon':'应用图标',
@@ -346,7 +346,7 @@ const ZH_STATIC = {
   'Stands upright on the right-hand edge, the side it was drawn for.':'竖立在屏幕右边缘，也就是它本来画的那一侧。',
   'Lies flat along the top edge, with the card opening below it.':'横贴在屏幕上边缘，提示卡向下打开。',
   'Lies flat along the bottom edge, with the card opening above it.':'横贴在屏幕下边缘，提示卡向上打开。',
-  'Which screen the notch lives on. Dragging it onto another screen sets this too.':'刘海所在的屏幕。拖到另一块屏幕上也会改这里。',
+  'Which screen the notch lives on.':'刘海所在的屏幕。',
   'this screen cannot be remembered by name':'这块屏幕无法按名称记住'
 };
 const ZH_HANT_STATIC = {
@@ -389,7 +389,7 @@ const ZH_HANT_STATIC = {
   'The notch stays open with every reading visible.':'瀏海保持展開，所有讀數都看得見。',
   'The black pill against the right-hand edge of the screen, with one ring per tool. Turn it off and the pill disappears; Codenotch keeps counting your usage either way.':'螢幕右側邊緣的黑色膠囊，每個工具對應一個圓環。關閉它後膠囊會消失；無論哪種情況，Codenotch 都會繼續統計你的使用情況。',
   'Recentre':'重新置中',
-  'The pill can also be dragged: pick it up and drop it anywhere, and it snaps to the nearest edge of the screen you dropped it on. Recentre puts it back in the middle of the edge it is on, or on the main screen\'s right-hand edge if the screen it was on has been unplugged.':'浮動視窗也可以拖動：將其拖放到任何地方，它會自動吸附到你放下它時所在螢幕的最近邊緣。「重新置中」會將它放回目前所在邊緣的中間；如果它所在的螢幕已拔除，則會放回主螢幕的右側邊緣。',
+  'Hold Alt and drag the notch to slide it along its edge. Each edge remembers where you left it. Recentre puts it back in the middle of the edge it is on, or on the main screen\'s right-hand edge if the screen it was on has been unplugged.':'按住 Alt 拖動瀏海，沿邊緣滑動。每條邊都會記住你放的位置。「重新置中」會將它放回目前所在邊緣的中間；如果它所在的螢幕已拔除，則會放回主螢幕的右側邊緣。',
   'The notch is back in the middle':'瀏海已回到中間',
   'App':'App',
   'App icon':'App 圖示',
@@ -425,7 +425,7 @@ const ZH_HANT_STATIC = {
   'Stands upright on the right-hand edge, the side it was drawn for.':'豎立在螢幕右邊緣，也就是它本來畫的那一側。',
   'Lies flat along the top edge, with the card opening below it.':'橫貼在螢幕上邊緣，提示卡向下開啟。',
   'Lies flat along the bottom edge, with the card opening above it.':'橫貼在螢幕下邊緣，提示卡向上開啟。',
-  'Which screen the notch lives on. Dragging it onto another screen sets this too.':'瀏海所在的螢幕。拖到另一塊螢幕上也會改這裡。',
+  'Which screen the notch lives on.':'瀏海所在的螢幕。',
   'this screen cannot be remembered by name':'這塊螢幕無法按名稱記住'
 };
 const JA_STATIC = {
@@ -470,7 +470,7 @@ const JA_STATIC = {
   'The notch stays open with every reading visible.':'ノッチは開いたままで、すべての読み取りが見えます。',
   'The black pill against the right-hand edge of the screen, with one ring per tool. Turn it off and the pill disappears; Codenotch keeps counting your usage either way.':'画面の右端にある黒いピルには、ツールごとに1つのリングが表示されます。オフにするとピルは消えますが、どちらにしても Codenotch は使用量のカウントを続けます。',
   'Recentre':'中央に戻す',
-  'The pill can also be dragged: pick it up and drop it anywhere, and it snaps to the nearest edge of the screen you dropped it on. Recentre puts it back in the middle of the edge it is on, or on the main screen\'s right-hand edge if the screen it was on has been unplugged.':'ピルはドラッグすることもできます。掴んで任意の場所にドロップすると、ドロップした画面の最も近い端にスナップします。「中央に戻す」を使うと、現在配置されている端の中央に戻ります。もし配置されていた画面が取り外されている場合は、メイン画面の右端に戻ります。',
+  'Hold Alt and drag the notch to slide it along its edge. Each edge remembers where you left it. Recentre puts it back in the middle of the edge it is on, or on the main screen\'s right-hand edge if the screen it was on has been unplugged.':'Alt を押しながらノッチをドラッグすると、辺に沿って動かせます。位置は辺ごとに記憶されます。「中央に戻す」を使うと、現在配置されている端の中央に戻ります。もし配置されていた画面が取り外されている場合は、メイン画面の右端に戻ります。',
   'The notch is back in the middle':'ノッチが中央に戻りました',
   'App':'アプリ',
   'App icon':'アプリアイコン',
@@ -543,11 +543,11 @@ const KO_STATIC = {
   'Stands upright on the right-hand edge, the side it was drawn for.':'화면 오른쪽 가장자리에 세로로 붙습니다. 원래 디자인된 위치입니다.',
   'Lies flat along the top edge, with the card opening below it.':'화면 위쪽 가장자리에 가로로 눕고, 카드는 아래로 열립니다.',
   'Lies flat along the bottom edge, with the card opening above it.':'화면 아래쪽 가장자리에 가로로 눕고, 카드는 위로 열립니다.',
-  'Which screen the notch lives on. Dragging it onto another screen sets this too.':'노치를 표시할 화면입니다. 노치를 다른 화면으로 끌어다 놓아도 이 값이 바뀝니다.',
+  'Which screen the notch lives on.':'노치를 표시할 화면입니다.',
   'this screen cannot be remembered by name':'이 화면은 이름으로 기억할 수 없습니다',
   'The black pill against the right-hand edge of the screen, with one ring per tool. Turn it off and the pill disappears; Codenotch keeps counting your usage either way.':'화면 오른쪽 가장자리에 있는 검은색 필로, 도구당 하나의 링이 있습니다. 끄면 필이 사라지지만, 어느 쪽이든 Codenotch는 사용량을 계속 계산합니다.',
   'Recentre':'가운데로 되돌리기',
-  'The pill can also be dragged: pick it up and drop it anywhere, and it snaps to the nearest edge of the screen you dropped it on. Recentre puts it back in the middle of the edge it is on, or on the main screen\'s right-hand edge if the screen it was on has been unplugged.':'필(pill)은 드래그할 수도 있습니다. 필을 잡아서 아무 곳에나 놓으면, 놓은 화면의 가장 가까운 가장자리에 스냅됩니다. \'가운데로 되돌리기\'를 사용하면 현재 위치한 가장자리의 중앙으로 돌아가며, 필이 있던 화면이 연결 해제된 경우에는 기본 화면의 오른쪽 가장자리로 돌아갑니다.',
+  'Hold Alt and drag the notch to slide it along its edge. Each edge remembers where you left it. Recentre puts it back in the middle of the edge it is on, or on the main screen\'s right-hand edge if the screen it was on has been unplugged.':'Alt 키를 누른 채 노치를 드래그하면 가장자리를 따라 옮길 수 있습니다. 가장자리마다 마지막 위치를 기억합니다. \'가운데로 되돌리기\'를 사용하면 현재 위치한 가장자리의 중앙으로 돌아가며, 필이 있던 화면이 연결 해제된 경우에는 기본 화면의 오른쪽 가장자리로 돌아갑니다.',
   'The notch is back in the middle':'노치가 중앙으로 돌아왔습니다',
   'App':'앱',
   'App icon':'앱 아이콘',
@@ -620,9 +620,9 @@ const UK_STATIC = {
   'Stands upright on the right-hand edge, the side it was drawn for.':'Стоїть вертикально біля правого краю — того боку, для якого його й малювали.',
   'Lies flat along the top edge, with the card opening below it.':'Лежить уздовж верхнього краю, картка відкривається під ним.',
   'Lies flat along the bottom edge, with the card opening above it.':'Лежить уздовж нижнього краю, картка відкривається над ним.',
-  'Which screen the notch lives on. Dragging it onto another screen sets this too.':'На якому екрані живе виріз. Перетягування на інший екран теж змінює цей вибір.',
+  'Which screen the notch lives on.':'На якому екрані живе виріз.',
   'this screen cannot be remembered by name':'цей екран неможливо запамʼятати за назвою',
-  'The pill can also be dragged: pick it up and drop it anywhere, and it snaps to the nearest edge of the screen you dropped it on. If it has ended up somewhere you cannot see it — off a screen you have unplugged, say — this puts it back in the middle of the main screen\'s right-hand edge.':'Панель можна й перетягувати: візьміть її та відпустіть будь-де — вона прилипне до найближчого краю того екрана, на який ви її кинули. Якщо вона опинилась там, де ви її не бачите (скажімо, за межами екрана, який ви відʼєднали), ця кнопка повертає її на середину правого краю основного екрана.',
+  'Hold Alt and drag the notch to slide it along its edge. Each edge remembers where you left it. Recentre puts it back in the middle of the edge it is on, or on the main screen\'s right-hand edge if the screen it was on has been unplugged.':'Утримуйте Alt і перетягніть виріз, щоб посунути його вздовж краю. Кожен край памʼятає останнє положення. Кнопка «Центрувати» повертає його на середину поточного краю або на правий край основного екрана, якщо екран, на якому він був, відʼєднано.',
   'The black pill against the right-hand edge of the screen, with one ring per tool. Turn it off and the pill disappears; Codenotch keeps counting your usage either way.':'Чорна панель біля правого краю екрана, по кільцю на кожен інструмент. Якщо вимкнути, панель зникне — але використання Codenotch рахує в будь-якому разі.',
   'Recentre':'Центрувати',
   'The pill can be dragged up and down the right-hand edge. If it has ended up somewhere you cannot see it — off the bottom of a screen you have unplugged, say — this drops it back into the middle of the edge.':'Панель можна перетягувати вгору й вниз уздовж правого краю. Якщо вона опинилась там, де ви її не бачите (скажімо, нижче за край екрана, який ви відʼєднали), ця кнопка повертає її на середину краю.',
@@ -1100,7 +1100,7 @@ function renderScreens(){
     sel.appendChild(o);
   }
   const who = monitors.find(m => m.current);
-  const text = 'Which screen the notch lives on. Dragging it onto another screen sets this too.';
+  const text = 'Which screen the notch lives on.';
   cap.textContent = ui(text, text) + (who && !who.id ? ' (' + ui('this screen cannot be remembered by name', 'this screen cannot be remembered by name') + ')' : '');
 }
 document.getElementById('screen').addEventListener('change', e => {
@@ -1233,7 +1233,7 @@ function boot(){
 window.addEventListener('focus', () => {
   loadLook();
   refreshOptions();
-  // A screen can be plugged in, and the pill dragged to another edge, while this window sits behind
+  // A screen can be plugged in, and the notch carried to another edge, while this window sits behind
   call('get_notch_edge', undefined, null).then(v => { if(typeof v === 'string') notchEdge = v; renderEdge(); });
   refreshScreens();
 });
