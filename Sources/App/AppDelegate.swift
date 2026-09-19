@@ -68,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// work login's sessions spin the work ring and nobody else's.
     private let claudeProfiles = ClaudeProfile.discover()
     private let codexProfiles = CodexProfile.discover()
+    private let antigravityProfiles = AntigravityProfile.discover()
     /// Held as concrete providers, not just handed to the store: the token
     /// refresher needs to ask one of them how long its token has left, and the
     /// protocol has no business carrying that.
@@ -138,13 +139,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // switched-off ones once the binding below delivered.
             Log.usage.info("claude profiles: \(self.claudeProfiles.map(\.displayPath).joined(separator: ", "), privacy: .public)")
             Log.usage.info("codex profiles: \(self.codexProfiles.map(\.displayPath).joined(separator: ", "), privacy: .public)")
+            Log.usage.info("antigravity profiles: \(self.antigravityProfiles.map(\.displayPath).joined(separator: ", "), privacy: .public)")
             let claudeProviders = claudeProfiles.map { ClaudeOAuthProvider(profile: $0) }
             self.claudeProviders = claudeProviders
             let allProviders: [UsageProvider] = claudeProviders
                 + [CursorLocalProvider()]
                 + codexProfiles.map { CodexLocalProvider(profile: $0) }
-                + [AntigravityProvider(),
-                   GLMProvider(), MiniMaxProvider(web: miniMaxWeb), GrokLocalProvider(), DevinLocalProvider(), OpenCodeProvider(),
+                + antigravityProfiles.map { AntigravityProvider(profile: $0) }
+                + [GLMProvider(), MiniMaxProvider(web: miniMaxWeb), GrokLocalProvider(), DevinLocalProvider(), OpenCodeProvider(),
                    CommandCodeProvider(), GitHubCopilotProvider(), KimiProvider(), KiroProvider(),
                    OllamaLocalProvider(endpoint: URL(string: preferences.ollamaEndpoint)!),
                    LMStudioLocalProvider(endpoint: URL(string: preferences.lmstudioEndpoint)!),
@@ -658,11 +660,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // still working without you switching to it.
         var monitors: [String: any AgentActivityMonitor] = [
             "cursor": CursorActivityMonitor(),
-            "gemini": AntigravityActivityMonitor(),
             "grok": GrokActivityMonitor(),
             "gemini-api": GeminiAPIActivityMonitor(),
             "kimi": KimiActivityMonitor(),
         ]
+        for profile in antigravityProfiles {
+            monitors[profile.id] = AntigravityActivityMonitor(profile: profile)
+        }
         var claudeMonitors: [ClaudeSessionMonitor] = []
         for profile in claudeProfiles {
             let monitor = ClaudeSessionMonitor(

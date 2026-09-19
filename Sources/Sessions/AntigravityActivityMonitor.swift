@@ -31,6 +31,13 @@ final class AntigravityActivityMonitor: AgentActivityMonitor {
         self.staleAfter = staleAfter
     }
 
+    convenience init(profile: AntigravityProfile,
+                     interval: TimeInterval = 2,
+                     staleAfter: TimeInterval = 45) {
+        let roots = profile.slug == nil ? AntigravityActivity.transcriptRoots : [profile.brainDirectory]
+        self.init(roots: roots, interval: interval, staleAfter: staleAfter)
+    }
+
     func start() {
         stop()
         poll()

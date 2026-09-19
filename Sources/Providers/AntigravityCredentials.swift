@@ -28,17 +28,50 @@ struct AntigravityCredentials {
 
     /// Held until it expires, for the reason spelled out in `CredentialCache`.
     private static let cache = CredentialCache<AntigravityCredentials> { $0.isExpired }
+    private static let profileCachesLock = NSLock()
+    private static var profileCaches: [String: CredentialCache<AntigravityCredentials>] = [:]
+
+    private static func cache(for profile: AntigravityProfile) -> CredentialCache<AntigravityCredentials> {
+        if profile.slug == nil { return cache }
+        profileCachesLock.lock()
+        defer { profileCachesLock.unlock() }
+        if let existing = profileCaches[profile.id] {
+            return existing
+        }
+        let newCache = CredentialCache<AntigravityCredentials> { $0.isExpired }
+        profileCaches[profile.id] = newCache
+        return newCache
+    }
 
     static func forgetCached() { cache.forget() }
 
-    /// Granted by "Allow access…" alone — see `PromptPermission`.
-    private static let prompt = PromptPermission()
+    static func forgetCached(for profile: AntigravityProfile) {
+        cache(for: profile).forget()
+    }
+
+    private static let profilePromptsLock = NSLock()
+    private static var profilePrompts: [String: PromptPermission] = [:]
+
+    private static func prompt(for profileID: String) -> PromptPermission {
+        profilePromptsLock.lock()
+        defer { profilePromptsLock.unlock() }
+        if let existing = profilePrompts[profileID] {
+            return existing
+        }
+        let newPrompt = PromptPermission()
+        profilePrompts[profileID] = newPrompt
+        return newPrompt
+    }
 
     /// A person asked macOS for this login again: the next read may show the
     /// dialogue. `forgetCached` grants nothing, because it is not only a click.
     static func askAgain() {
-        prompt.grant()
-        cache.forget()
+        askAgain(for: .default())
+    }
+
+    static func askAgain(for profile: AntigravityProfile) {
+        prompt(for: profile.id).grant()
+        cache(for: profile).forget()
     }
 
     /// Stands in for the keychain in tests, which have none to read.
@@ -46,6 +79,10 @@ struct AntigravityCredentials {
 
     /// Whatever a previous fetch already read, without asking macOS again.
     static var held: AntigravityCredentials? { cache.held }
+
+    static func held(for profile: AntigravityProfile) -> AntigravityCredentials? {
+        cache(for: profile).held
+    }
 
     /// Whether Antigravity has filed a credential at all, judged from the
     /// item's attributes rather than its contents — those are not behind the
@@ -57,6 +94,20 @@ struct AntigravityCredentials {
         let ompDBPath = ("~/.omp/agent/agent.db" as NSString).expandingTildeInPath
         if FileManager.default.fileExists(atPath: ompDBPath) { return true }
         return false
+    }
+
+    static func hasCredential(for profile: AntigravityProfile) -> Bool {
+        if profile.slug == nil { return isSignedIn() }
+        if FileManager.default.fileExists(atPath: profile.authURL.path) { return true }
+        let dbPath = profile.configDirectory.appendingPathComponent("agent.db").path
+        if FileManager.default.fileExists(atPath: dbPath), readOMPCredentials(at: URL(fileURLWithPath: dbPath)) != nil {
+            return true
+        }
+        return false
+    }
+
+    static func isSignedIn(for profile: AntigravityProfile) -> Bool {
+        hasCredential(for: profile)
     }
 
     /// Antigravity stores through Go's `keyring` package, which base64-encodes
@@ -79,6 +130,35 @@ struct AntigravityCredentials {
         )
     }
 
+    static func load(for profile: AntigravityProfile) throws -> AntigravityCredentials {
+        if profile.slug == nil { return try load() }
+        return try cache(for: profile).value(
+            itemModifiedAt: {
+                let jsonMod = (try? FileManager.default.attributesOfItem(atPath: profile.authURL.path))?[.modificationDate] as? Date
+                let agentDB = profile.configDirectory.appendingPathComponent("agent.db").path
+                let dbMod = (try? FileManager.default.attributesOfItem(atPath: agentDB))?[.modificationDate] as? Date
+                return [jsonMod, dbMod].compactMap { $0 }.max()
+            },
+            reload: { try read(for: profile) }
+        )
+    }
+
+    private static func read(for profile: AntigravityProfile) throws -> AntigravityCredentials {
+        // 1. Check profile-specific oauth_creds.json first
+        if let jsonCreds = readJSONCredentials(at: profile.authURL.path) {
+            return jsonCreds
+        }
+
+        // 2. Check profile-specific agent.db
+        let agentDB = profile.configDirectory.appendingPathComponent("agent.db")
+        if let ompCreds = readOMPCredentials(at: agentDB) {
+            return ompCreds
+        }
+
+        Log.usage.error("antigravity credentials read failed for \(profile.id, privacy: .public)")
+        throw UsageProviderError.needsAuth
+    }
+
     private static func read() throws -> AntigravityCredentials {
         var keychainCreds: AntigravityCredentials?
         var keychainStatus: OSStatus = 0
@@ -89,7 +169,7 @@ struct AntigravityCredentials {
         // five-minute retry came round — for a token Antigravity itself had
         // long stopped refreshing. A refusal is retried through the security
         // tool under the item's own account, which is not this user's.
-        let interactive = prompt.take()
+        let interactive = prompt(for: AntigravityProfile.defaultID).take()
         let (status, data) = readKeychainForTesting?(interactive) ?? KeychainSecret.read(
             query: [
                 kSecClass: kSecClassGenericPassword,
@@ -141,8 +221,7 @@ struct AntigravityCredentials {
             : UsageProviderError.needsAuth
     }
 
-    private static func readOMPCredentials() -> AntigravityCredentials? {
-        let dbURL = URL(fileURLWithPath: ("~/.omp/agent/agent.db" as NSString).expandingTildeInPath)
+    private static func readOMPCredentials(at dbURL: URL = URL(fileURLWithPath: ("~/.omp/agent/agent.db" as NSString).expandingTildeInPath)) -> AntigravityCredentials? {
         guard let db = SQLiteStore.open(dbURL) else { return nil }
         defer { sqlite3_close(db) }
 
@@ -170,13 +249,15 @@ struct AntigravityCredentials {
         )
     }
 
-    private static func readJSONCredentials() -> AntigravityCredentials? {
-        let path = ("~/.gemini/oauth_creds.json" as NSString).expandingTildeInPath
+    private static func readJSONCredentials(at path: String = ("~/.gemini/oauth_creds.json" as NSString).expandingTildeInPath) -> AntigravityCredentials? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
 
         struct JSONPayload: Decodable {
             let access_token: String?
             let expiry_date: Double?
+            let email: String?
+            let project_id: String?
+            let projectId: String?
         }
 
         guard let payload = try? JSONDecoder().decode(JSONPayload.self, from: data),
@@ -186,7 +267,9 @@ struct AntigravityCredentials {
         return AntigravityCredentials(
             accessToken: token,
             expiresAt: expiry,
-            authMethod: "consumer"
+            authMethod: "consumer",
+            projectId: payload.projectId ?? payload.project_id,
+            email: payload.email
         )
     }
 

@@ -758,7 +758,7 @@ final class Preferences: ObservableObject {
 
     /// Claude and Codex stay on for a first install and for a newly discovered
     /// profile. Everyone else starts off.
-    static func isDefaultOnFamily(_ providerID: String) -> Bool {
+    nonisolated static func isDefaultOnFamily(_ providerID: String) -> Bool {
         ClaudeProfile.isClaude(providerID: providerID)
             || CodexProfile.isCodex(providerID: providerID)
     }

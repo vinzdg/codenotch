@@ -382,6 +382,9 @@ struct ProviderSnapshot: Identifiable, Equatable {
             let slug = CodexProfile.slug(fromProviderID: id)!
             return L10n.t("Sign in to Codex in ~/.codex-\(slug) to read your usage", locale: locale)
         case "gemini":     return L10n.t("Sign in to Antigravity to read your usage", locale: locale)
+        case _ where AntigravityProfile.slug(fromProviderID: id) != nil:
+            let slug = AntigravityProfile.slug(fromProviderID: id)!
+            return L10n.t("Sign in to Antigravity in ~/.gemini/antigravity-\(slug) to read your usage", locale: locale)
         case "glm":        return L10n.t("Set up a GLM Coding Plan key for a coding tool to read your usage", locale: locale)
         case "copilot":    return L10n.t("Sign in with GitHub CLI to read your Copilot usage", locale: locale)
         case "opencode":   return L10n.t("Connect the Go plan in OpenCode to read your usage", locale: locale)

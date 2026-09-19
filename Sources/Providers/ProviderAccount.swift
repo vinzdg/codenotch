@@ -123,7 +123,7 @@ struct ProviderSummary: Identifiable, Equatable {
     /// JWT in the login keychain — without this flag a declined prompt would
     /// have no "Allow access…" to put the dialogue back.
     var usesKeychain: Bool {
-        ClaudeProfile.isClaude(providerID: id) || id == "gemini" || id == "cursor"
+        ClaudeProfile.isClaude(providerID: id) || AntigravityProfile.isAntigravity(providerID: id) || id == "cursor"
     }
 
     let id: String

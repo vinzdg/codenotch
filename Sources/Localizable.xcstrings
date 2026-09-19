@@ -1061,6 +1061,112 @@
         }
       }
     },
+    "Sign in to Antigravity in ~/.gemini/antigravity-%@ to read your usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich in ~/.gemini/antigravity-%@ bei Antigravity an, um deine Nutzung zu lesen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous à Antigravity dans ~/.gemini/antigravity-%@ pour lire votre consommation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用量を読み取るには ~/.gemini/antigravity-%@ で Antigravity にサインイン"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entre no Antigravity em ~/.gemini/antigravity-%@ para ler seu uso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Войдите в Antigravity в ~/.gemini/antigravity-%@, чтобы увидеть использование"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 ~/.gemini/antigravity-%@ 登录 Antigravity 以读取用量"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 ~/.gemini/antigravity-%@ 登入 Antigravity 以讀取用量"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увійдіть в Antigravity в ~/.gemini/antigravity-%@, щоб бачити використання"
+          }
+        }
+      }
+    },
+    "Antigravity in %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity in %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity dans %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の Antigravity"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity в %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity в %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中的 Antigravity"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中的 Antigravity"
+          }
+        }
+      }
+    },
     "Set up a GLM Coding Plan key for a coding tool to read your usage": {
       "extractionState": "manual",
       "localizations": {

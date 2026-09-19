@@ -15,10 +15,11 @@ import os
 /// plan gets, and for the same reason: a confident 0% is worse than an admitted
 /// blank, especially in something people pay for.
 actor AntigravityProvider: UsageProvider {
-    nonisolated let id = "gemini"
-    // The id stays `gemini`: it keys the archive and the user's connection
-    // choice, and changing it would silently discard both.
-    nonisolated let displayName = "Antigravity"
+    nonisolated let profile: AntigravityProfile
+    nonisolated let id: String
+    // The id stays `gemini` for default profile: it keys the archive and the user's connection
+    // choice, and changing it would silently discard both. Additional profiles are `antigravity-<slug>`.
+    nonisolated let displayName: String
     nonisolated let glyph = ProviderGlyph.antigravity
 
     /// The production host. Antigravity itself also calls a `daily-` variant,
@@ -49,8 +50,12 @@ actor AntigravityProvider: UsageProvider {
     /// would otherwise go uncovered.
     private let localQuotaOverride: (@Sendable () async -> [LimitWindow]?)?
 
-    init(session: URLSession = .shared,
+    init(profile: AntigravityProfile = .default(),
+         session: URLSession = .shared,
          localQuota: (@Sendable () async -> [LimitWindow]?)? = nil) {
+        self.profile = profile
+        self.id = profile.id
+        self.displayName = profile.displayName
         self.session = session
         self.localQuotaOverride = localQuota
         self.localSession = URLSession(configuration: .ephemeral,
@@ -59,25 +64,28 @@ actor AntigravityProvider: UsageProvider {
     }
 
     nonisolated var signInRoute: SignInRoute {
-        .openApp(bundleID: "com.google.antigravity", name: "Antigravity")
+        profile.signInRoute
     }
 
     /// Reached only from "Allow access…", so it may let the next read prompt.
-    nonisolated func forgetCachedCredential() { AntigravityCredentials.askAgain() }
+    nonisolated func forgetCachedCredential() {
+        AntigravityCredentials.forgetCached(for: profile)
+        AntigravityCredentials.askAgain(for: profile)
+    }
 
     nonisolated func account() -> ProviderAccount? {
-        if AntigravityCredentials.isSignedIn(), let held = AntigravityCredentials.held {
+        if AntigravityCredentials.isSignedIn(for: profile), let held = AntigravityCredentials.held(for: profile) {
             let email = held.email
             let plan = held.authMethod == "consumer" ? L10n.t("Personal") : held.authMethod
             return ProviderAccount(
                 label: email,
                 plan: plan,
-                source: "Antigravity",
+                source: profile.sourceName,
                 manageURL: URL(string: "https://antigravity.google")
             )
         }
         
-        if UserDefaults.standard.bool(forKey: "AntigravityEverBridged") {
+        if profile.slug == nil && UserDefaults.standard.bool(forKey: "AntigravityEverBridged") {
             return ProviderAccount(
                 label: L10n.t("Local Session"),
                 plan: L10n.t("Active"),
@@ -100,22 +108,24 @@ actor AntigravityProvider: UsageProvider {
         // not need: someone who dismissed the keychain prompt got `accessDenied`
         // and an empty ring, while the server that would have answered sat
         // running on the same machine, never asked.
-        if let windows = await localQuota(), !windows.isEmpty {
-            everBridged = true
-            UserDefaults.standard.set(true, forKey: "AntigravityEverBridged")
-            
-            return ProviderSnapshot(id: id, displayName: displayName, glyph: glyph,
-                                    fidelity: .official, status: .ok, windows: windows,
-                                    headlineID: resolveHeadlineID(for: windows),
-                                    weeklyID: resolveWeeklyID(for: windows))
-        }
+        if profile.slug == nil {
+            if let windows = await localQuota(), !windows.isEmpty {
+                everBridged = true
+                UserDefaults.standard.set(true, forKey: "AntigravityEverBridged")
+                
+                return ProviderSnapshot(id: id, displayName: displayName, glyph: glyph,
+                                        fidelity: .official, status: .ok, windows: windows,
+                                        headlineID: resolveHeadlineID(for: windows),
+                                        weeklyID: resolveWeeklyID(for: windows))
+            }
 
-        if localQuotaOverride != nil && everBridged {
-            throw UsageProviderError.credentialExpired
+            if localQuotaOverride != nil && everBridged {
+                throw UsageProviderError.credentialExpired
+            }
         }
 
         // 1. Try reading credentials and asking Google Cloud Code PA directly
-        let credentials = try? AntigravityCredentials.load()
+        let credentials = try? AntigravityCredentials.load(for: profile)
         if let credentials,
            let windows = try? await quota(token: credentials.accessToken, project: credentials.projectId),
            !windows.isEmpty {
@@ -126,12 +136,14 @@ actor AntigravityProvider: UsageProvider {
         }
 
         // 2. Fallback to OMP SQLite store if offline or direct call fails
-        let ompWindows = Self.ompUsageWindows(forEmail: credentials?.email)
-        if !ompWindows.isEmpty {
-            return ProviderSnapshot(id: id, displayName: displayName, glyph: glyph,
-                                    fidelity: .official, status: .ok, windows: ompWindows,
-                                    headlineID: resolveHeadlineID(for: ompWindows),
-                                    weeklyID: resolveWeeklyID(for: ompWindows))
+        if profile.slug == nil {
+            let ompWindows = Self.ompUsageWindows(forEmail: credentials?.email)
+            if !ompWindows.isEmpty {
+                return ProviderSnapshot(id: id, displayName: displayName, glyph: glyph,
+                                        fidelity: .official, status: .ok, windows: ompWindows,
+                                        headlineID: resolveHeadlineID(for: ompWindows),
+                                        weeklyID: resolveWeeklyID(for: ompWindows))
+            }
         }
 
         if everBridged { throw UsageProviderError.credentialExpired }
@@ -142,7 +154,8 @@ actor AntigravityProvider: UsageProvider {
         //
         // Better than the dash it showed before, which read as broken rather
         // than as "Google will not answer for this account".
-        let activity = AntigravityActivity.read()
+        let roots = profile.slug == nil ? AntigravityActivity.transcriptRoots : [profile.brainDirectory]
+        let activity = AntigravityActivity.read(roots: roots)
         return ProviderSnapshot(
             id: id,
             displayName: displayName,
