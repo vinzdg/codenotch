@@ -3,7 +3,7 @@
 //! Headers: Authorization: Bearer <token>; anthropic-beta: oauth-2025-04-20; 15 s timeout
 //! Rules (upstream's discipline):
 //!   - the credential comes from Claude Code's own store (Windows: ~/.claude/.credentials.json), read only
-//!   - 401/403 → re-read the credential once and retry (Claude Code may have just refreshed the token) → still failing means needsAuth
+//!   - 401 → re-read once and retry; 403 is access denied, not proof of lost authentication
 //!   - 429 → back off 60 s × 2^n capped at 15 min, Retry-After only raises it, even past the cap; the deadline is persisted
 //!   - an expired token is never sent: the endpoint answers it with 429 + Retry-After ≈ 3600, not 401, so sending it
 //!     reads as "rate limited" for as long as the token stays stale (upstream's credentialExpired, no network)
@@ -121,7 +121,15 @@ impl Credential {
     }
 }
 
-/// Reads Claude Code's OAuth credential.
+/// Both supported credential shapes; an empty token is signed out, not expired.
+fn credential_from_json(v: &serde_json::Value) -> Option<Credential> {
+    let oauth = v.get("claudeAiOauth").unwrap_or(v);
+    let token = oauth.get("accessToken")?.as_str()?;
+    if token.trim().is_empty() { return None; }
+    let expires_at = oauth.get("expiresAt").and_then(|x| x.as_f64()).map(|ms| ms as u64);
+    Some(Credential { token: token.into(), expires_at })
+}
+
 fn read_credentials() -> Option<Credential> {
     let home = dirs::home_dir()?;
     for name in [".credentials.json", "credentials.json"] {
@@ -132,11 +140,7 @@ fn read_credentials() -> Option<Credential> {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
             continue;
         };
-        let oauth = v.get("claudeAiOauth").unwrap_or(&v);
-        if let Some(tok) = oauth.get("accessToken").and_then(|x| x.as_str()) {
-            let expires_at = oauth.get("expiresAt").and_then(|x| x.as_f64()).map(|ms| ms as u64);
-            return Some(Credential { token: tok.to_string(), expires_at });
-        }
+        if let Some(c) = credential_from_json(&v) { return Some(c); }
     }
     None
 }
@@ -166,8 +170,8 @@ fn is_desktop_owned(p: &std::path::Path) -> bool {
     s.contains("\\anthropicclaude\\") || s.contains("\\claude\\claude-code\\") || s.contains("\\windowsapps\\")
 }
 
-/// The standalone Claude Code command: its own installer's location first, then global npm/pnpm/Volta, then PATH
-fn find_cli() -> Option<std::path::PathBuf> {
+/// Standalone Claude Code: native installer, npm/WinGet/pnpm/Volta, then PATH.
+pub(crate) fn find_cli() -> Option<std::path::PathBuf> {
     let mut v = Vec::new();
     if let Some(h) = dirs::home_dir() {
         v.push(h.join(".local").join("bin").join("claude.exe"));
@@ -176,6 +180,7 @@ fn find_cli() -> Option<std::path::PathBuf> {
         v.push(d.join("npm").join("claude.cmd"));
     }
     if let Some(d) = dirs::data_local_dir() {
+        v.push(d.join("Microsoft/WinGet/Links/claude.exe"));
         v.push(d.join("pnpm").join("claude.cmd"));
     }
     if let Some(h) = dirs::home_dir() {
@@ -259,6 +264,7 @@ impl Renewer {
     /// Renews if the token is about to expire. Some(true) = the expiry moved; judged on the outcome, never on the
     /// exit status, because refusing the empty prompt is a non-zero exit and a successful renewal at the same time
     fn maybe_renew(&mut self, cred: &Credential) -> Option<bool> {
+        let _auth = crate::claude_auth::try_acquire()?;
         let now = now_ms();
         if !should_renew(cred.expires_at, now, self.attempted_for, self.last_attempt, self.failures) {
             return None;
@@ -376,6 +382,10 @@ fn fetch_once(token: &str) -> Result<Vec<LimitWindow>, FetchErr> {
         .set("anthropic-beta", "oauth-2025-04-20")
         .timeout(Duration::from_secs(15))
         .call();
+    interpret_response(resp)
+}
+
+fn interpret_response(resp: Result<ureq::Response, ureq::Error>) -> Result<Vec<LimitWindow>, FetchErr> {
     match resp {
         Ok(r) => {
             let v: serde_json::Value = r
@@ -383,9 +393,11 @@ fn fetch_once(token: &str) -> Result<Vec<LimitWindow>, FetchErr> {
                 .map_err(|e| FetchErr::Other(format!("parse: {e}")))?;
             Ok(parse_response(&v))
         }
-        Err(ureq::Error::Status(401, _)) | Err(ureq::Error::Status(403, _)) => {
+        Err(ureq::Error::Status(401, _)) => {
             Err(FetchErr::NeedsAuth)
         }
+        Err(ureq::Error::Status(403, _)) => Err(FetchErr::Other(
+            "Claude HTTP 403: access denied. Check network or account access; sign-in may still be valid.".into())),
         Err(ureq::Error::Status(429, r)) => {
             let ra = r
                 .header("retry-after")
@@ -427,6 +439,10 @@ pub fn start(app: AppHandle) {
         let mut consecutive_429: u32 = 0;
         let mut renewer = Renewer::default();
         loop {
+            if crate::claude_auth::state().busy {
+                sleep_interruptible(2);
+                continue;
+            }
             // Ahead of the back-off: renewing never touches the usage endpoint, and a fresh token deserves a fresh try
             if let Some(cred) = read_credentials() {
                 if renewer.maybe_renew(&cred) == Some(true) {
@@ -457,7 +473,7 @@ pub fn start(app: AppHandle) {
                 }),
                 Some(cred) => {
                     let token = cred.token;
-                    // On 401/403 re-read the credential and retry once (Claude Code may have just refreshed it)
+                    // On 401 re-read once (Claude Code may have just refreshed the token).
                     let result = match fetch_once(&token) {
                         Err(FetchErr::NeedsAuth) => match read_credentials() {
                             Some(c2) if c2.token != token => fetch_once(&c2.token),
@@ -468,6 +484,7 @@ pub fn start(app: AppHandle) {
                     let auth_note = "Credential rejected (switched accounts?)";
                     match result {
                         Ok(windows) => {
+                            crate::claude_auth::usage_succeeded();
                             consecutive_429 = 0;
                             set_and_broadcast(&app, |u| {
                                 u.status = "ok".into();
@@ -527,6 +544,26 @@ mod tests {
     use super::*;
 
     const EXP: u64 = 1_000_000_000;
+
+    #[test]
+    fn empty_credentials_are_signed_out_and_both_shapes_work() {
+        for value in [serde_json::json!({}), serde_json::json!({"accessToken":" "}),
+            serde_json::json!({"claudeAiOauth":{"accessToken":""}})] {
+            assert!(credential_from_json(&value).is_none());
+        }
+        let v = serde_json::json!({"accessToken":"fixture","expiresAt":EXP});
+        assert_eq!(credential_from_json(&v).unwrap().token, "fixture");
+        assert_eq!(credential_from_json(&serde_json::json!({"claudeAiOauth":v})).unwrap().expires_at, Some(EXP));
+    }
+
+    #[test]
+    fn distinguishes_auth_access_and_rate_limit_errors() {
+        let error = |code| ureq::Error::Status(code, ureq::Response::new(code, "fixture", "{}").unwrap());
+        assert!(matches!(interpret_response(Err(error(401))), Err(FetchErr::NeedsAuth)));
+        assert!(matches!(interpret_response(Err(error(403))), Err(FetchErr::Other(_))));
+        assert!(matches!(interpret_response(Err(error(429))), Err(FetchErr::RateLimited(_))));
+        assert!(matches!(interpret_response(Err(error(503))), Err(FetchErr::Other(_))));
+    }
 
     #[test]
     fn renews_only_inside_the_margin() {

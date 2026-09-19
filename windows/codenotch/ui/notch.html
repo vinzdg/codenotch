@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <style>
+  .c-auth{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+  .c-auth button{font:inherit;font-size:11px;color:#fff;background:#252525;border:1px solid #555;border-radius:7px;padding:6px 9px;cursor:pointer}
+  .c-auth button:hover,.c-auth button:focus-visible{background:#383838;border-color:#aaa}
+  .c-auth button:disabled{opacity:.5;cursor:wait}
+  .c-auth-status{font-size:10px;line-height:1.4;color:#b9b9b9;margin-top:6px;overflow-wrap:anywhere}
   /* Visual reference: upstream docs/specs/2026-08-28-usage-notch-design.md, reproduced for Windows */
   *{box-sizing:border-box} /* content-box padding once pushed the card past the window's left edge */
   html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overflow:hidden;user-select:none}
@@ -79,7 +84,7 @@
        The 246 cap matches the upstream spec. */
     max-width:246px;margin-left:auto;background:#0a0a0a;border-radius:16px;padding:16px;
     overflow-wrap:anywhere;min-width:0;
-    max-height:calc(100% - 16px);overflow:hidden; /* never taller than the window, however short it is */
+    max-height:calc(100% - 16px);overflow-x:hidden;overflow-y:auto;scrollbar-width:thin; /* actions stay reachable in a tall card */
     display:none;
   }
   #card.show{display:block}
@@ -320,6 +325,19 @@ const TEXT={
   },
   ru:{
     'Included usage':'Включённое использование',
+    'Sign in':'Авторизоваться',
+    'Signing in...':'Вход…',
+    'Refresh':'Обновить',
+    'Browser sign-in through Claude Code':'Вход через браузер с помощью Claude Code',
+    'Complete sign-in in the browser or terminal window.':'Подтвердите вход в браузере или окне терминала.',
+    'Sign-in complete. Refreshing usage...':'Вход выполнен. Обновляю лимиты…',
+    'Sign-in cancelled, failed or timed out. Try again.':'Вход отменён, завершился ошибкой или истекло время ожидания. Попробуйте ещё раз.',
+    'Checking usage...':'Проверяю лимиты…',
+    'Rate limited. Wait for the retry deadline.':'Слишком много запросов. Дождитесь срока повтора.',
+    'Claude Code CLI not found. Install the standalone CLI first.':'Claude Code CLI не найден. Установите отдельный CLI.',
+    'Claude sign-in or renewal is already running.':'Вход или обновление авторизации Claude уже выполняется.',
+    'Unable to open Claude sign-in window.':'Не удалось открыть окно входа Claude.',
+    'Claude HTTP 403: access denied. Check network or account access; sign-in may still be valid.':'Claude HTTP 403: доступ запрещён. Проверьте сеть и доступ к аккаунту; авторизация может быть действующей.',
     'API usage':'Использование API',
     'On demand':'По запросу',
     'Usage':'Использование',
@@ -808,6 +826,31 @@ const SESSION_ROWS=5;
 function moreRow(n){ return n>0?`<div class="s-more">${ui().andMore(n)}</div>`:''; }
 
 let hoverId='claude';
+let claudeAuth={busy:false,message:''};
+let claudeActionMessage='';
+// CLAUDE_AUTH_ACTIONS_START
+function claudeAuthHtml(auth, message=''){
+  return `<div class="c-auth"><button id="claude-sign-in" ${auth.busy?'disabled':''}>${esc(textCopy(auth.busy?'Signing in...':'Sign in'))}</button><button id="claude-refresh" ${auth.busy?'disabled':''}>${esc(textCopy('Refresh'))}</button></div><div class="c-auth-status" role="status">${esc(textCopy(message||auth.message||'Browser sign-in through Claude Code'))}</div>`;
+}
+async function runClaudeAction(action){
+  if(claudeAuth.busy) return;
+  claudeActionMessage='';
+  try{
+    if(action==='sign-in'){
+      claudeAuth={busy:true,message:'Complete sign-in in the browser or terminal window.'};
+      renderCard();
+      await invoke('claude_sign_in');
+    }else{
+      const requested=await invoke('refresh_claude_usage');
+      claudeActionMessage=requested?'Checking usage...':'Rate limited. Wait for the retry deadline.';
+    }
+  }catch(e){
+    claudeAuth.busy=false;
+    claudeActionMessage=String(e?.message||e);
+  }
+  renderCard();
+}
+// CLAUDE_AUTH_ACTIONS_END
 function renderCard(){
   const c=document.getElementById('card');
   const p=providers().find(x=>x.id===hoverId)||providers()[0];
@@ -843,6 +886,7 @@ function renderCard(){
     if(group) html+=`</div>`;
     if(snap.note) html+=`<div class="c-note">${esc(textCopy(snap.note))}</div>`;
   }
+  if(p.id==='claude') html+=claudeAuthHtml(claudeAuth,claudeActionMessage);
   if(p.id==='claude'){ // live sessions (a full list with jump-to-session is a follow-up)
     const act=stateSnap.sessions.filter(s=>s.state!=='idle');
     if(act.length){
@@ -865,6 +909,9 @@ function renderCard(){
     }
   }
   c.innerHTML=html;
+  const signIn=c.querySelector('#claude-sign-in'), refresh=c.querySelector('#claude-refresh');
+  if(signIn) signIn.onclick=e=>{e.stopPropagation();runClaudeAction('sign-in');};
+  if(refresh) refresh.onclick=e=>{e.stopPropagation();runClaudeAction('refresh');};
   placeCard();
 }
 // The card follows the hovered cell: centred on it along the pill (kept inside the window), tail pointing at it.
@@ -1132,7 +1179,7 @@ listen('move_end',()=>{ carrying=false; moveHandle.classList.remove('armed'); se
 listen('move_handle',e=>{ showMove=e.payload!==false; reportHot(); }).catch(()=>{});
 invoke('get_move_handle').then(v=>{ showMove=v!==false; reportHot(); }).catch(()=>{});
 
-listen('usage',e=>{usage=e.payload||usage;settle('claude');renderRing();if(card.classList.contains('show'))renderCard();})
+listen('usage',e=>{usage=e.payload||usage;claudeActionMessage='';settle('claude');renderRing();if(card.classList.contains('show'))renderCard();})
   .catch(e=>notice('listen(usage) failed: '+e));
 listen('state',e=>{stateSnap=e.payload||stateSnap;setUiLanguage(stateSnap.lang_resolved);renderRing();if(card.classList.contains('show'))renderCard();})
   .catch(e=>notice('listen(state) failed: '+e));
@@ -1169,6 +1216,16 @@ invoke('get_codex').then(u=>{codexSnap=u||codexSnap;renderRing();}).catch(()=>{}
 invoke('get_usage').then(u=>{usage=u||usage;renderRing();}).catch(e=>notice('get_usage failed: '+e));
 invoke('get_state').then(s=>{stateSnap=s||stateSnap;setUiLanguage(stateSnap.lang_resolved);renderRing();}).catch(()=>{});
 setInterval(renderRing,30_000); // stale state and reset copy move with time
+setInterval(async()=>{
+  if(!claudeAuth.busy&&!(hoverId==='claude'&&card.classList.contains('show'))) return;
+  try{
+    const next=await invoke('get_claude_auth');
+    if(JSON.stringify(next)!==JSON.stringify(claudeAuth)){
+      claudeAuth=next;
+      if(hoverId==='claude'&&card.classList.contains('show')){renderCard();armWatchdog();}
+    }
+  }catch(_){} // Local IPC only; no network requests and no automatic browser launch.
+},2000);
 </script>
 </body>
 </html>

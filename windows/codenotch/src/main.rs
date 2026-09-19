@@ -12,6 +12,7 @@ mod state;
 mod tray;
 mod traymenu;
 mod usage;
+mod claude_auth;
 mod codex;
 mod cursor;
 mod grok;
@@ -559,6 +560,15 @@ fn get_state(state: tauri::State<AppState>) -> state::Snapshot {
 fn get_usage(state: tauri::State<AppState>) -> usage::UsageSnapshot {
     state.usage.lock().unwrap().clone()
 }
+
+#[tauri::command]
+fn claude_sign_in() -> Result<(), String> { claude_auth::start_login() }
+
+#[tauri::command]
+fn get_claude_auth() -> claude_auth::AuthState { claude_auth::state() }
+
+#[tauri::command]
+fn refresh_claude_usage(app: AppHandle) -> bool { refresh_provider(&app, "claude") }
 
 /// Asks one provider to read again, and says whether a reading is on its way. Claude's rate-limit
 /// wait stands, as on the Mac: asking early spends a request and can double the wait.
@@ -1538,6 +1548,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_state,
             get_usage,
+            claude_sign_in,
+            get_claude_auth,
+            refresh_claude_usage,
             get_codex,
             get_cursor,
             get_grok,

@@ -31,6 +31,9 @@ jobs:
       - name: Check the UI pages parse
         run: node scripts/check-ui-scripts.mjs
 
+      - name: Test Claude sign-in controls
+        run: node scripts/test-claude-auth-ui.cjs
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy

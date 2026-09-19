@@ -21,6 +21,21 @@ documented behaviour and the wire formats.
 
 Providers that are not installed simply do not get a cell.
 
+### Claude sign-in
+
+Hover Claude and choose **Sign in** to open the standalone Claude Code CLI's
+browser login (`claude auth login --claudeai`). Finish in the browser; if it
+displays a code, paste it in the opened terminal, not in Codenotch. The card
+refreshes after the CLI exits without restarting the widget. The native CLI must
+already be installed; missing CLI, cancellation and launch errors are shown.
+
+This explicit action shares a busy guard with automatic token renewal. Only the
+CLI handles OAuth and writes credentials; Codenotch does not receive login codes
+or expose tokens through UI IPC. The interactive child has a 15-minute timeout.
+**Refresh** requests only Claude usage and respects an active HTTP 429 retry
+deadline. HTTP 403 is reported as an access/network refusal rather than claiming
+that a still-valid login has expired. Existing automatic renewal is unchanged.
+
 ### Antigravity
 
 - **Official CLI (Preferred)**: When the official Antigravity CLI (`agy.exe`) is installed (`%LOCALAPPDATA%\agy\bin\agy.exe` or on `PATH`) and signed in, Codenotch reads official quotas directly without keeping the full IDE running.
