@@ -83,6 +83,9 @@ pub struct Config {
     /// false = no arc above the notch to carry it by. Nothing is lost: Appearance → Edge moves it too.
     #[serde(default = "yes")]
     pub show_move_handle: bool,
+    /// Whether the edge bar retracts after the pointer leaves it.
+    #[serde(default = "default_auto_hide")]
+    pub auto_hide: bool,
 }
 
 fn default_notch_y() -> f64 {
@@ -127,6 +130,9 @@ pub fn weekly_ring_or_off(value: &str) -> String {
 fn yes() -> bool {
     true
 }
+fn default_auto_hide() -> bool {
+    true
+}
 fn default_antigravity_limit() -> String {
     "automatic".into()
 }
@@ -162,6 +168,7 @@ impl Default for Config {
             notch_visible: true,
             tray_visible: true,
             show_move_handle: true,
+            auto_hide: default_auto_hide(),
         }
     }
 }
@@ -214,7 +221,7 @@ pub fn save(cfg: &Config) {
 
 #[cfg(test)]
 mod tests {
-    use super::{snap_scale, weekly_ring_or_off};
+    use super::{snap_scale, weekly_ring_or_off, Config};
 
     #[test]
     fn a_saved_scale_snaps_to_the_nearest_size() {
@@ -232,5 +239,11 @@ mod tests {
         assert_eq!(weekly_ring_or_off("outside"), "outside");
         assert_eq!(weekly_ring_or_off("Inside"), "off");
         assert_eq!(weekly_ring_or_off(""), "off");
+    }
+
+    #[test]
+    fn auto_hide_defaults_on_for_existing_configs() {
+        let cfg: Config = serde_json::from_str("{}").expect("empty config should load");
+        assert!(cfg.auto_hide);
     }
 }

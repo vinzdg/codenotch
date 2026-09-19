@@ -19,6 +19,12 @@
     box-shadow:none;
     display:flex;flex-direction:column;align-items:center;gap:14px;cursor:pointer;
   }
+  body.auto-retracted #pill{transform:translateY(-50%) translateX(calc(100% - 8px))}
+  body[data-edge="left"].auto-retracted #pill{transform:translateY(-50%) translateX(calc(-100% + 8px))}
+  body[data-edge="top"].auto-retracted #pill{transform:translateX(-50%) translateY(calc(-100% + 8px))}
+  body[data-edge="bottom"].auto-retracted #pill{transform:translateX(-50%) translateY(calc(100% - 8px))}
+  body.auto-retracted #orb,body.auto-retracted #move{display:none!important;pointer-events:none}
+  #pill{transition:transform .16s ease-out}
   /* Fillets: the concave arcs between the pill's top/bottom and the screen edge (the inverse rounded
      corner in the upstream design frame). An R×R black square hugs the edge and a radial gradient
      punches out the circle of radius R centred on its outer corner; what remains is the arc. A 1 px
@@ -142,6 +148,7 @@
   body[data-edge="bottom"] #pill{bottom:0;border-radius:20px 20px 0 0;border-bottom:none}
   body[data-edge="bottom"] #pill::before{bottom:0;left:calc(-1 * var(--fillet));background:radial-gradient(circle at 0 0, transparent calc(var(--fillet) - 1.5px), #2e2e2e calc(var(--fillet) - 0.5px), #000 calc(var(--fillet) + 0.5px))}
   body[data-edge="bottom"] #pill::after{bottom:0;right:calc(-1 * var(--fillet));background:radial-gradient(circle at 100% 0, transparent calc(var(--fillet) - 1.5px), #2e2e2e calc(var(--fillet) - 0.5px), #000 calc(var(--fillet) + 0.5px))}
+  body.auto-retracted #pill::before,body.auto-retracted #pill::after{content:none!important;display:none!important;background:none!important}
   /* A fixed width here, not the fluid one the upright edges use: `placeCard` measures the card to
      centre it, and a shrink-to-fit width would change as it moves. 246 is the upstream cap either way. */
   body[data-edge="top"] #card,body[data-edge="bottom"] #card{
@@ -903,8 +910,13 @@ function esc(s){const d=document.createElement('div');d.textContent=s||'';return
 
 /* Hover: stays expanded while either the pill or the card is under the cursor; collapses after a 250 ms grace period (upstream motion rule) */
 const card=document.getElementById('card'), pill=document.getElementById('pill'), tail=document.getElementById('tail');
-let hideTimer=null;
-function showCard(){clearTimeout(hideTimer);card.classList.add('show');renderCard();armWatchdog();refreshClock();} // show first, then render: placeCard needs offsetHeight
+let hideTimer=null, autoHide=true;
+function setRetracted(on){
+  if(on) card.classList.remove('show');
+  document.body.classList.toggle('auto-retracted',on);
+  requestAnimationFrame(reportHot);
+}
+function showCard(){clearTimeout(hideTimer);setRetracted(false);card.classList.add('show');renderCard();armWatchdog();refreshClock();} // show first, then render: placeCard needs offsetHeight
 // Nothing is broadcast when the Windows clock format changes, so ask again each time the card opens
 function refreshClock(){
   invoke('get_state').then(s=>{
@@ -914,7 +926,7 @@ function refreshClock(){
   }).catch(()=>{});
 }
 function hideCard(){card.classList.remove('show');reportHot();}
-function scheduleHide(){clearTimeout(hideTimer);hideTimer=setTimeout(hideCard,250);}
+function scheduleHide(){clearTimeout(hideTimer);hideTimer=setTimeout(()=>{hideCard();if(autoHide)setRetracted(true);},250);}
 // ===== Diagnostics + geometry =====
 function jslog(m){invoke('log_js',{msg:String(m)}).catch(()=>{});}
 function callq(cmd,args){ // invoke with visible failure: any command error is reported on screen (a silent .catch used to swallow them)
@@ -982,6 +994,7 @@ document.addEventListener('mousemove',e=>{
   if(hovered){ if(card.classList.contains('show')){ clearTimeout(hideTimer); hideCard(); } return; }
   const hot=pointerInHot(e.clientX,e.clientY);
   if(hot){
+    if(document.body.classList.contains('auto-retracted'))setRetracted(false);
     clearTimeout(hideTimer);
     const id=cellAt(e.clientX,e.clientY);
     if(id&&id!==hoverId){ hoverId=id; if(card.classList.contains('show')){ renderCard(); armWatchdog(); } }
@@ -993,6 +1006,9 @@ document.addEventListener('mouseout',e=>{ // relatedTarget null = the cursor lef
   if(!e.relatedTarget && card.classList.contains('show')){ if(hideLogged++<5) jslog('mouseout left the page -> collapse'); scheduleHide(); }
 });
 listen('pointer_left',()=>{clearTimeout(hideTimer);hideCard();}).catch(()=>{});
+listen('auto_hide_retract',()=>{if(autoHide)setRetracted(true);}).catch(()=>{});
+listen('auto_hide_reveal',()=>setRetracted(false)).catch(()=>{});
+listen('auto_hide',e=>{autoHide=e.payload!==false;if(!autoHide)setRetracted(false);else scheduleHide();}).catch(()=>{});
 // Card content changes change its height -> report the hot rectangles again
 listen('usage',()=>{if(card.classList.contains('show'))armWatchdog();}).catch(()=>{});
 listen('state',()=>{if(card.classList.contains('show'))armWatchdog();}).catch(()=>{});
@@ -1068,6 +1084,12 @@ function put(el,x,y,z){
   return {x,y,reach:HANDLE_REACH*z};
 }
 function placeHandles(){
+  if(document.body.classList.contains('auto-retracted')){
+    orbAt=moveAt=null;hovered=null;
+    orb.classList.remove('placed','hover');
+    moveHandle.classList.remove('placed','hover','armed');
+    return false;
+  }
   const r=pill.getBoundingClientRect();
   if(!r.width) return false;
   // Measurements come back zoomed when fitZoom has zoomed the page; styles are written unzoomed
@@ -1168,6 +1190,8 @@ invoke('get_notch_edge').then(e=>{applyEdge(e);reportDpr();}).catch(()=>reportDp
 invoke('get_codex').then(u=>{codexSnap=u||codexSnap;renderRing();}).catch(()=>{});
 invoke('get_usage').then(u=>{usage=u||usage;renderRing();}).catch(e=>notice('get_usage failed: '+e));
 invoke('get_state').then(s=>{stateSnap=s||stateSnap;setUiLanguage(stateSnap.lang_resolved);renderRing();}).catch(()=>{});
+invoke('get_auto_hide_retracted').then(v=>setRetracted(v===true)).catch(()=>{});
+invoke('get_auto_hide').then(v=>{autoHide=v!==false;if(autoHide)scheduleHide();else setRetracted(false);}).catch(()=>{});
 setInterval(renderRing,30_000); // stale state and reset copy move with time
 </script>
 </body>
