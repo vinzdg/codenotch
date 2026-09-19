@@ -10,10 +10,15 @@ struct UsageResetCard: View {
     @Environment(\.codenotchAccentColor) private var accentColor
     @Environment(\.codenotchReduceTransparency) private var reduceTransparency
     @Environment(\.notchSurfaceStyle) private var surfaceStyle
+    @Environment(\.colorScheme) private var colorScheme
 
     static let cardHeight: CGFloat = Design.px(210)
 
     private var glassy: Bool { surfaceStyle.isGlass && !reduceTransparency }
+    private var secondaryInk: Color {
+        TooltipGlassContrast.secondaryInk(surfaceStyle: surfaceStyle, colorScheme: colorScheme,
+                                          reduceTransparency: reduceTransparency)
+    }
     /// Clear on glass: anything of ours under it would override the Clear or
     /// Tinted choice in Appearance settings. `darkGlass` is the one deliberate
     /// exception, and its dim is drawn behind the glass itself, not here.
@@ -29,7 +34,9 @@ struct UsageResetCard: View {
                         Color.clear
                             .glassEffect(surfaceStyle.glass, in: TooltipSilhouette(direction: direction, tailOffset: tailOffset))
                             .background {
-                                if let dim = surfaceStyle.glassDim {
+                                if let dim = TooltipGlassContrast.dim(surfaceStyle: surfaceStyle,
+                                                                       colorScheme: colorScheme,
+                                                                       reduceTransparency: reduceTransparency) {
                                     TooltipSilhouette(direction: direction, tailOffset: tailOffset).fill(dim)
                                 }
                             }
@@ -111,7 +118,7 @@ struct UsageResetCard: View {
                                 Button(action: onDismiss) {
                                     Image(systemName: "xmark")
                                         .font(.system(size: 11, weight: .bold))
-                                        .foregroundStyle(Palette.textSecondary)
+                                        .foregroundStyle(secondaryInk)
                                         .frame(width: 16, height: 16)
                                 }
                                 .buttonStyle(.plain)
@@ -120,7 +127,7 @@ struct UsageResetCard: View {
 
                         Text(subtitleText)
                             .font(Typography.cardBody)
-                            .foregroundStyle(Palette.textSecondary)
+                            .foregroundStyle(secondaryInk)
                             .lineLimit(1)
                     }
                 }
@@ -142,7 +149,7 @@ struct UsageResetCard: View {
                 if let resetsAt = event.resetsAt {
                     Text("\(resetTimePrefix) \(resetsAt.formatted(date: .omitted, time: .shortened))")
                         .font(Typography.cardBody)
-                        .foregroundStyle(Palette.textSecondary)
+                        .foregroundStyle(secondaryInk)
                         .lineLimit(1)
                         .padding(.top, Design.px(8))
                 }

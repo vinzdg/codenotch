@@ -64,6 +64,50 @@ final class PaletteAppearanceTests: XCTestCase {
         assertTrack(Palette.barTrack, .aqua, white: 0, alpha: 0.15)
     }
 
+    func testOnlyDarkStandardLiquidGlassGetsReadableSecondaryInk() {
+        assertOpaque(TooltipGlassContrast.secondaryInk(surfaceStyle: .glass, colorScheme: .dark),
+                     .darkAqua, is: 0xC2C2C2)
+        assertOpaque(TooltipGlassContrast.secondaryInk(surfaceStyle: .darkGlass, colorScheme: .dark),
+                     .darkAqua, is: 0x808080)
+        assertOpaque(TooltipGlassContrast.secondaryInk(surfaceStyle: .solid, colorScheme: .dark),
+                     .darkAqua, is: 0x808080)
+        assertOpaque(TooltipGlassContrast.secondaryInk(surfaceStyle: .glass, colorScheme: .dark,
+                                                        reduceTransparency: true),
+                     .darkAqua, is: 0x808080)
+    }
+
+    func testOnlyDarkSystemLiquidGlassGetsTheReadableDim() {
+        XCTAssertTrue(TooltipGlassContrast.needsReadableDim(surfaceStyle: .glass,
+                                                            colorScheme: .dark))
+        XCTAssertFalse(TooltipGlassContrast.needsReadableDim(surfaceStyle: .glass,
+                                                             colorScheme: .light))
+        XCTAssertFalse(TooltipGlassContrast.needsReadableDim(surfaceStyle: .darkGlass,
+                                                             colorScheme: .dark))
+        XCTAssertFalse(TooltipGlassContrast.needsReadableDim(surfaceStyle: .solid,
+                                                             colorScheme: .dark))
+        XCTAssertFalse(TooltipGlassContrast.needsReadableDim(surfaceStyle: .glass,
+                                                              colorScheme: .dark,
+                                                              reduceTransparency: true))
+    }
+
+    func testReadableLiquidGlassDimStaysDarkAndTranslucent() {
+        guard let dim = resolve(Palette.liquidGlassTooltipDim, .darkAqua) else { return }
+        // `resolve` deliberately returns sRGB. `whiteComponent` is undefined
+        // for that colour space and raises an AppKit exception, so assert the
+        // three channels directly just as `assertOpaque` does above.
+        XCTAssertEqual(dim.redComponent, 0, accuracy: 1.0 / 255)
+        XCTAssertEqual(dim.greenComponent, 0, accuracy: 1.0 / 255)
+        XCTAssertEqual(dim.blueComponent, 0, accuracy: 1.0 / 255)
+        XCTAssertEqual(dim.alphaComponent, 0.35, accuracy: 1.0 / 255)
+
+        guard let darkGlassDim = TooltipGlassContrast.dim(surfaceStyle: .darkGlass,
+                                                           colorScheme: .dark)
+                .flatMap({ resolve($0, .darkAqua) }) else { return }
+        XCTAssertEqual(darkGlassDim.alphaComponent, 0.80, accuracy: 1.0 / 255)
+        guard let notchDim = resolve(Palette.darkGlassDim, .darkAqua) else { return }
+        XCTAssertEqual(notchDim.alphaComponent, 0.60, accuracy: 1.0 / 255)
+    }
+
     // MARK: -
 
     /// The `NSColor` has to be built *inside* the drawing appearance: a dynamic

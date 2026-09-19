@@ -5,6 +5,7 @@ struct NotchRootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.codenotchReduceTransparency) private var reduceTransparency
     @Environment(\.codenotchHeadlessGlass) private var headlessGlass
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         // Measured rather than assumed: the panel's real size is whatever
@@ -132,6 +133,11 @@ struct NotchRootView: View {
         .tint(model.accentColor.color)
         .environment(\.codenotchAccentColor, model.accentColor.color)
         .environment(\.notchSurfaceStyle, model.surfaceStyle)
+        .environment(\.tooltipSecondaryInk, TooltipGlassContrast.secondaryInk(
+            surfaceStyle: model.surfaceStyle,
+            colorScheme: colorScheme,
+            reduceTransparency: reduceTransparency
+        ))
         .environment(\.weeklyRingDashed, model.weeklyRingDashed)
         .environment(\.usageWatchLimit, model.watchLimit)
         .environment(\.usageCriticalLimit, model.criticalLimit)
