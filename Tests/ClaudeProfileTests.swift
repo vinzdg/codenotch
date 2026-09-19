@@ -187,6 +187,179 @@ final class ClaudeProfileTests: XCTestCase {
                        ["claude"])
     }
 
+    // MARK: - One ring per organization
+
+    /// Stand-ins for the two organizations one login can front. Any non-empty
+    /// string does: `organizationID()` hands back the uuid Claude Code wrote
+    /// and nothing here parses it. Synthetic on purpose, so the fixtures carry
+    /// nobody's real organization.
+    private let teamOrganization = "11111111-2222-4333-8444-555555555555"
+    private let personalOrganization = "66666666-7777-4888-8999-000000000000"
+
+    /// Writes Claude Code's account record for a profile that discovery has not
+    /// produced yet, at the path `accountFileURL` will look for it: beside the
+    /// directory for the default, inside it for a named one.
+    private func writeAccount(organization: String, in home: URL, slug: String?) throws {
+        let profile = slug.map {
+            ClaudeProfile(slug: $0,
+                          configDirectory: home.appendingPathComponent(".claude-\($0)"))
+        } ?? .default(home: home)
+        let url = profile.accountFileURL
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try #"{"oauthAccount":{"organizationUuid":"\#(organization)"}}"#
+            .write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// The unit a limit belongs to is the organization, not the folder somebody
+    /// aliased a login to. Two directories signed into one organization report
+    /// the same numbers by construction — drawing both spends a ring on a
+    /// duplicate and, worse, lets a person read two rings as two accounts
+    /// covered when a third organization has no ring at all.
+    func testTwoDirectoriesOnOneOrganizationAreOneRing() throws {
+        let home = try home([
+            ".claude": ["settings.json"],
+            ".claude-vcore": ["settings.json"]
+        ])
+        try writeAccount(organization: teamOrganization, in: home, slug: nil)
+        try writeAccount(organization: teamOrganization, in: home, slug: "vcore")
+        XCTAssertEqual(ClaudeProfile.discover(home: home, hasCredential: signedIn).map(\.id),
+                       ["claude"])
+    }
+
+    /// The default is the one that survives a collision. Its id is the one
+    /// archived readings, connection choices and hover-band keys are filed
+    /// under, and a merge that dropped it would orphan all three.
+    func testACollisionKeepsTheDefaultsID() throws {
+        let home = try home([
+            ".claude": ["settings.json"],
+            ".claude-aaa": ["settings.json"]
+        ])
+        try writeAccount(organization: teamOrganization, in: home, slug: nil)
+        try writeAccount(organization: teamOrganization, in: home, slug: "aaa")
+        let found = try XCTUnwrap(ClaudeProfile.discover(home: home, hasCredential: signedIn).first)
+        XCTAssertNil(found.slug, "the default outranks a slug that sorts before it")
+        XCTAssertEqual(found.id, "claude")
+    }
+
+    /// Between two named directories the earlier slug wins, so the surviving
+    /// ring does not swap places — and so its id — between launches.
+    func testTwoNamedDirectoriesOnOneOrganizationKeepTheEarlierSlug() throws {
+        let home = try home([
+            ".claude-work": ["settings.json"],
+            ".claude-alpha": ["settings.json"]
+        ])
+        try writeAccount(organization: personalOrganization, in: home, slug: "work")
+        try writeAccount(organization: personalOrganization, in: home, slug: "alpha")
+        XCTAssertEqual(ClaudeProfile.discover(home: home, hasCredential: signedIn).map(\.id),
+                       ["claude", "claude-alpha"])
+    }
+
+    /// The point of the whole thing: one login fronting a personal organization
+    /// and a Team one is two sets of limits, and they get a ring each.
+    func testDifferentOrganizationsAreDifferentRings() throws {
+        let home = try home([
+            ".claude": ["settings.json"],
+            ".claude-vcore": ["settings.json"]
+        ])
+        try writeAccount(organization: personalOrganization, in: home, slug: nil)
+        try writeAccount(organization: teamOrganization, in: home, slug: "vcore")
+        XCTAssertEqual(ClaudeProfile.discover(home: home, hasCredential: signedIn).map(\.id),
+                       ["claude", "claude-vcore"])
+    }
+
+    /// An organization that cannot be read is not evidence of a collision.
+    /// Merging on a missing uuid would silently drop a real account whose
+    /// Claude Code is too old to record one, so an unreadable organization
+    /// merges with nothing — not even with another unreadable one.
+    func testProfilesWithNoReadableOrganizationAreNeverMerged() throws {
+        let home = try home([
+            ".claude": ["settings.json"],
+            ".claude-a": ["settings.json"],
+            ".claude-b": ["settings.json"]
+        ])
+        XCTAssertEqual(ClaudeProfile.discover(home: home, hasCredential: signedIn).map(\.id),
+                       ["claude", "claude-a", "claude-b"])
+    }
+
+    /// A readable organization and an unreadable one are two rings: nothing
+    /// says they are the same account.
+    func testAnUnreadableOrganizationDoesNotMergeIntoAReadableOne() throws {
+        let home = try home([
+            ".claude": ["settings.json"],
+            ".claude-vcore": ["settings.json"]
+        ])
+        try writeAccount(organization: teamOrganization, in: home, slug: nil)
+        XCTAssertEqual(ClaudeProfile.discover(home: home, hasCredential: signedIn).map(\.id),
+                       ["claude", "claude-vcore"])
+    }
+
+    /// The default's account file can outlive its token: signing out leaves
+    /// `~/.claude.json` behind with the organization still in it. Preferring it
+    /// there would merge a working login into a dead one and leave a ring that
+    /// can never refresh, so a profile that can actually fetch outranks the
+    /// default's id stability — which is worth nothing on a ring with no token.
+    func testACollisionPrefersTheProfileThatCanStillFetch() throws {
+        let home = try home([
+            ".claude": ["settings.json"],
+            ".claude-vcore": ["settings.json"]
+        ])
+        try writeAccount(organization: teamOrganization, in: home, slug: nil)
+        try writeAccount(organization: teamOrganization, in: home, slug: "vcore")
+        let onlyVCore: (ClaudeProfile) -> Bool = { $0.slug == "vcore" }
+        XCTAssertEqual(ClaudeProfile.discover(home: home, hasCredential: onlyVCore).map(\.id),
+                       ["claude-vcore"])
+    }
+
+    /// The merge cannot simply forget the directory it dropped: Claude Code is
+    /// still running in it, and those sessions are the surviving ring's — the
+    /// two are the same organization. `AppDelegate` watches every directory in
+    /// the group and registers them under the one id.
+    func testAMergedDirectoryIsKeptForItsSessions() throws {
+        let home = try home([
+            ".claude": ["settings.json"],
+            ".claude-vcore": ["settings.json"]
+        ])
+        try writeAccount(organization: teamOrganization, in: home, slug: nil)
+        try writeAccount(organization: teamOrganization, in: home, slug: "vcore")
+        let groups = ClaudeProfile.discoverGrouped(home: home, hasCredential: signedIn)
+        XCTAssertEqual(groups.map(\.profile.id), ["claude"])
+        XCTAssertEqual(groups.first?.merged.map(\.id), ["claude-vcore"])
+        XCTAssertEqual(groups.first?.allProfiles.map(\.sessionsDirectory.path),
+                       [home.appendingPathComponent(".claude/sessions").path,
+                        home.appendingPathComponent(".claude-vcore/sessions").path])
+    }
+
+    /// A ring with no duplicate behind it carries no extra directories, so the
+    /// ordinary install keeps exactly the one monitor it always had.
+    func testARingWithNoDuplicateCarriesNothingExtra() throws {
+        let home = try home([
+            ".claude": ["settings.json"],
+            ".claude-vcore": ["settings.json"]
+        ])
+        try writeAccount(organization: personalOrganization, in: home, slug: nil)
+        try writeAccount(organization: teamOrganization, in: home, slug: "vcore")
+        let groups = ClaudeProfile.discoverGrouped(home: home, hasCredential: signedIn)
+        XCTAssertEqual(groups.map(\.profile.id), ["claude", "claude-vcore"])
+        XCTAssertEqual(groups.map(\.merged.count), [0, 0])
+    }
+
+    /// Three directories on one organization collapse to one ring that still
+    /// watches all three.
+    func testEveryDuplicateIsKeptForItsSessions() throws {
+        let home = try home([
+            ".claude": ["settings.json"],
+            ".claude-a": ["settings.json"],
+            ".claude-b": ["settings.json"]
+        ])
+        for slug in [nil, "a", "b"] as [String?] {
+            try writeAccount(organization: teamOrganization, in: home, slug: slug)
+        }
+        let groups = ClaudeProfile.discoverGrouped(home: home, hasCredential: signedIn)
+        XCTAssertEqual(groups.map(\.profile.id), ["claude"])
+        XCTAssertEqual(groups.first?.merged.map(\.id), ["claude-a", "claude-b"])
+    }
+
     // MARK: - What the rest of the app derives from the id
 
     /// The tooltip's sign-in prompt has to name the directory, because plain
