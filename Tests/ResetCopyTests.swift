@@ -106,6 +106,41 @@ final class ResetCopyTests: XCTestCase {
         }
     }
 
+    /// The menu bar's countdown truncates where `text` rounds: it is read
+    /// against a clock, so it never claims time that is not left — "<1m" is
+    /// under a minute, and "1h 00m" is gone the moment the hour is. Minutes
+    /// carry two digits beside hours so the width holds as they tick over.
+    func testCountdownBoundaries() {
+        let cases: [(TimeInterval, String?)] = [
+            (-30, nil), (0, nil),
+            (1, "<1m"), (59, "<1m"),
+            (60, "1m"), (8 * 60 + 3, "8m"), (47 * 60 + 50, "47m"), (59 * 60 + 59, "59m"),
+            (3600, "1h 00m"), (2 * 3600 + 5 * 60, "2h 05m"), (2 * 3600 + 18 * 60 + 20, "2h 18m"),
+            (4 * 3600 + 59 * 60 + 59, "4h 59m"), (5 * 3600, "5h 00m"),
+        ]
+        for (seconds, expected) in cases {
+            XCTAssertEqual(ResetCopy.countdown(to: now.addingTimeInterval(seconds), now: now),
+                           expected, "\(seconds)s left")
+        }
+    }
+
+    /// The countdown changes exactly where the next change is said to be:
+    /// the same just before it, different just after — so a timer set for it
+    /// neither wakes early for nothing nor leaves a stale minute on screen.
+    func testTheNextCountdownChangeIsWhereTheTextChanges() throws {
+        for seconds: TimeInterval in [1, 42, 60, 61, 119.5, 3600, 2 * 3600 + 18 * 60 + 20] {
+            let resetsAt = now.addingTimeInterval(seconds)
+            let change = try XCTUnwrap(ResetCopy.nextCountdownChange(to: resetsAt, now: now))
+            XCTAssertGreaterThanOrEqual(change, now)
+            XCTAssertLessThan(change.timeIntervalSince(now), 60, "more than a minute away for \(seconds)s")
+            let before = ResetCopy.countdown(to: resetsAt, now: max(now, change.addingTimeInterval(-0.05)))
+            XCTAssertEqual(before, ResetCopy.countdown(to: resetsAt, now: now), "\(seconds)s")
+            XCTAssertNotEqual(ResetCopy.countdown(to: resetsAt, now: change.addingTimeInterval(0.05)),
+                              before, "\(seconds)s")
+        }
+        XCTAssertNil(ResetCopy.nextCountdownChange(to: now, now: now))
+    }
+
     @MainActor
     func testResetTimePreferencePersistsAndFallsBackToAutomatic() throws {
         let name = "ResetCopyTests.\(UUID().uuidString)"

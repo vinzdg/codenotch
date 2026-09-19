@@ -277,6 +277,39 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(appPresence.rawValue, forKey: Keys.presence) }
     }
 
+    /// Whether the menu bar item shows five-hour limits instead of its icon.
+    ///
+    /// Off unless switched on. The item is the way into an app that has left
+    /// the Dock, and an update that swapped it for a readout several times as
+    /// wide — pushing everything beside it along, and on a notched MacBook
+    /// perhaps off the bar altogether — would be a change nobody asked for.
+    @Published var showsLimitsInMenuBar: Bool {
+        didSet { defaults.set(showsLimitsInMenuBar, forKey: Keys.showsLimitsInMenuBar) }
+    }
+
+    /// The providers the menu bar summarises when it does, as ids. Nil until
+    /// the first choice — see `MenuBarLimits` for what that reads as. From
+    /// then on it is the ones that are on, so a provider that turns up later
+    /// stays out of the bar until someone puts it there.
+    ///
+    /// Never written alongside `connectedProviders`: one is what the menu bar
+    /// shows, the other what Codenotch reads, and `MenuBarLimits` says why the
+    /// two stay apart.
+    @Published private(set) var menuBarProviders: Set<String>? {
+        didSet {
+            if let menuBarProviders {
+                defaults.set(menuBarProviders.sorted(), forKey: Keys.menuBarProviders)
+            } else {
+                defaults.removeObject(forKey: Keys.menuBarProviders)
+            }
+        }
+    }
+
+    /// Both halves of the menu bar choice, the way the status item takes them.
+    var menuBarLimits: MenuBarLimits {
+        MenuBarLimits(isOn: showsLimitsInMenuBar, chosen: menuBarProviders)
+    }
+
     /// Open the notch for a few seconds when an agent stops working.
     ///
     /// On by default: the app already knows the moment a session ends, and a
@@ -417,6 +450,8 @@ final class Preferences: ObservableObject {
         static let visibility = "notchVisibility"
         static let foldsForFullScreen = "foldsForFullScreen"
         static let presence = "appPresence"
+        static let showsLimitsInMenuBar = "showsLimitsInMenuBar"
+        static let menuBarProviders = "menuBarProviders"
         static let edge = "notchEdge"
         // A new key, so there is nothing under the old app name to migrate.
         static let size = "notchSize"
@@ -646,6 +681,11 @@ final class Preferences: ObservableObject {
         // to learn it is running.
         self.appPresence = defaults.string(forKey: Keys.presence)
             .flatMap(AppPresence.init(rawValue:)) ?? .dock
+        // Absent means never chosen, which is the icon every earlier version
+        // drew — see `showsLimitsInMenuBar`.
+        self.showsLimitsInMenuBar = defaults.bool(forKey: Keys.showsLimitsInMenuBar)
+        // Absent is kept distinct from empty: never chosen is not choosing none.
+        self.menuBarProviders = defaults.stringArray(forKey: Keys.menuBarProviders).map(Set.init)
         // The right edge is where the notch has always been, and it is the one
         // side of a Mac that no system chrome claims by default.
         self.notchEdge = defaults.string(forKey: Keys.edge)
@@ -754,6 +794,20 @@ final class Preferences: ObservableObject {
         } else {
             mutedAlertProviders.remove(providerID)
         }
+    }
+
+    // MARK: Menu bar
+
+    /// Whether this provider is chosen for the menu bar. Says nothing about
+    /// whether it is read — that is `isConnected`.
+    func isInMenuBar(_ providerID: String) -> Bool {
+        menuBarLimits.isChosen(providerID)
+    }
+
+    /// Put one provider in the menu bar or take it out. `listed` is every
+    /// provider Settings is showing, which the first choice writes down.
+    func setInMenuBar(_ shown: Bool, for providerID: String, among listed: [String]) {
+        menuBarProviders = menuBarLimits.choosing(shown, providerID, among: listed).chosen
     }
 
     /// Claude and Codex stay on for a first install and for a newly discovered

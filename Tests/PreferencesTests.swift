@@ -395,3 +395,106 @@ final class NotchPositionPersistenceTests: XCTestCase {
         }
     }
 }
+
+/// Limits in the menu bar: off until asked for, remembered once chosen, and
+/// never mixed up with which providers are read.
+@MainActor
+final class MenuBarLimitsPreferenceTests: XCTestCase {
+    private func makeDefaults() throws -> (UserDefaults, String) {
+        let name = "MenuBarLimitsPreferenceTests.\(UUID().uuidString)"
+        return (try XCTUnwrap(UserDefaults(suiteName: name)), name)
+    }
+
+    private func reopen(_ name: String) throws -> Preferences {
+        Preferences(defaults: try XCTUnwrap(UserDefaults(suiteName: name)))
+    }
+
+    /// A fresh install and an upgrade from a version that never had the
+    /// switch both keep the icon — an update must not swap it for a readout.
+    func testAFreshInstallAndAnUpgradeBothKeepTheIcon() throws {
+        let (fresh, freshName) = try makeDefaults()
+        defer { fresh.removePersistentDomain(forName: freshName) }
+        XCTAssertEqual(Preferences(defaults: fresh).menuBarLimits, .off)
+
+        let (upgraded, name) = try makeDefaults()
+        defer { upgraded.removePersistentDomain(forName: name) }
+        upgraded.set(true, forKey: "hasLaunchedBefore")
+        upgraded.set(AppPresence.menuBar.rawValue, forKey: "appPresence")
+        let preferences = Preferences(defaults: upgraded)
+        XCTAssertFalse(preferences.showsLimitsInMenuBar)
+        XCTAssertNil(preferences.menuBarProviders, "never chosen, not chosen as none")
+    }
+
+    func testTheChoiceSurvivesARelaunch() throws {
+        let (defaults, name) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let preferences = Preferences(defaults: defaults)
+        preferences.showsLimitsInMenuBar = true
+        preferences.setInMenuBar(false, for: "claude", among: ["claude", "codex"])
+
+        let reopened = try reopen(name)
+        XCTAssertTrue(reopened.showsLimitsInMenuBar)
+        XCTAssertEqual(reopened.menuBarProviders, ["codex"])
+        XCTAssertFalse(reopened.isInMenuBar("claude"))
+        XCTAssertTrue(reopened.isInMenuBar("codex"))
+    }
+
+    /// None is a choice, and it is still none after a relaunch — not the
+    /// default coming back.
+    func testChoosingNoneSurvivesARelaunchAsNone() throws {
+        let (defaults, name) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let preferences = Preferences(defaults: defaults)
+        preferences.showsLimitsInMenuBar = true
+        preferences.setInMenuBar(false, for: "claude", among: ["claude", "codex"])
+        preferences.setInMenuBar(false, for: "codex", among: ["claude", "codex"])
+
+        let reopened = try reopen(name)
+        XCTAssertEqual(reopened.menuBarProviders, [])
+        XCTAssertFalse(reopened.isInMenuBar("claude"))
+        XCTAssertFalse(reopened.isInMenuBar("codex"))
+    }
+
+    /// Off keeps the choice, across a relaunch too, so on again brings back
+    /// the same providers.
+    func testSwitchingOffKeepsTheChoice() throws {
+        let (defaults, name) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let preferences = Preferences(defaults: defaults)
+        preferences.showsLimitsInMenuBar = true
+        preferences.setInMenuBar(true, for: "gemini", among: ["claude", "codex", "gemini"])
+        preferences.setInMenuBar(false, for: "codex", among: ["claude", "codex", "gemini"])
+        preferences.showsLimitsInMenuBar = false
+
+        let reopened = try reopen(name)
+        XCTAssertFalse(reopened.showsLimitsInMenuBar)
+        reopened.showsLimitsInMenuBar = true
+        XCTAssertEqual(reopened.menuBarLimits, MenuBarLimits(isOn: true, chosen: ["claude", "gemini"]))
+    }
+
+    /// The menu bar choice and the connection are two switches: taking Claude
+    /// out of the bar leaves it read, and switching Codex off leaves its place
+    /// in the bar waiting for it.
+    func testTheMenuBarNeverTouchesWhatIsRead() throws {
+        let (defaults, name) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let preferences = Preferences(defaults: defaults)
+        preferences.reconcile(discoveredIDs: ["claude", "codex", "gemini"])
+        let read = preferences.connectedProviders
+
+        preferences.showsLimitsInMenuBar = true
+        preferences.setInMenuBar(false, for: "claude", among: ["claude", "codex"])
+        XCTAssertTrue(preferences.isConnected("claude"), "out of the bar, still read")
+        XCTAssertEqual(preferences.connectedProviders, read)
+
+        preferences.setConnected(false, for: "codex")
+        XCTAssertTrue(preferences.isInMenuBar("codex"), "not read today, still chosen for when it is")
+        preferences.setInMenuBar(true, for: "gemini", among: ["codex", "gemini"])
+        XCTAssertFalse(preferences.isConnected("gemini"), "choosing it for the bar does not start reading it")
+
+        let reopened = try reopen(name)
+        XCTAssertTrue(reopened.isConnected("claude"))
+        XCTAssertFalse(reopened.isConnected("codex"))
+        XCTAssertEqual(reopened.menuBarProviders, ["codex", "gemini"])
+    }
+}

@@ -382,6 +382,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Read when the menu opens, so a model's line is as current as its cell.
             statusItem.cells = { [weak fleet] in fleet?.menuModel.snapshots ?? [] }
             statusItem.activity = { [weak fleet] in fleet?.menuModel.activity(for: $0) }
+            // Handed over up front, like the notch's edge: the sink below
+            // delivers a run loop turn later, and the item would otherwise go
+            // up as one thing and then change its mind.
+            statusItem.limits = preferences.menuBarLimits
 
             preferences.$appPresence
                 .receive(on: RunLoop.main)
@@ -389,6 +393,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     NSApp.setActivationPolicy(presence.activationPolicy)
                     if presence.wantsStatusItem { statusItem.show() } else { statusItem.hide() }
                 }
+                .store(in: &cancellables)
+
+            // What the item shows is presentation alone. It reaches the item and
+            // nothing else — no provider is read, refreshed, or switched on or
+            // off to answer it — and the item redraws from the readings it
+            // already holds, so a change in Settings lands on the bar at once.
+            Publishers.CombineLatest(preferences.$showsLimitsInMenuBar, preferences.$menuBarProviders)
+                .map { MenuBarLimits(isOn: $0, chosen: $1) }
+                .removeDuplicates()
+                .receive(on: RunLoop.main)
+                .sink { [weak statusItem] in statusItem?.limits = $0 }
                 .store(in: &cancellables)
 
             preferences.$notchVisibility

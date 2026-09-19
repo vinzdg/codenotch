@@ -84,6 +84,17 @@ enum Percent {
         return small(value)
     }
 
+    /// One percentage with no decimals, for the menu bar, where a tenth is
+    /// noise at a glance. Rounding never lands on the two figures that would
+    /// say something else happened: "0" when a little has been used, or "100"
+    /// while there is still room.
+    static func whole(for fraction: Double) -> String {
+        let value = max(0, fraction * 100)
+        if value > 0, value < 1 { return "<1" }
+        if value > 99, value < 100 { return "99" }
+        return "\(Int(value.rounded()))"
+    }
+
     private static func small(_ value: Double) -> String {
         if value <= 0 { return "0" }
         let tenths = (value * 10).rounded() / 10
@@ -138,6 +149,17 @@ struct LimitWindow: Identifiable, Codable, Equatable {
         self.money = money
         self.resetsAt = resetsAt
         self.duration = duration
+    }
+
+    /// Whether this is a rolling five-hour window — the limit a coding session
+    /// runs into first. Read from the length the provider reported rather than
+    /// from an id, because every vendor names it differently: Claude's
+    /// `session`, Codex's `primary`, Kimi's `rolling`.
+    var isFiveHour: Bool {
+        guard let duration else { return false }
+        // A minute's slack: some vendors send the window as a start and an
+        // end, and the difference is not always a whole number of seconds.
+        return abs(duration - 5 * 3600) < 60
     }
 
     /// A count short enough to sit inside a 44 pt ring.
@@ -302,6 +324,19 @@ struct ProviderSnapshot: Identifiable, Equatable {
     }
 
     var usedFraction: Double? { headline?.usedFraction }
+
+    /// The five-hour window, where the provider has one: the headline when it
+    /// is that window, otherwise the account's own.
+    ///
+    /// Found by length rather than taken from the headline, because the
+    /// headline is not always it — the daily pace ring takes Claude's. Never
+    /// a grouped window, though: a group is one model's or one feature's
+    /// allowance, Codex's Spark for one, kept off the ring for the same reason
+    /// it cannot stand for the account here.
+    var fiveHourWindow: LimitWindow? {
+        if let headline, headline.isFiveHour { return headline }
+        return windows.first { $0.isFiveHour && $0.group == nil }
+    }
 
     /// The window the second ring draws, when one is switched on.
     ///

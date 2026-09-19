@@ -9,6 +9,11 @@ import AppKit
 /// It also carries the same readings as the notch tooltips, so `NotchVisibility`
 /// hidden stays usable: with the notch off screen the menu is where the
 /// percentages, resets and stale ages live.
+///
+/// The item itself is the plain icon unless Settings switches on limits in
+/// the menu bar. Then it shows each chosen provider's five-hour window at a
+/// glance — "72% · 2h 18m" beside the provider's mark — and is the icon again
+/// whenever none of them has such a window to show. See `StatusItemSummary`.
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
     private var item: NSStatusItem?
@@ -19,8 +24,29 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     var onRefreshAll: (() -> Void)?
 
     /// The latest readings, mirrored from the store. The menu is rebuilt from
-    /// these every time it opens, so reset countdowns and ages are fresh.
-    var snapshots: [ProviderSnapshot] = []
+    /// these every time it opens, so reset countdowns and ages are fresh; the
+    /// item's own summary is redrawn from them as they land.
+    var snapshots: [ProviderSnapshot] = [] {
+        didSet { updateButton() }
+    }
+    /// Whether the item shows limits at all, and whose — from Settings. Only
+    /// the item's face follows it: the menu still lists every provider read.
+    ///
+    /// Redrawn at once from the readings already here, so answering it never
+    /// waits for, or asks for, a fetch.
+    var limits: MenuBarLimits = .off {
+        didSet {
+            guard limits != oldValue else { return }
+            updateButton()
+        }
+    }
+    /// What the item shows now, so a publication that changes nothing on it —
+    /// a local runtime is re-read every second — redraws nothing.
+    private var summary: StatusItemSummary?
+    /// Wakes the item when its first countdown next changes, since the minutes
+    /// run down between readings. One-shot and re-armed on every update: a
+    /// minute's precision is all the bar shows.
+    private var countdownTimer: Timer?
     /// The notch's decorated cells, read when the menu opens. A local runtime's
     /// own snapshot only lists its models; what each one is doing, how fast it
     /// answered and what it cost today are put on the cells by the view model,
@@ -46,12 +72,65 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         item.menu = menu
 
         self.item = item
+        updateButton()
     }
 
     func hide() {
         guard let item else { return }
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        summary = nil
         NSStatusBar.system.removeStatusItem(item)
         self.item = nil
+    }
+
+    // MARK: - Summary
+
+    /// Redraws the item from the latest readings, and arranges to do so again
+    /// when the first countdown on it next changes.
+    ///
+    /// Nothing here reads or refreshes usage: the store owns that, and it
+    /// already re-reads on its first tick after a window resets. When the
+    /// countdown reaches zero the item shows a dash until that reading lands.
+    /// With limits off there is no countdown, so nothing is left to wake it.
+    private func updateButton(now: Date = Date()) {
+        guard let item, let button = item.button else { return }
+        let next = StatusItemSummary.make(from: snapshots, showing: limits, now: now)
+        scheduleCountdown(at: next.nextChange)
+        guard next != summary else { return }
+        summary = next
+
+        if next.entries.isEmpty {
+            item.length = NSStatusItem.squareLength
+            button.image = Self.icon()
+            button.toolTip = L10n.t("Codenotch")
+            button.setAccessibilityLabel(nil)
+            return
+        }
+        item.length = NSStatusItem.variableLength
+        button.image = StatusItemArtwork(summary: next).image()
+        button.imagePosition = .imageOnly
+        let details = next.entries.map(\.detail).joined(separator: "\n")
+        button.toolTip = details
+        // The image is text VoiceOver cannot read; this says what it shows.
+        button.setAccessibilityLabel(details)
+    }
+
+    private func scheduleCountdown(at change: Date?) {
+        // Just past the change, so the minute counted on waking is the new one.
+        let fireDate = change?.addingTimeInterval(0.1)
+        if let countdownTimer, countdownTimer.isValid, countdownTimer.fireDate == fireDate { return }
+        countdownTimer?.invalidate()
+        countdownTimer = nil
+        guard let fireDate else { return }
+        let timer = Timer(fire: fireDate, interval: 0, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateButton() }
+        }
+        // Late by a second is invisible at a minute's precision, and lets the
+        // system fold this wake-up into others.
+        timer.tolerance = 1
+        RunLoop.main.add(timer, forMode: .common)
+        countdownTimer = timer
     }
 
     // MARK: - Menu
@@ -204,10 +283,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     /// One metered window on one line: label, percentage burned, and reset —
     /// the same three the tooltip spreads over three lines.
-    static func windowLine(for window: LimitWindow, now: Date) -> String {
+    static func windowLine(for window: LimitWindow, now: Date,
+                           format: ResetTimeFormat = .automatic) -> String {
         var line = "\(window.label): \(window.summary)"
         if let resetsAt = window.resetsAt {
-            line += " · \(ResetCopy.text(for: resetsAt, now: now))"
+            line += " · \(ResetCopy.text(for: resetsAt, now: now, format: format))"
         }
         return line
     }

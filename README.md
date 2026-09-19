@@ -270,7 +270,13 @@ Appearance also carries the ring's accent colour. The device accent is the
 default; fixed presets are available for pink, red, orange, yellow, green,
 teal, blue, indigo, purple and off-white.
 
-The app itself can show a Dock icon, a menu bar icon, or neither.
+The app itself can show a Dock icon, a menu bar item, or neither. The menu bar
+item is the Codenotch icon until you switch on **Show limit information in
+menu bar** under Settings → Appearance → App; then it shows the five-hour
+limits of the providers you choose there — the provider's mark, the share used
+and the time until it resets, like `72% · 2h 18m | 41% · 4h 05m`. Choosing
+what the bar shows never changes what Codenotch reads, and with nothing chosen
+the icon comes back. Its menu has the full readings either way.
 
 ## Updates
 

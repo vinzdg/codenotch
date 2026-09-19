@@ -374,6 +374,8 @@ struct SettingsView: View {
     /// another app, so the user is always coming *back* here to see it — which
     /// makes returning focus the exact moment the old value is wrong.
     @State private var accounts: [ProviderSummary] = []
+    /// The providers the menu bar can show, from the same snapshots it draws.
+    @State private var menuBarChoices: [MenuBarChoice] = []
     @State private var displays: [DisplayOption] = []
     @State private var selection: SettingsSection = .accounts
     /// Whether Accounts shows its provider panes. Remembered, so someone who
@@ -519,6 +521,14 @@ struct SettingsView: View {
                 // this pane remains alive. Re-read only the account summaries
                 // for that explicit event, not on every usage poll.
                 accounts = providers()
+            }
+        .onReceive((usageStore?.$snapshots.eraseToAnyPublisher()
+                    ?? Empty<[ProviderSnapshot], Never>().eraseToAnyPublisher())
+            .receive(on: RunLoop.main)) { snapshots in
+                // Every reading lands here. The rows only change when who can
+                // be listed does, not whenever a figure moves.
+                let choices = MenuBarChoice.listed(in: snapshots)
+                if choices != menuBarChoices { menuBarChoices = choices }
             }
     }
 
@@ -1017,6 +1027,14 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
+                // Only while there is a menu bar item for it to change. With
+                // the app in the Dock or nowhere, a switch here would do
+                // nothing anyone could see; the choice is kept for when the
+                // item comes back.
+                if preferences.appPresence == .menuBar {
+                    menuBarLimitRows
+                }
+
                 Picker(L10n.t("Language"), selection: $preferences.language) {
                     ForEach(AppLanguage.allCases) { Text($0.title).tag($0) }
                 }
@@ -1029,6 +1047,57 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// Limits in the menu bar: the switch, and under it one row for each
+    /// provider the bar can show.
+    ///
+    /// Each of those rows is about the menu bar alone. Whether a provider is
+    /// read at all is its own switch in Accounts, and nothing here touches it.
+    @ViewBuilder
+    private var menuBarLimitRows: some View {
+        Toggle(L10n.t("Show limit information in menu bar"), isOn: $preferences.showsLimitsInMenuBar)
+        Text(L10n.t("Swaps the icon for each chosen provider's five-hour limit — how much is used and how long until it resets."))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+        if preferences.showsLimitsInMenuBar {
+            ForEach(menuBarChoices) { choice in
+                Toggle(isOn: Binding(
+                    get: { preferences.isInMenuBar(choice.id) },
+                    set: { preferences.setInMenuBar($0, for: choice.id, among: menuBarChoices.map(\.id)) }
+                )) {
+                    // The mark and name as the Accounts rows draw them, so a
+                    // provider is recognisably the same one in both places.
+                    HStack(spacing: 10) {
+                        ProviderGlyphView(glyph: choice.glyph, size: 16)
+                            .accessibilityHidden(true)
+                        Text(choice.name)
+                    }
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .help(L10n.t("Shows \(choice.name)'s five-hour limit in the menu bar. Codenotch reads it either way."))
+            }
+
+            Text(menuBarChoices.isEmpty
+                 ? L10n.t("Nothing Codenotch reads has a five-hour limit to show yet. Claude and Codex do — switch one on in Accounts.")
+                 : L10n.t("Leaving a provider out keeps it off the menu bar only — Codenotch still reads it. With none chosen, the icon comes back."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // Said only once it applies: past two the item keeps each share
+            // and drops the countdowns, and past four it stops, because macOS
+            // hides a status item that does not fit rather than squeezing it.
+            if menuBarChoices.filter({ preferences.isInMenuBar($0.id) }).count > StatusItemSummary.fullEntryLimit {
+                Text(L10n.t("Past two, each shows its share alone and the countdowns move to the tooltip. Past four, the rest are in the menu."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private var notificationsPane: some View {
@@ -1471,6 +1540,22 @@ private struct AccentColorSwatch: View {
         .accessibilityLabel(choice.title)
         .accessibilityValue(isSelected ? L10n.t("Selected") : L10n.t("Not selected"))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// A provider as the menu bar rows in Settings list it.
+private struct MenuBarChoice: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let glyph: ProviderGlyph
+
+    /// What the menu bar could show, in the order it would show it: the
+    /// store's own snapshots, which only ever hold the providers being read,
+    /// narrowed to the ones the bar can summarise.
+    static func listed(in snapshots: [ProviderSnapshot]) -> [MenuBarChoice] {
+        snapshots.filter(StatusItemSummary.canSummarise).map { snapshot in
+            MenuBarChoice(id: snapshot.id, name: snapshot.displayName, glyph: snapshot.glyph)
+        }
     }
 }
 

@@ -27897,6 +27897,483 @@
           }
         }
       }
+    },
+    "<1m": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "<1 мин"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "<1 min"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "<1分"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "<1 min"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "<1分钟"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "<1分鐘"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "<1 min"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "<1 хв"
+          }
+        }
+      }
+    },
+    "%lldm": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld мин"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld min"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld分"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld min"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld分钟"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld分鐘"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld min"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld хв"
+          }
+        }
+      }
+    },
+    "%lldh %@m": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld ч %@ мин"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldh %@m"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld時間%@分"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldh %@m"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld小时%@分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld小時%@分"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld h %@ min"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld год %@ хв"
+          }
+        }
+      }
+    },
+    "Show limit information in menu bar": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать лимиты в строке меню"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les limites dans la barre des menus"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューバーに上限の情報を表示"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exibir limites na barra de menus"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在菜单栏显示额度信息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在選單列顯示額度資訊"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limits in der Menüleiste anzeigen"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати ліміти в рядку меню"
+          }
+        }
+      }
+    },
+    "Swaps the icon for each chosen provider's five-hour limit — how much is used and how long until it resets.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заменяет значок пятичасовым лимитом каждого выбранного провайдера — сколько использовано и сколько осталось до сброса."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplace l'icône par la limite de cinq heures de chaque fournisseur choisi : la part utilisée et le temps restant avant sa réinitialisation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイコンの代わりに、選んだ各プロバイダの5時間の上限を表示します。使用量と、リセットまでの残り時間です。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Troca o ícone pelo limite de cinco horas de cada provedor escolhido — quanto foi usado e quanto falta para renovar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用每个所选服务的 5 小时额度替换图标——已用多少，以及距重置还有多久。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用每個所選服務的 5 小時額度取代圖示——已用多少，以及距重置還有多久。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ersetzt das Symbol durch das Fünf-Stunden-Limit jedes gewählten Anbieters – wie viel verbraucht ist und wie lange es bis zum Zurücksetzen dauert."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Замінює значок п’ятигодинним лімітом кожного вибраного провайдера — скільки використано і скільки лишилося до скидання."
+          }
+        }
+      }
+    },
+    "Shows %@'s five-hour limit in the menu bar. Codenotch reads it either way.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает пятичасовой лимит %@ в строке меню. Codenotch читает его в любом случае."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche la limite de cinq heures de %@ dans la barre des menus. Codenotch le lit dans tous les cas."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の5時間の上限をメニューバーに表示します。どちらの場合も Codenotch は読み取りを続けます。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra o limite de cinco horas de %@ na barra de menus. O Codenotch continua a lê-lo de qualquer forma."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在菜单栏显示 %@ 的 5 小时额度。无论是否显示，Codenotch 都会读取它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在選單列顯示 %@ 的 5 小時額度。無論是否顯示，Codenotch 都會讀取它。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt das Fünf-Stunden-Limit von %@ in der Menüleiste. Codenotch liest den Anbieter so oder so."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує п’ятигодинний ліміт %@ у рядку меню. Codenotch читає його в будь-якому разі."
+          }
+        }
+      }
+    },
+    "Nothing Codenotch reads has a five-hour limit to show yet. Claude and Codex do — switch one on in Accounts.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ни у одного провайдера, которого читает Codenotch, пока нет пятичасового лимита. У Claude и Codex он есть — включите одного из них в разделе «Аккаунты»."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rien de ce que lit Codenotch n'a encore de limite de cinq heures à afficher. Claude et Codex en ont une — activez-en un dans Comptes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codenotch が読み取っているものには、まだ表示できる5時間の上限がありません。Claude と Codex にはあります。「アカウント」でどちらかをオンにしてください。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nada do que o Codenotch lê tem ainda um limite de cinco horas para mostrar. Claude e Codex têm — ative um deles em Contas."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codenotch 读取的服务中还没有可显示的 5 小时额度。Claude 和 Codex 有——在“账号”中打开其中一个。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codenotch 讀取的服務中還沒有可顯示的 5 小時額度。Claude 和 Codex 有——在“帳號”中開啟其中一個。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nichts, was Codenotch liest, hat bisher ein Fünf-Stunden-Limit zum Anzeigen. Claude und Codex haben eines – schalte einen davon unter „Konten“ ein."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жоден провайдер, якого читає Codenotch, поки не має п’ятигодинного ліміту. У Claude і Codex він є — увімкніть одного з них у розділі «Акаунти»."
+          }
+        }
+      }
+    },
+    "Leaving a provider out keeps it off the menu bar only — Codenotch still reads it. With none chosen, the icon comes back.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Невыбранный провайдер лишь исчезает из строки меню — Codenotch продолжает его читать. Если не выбран ни один, возвращается значок."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exclure un fournisseur le retire seulement de la barre des menus — Codenotch continue de le lire. Si aucun n'est choisi, l'icône revient."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフにしたプロバイダはメニューバーに出なくなるだけで、Codenotch は読み取りを続けます。何も選ばないとアイコンに戻ります。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deixar um provedor de fora só o tira da barra de menus — o Codenotch continua a lê-lo. Sem nenhum escolhido, o ícone volta."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不选某个服务只会让它离开菜单栏——Codenotch 仍会读取它。一个都不选时，图标会回来。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不選某個服務只會讓它離開選單列——Codenotch 仍會讀取它。一個都不選時，圖示會回來。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein ausgelassener Anbieter fehlt nur in der Menüleiste – Codenotch liest ihn weiter. Ist keiner gewählt, kehrt das Symbol zurück."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Невибраний провайдер лише зникає з рядка меню — Codenotch і далі його читає. Якщо не вибрано жодного, повертається значок."
+          }
+        }
+      }
+    },
+    "Past two, each shows its share alone and the countdowns move to the tooltip. Past four, the rest are in the menu.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если выбрано больше двух, каждый показывает только долю, а обратный отсчёт уходит во всплывающую подсказку. Если больше четырёх, остальные — в меню."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Au-delà de deux, chacun n'affiche que sa part et les comptes à rebours passent dans l'infobulle. Au-delà de quatre, les autres sont dans le menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3つ以上では使用率だけを表示し、残り時間はツールチップに移ります。5つ以上では、残りはメニューに表示されます。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Com mais de dois, cada um mostra só a sua parte e as contagens regressivas vão para a dica. Com mais de quatro, os demais ficam no menu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超过两个时，每个只显示用量比例，倒计时移到提示中。超过四个时，其余的在菜单里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超過兩個時，每個只顯示用量比例，倒數計時移到提示中。超過四個時，其餘的在選單裡。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ab drei zeigt jeder nur seinen Anteil, die Countdowns wandern in den Tooltip. Ab fünf stehen die übrigen im Menü."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо вибрано більше двох, кожен показує лише частку, а зворотний відлік переходить у підказку. Якщо більше чотирьох, решта — в меню."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

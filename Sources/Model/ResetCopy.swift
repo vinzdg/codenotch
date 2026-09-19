@@ -79,6 +79,34 @@ enum ResetCopy {
         return L10n.t("Resets \(formatter.string(from: resetsAt))", locale: locale)
     }
 
+    /// The time left before a reset, as short as the menu bar needs it: "2h 05m",
+    /// "47m", "<1m". Nil once the reset has passed — a window that is over has
+    /// no time left to show, and never a negative one.
+    ///
+    /// Truncated where `text` rounds. This one is read against a clock, so it
+    /// may never claim more time than there is: "<1m" is always under a
+    /// minute, and "1h 00m" is gone the moment the hour is.
+    static func countdown(to resetsAt: Date, now: Date = Date(),
+                          locale: Locale = L10n.locale) -> String? {
+        let seconds = resetsAt.timeIntervalSince(now)
+        guard seconds > 0 else { return nil }
+        let minutes = Int(seconds / 60)
+        if minutes < 1 { return L10n.t("<1m", locale: locale) }
+        if minutes < 60 { return L10n.t("\(minutes)m", locale: locale) }
+        // Two digits, so "2h 05m" is as wide as "2h 50m" and whatever sits
+        // beside it in the menu bar does not shuffle as the minutes tick over.
+        let padded = String(format: "%02d", minutes % 60)
+        return L10n.t("\(minutes / 60)h \(padded)m", locale: locale)
+    }
+
+    /// When `countdown` next reads differently — the next whole minute of time
+    /// left, or the reset itself in the last minute. Nil once it has passed.
+    static func nextCountdownChange(to resetsAt: Date, now: Date = Date()) -> Date? {
+        let seconds = resetsAt.timeIntervalSince(now)
+        guard seconds > 0 else { return nil }
+        return resetsAt.addingTimeInterval(-(seconds / 60).rounded(.down) * 60)
+    }
+
     /// A formatter that renders in the given calendar's own zone.
     ///
     /// Setting `calendar` does not carry its time zone across, and the formatter
