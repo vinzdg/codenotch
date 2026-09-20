@@ -1,7 +1,7 @@
 //! User-initiated sign-in through the standalone Claude Code CLI. OAuth stays in
 //! the CLI: no codes, tokens, browser URLs or credential writes cross widget IPC.
 use serde::Serialize;
-use std::{process::{Child, Command, Stdio}, sync::{atomic::{AtomicBool, Ordering}, Mutex}, time::{Duration, Instant}};
+use std::{process::{Child, Command}, sync::{atomic::{AtomicBool, Ordering}, Mutex}, time::{Duration, Instant}};
 
 static BUSY: AtomicBool = AtomicBool::new(false);
 static MESSAGE: Mutex<String> = Mutex::new(String::new());
@@ -35,8 +35,58 @@ pub fn usage_succeeded() {
 }
 
 // No interpolated shell input: even paths containing apostrophes arrive in env.
+#[cfg(windows)]
 const LOGIN_SCRIPT: &str = "$Host.UI.RawUI.WindowTitle = 'Codenotch - Claude sign-in'; Write-Host 'Complete sign-in in your browser. Paste any code in this window.'; & $env:CODENOTCH_CLAUDE_CLI auth login --claudeai; $loginResult = $LASTEXITCODE; if ($loginResult -eq 0) { Write-Host 'Sign-in complete. Codenotch will refresh automatically.'; Start-Sleep -Seconds 2 } else { Write-Host 'Sign-in failed or cancelled. Retry from Codenotch.'; Start-Sleep -Seconds 8 }; exit $loginResult";
 
+/// The same sign-in, driven by a POSIX shell inside a terminal window. The CLI path
+/// travels in the environment here too, so a path with quotes in it is never parsed.
+#[cfg(not(windows))]
+const LOGIN_SH: &str = "echo 'Complete sign-in in your browser. Paste any code in this window.'; \"$CODENOTCH_CLAUDE_CLI\" auth login --claudeai; r=$?; if [ $r -eq 0 ]; then echo 'Sign-in complete. Codenotch will refresh automatically.'; sleep 2; else echo 'Sign-in failed or cancelled. Retry from Codenotch.'; sleep 8; fi; exit $r";
+
+/// A terminal emulator that can run a command, in the order a desktop is likely to have one.
+/// `-e` is understood by all of these; the Debian alternative comes first so the user's own
+/// choice wins.
+#[cfg(not(windows))]
+fn terminal_emulator() -> Option<std::path::PathBuf> {
+    const CANDIDATES: [&str; 8] = [
+        "x-terminal-emulator",
+        "gnome-terminal",
+        "konsole",
+        "xfce4-terminal",
+        "kgx",
+        "alacritty",
+        "kitty",
+        "xterm",
+    ];
+    let path = std::env::var_os("PATH")?;
+    for name in CANDIDATES {
+        for dir in std::env::split_paths(&path) {
+            let p = dir.join(name);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(windows))]
+fn login_command(cli: &std::path::Path) -> Result<Command, String> {
+    let term = terminal_emulator().ok_or("No terminal emulator found. Run `claude auth login` yourself.")?;
+    let mut cmd = Command::new(term);
+    cmd.args(["-e", "sh", "-c", LOGIN_SH]).env("CODENOTCH_CLAUDE_CLI", cli);
+    cmd.current_dir(dirs::home_dir().ok_or("Home directory unavailable.")?);
+    for (key, _) in std::env::vars_os() {
+        let k = key.to_string_lossy();
+        if k == "CLAUDECODE" || k.starts_with("CLAUDE_CODE_")
+            || matches!(k.as_ref(), "CLAUDE_CONFIG_DIR" | "ANTHROPIC_API_KEY" | "ANTHROPIC_AUTH_TOKEN") {
+            cmd.env_remove(&key);
+        }
+    }
+    Ok(cmd)
+}
+
+#[cfg(windows)]
 fn login_command(cli: &std::path::Path) -> Result<Command, String> {
     let root = std::env::var_os("SystemRoot").ok_or("Windows directory unavailable.")?;
     let mut cmd = Command::new(std::path::PathBuf::from(root).join("System32/WindowsPowerShell/v1.0/powershell.exe"));
@@ -61,6 +111,7 @@ fn login_command(cli: &std::path::Path) -> Result<Command, String> {
 fn terminate(child: &mut Child) {
     #[cfg(windows)] {
         use std::os::windows::process::CommandExt;
+        use std::process::Stdio;
         if let Some(root) = std::env::var_os("SystemRoot") {
             // A .cmd CLI may have node children: terminate only this owned tree.
             let _ = Command::new(std::path::PathBuf::from(root).join("System32/taskkill.exe"))

@@ -13,6 +13,21 @@ pub fn resolve_auto() -> &'static str {
             }
         }
     }
+    #[cfg(not(windows))]
+    {
+        // POSIX locale environment, most specific first: "pt_BR.UTF-8" → "pt-br"
+        for key in ["LC_ALL", "LC_MESSAGES", "LANG"] {
+            let Ok(value) = std::env::var(key) else { continue };
+            let name = value.split('.').next().unwrap_or("").replace('_', "-").to_lowercase();
+            if name.is_empty() || name == "c" || name == "posix" {
+                continue;
+            }
+            if let Some(lang) = language_from_windows_locale(&name) {
+                return lang;
+            }
+            return "en";
+        }
+    }
     "en"
 }
 
@@ -70,7 +85,28 @@ fn time_format() -> Option<String> {
             return Some(String::from_utf16_lossy(&buf[..(n as usize - 1)]));
         }
     }
+    #[cfg(not(windows))]
+    {
+        // No registry to read: ask the C library for the locale's own time format.
+        return posix_time_format();
+    }
+    #[allow(unreachable_code)]
     None
+}
+
+/// `locale -k t_fmt` prints the locale's time format as a strftime pattern
+/// ("%H:%M:%S" against "%I:%M:%S %p"), translated to the same letters the
+/// Windows LOCALE_* patterns use so `is_24h_pattern` can read both.
+#[cfg(not(windows))]
+fn posix_time_format() -> Option<String> {
+    let out = std::process::Command::new("locale").args(["-k", "t_fmt"]).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let pattern = text.split('=').nth(1)?.trim().trim_matches('"').to_string();
+    // %H/%k are the 24-hour fields; %I/%l are the 12-hour ones.
+    Some(if pattern.contains("%H") || pattern.contains("%k") { "HH:mm".into() } else { "hh:mm tt".into() })
 }
 
 #[cfg(windows)]

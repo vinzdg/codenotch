@@ -257,25 +257,43 @@ fn is_desktop_owned(p: &std::path::Path) -> bool {
     s.contains("\\anthropicclaude\\") || s.contains("\\claude\\claude-code\\") || s.contains("\\windowsapps\\")
 }
 
+/// The command file names to try for a CLI, most specific first. Windows needs the
+/// native exe before the .cmd shim; elsewhere there is only the bare name.
+pub(crate) fn command_names(stem: &str) -> Vec<String> {
+    if cfg!(windows) {
+        vec![format!("{stem}.exe"), format!("{stem}.cmd")]
+    } else {
+        vec![stem.to_string()]
+    }
+}
+
 /// The standalone Claude Code command: its own installer's location first, then global npm/pnpm/Volta, then PATH
 pub(crate) fn find_cli() -> Option<std::path::PathBuf> {
+    let names = command_names("claude");
     let mut v = Vec::new();
+    let push_all = |dir: std::path::PathBuf, v: &mut Vec<std::path::PathBuf>| {
+        for n in &names {
+            v.push(dir.join(n));
+        }
+    };
     if let Some(h) = dirs::home_dir() {
-        v.push(h.join(".local").join("bin").join("claude.exe"));
+        push_all(h.join(".local").join("bin"), &mut v);
     }
     if let Some(d) = dirs::config_dir() {
-        v.push(d.join("npm").join("claude.cmd"));
+        push_all(d.join("npm"), &mut v);
     }
     if let Some(d) = dirs::data_local_dir() {
-        v.push(d.join("pnpm").join("claude.cmd"));
+        push_all(d.join("pnpm"), &mut v);
     }
     if let Some(h) = dirs::home_dir() {
-        v.push(h.join(".volta").join("bin").join("claude.exe"));
+        push_all(h.join(".volta").join("bin"), &mut v);
+        // npm's global prefix and nvm's per-version bin are where a Linux install usually lands
+        push_all(h.join(".npm-global").join("bin"), &mut v);
+        push_all(h.join(".bun").join("bin"), &mut v);
     }
     if let Some(path) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&path) {
-            v.push(dir.join("claude.exe"));
-            v.push(dir.join("claude.cmd"));
+            push_all(dir, &mut v);
         }
     }
     v.into_iter().find(|p| p.is_file() && !is_desktop_owned(p))

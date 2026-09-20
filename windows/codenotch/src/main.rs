@@ -726,7 +726,10 @@ pub fn reload_glyphs(app: &AppHandle) {
 fn open_data_dir() {
     let dir = config::config_path().parent().map(|p| p.to_path_buf()).unwrap_or_default();
     let _ = std::fs::create_dir_all(glyphs::user_dir());
+    #[cfg(windows)]
     let mut cmd = std::process::Command::new("explorer");
+    #[cfg(not(windows))]
+    let mut cmd = std::process::Command::new("xdg-open");
     cmd.arg(dir.as_os_str());
     #[cfg(windows)]
     {
@@ -766,8 +769,18 @@ pub(crate) fn provider_page(provider: &str) -> Option<(&'static str, &'static st
 
 pub(crate) fn open_provider_page(provider: &str) {
     let Some((url, _)) = provider_page(provider) else { return };
-    let mut cmd = std::process::Command::new("cmd");
-    cmd.args(["/C", "start", "", url]);
+    #[cfg(windows)]
+    let mut cmd = {
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", "start", "", url]);
+        c
+    };
+    #[cfg(not(windows))]
+    let mut cmd = {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(url);
+        c
+    };
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
