@@ -78,6 +78,22 @@ final class AppLanguageTests: XCTestCase {
         XCTAssertEqual(L10n.locale.identifier, "ja")
     }
 
+    /// Korean is offered under the identifier the catalog files it under.
+    /// No assertion on the copy `ko` serves, for the reason the Japanese
+    /// case above gives: an empty locale falls back to English, and pinning
+    /// that here would fail the moment a translation lands.
+    func testKoreanIsOfferedAndMapsToKo() {
+        XCTAssertTrue(AppLanguage.allCases.contains(.korean))
+        XCTAssertEqual(AppLanguage.korean.title, "한국어")
+        XCTAssertEqual(AppLanguage.korean.locale?.identifier, "ko")
+    }
+
+    func testApplyKoreanStoresTheOverride() {
+        L10n.apply(.korean)
+        L10n.testLocale = nil
+        XCTAssertEqual(L10n.locale.identifier, "ko")
+    }
+
     func testGermanIsOfferedAndMapsToDe() {
         XCTAssertTrue(AppLanguage.allCases.contains(.german))
         XCTAssertEqual(AppLanguage.german.title, "Deutsch")

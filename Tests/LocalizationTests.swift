@@ -589,7 +589,7 @@ final class LocalizationTests: XCTestCase {
     func testEveryOfferedLanguageResolves() {
         XCTAssertEqual(
             AppLanguage.allCases.map(\.rawValue),
-            ["system", "en", "fr", "de", "ja", "pt-BR", "ru", "zh-Hans", "zh-Hant", "uk"]
+            ["system", "en", "fr", "de", "ja", "ko", "pt-BR", "ru", "zh-Hans", "zh-Hant", "uk"]
         )
         XCTAssertNil(AppLanguage.system.locale)
         for language in AppLanguage.allCases where language != .system {
