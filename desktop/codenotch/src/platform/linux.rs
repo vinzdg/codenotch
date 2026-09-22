@@ -151,6 +151,24 @@ fn x_conn() -> Option<&'static XConn> {
     .as_ref()
 }
 
+pub fn session_warning() -> Option<String> {
+    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty());
+    if !wayland {
+        return None;
+    }
+    if x_conn().is_none() {
+        Some(
+            "Wayland session without a working X11 display: notch placement cannot follow the pointer. Use Cinnamon on X11 for now."
+                .into(),
+        )
+    } else {
+        Some(
+            "Wayland session: pointer follow goes through Xlib/XWayland and may be unreliable."
+                .into(),
+        )
+    }
+}
+
 pub fn left_button_down() -> bool {
     let Some(x) = x_conn() else {
         return false;

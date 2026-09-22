@@ -74,7 +74,8 @@ one line per limit window — then **Refresh all**, **Settings…** and **Quit C
 provider's line re-reads that provider. Everything else is in the settings window: which rings the
 notch shows, its size, the weekly ring, which screen edge it sits on and which screen,
 start with Windows, the language, Claude Code hooks, reset
-position, and the data folder (`%APPDATA%\codenotch` — logs, persisted readings, icon overrides).
+position, and the data folder (`%APPDATA%\codenotch` on Windows, `~/.config/codenotch` on
+Linux — logs, persisted readings, icon overrides).
 
 Notch: clicking a ring re-reads that provider, as on the Mac. Right-clicking the notch or its card
 offers **Refresh now**, the provider's usage page (**Open claude.ai**, **Open chatgpt.com**, …) and

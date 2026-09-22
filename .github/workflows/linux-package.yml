@@ -35,17 +35,7 @@ jobs:
       - name: Install WebKitGTK and dpkg tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            libgtk-3-dev \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libx11-dev \
-            libssl-dev \
-            patchelf \
-            dpkg-dev \
-            fakeroot \
-            file
+          xargs -a linux/apt-packages.txt sudo apt-get install -y
         working-directory: .
 
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable

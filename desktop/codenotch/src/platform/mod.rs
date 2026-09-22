@@ -9,14 +9,15 @@ use std::path::{Path, PathBuf};
 mod windows;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+mod other;
 
 #[cfg(target_os = "windows")]
 use windows as os;
 #[cfg(target_os = "linux")]
 use linux as os;
-
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-compile_error!("Codenotch currently supports Windows and Linux");
+use other as os;
 
 /// Screen edge the notch pins to when the user has not chosen one yet.
 pub fn default_notch_edge() -> &'static str {
@@ -75,6 +76,11 @@ pub fn system_locale() -> Option<String> {
 /// window itself starts moving.
 pub fn left_button_down() -> bool {
     os::left_button_down()
+}
+
+/// Why placement may be wrong on this session (Wayland without X11, …). None on Windows.
+pub fn session_warning() -> Option<String> {
+    os::session_warning()
 }
 
 #[cfg(test)]

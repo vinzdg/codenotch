@@ -69,40 +69,8 @@ writes `~/.config/autostart/codenotch.desktop`.
 - Cursor usage from the editor's own `state.vscdb`
 - Move handle that slides along the current edge
 
-Not in this change: Wayland pointer-follow or an AppImage.
-
-## Sending this to the community repo
-
-The upstream is [vinzdg/codenotch](https://github.com/vinzdg/codenotch). A
-branch plus a pull request is how they evaluate it — CI on that PR is the
-Linux and Windows builds under `.github/workflows/`.
-
-```sh
-# from the repo root, on feat/linux-desktop (or any branch of yours)
-git push -u origin HEAD
-
-gh pr create --base main --head feat/linux-desktop \
-  --repo vinzdg/codenotch \
-  --title "Linux desktop port (Mint / Cinnamon / X11)" \
-  --body "$(cat <<'EOF'
-## Summary
-- Shared Tauri crate moved to `desktop/`; `linux/` and `windows/` are front doors.
-- Linux: notch, tray, Cursor session from `~/.config/Cursor`, hover, axis-locked drag.
-- Windows behaviour is unchanged; platform code lives in `desktop/codenotch/src/platform/`.
-
-## Test plan
-- [ ] `cd desktop && cargo test --locked` on Linux
-- [ ] Notch appears on Mint/Cinnamon/X11, unfolds on hover, tray works
-- [ ] Cursor cell reads the editor session (not the CLI dir)
-- [ ] Dragging the pill slides along the current edge
-- [ ] Windows CI (build + package) still green
-EOF
-)"
-```
-
-If `origin` is not `vinzdg/codenotch` (a fork), push the branch to the fork and
-open the PR against `vinzdg/codenotch:main`. The Linux workflow only runs on
-that repository, including pull requests opened there.
+Not in this change: Wayland pointer-follow or an AppImage. On a Wayland session
+the notch still draws; `codenotch doctor` warns that pointer-follow needs X11.
 
 ## License
 

@@ -30,14 +30,7 @@ jobs:
       - name: Install WebKitGTK and X11 headers
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            libgtk-3-dev \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libx11-dev \
-            libssl-dev \
-            patchelf
+          xargs -a linux/apt-packages.txt sudo apt-get install -y
         working-directory: .
 
       - name: Check the UI pages parse

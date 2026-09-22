@@ -618,7 +618,8 @@ fn drag_begin(app: AppHandle) {
             DRAGGING.store(false, std::sync::atomic::Ordering::SeqCst);
             return;
         };
-        // Linux-only: a transient (0×0) window during instance overlap must not start a slide.
+        // Linux-only: slide on the current edge. The zero-size return is for a
+        // transient (0×0) window during instance overlap — not a Windows change.
         if crate::platform::drag_slides_along_edge() {
             let Ok(size) = w.outer_size() else {
                 DRAGGING.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -1803,10 +1804,16 @@ fn main() {
             dropzones::get_zones,
             settings_window::get_system_look,
             settings_window::quit_app,
-            settings_window::open_author_page
+            settings_window::open_author_page,
+            updater::get_update_state,
+            updater::check_for_update,
+            updater::install_update
         ])
         .setup(move |app| {
             crate::platform::init();
+            if let Some(msg) = crate::platform::session_warning() {
+                applog(&msg);
+            }
             let handle = app.handle().clone();
             place_notch(&handle);
             if let Some(w) = handle.get_webview_window("notch") {
@@ -1862,6 +1869,7 @@ fn main() {
                 let c = st.cfg.lock().unwrap();
                 config::save(&c);
             }
+            updater::check_on_launch(&handle);
             Ok(())
         })
         .run(tauri::generate_context!())
