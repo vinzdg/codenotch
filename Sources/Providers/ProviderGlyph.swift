@@ -82,6 +82,21 @@ enum ProviderGlyph: String, Codable, Equatable {
         }
     }
 
+    /// The glyph as a template image, for menus: an NSMenu shows an `Image`,
+    /// never a drawn view, so the outline is rendered once per glyph.
+    @MainActor private static var menuImages: [ProviderGlyph: NSImage] = [:]
+    @MainActor var menuImage: NSImage {
+        if let cached = Self.menuImages[self] { return cached }
+        let renderer = ImageRenderer(content: ProviderGlyphView(glyph: self, size: 14)
+            .foregroundStyle(.black)
+            .frame(width: 16, height: 16))
+        renderer.scale = 2
+        let image = renderer.nsImage ?? NSImage(size: NSSize(width: 16, height: 16))
+        image.isTemplate = true
+        Self.menuImages[self] = image
+        return image
+    }
+
     var outline: [[CGPoint]] {
         switch self {
         case .claude: return GlyphOutline.claude

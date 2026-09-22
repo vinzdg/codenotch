@@ -33,17 +33,60 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         allCases.filter { $0 != .phone || PhoneLink.isAvailable }
     }
 
-    /// Providers with a pane of their own. They are accounts too, so the
-    /// sidebar nests them under Accounts rather than listing them beside
-    /// Appearance and General, where they read as app-wide settings.
-    static let providerPanes: [SettingsSection] = [.deepseek, .ollama, .lmstudio, .customEndpoints]
+    var id: String { rawValue }
 
-    /// The sidebar's own rows: everything visible that is not nested.
-    static var topLevel: [SettingsSection] {
-        visible.filter { !providerPanes.contains($0) }
+    /// The sidebar's groups: where readings come from, the notch itself,
+    /// and the app.
+    enum Group: String, CaseIterable, Identifiable {
+        case sources, notch, app
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .sources: return L10n.t("Sources")
+            case .notch:   return L10n.t("Notch")
+            case .app:     return L10n.t("App")
+            }
+        }
     }
 
-    var id: String { rawValue }
+    /// The symbol's colour in the sidebar: one hue per subject, on the
+    /// symbol itself rather than on a badge behind it.
+    var tint: Color {
+        switch self {
+        case .accounts:      return .blue
+        case .phone:         return .green
+        case .deepseek:      return .orange
+        case .ollama:        return .teal
+        case .lmstudio:      return .purple
+        case .customEndpoints: return .indigo
+        case .appearance:    return .indigo
+        case .notifications: return .red
+        case .general:       return .gray
+        }
+    }
+
+    var group: Group {
+        switch self {
+        case .accounts, .phone, .deepseek, .ollama, .lmstudio, .customEndpoints: return .sources
+        case .appearance, .notifications: return .notch
+        case .general: return .app
+        }
+    }
+
+    /// One line under the pane's title: what is decided here.
+    var subtitle: String {
+        switch self {
+        case .accounts:      return L10n.t("The logins the notch reads, and the order of its rings.")
+        case .phone:         return L10n.t("Your usage on a phone, over the local network.")
+        case .deepseek:      return L10n.t("Per-token prices and the off-peak discount.")
+        case .ollama:        return L10n.t("The local runtime and what its models report.")
+        case .lmstudio:      return L10n.t("The local runtime and what its models report.")
+        case .customEndpoints: return L10n.t("OpenAI-compatible APIs, local runtimes and custom proxies.")
+        case .appearance:    return L10n.t("Where the notch sits, how big it is, and what it shows.")
+        case .notifications: return L10n.t("Sounds, cards and banners when something finishes, stalls or resets.")
+        case .general:       return L10n.t("Launch at login, updates and language.")
+        }
+    }
 
     var title: String {
         switch self {
@@ -59,62 +102,20 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    /// The provider's own logo, for the sections that are one provider's
-    /// settings; nil for the app's own sections, which use a symbol.
-    var logo: ProviderGlyph? {
-        switch self {
-        case .deepseek: return .deepseek
-        case .ollama:   return .ollama
-        case .lmstudio: return .lmstudio
-        default:        return nil
-        }
-    }
-
-    /// The line under the pane's title.
-    var subtitle: String {
-        switch self {
-        case .accounts:      return L10n.t("Choose which providers the notch reads.")
-        case .phone:         return L10n.t("See your usage on your phone.")
-        case .deepseek:      return L10n.t("Peak and off-peak pricing for your DeepSeek spend.")
-        case .ollama:        return L10n.t("Models running in Ollama on this Mac.")
-        case .lmstudio:      return L10n.t("Models loaded in LM Studio on this Mac.")
-        case .customEndpoints: return L10n.t("OpenAI-compatible APIs, local runtimes and custom proxies.")
-        case .appearance:    return L10n.t("How the notch looks and where it sits.")
-        case .notifications: return L10n.t("What Codenotch tells you, and when.")
-        case .general:       return L10n.t("Startup, updates and everything else.")
-        }
-    }
-
     var icon: String {
         switch self {
-        case .accounts:      return "person.crop.circle.fill"
+        case .accounts:      return "person.crop.circle"
         case .phone:         return "iphone"
         case .deepseek:      return "chart.line.uptrend.xyaxis"
         case .ollama:        return "desktopcomputer"
         case .lmstudio:      return "cpu"
         case .customEndpoints: return "network"
-        case .appearance:    return "paintbrush.fill"
-        case .notifications: return "bell.badge.fill"
-        case .general:       return "gearshape.fill"
+        case .appearance:    return "paintbrush"
+        case .notifications: return "bell.badge"
+        case .general:       return "gearshape"
         }
     }
 
-    /// The badge colour behind the symbol — the part of System Settings'
-    /// sidebar that actually makes it recognisable at a glance, monochrome
-    /// icons are not.
-    var tint: Color {
-        switch self {
-        case .accounts:      return .blue
-        case .phone:         return .green
-        case .deepseek:      return .orange
-        case .ollama:        return .teal
-        case .lmstudio:      return .purple
-        case .customEndpoints: return .indigo
-        case .appearance:    return .indigo
-        case .notifications: return .red
-        case .general:       return .gray
-        }
-    }
 }
 
 /// Real window vibrancy, which SwiftUI's own `Material` cannot give here.
@@ -154,209 +155,21 @@ private struct VisualEffect: NSViewRepresentable {
 
 /// A rounded-square badge behind a white symbol — the icon style System
 /// Settings' own sidebar uses, rather than a plain monochrome glyph.
-/// The panel's surfaces. Near-black and flat: the window a shade darker than
-/// the sidebar, hairlines instead of shadows, white at stepped opacities for
-/// text rather than system greys that shift with the desktop behind them.
-private enum SettingsPalette {
-    static let window = Color(red: 0.055, green: 0.055, blue: 0.063)
-    static let sidebar = Color(red: 0.086, green: 0.086, blue: 0.094)
-    static let hairline = Color.white.opacity(0.07)
-    static let edge = Color.white.opacity(0.09)
-    static let selected = Color.white.opacity(0.10)
-    static let hovered = Color.white.opacity(0.05)
-}
+private struct SidebarIcon: View {
+    let systemName: String
+    let tint: Color
 
-/// One row of the settings sidebar: a white symbol, the name, and for
-/// Accounts the number switched on and an arrow that folds its providers.
-private struct SettingsSidebarRow: View {
-    let section: SettingsSection
-    let isSelected: Bool
-    /// Shared by every row, so the selection pill is one shape that slides
-    /// from the old row to the new one rather than blinking between them.
-    let selectionSpace: Namespace.ID
-    var indent = false
-    var count: Int? = nil
-    var disclosure: Binding<Bool>? = nil
-    let select: () -> Void
-
-    @State private var isHovered = false
-    @State private var isPressed = false
-    /// Bumped each time the row becomes selected, to play the icon's bounce once.
-    @State private var bounce = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private static let pill = RoundedRectangle(cornerRadius: 8, style: .continuous)
-
+    /// System Settings' own badge: 20pt square, rounded to a little over a
+    /// quarter of its side, with the symbol at 12pt inside it.
     var body: some View {
-        HStack(spacing: 10) {
-            icon
-                .frame(width: 18)
-                .foregroundStyle(.white.opacity(isSelected ? 0.95 : isHovered ? 0.85 : 0.6))
-                // Leans toward the pointer's row a hair, and pops once on selection.
-                .offset(x: isHovered && !isSelected && !reduceMotion ? 1.5 : 0)
-            Text(section.title)
-                .font(.system(size: 13, weight: isSelected ? .medium : .regular))
-                .foregroundStyle(.white.opacity(isSelected ? 0.95 : isHovered ? 0.92 : 0.78))
-                .lineLimit(1)
-            Spacer(minLength: 4)
-            if let count {
-                Text("\(count)")
-                    .font(.system(size: 11, weight: .medium).monospacedDigit())
-                    .foregroundStyle(.white.opacity(isHovered || isSelected ? 0.55 : 0.42))
-                    .contentTransition(.numericText())
+        RoundedRectangle(cornerRadius: 5.5, style: .continuous)
+            .fill(tint.gradient)
+            .frame(width: 20, height: 20)
+            .overlay {
+                Image(systemName: systemName)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white)
             }
-            if let disclosure {
-                DisclosureChevron(isExpanded: disclosure)
-            }
-        }
-        .padding(.leading, indent ? 28 : 10)
-        .padding(.trailing, 8)
-        .padding(.vertical, 6)
-        .background {
-            ZStack {
-                if isHovered && !isSelected {
-                    Self.pill.fill(SettingsPalette.hovered)
-                        .transition(.opacity)
-                }
-                if isSelected {
-                    Self.pill
-                        .fill(SettingsPalette.selected)
-                        .overlay {
-                            // A hairline lit from above, so the pill reads as raised.
-                            Self.pill.strokeBorder(
-                                LinearGradient(colors: [.white.opacity(0.10), .white.opacity(0.02)],
-                                               startPoint: .top, endPoint: .bottom),
-                                lineWidth: 0.5)
-                        }
-                        .matchedGeometryEffect(id: "selection", in: selectionSpace)
-                }
-            }
-        }
-        .contentShape(Self.pill)
-        .scaleEffect(isPressed && !reduceMotion ? 0.97 : 1)
-        .animation(.spring(response: 0.22, dampingFraction: 0.6), value: isPressed)
-        .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.14)) { isHovered = hovering }
-        }
-        // Pressed on touch-down, released on lift: the row answers the finger,
-        // not only the click.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in if !isPressed { isPressed = true } }
-                .onEnded { value in
-                    isPressed = false
-                    if abs(value.translation.width) < 6, abs(value.translation.height) < 6 { select() }
-                }
-        )
-        .onChange(of: isSelected) { selected in
-            if selected { bounce += 1 }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-        .accessibilityAction { select() }
-    }
-
-    @ViewBuilder
-    private var icon: some View {
-        if let logo = section.logo {
-            ProviderGlyphView(glyph: logo, size: 14)
-                .keyframeAnimator(initialValue: 1.0, trigger: bounce) { content, scale in
-                    content.scaleEffect(scale)
-                } keyframes: { _ in
-                    SpringKeyframe(1.18, duration: 0.14)
-                    SpringKeyframe(1.0, duration: 0.3, spring: .bouncy)
-                }
-        } else {
-            Image(systemName: section.icon)
-                .font(.system(size: indent ? 12 : 13, weight: .regular))
-                .symbolEffect(.bounce, value: bounce)
-        }
-    }
-}
-
-/// The arrow that folds Accounts' providers away: brighter under the pointer,
-/// a soft disc behind it, and a springy turn.
-private struct DisclosureChevron: View {
-    @Binding var isExpanded: Bool
-    @State private var isHovered = false
-
-    var body: some View {
-        Button {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { isExpanded.toggle() }
-        } label: {
-            Image(systemName: "chevron.right")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.white.opacity(isHovered ? 0.85 : 0.45))
-                .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                .frame(width: 18, height: 18)
-                .background(Circle().fill(.white.opacity(isHovered ? 0.08 : 0)))
-                .contentShape(Circle())
-        }
-        .buttonStyle(SettingsPressStyle())
-        .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.12)) { isHovered = hovering }
-        }
-    }
-}
-
-/// A press that dips and springs back, for the sidebar's plain buttons.
-private struct SettingsPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.94 : 1)
-            .animation(.spring(response: 0.22, dampingFraction: 0.6), value: configuration.isPressed)
-    }
-}
-
-/// Quit, at the foot of the sidebar: quieter than the sections above it,
-/// with the same hover pill, and a red that only shows once the pointer is on
-/// it — the one row here that does something irreversible.
-private struct SettingsQuitRow: View {
-    let quit: () -> Void
-    @State private var isHovered = false
-
-    private static let hoverRed = Color(red: 1, green: 0.42, blue: 0.4)
-
-    var body: some View {
-        Button(action: quit) {
-            HStack(spacing: 10) {
-                Image(systemName: "power")
-                    .font(.system(size: 12, weight: .regular))
-                    .frame(width: 18)
-                Text(L10n.t("Quit Codenotch"))
-                    .font(.system(size: 13, weight: .regular))
-            }
-            .foregroundStyle(isHovered ? Self.hoverRed : Color.white.opacity(0.55))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isHovered ? SettingsPalette.hovered : Color.clear)
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        }
-        .buttonStyle(SettingsPressStyle())
-        .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.14)) { isHovered = hovering }
-        }
-    }
-}
-
-/// Switching panes: the old one softens out of focus as the new one sharpens in.
-private struct BlurFade: ViewModifier {
-    let radius: CGFloat
-    let opacity: Double
-
-    func body(content: Content) -> some View {
-        content.blur(radius: radius).opacity(opacity)
-    }
-}
-
-private extension AnyTransition {
-    static var blurFade: AnyTransition {
-        .modifier(active: BlurFade(radius: 10, opacity: 0),
-                  identity: BlurFade(radius: 0, opacity: 1))
     }
 }
 
@@ -378,14 +191,9 @@ struct SettingsView: View {
     /// another app, so the user is always coming *back* here to see it — which
     /// makes returning focus the exact moment the old value is wrong.
     @State private var accounts: [ProviderSummary] = []
-    /// The providers the menu bar can show, from the same snapshots it draws.
-    @State private var menuBarChoices: [MenuBarChoice] = []
     @State private var displays: [DisplayOption] = []
+    @State private var menuBarChoices: [MenuBarChoice] = []
     @State private var selection: SettingsSection = .accounts
-    /// Whether Accounts shows its provider panes. Remembered, so someone who
-    /// folds the group away finds it folded next time.
-    @AppStorage("settingsAccountsExpanded") private var accountsExpanded = true
-    @Namespace private var selectionSpace
     /// The provider being dragged right now.
     ///
     /// Held here rather than read off the drop, because the rows have to move
@@ -403,6 +211,7 @@ struct SettingsView: View {
     @State private var authorLinkHovered = false
     /// A gesture for this sitting, not a setting: the sidebar comes back on
     /// the next open, the same way a window's own sidebar toggle behaves.
+    @State private var isSidebarVisible = true
     /// A short-lived acknowledgement for the recenter action. The notch may
     /// already be centred, in which case the action has no visible movement;
     /// the acknowledgement keeps the button from feeling inert.
@@ -431,7 +240,6 @@ struct SettingsView: View {
     var previewSessionLimitAlert: (() -> Void)? = nil
     var previewWeeklyLimitAlert: (() -> Void)? = nil
     @Environment(\.codenotchReduceTransparency) private var reduceTransparency
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         // A plain HStack rather than `NavigationSplitView`: the sidebar here
@@ -442,19 +250,14 @@ struct SettingsView: View {
         // `SettingsWindowController.show()`). A fixed-width list beside the
         // pane gets the same look with no toggle to remove.
         HStack(spacing: 0) {
-            sidebar
-            // Stacked, so the pane leaving and the one arriving cross in the
-            // same place rather than being laid out side by side.
-            ZStack {
-                pane(for: selection)
-                    .id(selection)
-                    .transition(reduceMotion ? .opacity : .blurFade)
-                    // A fixed subject per window, not a document — nothing here
-                    // is titled the way a sidebar of documents would be.
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if isSidebarVisible {
+                sidebar
+                    .transition(.move(edge: .leading).combined(with: .opacity))
             }
-            .animation(.easeOut(duration: reduceMotion ? 0.12 : 0.24), value: selection)
-            .clipped()
+            pane(for: selection)
+                // A fixed subject per window, not a document — nothing here
+                // is titled the way a sidebar of documents would be.
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         // Rebuild the whole pane when the language changes.
         //
@@ -482,18 +285,16 @@ struct SettingsView: View {
         // (see `SettingsWindowController.show()`), so this material is the
         // whole visible surface, and clipping it is what rounds all four
         // corners rather than only the two macOS rounds for a titled window.
-        // Solid, not a material: the panel is dark whatever is behind it, the
-        // way a pro app's own window is, so nothing from the desktop washes
-        // through and every surface keeps the value it was designed at.
-        .background(SettingsPalette.window)
+        .background(SettingsChrome.paneFill)
         .clipShape(RoundedRectangle(cornerRadius: SettingsView.cornerRadius,
                                     style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: SettingsView.cornerRadius, style: .continuous)
-                .strokeBorder(SettingsPalette.edge, lineWidth: 1)
+            if reduceTransparency {
+                RoundedRectangle(cornerRadius: SettingsView.cornerRadius,
+                                 style: .continuous)
+                    .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+            }
         }
-        // Always the dark look, controls included, to match the notch it sets up.
-        .environment(\.colorScheme, .dark)
         // Without this SwiftUI insets the content by the title bar's height
         // even though the window has none to speak of, and the panel's own
         // rounded top is pushed down leaving a transparent band with the
@@ -506,6 +307,23 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didChangeScreenParametersNotification
         )) { _ in displays = DisplayOption.connected }
+        .onReceive(preferences.$customEndpoints.receive(on: RunLoop.main)) { _ in
+            accounts = providers()
+        }
+        .onReceive((usageStore?.$snapshots.eraseToAnyPublisher()
+                    ?? Empty<[ProviderSnapshot], Never>().eraseToAnyPublisher())
+            .receive(on: RunLoop.main)) { snapshots in
+                // Every reading lands here. The rows only change when who can
+                // be listed does, not whenever a figure moves.
+                let choices = MenuBarChoice.listed(in: snapshots)
+                if choices != menuBarChoices { menuBarChoices = choices }
+            }
+        .onReceive(NotificationCenter.default.publisher(for: SettingsView.openSection)) { note in
+            if let raw = note.userInfo?["section"] as? String,
+               let section = SettingsSection(rawValue: raw) {
+                selection = section
+            }
+        }
         .onReceive((usageStore?.$notchSnapshots.eraseToAnyPublisher()
                     ?? Empty<[ProviderSnapshot], Never>().eraseToAnyPublisher())
             .receive(on: RunLoop.main)) { _ in
@@ -526,142 +344,212 @@ struct SettingsView: View {
                 // for that explicit event, not on every usage poll.
                 accounts = providers()
             }
-        .onReceive((usageStore?.$snapshots.eraseToAnyPublisher()
-                    ?? Empty<[ProviderSnapshot], Never>().eraseToAnyPublisher())
-            .receive(on: RunLoop.main)) { snapshots in
-                // Every reading lands here. The rows only change when who can
-                // be listed does, not whenever a figure moves.
-                let choices = MenuBarChoice.listed(in: snapshots)
-                if choices != menuBarChoices { menuBarChoices = choices }
-            }
-        .onReceive(preferences.$customEndpoints.receive(on: RunLoop.main)) { _ in
-            accounts = providers()
-        }
     }
 
-    /// The subject list: a full-height column on a shade lighter than the
-    /// pane, the app's own mark and name at its head, plain white symbols
-    /// rather than coloured badges, and the selection as a soft grey pill.
+    /// The subject list, drawn as a card floating inside the window rather
+    /// than as a full-height column welded to its left edge.
+    ///
+    /// The inset is what makes it read as floating: the window's own
+    /// background runs around all four of its sides, so the card has an edge
+    /// everywhere instead of only on the one side facing the pane. The
+    /// traffic lights land inside it, which is why the rows start a clear
+    /// `trafficLightClearance` below the top rather than at it.
+    @State private var sidebarQuery = ""
+
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // The band the traffic lights sit in.
-            Color.clear.frame(height: SettingsView.headerHeight)
-
-            HStack(spacing: 10) {
-                Image(nsImage: NSApp.applicationIconImage)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 22, height: 22)
-                Text("Codenotch")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
+            // The band the traffic lights sit in; the toggle takes its far end.
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                sidebarToggle
             }
-            .padding(.horizontal, 18)
-            .padding(.bottom, 16)
+            .padding(.trailing, 12)
+            .frame(height: SettingsView.headerHeight)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(SettingsSection.topLevel) { section in
-                        SettingsSidebarRow(
-                            section: section,
-                            isSelected: selection == section,
-                            selectionSpace: selectionSpace,
-                            count: section == .accounts ? connectedCount : nil,
-                            disclosure: section == .accounts ? $accountsExpanded : nil,
-                            select: { selectSection(section) }
-                        )
-                        if section == .accounts, accountsExpanded {
-                            ForEach(SettingsSection.providerPanes) { child in
-                                SettingsSidebarRow(section: child,
-                                                   isSelected: selection == child,
-                                                   selectionSpace: selectionSpace,
-                                                   indent: true,
-                                                   select: { selectSection(child) })
+            // Finds a subject by name, the way a long settings list is used.
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                TextField("", text: $sidebarQuery, prompt: Text(L10n.t("Search settings…")))
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+            }
+            .padding(.horizontal, 9)
+            .frame(height: 28)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
+            .padding(.horizontal, 12)
+            .padding(.bottom, 10)
+
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 18) {
+                    ForEach(SettingsSection.Group.allCases) { group in
+                        let rows = SettingsSection.visible.filter {
+                            $0.group == group && (sidebarQuery.isEmpty
+                                || $0.title.localizedCaseInsensitiveContains(sidebarQuery))
+                        }
+                        if !rows.isEmpty {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(group.title)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.leading, 10)
+                                    .padding(.bottom, 4)
+                                ForEach(rows) { section in
+                                    sidebarRow(section)
+                                }
                             }
                         }
                     }
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 12)
             }
-            .scrollIndicators(.never)
 
             Spacer(minLength: 0)
 
-            VStack(alignment: .leading, spacing: 6) {
-                SettingsQuitRow(quit: quit)
+            Button(role: .destructive, action: quit) {
                 HStack(spacing: 8) {
-                    Text("Codenotch \(updater.currentVersion)")
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundStyle(.white.opacity(0.32))
-                    Spacer(minLength: 0)
-                    // Only once a check has found a newer version. Sparkle
-                    // downloads it in the background either way; this is for
-                    // someone who would rather have it now than on next launch.
-                    if case .found(let newer) = updater.outcome {
-                        Button(L10n.t("Update")) { updater.checkNow() }
-                            .buttonStyle(SettingsButtonStyle(kind: .prominent, compact: true))
-                            .help(L10n.t("Version \(newer) is available"))
-                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                    }
+                    Image(systemName: "power")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 20, height: 20)
+                        .background(RoundedRectangle(cornerRadius: 5.5, style: .continuous).fill(Color.red.gradient))
+                    Text(L10n.t("Quit Codenotch"))
+                        .font(.system(size: 13))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
-                .animation(.easeOut(duration: 0.2), value: updater.outcome)
                 .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 10)
-            .padding(.bottom, 16)
-        }
-        // Opening a provider's pane from elsewhere must not land on a row
-        // that is folded out of sight.
-        .onChange(of: selection) { section in
-            if section == .accounts { accounts = providers() }
-            if SettingsSection.providerPanes.contains(section) { accountsExpanded = true }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 8)
+            .padding(.bottom, 12)
         }
         .frame(width: SettingsView.sidebarWidth)
-        .frame(maxHeight: .infinity)
-        .background(SettingsPalette.sidebar)
+        .background(SettingsChrome.sidebarFill)
         .overlay(alignment: .trailing) {
-            SettingsPalette.hairline.frame(width: 1)
+            Rectangle().fill(Color.primary.opacity(0.08)).frame(width: 1)
         }
     }
 
-    /// The pill slides on a spring; the pane itself crossfades on its own.
-    private func selectSection(_ section: SettingsSection) {
-        guard section != selection else { return }
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) { selection = section }
-        // A pane opens the way the window does: nothing being typed in.
-        if let window = NSApp.keyWindow { SettingsWindowController.startUnfocused(window) }
+    /// One subject: its symbol in its own colour, the name, and a quiet grey
+    /// pill when it is the one open.
+    private func sidebarRow(_ section: SettingsSection) -> some View {
+        let selected = selection == section
+        return Button {
+            selection = section
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: section.icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(section.tint)
+                    .frame(width: 20, height: 20)
+                Text(section.title)
+                    .font(.system(size: 13, weight: selected ? .medium : .regular))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(selected ? Color.primary.opacity(0.09) : .clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
-    /// How many providers are switched on, beside Accounts in the sidebar.
-    private var connectedCount: Int {
-        accounts.filter { $0.localModel == nil && preferences.isConnected($0.id) }.count
+    /// Folds the sidebar away, from inside the sidebar itself: a bare symbol,
+    /// because the card it sits on is already a surface of its own.
+    private var sidebarToggle: some View {
+        Button(action: toggleSidebar) {
+            Image(systemName: "sidebar.left")
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(.secondary)
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(L10n.t("Hide Sidebar"))
     }
 
-    /// A large title and a line under it, fixed above the scrolling content,
-    /// then a hairline across the whole pane.
+    /// And brings it back, from the pane's own header.
+    ///
+    /// A glass disc rather than a bare symbol: with the card gone there is no
+    /// surface under it any more, and a lone glyph floating on the pane reads
+    /// as decoration rather than as the control that undoes what just
+    /// happened.
+    private var collapsedSidebarToggle: some View {
+        Button(action: toggleSidebar) {
+            Image(systemName: "sidebar.left")
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(.primary)
+                .frame(width: 36, height: 36)
+                .background {
+                    if reduceTransparency {
+                        Circle()
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                            .overlay(Circle().strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
+                    } else if #available(macOS 26.0, *) {
+                        Color.clear.glassEffect(.regular, in: Circle())
+                    } else {
+                        Circle().fill(.regularMaterial)
+                    }
+                }
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(L10n.t("Show Sidebar"))
+    }
+
+    private func toggleSidebar() {
+        withAnimation(.snappy(duration: 0.22)) { isSidebarVisible.toggle() }
+    }
+
+    /// A title fixed above the scrolling `Form`, the way System Settings
+    /// itself names the pane once at the top rather than repeating it as a
+    /// group header that would scroll away with everything else.
     private func pane(for section: SettingsSection) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 3) {
+            // One row across the top of the window, and the title rides it.
+            // With the sidebar folded away the traffic lights are over this
+            // pane instead, so the row starts clear of them and the toggle
+            // takes the place the sidebar's own copy had — all three on the
+            // same line rather than stacked down the corner.
+            HStack(spacing: 16) {
+                if !isSidebarVisible {
+                    Color.clear
+                        .frame(width: SettingsView.trafficLightWidth, height: 1)
+                    collapsedSidebarToggle
+                }
                 Text(section.title)
-                    .font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(.white)
-                Text(section.subtitle)
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .font(.system(size: 22, weight: .bold))
+                Spacer(minLength: 0)
+                if section == .accounts, !addableAccounts.isEmpty {
+                    addSourceMenu
+                        .padding(.trailing, SettingsView.paneGutter)
+                }
             }
-            .padding(.horizontal, 24)
-            // The same above as below, so the block sits in the middle of its band.
-            .padding(.vertical, 20)
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            SettingsPalette.hairline.frame(height: 1)
-
+            .frame(height: SettingsView.headerHeight)
+            .padding(.top, 36)
+            .padding(.leading, isSidebarVisible ? SettingsView.paneGutter : 12)
+            .frame(maxWidth: SettingsChrome.measure + 2 * SettingsChrome.gutter, alignment: .leading)
+            .frame(maxWidth: .infinity)
+            Text(section.subtitle)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .padding(.leading, isSidebarVisible ? SettingsView.paneGutter : 12)
+                .padding(.bottom, 10)
+                .frame(maxWidth: SettingsChrome.measure + 2 * SettingsChrome.gutter, alignment: .leading)
+                .frame(maxWidth: .infinity)
             paneContent(for: section)
-                // The pane sits directly on the window's own dark ground; the
-                // form's sections draw as the raised cards.
                 .scrollContentBackground(.hidden)
-                // Every button in the pane answers the pointer the same way.
-                .buttonStyle(SettingsButtonStyle())
         }
     }
 
@@ -671,629 +559,412 @@ struct SettingsView: View {
         case .accounts:      accountsPane
         case .phone:         phonePane
         case .deepseek:      DeepSeekPricingSettingsView(preferences: preferences)
+        case .customEndpoints: CustomEndpointsSettingsView(preferences: preferences)
         case .ollama:
             if let usageStore {
-                Form {
-                    Section(L10n.t("Connection")) {
-                        OllamaSettingsRow(preferences: preferences, store: usageStore, relay: ollamaRelay)
+                SettingsPage {
+                    SettingsGroup(title: L10n.t("Connection")) {
+                        SettingsCell { OllamaSettingsRow(preferences: preferences, store: usageStore, relay: ollamaRelay) }
                     }
                 }
-                .formStyle(.grouped)
             }
         case .lmstudio:
             if let usageStore {
-                Form {
-                    Section("Connection") {
-                        LMStudioSettingsRow(preferences: preferences, store: usageStore, metrics: lmstudioMetrics)
+                SettingsPage {
+                    SettingsGroup(title: L10n.t("Connection")) {
+                        SettingsCell { LMStudioSettingsRow(preferences: preferences, store: usageStore, metrics: lmstudioMetrics) }
                     }
                 }
-                .formStyle(.grouped)
             }
-        case .customEndpoints:
-            CustomEndpointsSettingsView(preferences: preferences)
         case .appearance:    appearancePane
         case .notifications: notificationsPane
         case .general:       generalPane
         }
     }
 
+    /// Everything that is off, as a menu: what is not connected is a choice
+    /// to make, not a list to read past.
+    private var addSourceMenu: some View {
+        Menu {
+            ForEach(addableAccounts) { account in
+                Button {
+                    addSource(account.id)
+                } label: {
+                    Label {
+                        Text(account.name)
+                    } icon: {
+                        Image(nsImage: account.glyph.menuImage)
+                    }
+                }
+            }
+        } label: {
+            Label(L10n.t("Add"), systemImage: "plus")
+        }
+        .menuStyle(.button)
+        .buttonStyle(.borderedProminent)
+        .tint(.primary)
+        .fixedSize()
+        .help(L10n.t("Connect another source. It joins the end of the list with a ring of its own."))
+    }
+
     private var accountsPane: some View {
-        Form {
-            // Split in two, because ordering only means anything for the
-            // first group: a provider switched off has no ring in the notch,
-            // so dragging it was arranging something that is not on screen.
-            Section(L10n.t("Connected")) {
-                if needsSetup { setupNote }
-                ForEach(connected) { account in
+        SettingsPage {
+            if needsSetup {
+                SettingsGroup { SettingsCell { setupNote } }
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                let rows = listedAccounts
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, account in
+                    let isOn = preferences.isConnected(account.id)
                     AccountRow(provider: account, preferences: preferences,
                                signOut: signOut, signIn: signIn,
                                switchAccount: switchAccount, retry: retry,
                                refresh: { usageStore?.reevaluate(providerID: $0) },
-                               isOrderable: true,
+                               isOrderable: isOn,
                                drag: drag,
                                cursorRefresh: cursorRefresh,
                                onDrop: { cursorRefresh += 1 },
                                takePlaceOf: { move($0, onto: account.id) },
-                               didConnect: { connect(account.id) })
-                }
-                if connected.isEmpty {
-                    Text(L10n.t("Nothing is connected, so the notch has no rings to draw."))
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if !connected.isEmpty {
-                    Text(L10n.t("The notch draws these in this order. Drag one by its handle to move it."))
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                // Beside the switches it explains, not stranded at the end of
-                // the page.
-                Text(L10n.t("Most readings are borrowed from a tool that already holds the account. DeepSeek and MiniMax are the exceptions: clicking Sign in opens a Codenotch window for that account, and signing out here clears only that session and its saved reading."))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            // Absent rather than empty when everything is on: a titled, empty
-            // group reads as something having failed to load.
-            if !notConnected.isEmpty {
-                Section(L10n.t("Not connected")) {
-                    ForEach(notConnected) { account in
-                        AccountRow(provider: account, preferences: preferences,
-                                   signOut: signOut, signIn: signIn,
-                                   switchAccount: switchAccount, retry: retry,
-                                   refresh: { usageStore?.reevaluate(providerID: $0) },
-                                   isOrderable: false,
-                                   drag: drag,
-                                   cursorRefresh: cursorRefresh,
-                                   onDrop: {},
-                                   takePlaceOf: { _ in false },
-                                   didConnect: { connect(account.id) })
+                               didConnect: { setListed(account.id, true); connect(account.id) },
+                               onRemove: isOn ? nil : { setListed(account.id, false) })
+                        .padding(.vertical, 12)
+                    if index < rows.count - 1 {
+                        Divider().padding(.leading, 60)
                     }
-                    // Says what switching one back on will do, which is the
-                    // only question this group raises.
-                    Text(L10n.t("These have no ring to place. Switch one on and it joins the end of the list above."))
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if rows.isEmpty {
+                    Text(L10n.t("Nothing is connected, so the notch has no rings to draw."))
+                        .font(SettingsChrome.bodyFont)
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 12)
                 }
             }
+            Text(connected.isEmpty
+                 ? L10n.t("Most readings are borrowed from a tool that already holds the account. DeepSeek and MiniMax are the exceptions: clicking Sign in opens a Codenotch window for that account, and signing out here clears only that session and its saved reading.")
+                 : L10n.t("The notch draws these in this order. Drag one by its handle to move it."))
+                .font(SettingsChrome.bodyFont)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .formStyle(.grouped)
-        // A row switched off jumps from one group to the other. Scoped to that
-        // one value so nothing else on the page inherits an animation.
         .animation(.snappy(duration: 0.25), value: preferences.connectedProviders)
         .animation(.snappy(duration: 0.25), value: preferences.disabledModels)
+        // Everything on when the pane opens is kept, so the first switch-off
+        // leaves a row rather than removing one; and a row switched off is
+        // marked kept at that moment, whatever the list said before.
+        .onAppear {
+            if listedSourcesRaw.isEmpty { seedListed() }
+            previouslyConnected = Set(connected.map(\.id))
+        }
+        .onChange(of: preferences.connectedProviders) { _, _ in
+            let now = Set(connected.map(\.id))
+            for id in previouslyConnected.subtracting(now) { setListed(id, true) }
+            previouslyConnected = now
+        }
     }
 
-    // One pane, because they are one question: what Codenotch looks like and
-    // where it turns up. Split across several it read as unrelated settings,
-    // and "Where Codenotch appears" was a header long enough to look like a
-    // warning.
+    @State private var previouslyConnected: Set<String> = []
+
+    private func seedListed() {
+        listedSourcesRaw = connected.map(\.id).sorted().joined(separator: ",")
+    }
+
     private var appearancePane: some View {
-        Form {
-            Section(L10n.t("Notch")) {
-                Picker(L10n.t("Reset time"), selection: $preferences.resetTimeFormat) {
-                    ForEach(ResetTimeFormat.allCases) { Text($0.title).tag($0) }
+        SettingsPage {
+            SettingsGroup(title: L10n.t("Notch")) {
+                SettingsRow(title: L10n.t("Show"), description: preferences.notchVisibility.explanation) {
+                    Picker("", selection: $preferences.notchVisibility) {
+                        ForEach(NotchVisibility.allCases) { Text($0.title).tag($0) }
+                    }
+                    .labelsHidden().pickerStyle(.segmented).fixedSize()
                 }
-                .pickerStyle(.segmented)
+                SettingsToggleRow(title: L10n.t("Fold for full-screen apps"),
+                                  description: L10n.t("The notch folds away while a full-screen app is frontmost, and returns when you leave it. Off keeps it in place over full-screen apps."),
+                                  isOn: $preferences.foldsForFullScreen)
+                SettingsRow(title: L10n.t("Edge"), description: preferences.notchEdge.explanation) {
+                    Picker("", selection: $preferences.notchEdge) {
+                        ForEach(NotchEdge.allCases) { Text($0.title).tag($0) }
+                    }
+                    .labelsHidden().pickerStyle(.menu).fixedSize()
+                }
+                SettingsRow(title: L10n.t("Displays"), description: preferences.notchScope.explanation) {
+                    Picker("", selection: $preferences.notchScope) {
+                        ForEach(NotchScreenScope.allCases) { Text($0.title).tag($0) }
+                    }
+                    .labelsHidden().pickerStyle(.segmented).fixedSize()
+                }
+                if preferences.notchScope == .mainDisplay {
+                    SettingsRow(title: L10n.t("Display"), description: displayExplanation) {
+                        Picker("", selection: $preferences.displayPreference) {
+                            Text(L10n.t("Follow active window")).tag(DisplayPreference.followActiveWindow)
+                            ForEach(displays) { display in
+                                Text(display.name).tag(DisplayPreference.display(display.id))
+                            }
+                            if case .display(let id) = preferences.displayPreference,
+                               !displays.contains(where: { $0.id == id }) {
+                                Text(L10n.t("Unavailable display")).tag(DisplayPreference.display(id))
+                            }
+                        }
+                        .labelsHidden().pickerStyle(.menu).fixedSize()
+                    }
+                }
+                if #available(macOS 26.0, *) {
+                    SettingsRow(title: L10n.t("Surface"), description: preferences.notchSurfaceStyle.explanation) {
+                        Picker("", selection: $preferences.notchSurfaceStyle) {
+                            ForEach(NotchSurfaceStyle.allCases) { Text($0.title).tag($0) }
+                        }
+                        .labelsHidden().pickerStyle(.segmented).fixedSize()
+                    }
+                }
+                SettingsRow(title: L10n.t("Size"),
+                            description: preferences.usesCustomNotchScale
+                                ? L10n.t("Scales the whole surface — rings, text and tooltip together — so the proportions stay as drawn. 100% is the size the notch was designed at.")
+                                : preferences.notchSize.explanation) {
+                    HStack(spacing: 10) {
+                        if preferences.usesCustomNotchScale {
+                            Slider(value: $preferences.customNotchScale, in: Preferences.customScaleRange)
+                                .frame(width: 160)
+                            Text(Self.scalePercent(preferences.customNotchScale))
+                                .font(.callout.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .frame(width: 46, alignment: .trailing)
+                        } else {
+                            Picker("", selection: $preferences.notchSize) {
+                                ForEach(NotchSize.allCases) { Text($0.title).tag($0) }
+                            }
+                            .labelsHidden().pickerStyle(.segmented).fixedSize()
+                        }
+                        Picker("", selection: Binding(
+                            get: { preferences.usesCustomNotchScale },
+                            set: { preferences.usesCustomNotchScale = $0 }
+                        )) {
+                            Text(L10n.t("Preset")).tag(false)
+                            Text(L10n.t("Custom")).tag(true)
+                        }
+                        .labelsHidden().pickerStyle(.menu).fixedSize()
+                    }
+                }
+                SettingsRow(title: L10n.t("Position"),
+                            description: L10n.t("Hold ⌥ and drag the notch to slide it along its edge. Each edge remembers where you left it.")) {
+                    Button {
+                        resetPosition()
+                        withAnimation(.easeInOut(duration: 0.15)) { didRecentre = true }
+                        Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 1_200_000_000)
+                            guard !Task.isCancelled else { return }
+                            withAnimation(.easeInOut(duration: 0.15)) { didRecentre = false }
+                        }
+                    } label: {
+                        Label(L10n.t("Recentre"), systemImage: didRecentre ? "checkmark" : "arrow.counterclockwise")
+                    }
+                }
+                SettingsToggleRow(title: L10n.t("Show move handle"),
+                                  description: L10n.t("The arc above the notch. Hold it to carry the notch to another edge — Edge above does the same."),
+                                  isOn: $preferences.showsMoveHandle)
+            }
 
-                Text(preferences.resetTimeFormat.explanation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Toggle(L10n.t("Show usage pace"), isOn: $preferences.showUsagePace)
-                Text(L10n.t("Compares each timed allowance with the time left until reset, showing quota in deficit or held in reserve."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Toggle(L10n.t("Show Spark and code review"), isOn: $preferences.showCodexExtraLimits)
+            SettingsGroup(title: L10n.t("Rings")) {
+                SettingsRow(title: L10n.t("Reset time"), description: preferences.resetTimeFormat.explanation) {
+                    Picker("", selection: $preferences.resetTimeFormat) {
+                        ForEach(ResetTimeFormat.allCases) { Text($0.title).tag($0) }
+                    }
+                    .labelsHidden().pickerStyle(.segmented).fixedSize()
+                }
+                SettingsToggleRow(title: L10n.t("Show usage pace"),
+                                  description: L10n.t("Compares each timed allowance with the time left until reset, showing quota in deficit or held in reserve."),
+                                  isOn: $preferences.showUsagePace)
+                SettingsToggleRow(title: L10n.t("Show Spark and code review"),
+                                  description: L10n.t("The ring still follows the main Codex window. Spark and code review stay in the hover card."),
+                                  isOn: $preferences.showCodexExtraLimits)
                     .onChange(of: preferences.showCodexExtraLimits) { _ in
                         for account in providers() where CodexProfile.isCodex(providerID: account.id) {
                             usageStore?.refresh(providerID: account.id)
                         }
                     }
-                Text(L10n.t("The ring still follows the main Codex window. Spark and code review stay in the hover card."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Picker(L10n.t("Weekly ring"), selection: $preferences.weeklyRing) {
-                    ForEach(WeeklyRing.allCases) { Text($0.title).tag($0) }
+                SettingsRow(title: L10n.t("Weekly ring"), description: preferences.weeklyRing.explanation) {
+                    Picker("", selection: $preferences.weeklyRing) {
+                        ForEach(WeeklyRing.allCases) { Text($0.title).tag($0) }
+                    }
+                    .labelsHidden().pickerStyle(.segmented).fixedSize()
                 }
-                .pickerStyle(.segmented)
-
-                Text(preferences.weeklyRing.explanation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
                 if preferences.weeklyRing != .off {
-                    Toggle(L10n.t("Dashed weekly ring"), isOn: $preferences.weeklyRingDashed)
+                    SettingsToggleRow(title: L10n.t("Dashed weekly ring"), isOn: $preferences.weeklyRingDashed)
                 }
+                SettingsToggleRow(title: L10n.t("Claude daily pace ring"),
+                                  description: L10n.t("Claude's main ring shows today's share of the weekly limit — a seventh a day, counted from the weekly reset — instead of the session. The session moves to the thin ring and the card; alerts follow the daily ring."),
+                                  isOn: $preferences.claudeDailyPaceRing)
+            }
 
-                Toggle(L10n.t("Claude daily pace ring"), isOn: $preferences.claudeDailyPaceRing)
-                Text(L10n.t("Claude's main ring shows today's share of the weekly limit — a seventh a day, counted from the weekly reset — instead of the session. The session moves to the thin ring and the card; alerts follow the daily ring."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Picker(L10n.t("Show"), selection: $preferences.notchVisibility) {
-                    ForEach(NotchVisibility.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-
-                Text(preferences.notchVisibility.explanation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Toggle(L10n.t("Fold for full-screen apps"), isOn: $preferences.foldsForFullScreen)
-                Text(L10n.t("The notch folds away while a full-screen app is frontmost, and returns when you leave it. Off keeps it in place over full-screen apps."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Picker(L10n.t("Edge"), selection: $preferences.notchEdge) {
-                    ForEach(NotchEdge.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-
-                Text(preferences.notchEdge.explanation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                // Offered only where there is a glass to choose. Below macOS 26
-                // the choice has one possible answer, and a picker that cannot
-                // be moved is worse than no picker at all.
-                if #available(macOS 26.0, *) {
-                    Picker(L10n.t("Surface"), selection: $preferences.notchSurfaceStyle) {
-                        ForEach(NotchSurfaceStyle.allCases) { Text($0.title).tag($0) }
+            SettingsGroup(title: L10n.t("Usage Limits"),
+                          footer: L10n.t("Rings turn amber at the watch limit and red at the critical one.")) {
+                SettingsRow(title: L10n.t("Watch limit"), stacked: true) {
+                    HStack(spacing: 12) {
+                        Slider(value: $preferences.watchLimit, in: 0.01...0.99)
+                        Text("\(Int(preferences.watchLimit * 100))%")
+                            .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                            .frame(width: 40, alignment: .trailing)
                     }
-                    .pickerStyle(.segmented)
-
-                    Text(preferences.notchSurfaceStyle.explanation)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
-
-                // Two ways to answer the same question, because they suit
-                // different people: three named sizes for anyone who wants a
-                // decision made for them, and a slider for anyone who has a
-                // particular size in mind and will not be talked out of it.
-                Picker(L10n.t("Size"), selection: Binding(
-                    get: { preferences.usesCustomNotchScale },
-                    set: { preferences.usesCustomNotchScale = $0 }
-                )) {
-                    Text(L10n.t("Preset")).tag(false)
-                    Text(L10n.t("Custom")).tag(true)
-                }
-                .pickerStyle(.segmented)
-
-                if preferences.usesCustomNotchScale {
-                    HStack(spacing: 10) {
-                        // Continuous, with no step: a step quantises the drag
-                        // into a dozen visible jumps, which is exactly what
-                        // this control exists to avoid.
-                        Slider(value: $preferences.customNotchScale,
-                               in: Preferences.customScaleRange)
-                        // Monospaced digits, so the number does not jitter
-                        // sideways while the slider is being dragged.
-                        Text(Self.scalePercent(preferences.customNotchScale))
-                            .font(.callout.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .frame(width: 46, alignment: .trailing)
+                SettingsRow(title: L10n.t("Critical limit"), stacked: true) {
+                    HStack(spacing: 12) {
+                        Slider(value: $preferences.criticalLimit, in: 0.01...1.00)
+                        Text("\(Int(preferences.criticalLimit * 100))%")
+                            .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                            .frame(width: 40, alignment: .trailing)
                     }
-
-                    Text(L10n.t("Scales the whole surface — rings, text and tooltip together — so the proportions stay as drawn. 100% is the size the notch was designed at."))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Picker(L10n.t("Preset size"), selection: $preferences.notchSize) {
-                        ForEach(NotchSize.allCases) { Text($0.title).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-
-                    Text(preferences.notchSize.explanation)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
+                SettingsRow(title: L10n.t("Reset to defaults"), description: "50% · 70%") {
+                    Button(L10n.t("Reset")) {
+                        preferences.criticalLimit = 0.70
+                        preferences.watchLimit = 0.50
+                    }
+                }
+            }
 
-                // The nudge has been draggable since the edge picker existed,
-                // and nothing on screen has ever said so — the only way to
-                // find it was to hold ⌥ on the notch and see what happened.
-                // This is also the only way back from a nudge that went too
-                // far, short of dragging it out again.
-                HStack {
-                    Text(L10n.t("Hold ⌥ and drag the notch to slide it along its edge. Each edge remembers where you left it."))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer()
-                    Button {
-                        resetPosition()
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            didRecentre = true
-                        }
-                        Task { @MainActor in
-                            try? await Task.sleep(nanoseconds: 1_200_000_000)
-                            guard !Task.isCancelled else { return }
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                didRecentre = false
+            if preferences.appPresence == .menuBar {
+                SettingsGroup(title: L10n.t("Menu bar"),
+                              footer: menuBarChoices.isEmpty
+                                  ? L10n.t("Nothing Codenotch reads has a five-hour limit to show yet. Claude and Codex do — switch one on in Accounts.")
+                                  : L10n.t("Leaving a provider out keeps it off the menu bar only — Codenotch still reads it. With none chosen, the icon comes back.")) {
+                    SettingsToggleRow(title: L10n.t("Show limit information in menu bar"),
+                                      description: L10n.t("Swaps the icon for each chosen provider's five-hour limit — how much is used and how long until it resets."),
+                                      isOn: $preferences.showsLimitsInMenuBar)
+                    if preferences.showsLimitsInMenuBar {
+                        SettingsToggleRow(title: L10n.t("Show weekly limit in menu bar"),
+                                          description: L10n.t("Adds a compact weekly-usage ring around each chosen provider that publishes it."),
+                                          isOn: $preferences.showsWeeklyLimitInMenuBar)
+                        ForEach(menuBarChoices) { choice in
+                            SettingsRow(title: choice.name) {
+                                HStack(spacing: 10) {
+                                    ProviderGlyphView(glyph: choice.glyph, size: 16).accessibilityHidden(true)
+                                    Toggle("", isOn: Binding(
+                                        get: { preferences.isInMenuBar(choice.id) },
+                                        set: { preferences.setInMenuBar($0, for: choice.id, among: menuBarChoices.map(\.id)) }
+                                    ))
+                                    .labelsHidden().toggleStyle(.switch)
+                                }
                             }
                         }
-                    } label: {
-                        Label(
-                            L10n.t("Recentre"),
-                            systemImage: didRecentre ? "checkmark" : "arrow.counterclockwise"
-                        )
-                    }
-                    .buttonStyle(SettingsButtonStyle(kind: .prominent))
-                }
-
-                // The arc above the notch. Hiding it loses nothing that cannot
-                // be reached another way: Edge, above, moves the notch too.
-                Toggle(L10n.t("Show move handle"), isOn: $preferences.showsMoveHandle)
-                Text(L10n.t("The arc above the notch. Hold it to carry the notch to another edge — Edge above does the same."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Picker(L10n.t("Displays"), selection: $preferences.notchScope) {
-                    ForEach(NotchScreenScope.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-
-                Text(preferences.notchScope.explanation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                // Pinning to one display only means something when there is
-                // one notch to place — under "All displays" every screen
-                // already gets its own, so there is nothing left to pin.
-                if preferences.notchScope == .mainDisplay {
-                    Picker(L10n.t("Display"), selection: $preferences.displayPreference) {
-                        Text(L10n.t("Follow active window")).tag(DisplayPreference.followActiveWindow)
-                        ForEach(displays) { display in
-                            Text(display.name).tag(DisplayPreference.display(display.id))
-                        }
-                        if case .display(let id) = preferences.displayPreference,
-                           !displays.contains(where: { $0.id == id }) {
-                            Text(L10n.t("Unavailable display")).tag(DisplayPreference.display(id))
+                        if menuBarChoices.filter({ preferences.isInMenuBar($0.id) }).count > StatusItemSummary.fullEntryLimit {
+                            SettingsNote(text: L10n.t("Past two, each shows its share alone and the countdowns move to the tooltip. Past four, the rest are in the menu."))
                         }
                     }
-
-                    Text(displayExplanation)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
-            Section(L10n.t("Usage Limits")) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(L10n.t("Watch limit"))
-                        Spacer()
-                        Text("\(Int(preferences.watchLimit * 100))%")
-                    }
-                    Slider(value: $preferences.watchLimit, in: 0.01...0.99)
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(L10n.t("Critical limit"))
-                        Spacer()
-                        Text("\(Int(preferences.criticalLimit * 100))%")
-                    }
-                    Slider(value: $preferences.criticalLimit, in: 0.01...1.00)
-                }
-                Button(L10n.t("Reset to defaults")) {
-                    // Critical first: `watchLimit` clamps itself below critical,
-                    // so resetting watch against a low stored critical would pin
-                    // it there and the reset would quietly do nothing.
-                    preferences.criticalLimit = 0.70
-                    preferences.watchLimit = 0.50
-                }
-                .padding(.top, 4)
-            }
-
-            // Apart from the notch's own group: these are about the app, not
-            // the thing it draws on the screen edge.
-            Section(L10n.t("App")) {
-                LabeledContent(L10n.t("Accent color")) {
-                    // 2pt, not 7: each swatch is now sized to its own
-                    // selection ring, so the gap the eye sees is this plus
-                    // the 6pt of ring standing clear of the dot inside it.
+            SettingsGroup(title: L10n.t("App")) {
+                SettingsRow(title: L10n.t("Accent color")) {
                     HStack(spacing: 2) {
                         ForEach(AccentColorChoice.allCases) { choice in
-                            AccentColorSwatch(
-                                choice: choice,
-                                isSelected: preferences.accentColor == choice
-                            ) {
+                            AccentColorSwatch(choice: choice, isSelected: preferences.accentColor == choice) {
                                 preferences.accentColor = choice
                             }
                         }
                     }
                 }
-
-                // "App icon", not "Icon": the picker above is about the
-                // notch, and on its own the word would read as another of it.
-                Picker(L10n.t("App icon"), selection: $preferences.appPresence) {
-                    ForEach(AppPresence.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-
-                Text(preferences.appPresence.explanation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                // Only while there is a menu bar item for it to change. With
-                // the app in the Dock or nowhere, a switch here would do
-                // nothing anyone could see; the choice is kept for when the
-                // item comes back.
-                if preferences.appPresence == .menuBar {
-                    menuBarLimitRows
-                }
-
-                Picker(L10n.t("Language"), selection: $preferences.language) {
-                    ForEach(AppLanguage.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.menu)
-
-                Text(preferences.language.explanation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .formStyle(.grouped)
-    }
-
-    /// Limits in the menu bar: the switch, and under it one row for each
-    /// provider the bar can show.
-    ///
-    /// Each of those rows is about the menu bar alone. Whether a provider is
-    /// read at all is its own switch in Accounts, and nothing here touches it.
-    @ViewBuilder
-    private var menuBarLimitRows: some View {
-        Toggle(L10n.t("Show limit information in menu bar"), isOn: $preferences.showsLimitsInMenuBar)
-        Text(L10n.t("Swaps the icon for each chosen provider's five-hour limit — how much is used and how long until it resets."))
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-
-        if preferences.showsLimitsInMenuBar {
-            Toggle(L10n.t("Show weekly limit in menu bar"),
-                   isOn: $preferences.showsWeeklyLimitInMenuBar)
-            Text(L10n.t("Adds a compact weekly-usage ring around each chosen provider that publishes it."))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            ForEach(menuBarChoices) { choice in
-                Toggle(isOn: Binding(
-                    get: { preferences.isInMenuBar(choice.id) },
-                    set: { preferences.setInMenuBar($0, for: choice.id, among: menuBarChoices.map(\.id)) }
-                )) {
-                    // The mark and name as the Accounts rows draw them, so a
-                    // provider is recognisably the same one in both places.
-                    HStack(spacing: 10) {
-                        ProviderGlyphView(glyph: choice.glyph, size: 16)
-                            .accessibilityHidden(true)
-                        Text(choice.name)
+                SettingsRow(title: L10n.t("App icon"), description: preferences.appPresence.explanation) {
+                    Picker("", selection: $preferences.appPresence) {
+                        ForEach(AppPresence.allCases) { Text($0.title).tag($0) }
                     }
+                    .labelsHidden().pickerStyle(.segmented).fixedSize()
                 }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .help(L10n.t("Shows \(choice.name)'s five-hour limit in the menu bar. Codenotch reads it either way."))
-            }
-
-            Text(menuBarChoices.isEmpty
-                 ? L10n.t("Nothing Codenotch reads has a five-hour limit to show yet. Claude and Codex do — switch one on in Accounts.")
-                 : L10n.t("Leaving a provider out keeps it off the menu bar only — Codenotch still reads it. With none chosen, the icon comes back."))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            // Said only once it applies: past two the item keeps each share
-            // and drops the countdowns, and past four it stops, because macOS
-            // hides a status item that does not fit rather than squeezing it.
-            if menuBarChoices.filter({ preferences.isInMenuBar($0.id) }).count > StatusItemSummary.fullEntryLimit {
-                Text(L10n.t("Past two, each shows its share alone and the countdowns move to the tooltip. Past four, the rest are in the menu."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                SettingsRow(title: L10n.t("Language"), description: preferences.language.explanation) {
+                    Picker("", selection: $preferences.language) {
+                        ForEach(AppLanguage.allCases) { Text($0.title).tag($0) }
+                    }
+                    .labelsHidden().pickerStyle(.menu).fixedSize()
+                }
             }
         }
     }
 
     private var notificationsPane: some View {
-        Form {
-            // Its own section rather than a line in General: this is the only
-            // part of the app that speaks first, and a switch that stops the
-            // Mac making a noise has to be findable by someone who is looking
-            // for exactly that and nothing else.
-            Section(L10n.t("When a session ends")) {
-                Toggle(L10n.t("Open the notch for a moment"), isOn: $preferences.announceSessionEnd)
-
-                Picker(L10n.t("For"), selection: $preferences.peekDuration) {
-                    ForEach(PeekDuration.allCases) { Text($0.title).tag($0) }
+        SettingsPage {
+            SettingsGroup(title: L10n.t("Peek")) {
+                SettingsRow(title: L10n.t("How long the notch stays open"),
+                            description: preferences.peekDuration.explanation) {
+                    Picker("", selection: $preferences.peekDuration) {
+                        ForEach(PeekDuration.allCases) { Text($0.title).tag($0) }
+                    }
+                    .labelsHidden().pickerStyle(.segmented).fixedSize()
                 }
-                .pickerStyle(.segmented)
-                .disabled(!preferences.announceSessionEnd)
-
-                Text(preferences.peekDuration.explanation)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Toggle(L10n.t("Play a sound"), isOn: $preferences.sessionEndSound)
-
-                // Two sounds, because the two events say different things: one
-                // is "that's done", the other is "you are the hold-up". Each
-                // has a preview beside it — picking an alert sound you cannot
-                // hear until the next time it fires is guesswork.
-                SoundRow(label: L10n.t("Finished"), name: $preferences.sessionEndSoundName,
-                         pickerEnabled: preferences.sessionEndSound)
-                SoundRow(label: L10n.t("Waiting on you"), name: $preferences.sessionBlockedSoundName,
-                         pickerEnabled: preferences.sessionEndSound)
-
-                Text(L10n.t("Codenotch already knows the moment an agent stops working or stops to ask you something. Clicking the notch while it is open brings that session's app to the front — the app, not the tab: only some terminals let anything outside them choose a tab, so the tooltip names the session instead."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text(L10n.t("The sound plays on the ordinary output, not the interface sound-effects channel — so it is still heard with \u{201C}Play user interface sound effects\u{201D} switched off in System Settings → Sound."))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            Section(L10n.t("When a limit is reached")) {
-                Toggle(L10n.t("Show notification for session limit"), isOn: $preferences.announceSessionLimitReached)
-
-                Toggle(L10n.t("Show notification for weekly limit"), isOn: $preferences.announceWeeklyLimitReached)
-
-                Toggle(L10n.t("Play a sound"), isOn: $preferences.limitReachedSound)
-
-                SoundRow(label: L10n.t("Alert sound"), name: $preferences.limitReachedSoundName,
-                         pickerEnabled: preferences.limitReachedSound)
-
-                if let previewSessionLimitAlert {
-                    Button(L10n.t("Preview session limit alert")) {
-                        previewSessionLimitAlert()
-                    }
-                }
-
-                if let previewWeeklyLimitAlert {
-                    Button(L10n.t("Preview weekly limit alert")) {
-                        previewWeeklyLimitAlert()
-                    }
-                }
-
-                Text(L10n.t("Displays a notification card from the side of the notch when a provider's session or weekly usage limit is reached."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Section(L10n.t("When a limit resets")) {
-                Toggle(L10n.t("Show notification from notch"), isOn: $preferences.announceUsageReset)
-
-                Toggle(L10n.t("Play a sound"), isOn: $preferences.usageResetSound)
-
-                SoundRow(label: L10n.t("Reset sound"), name: $preferences.usageResetSoundName,
-                         pickerEnabled: preferences.usageResetSound)
-
-                if let previewResetAlert {
-                    Button(L10n.t("Preview notification")) {
-                        previewResetAlert()
-                    }
-                }
-
-                Text(L10n.t("Displays a notification card from the side of the notch when a provider's usage limit resets."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            // The mute switch itself lives on each provider's own row in
-            // Accounts — muting is a fact about that provider's reading, not
-            // about notifications in general — but the mechanism it silences
-            // belongs to this pane's subject.
-            Section(L10n.t("Threshold alerts")) {
-                Text(L10n.t("A system notification the moment a provider's headline limit crosses 80%, and again at 100% — once per crossing, and again only after the window rolls over. Mute one from the bell beside its row in Accounts."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            SettingsGroup(title: L10n.t("Events"),
+                          footer: L10n.t("A system notification the moment a provider's headline limit crosses 80%, and again at 100% — once per crossing, and again only after the window rolls over. Mute one from the bell beside its row in Accounts.")) {
+                NotificationEventHeader()
+                NotificationEventRow(title: L10n.t("Session finished"),
+                                     description: L10n.t("The agent's turn is done."),
+                                     isOn: $preferences.announceSessionEnd,
+                                     sound: soundChoice(enabled: $preferences.sessionEndSound, name: $preferences.sessionEndSoundName))
+                NotificationEventRow(title: L10n.t("Session waiting on you"),
+                                     description: L10n.t("The agent stopped to ask you something."),
+                                     isOn: $preferences.announceSessionEnd,
+                                     sound: soundChoice(enabled: $preferences.sessionEndSound, name: $preferences.sessionBlockedSoundName))
+                NotificationEventRow(title: L10n.t("Session limit reached"),
+                                     description: L10n.t("The 5-hour allowance of a provider is spent."),
+                                     isOn: $preferences.announceSessionLimitReached,
+                                     sound: soundChoice(enabled: $preferences.limitReachedSound, name: $preferences.limitReachedSoundName))
+                NotificationEventRow(title: L10n.t("Weekly limit reached"),
+                                     description: L10n.t("The weekly allowance of a provider is spent."),
+                                     isOn: $preferences.announceWeeklyLimitReached,
+                                     sound: soundChoice(enabled: $preferences.limitReachedSound, name: $preferences.limitReachedSoundName))
+                NotificationEventRow(title: L10n.t("Limit reset"),
+                                     description: L10n.t("A limit is available again."),
+                                     isOn: $preferences.announceUsageReset,
+                                     sound: soundChoice(enabled: $preferences.usageResetSound, name: $preferences.usageResetSoundName))
             }
         }
-        .formStyle(.grouped)
     }
 
-    // Startup and updates together: both are about what Codenotch does
-    // without being asked, and one switch under its own header looked
-    // like an oversight rather than a section.
+    /// "Don't play" is the empty name; choosing a sound switches the sound on.
+    private func soundChoice(enabled: Binding<Bool>, name: Binding<String>) -> Binding<String> {
+        Binding(
+            get: { enabled.wrappedValue ? name.wrappedValue : "" },
+            set: { chosen in
+                if chosen.isEmpty {
+                    enabled.wrappedValue = false
+                } else {
+                    name.wrappedValue = chosen
+                    enabled.wrappedValue = true
+                }
+            }
+        )
+    }
+
     private var generalPane: some View {
-        Form {
-            // No title on the group: the pane's own header above already
-            // says "General", and repeating it here would say it twice.
-            Section {
-                Toggle(L10n.t("Open Codenotch at login"), isOn: $preferences.launchAtLogin)
-                if let problem = preferences.launchAtLoginProblem {
-                    Text(problem)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Toggle(L10n.t("Install updates automatically"), isOn: Binding(
-                    get: { updater.automatic },
-                    set: { updater.automatic = $0 }
-                ))
-
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    // Disclosed rather than merely silent. An app that updates
-                    // itself unprompted *and* reads other apps' credentials is
-                    // exactly the shape security tooling flags; saying so, with
-                    // a way to switch it off, is the difference between a
-                    // background updater and something that looks like it is
-                    // hiding.
-                    Text(L10n.t("Version \(updater.currentVersion). Updates install in the background and apply next time Codenotch starts."))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
+        SettingsPage {
+            SettingsGroup {
+                SettingsToggleRow(title: L10n.t("Open Codenotch at login"),
+                                  description: preferences.launchAtLoginProblem,
+                                  isOn: $preferences.launchAtLogin)
+                SettingsToggleRow(title: L10n.t("Install updates automatically"),
+                                  description: L10n.t("Version \(updater.currentVersion). Updates install in the background and apply next time Codenotch starts."),
+                                  isOn: Binding(get: { updater.automatic }, set: { updater.automatic = $0 }))
+                SettingsRow(title: L10n.t("Check for updates"),
+                            description: updater.outcome.message) {
                     Button(L10n.t("Check now")) { updater.checkNow() }
-                        .controlSize(.small)
-                }
-
-                // Says what happened, where the user is already looking.
-                // Sparkle's own answer to a failed check is a modal reading
-                // "an error occurred in retrieving update information", which
-                // names no cause and offers nothing to do about it.
-                if let message = updater.outcome.message {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(
-                            updater.outcome == .unreachable ? .orange : .secondary
-                        )
-                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
-            // An ordinary row here, not a bar pinned across every pane —
-            // that cost every pane a strip of height for one line that only
-            // ever matters on this one, and "blocking the UI" is exactly
-            // what an unrelated pane earns for it.
-            Section {
-                HStack(spacing: 4) {
-                    Text(L10n.t("App designed and developed by"))
-                    Link("@hivinz_", destination: SettingsView.authorURL)
-                        .foregroundStyle(authorLinkHovered
-                                         ? preferences.accentColor.color : .primary)
-                        .underline(authorLinkHovered)
-                        .animation(.easeOut(duration: 0.12), value: authorLinkHovered)
-                        .onHover { inside in
-                            authorLinkHovered = inside
-                            if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                        }
+            SettingsGroup {
+                SettingsCell {
+                    HStack(spacing: 4) {
+                        Text(L10n.t("App designed and developed by"))
+                        Link("@hivinz_", destination: SettingsView.authorURL)
+                            .foregroundStyle(authorLinkHovered
+                                             ? preferences.accentColor.color : .primary)
+                            .underline(authorLinkHovered)
+                            .animation(.easeOut(duration: 0.12), value: authorLinkHovered)
+                            .onHover { inside in
+                                authorLinkHovered = inside
+                                if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+                            }
+                    }
+                    .font(SettingsChrome.bodyFont)
+                    .foregroundStyle(.secondary)
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
     }
 
     private func refreshVisibleState() {
@@ -1329,6 +1000,11 @@ struct SettingsView: View {
     /// row rather than as three things that happen to be near the top.
     /// `SettingsWindowController` positions the lights against this too.
     static let headerHeight: CGFloat = 52
+    /// The pane's left gutter, and the widest a form is allowed to run.
+    static let paneGutter: CGFloat = 40
+    static let paneMaxWidth: CGFloat = 900
+    /// The grouped form's own leading margin, measured on the rendered pane.
+    static let formInset: CGFloat = 78
 
     /// How much room the three lights take across, for the one layout that
     /// has to start to the right of them: the collapsed pane's header.
@@ -1344,14 +1020,18 @@ struct SettingsView: View {
     /// it, not so much that it reads as a separate panel that came adrift.
     static let sidebarInset: CGFloat = 4
     static let sidebarCornerRadius: CGFloat = 14
-    static let sidebarWidth: CGFloat = 220
+    static let sidebarWidth: CGFloat = 196
 
     /// The sidebar plus a detail pane wide enough for an account row's name,
     /// buttons and switch without crowding.
-    static let width: CGFloat = 860
+    static let width: CGFloat = 1040
+    static let minWidth: CGFloat = 820
+    static let minHeight: CGFloat = 600
+    /// Posted with a "section" raw value to open the window on that section.
+    static let openSection = Notification.Name("CodenotchSettingsOpenSection")
     /// Each pane scrolls on its own now, so this no longer has to fit every
     /// section in the app at once — just a comfortable account list.
-    static let height: CGFloat = 600
+    static let height: CGFloat = 760
 
     /// The rows the notch actually draws, in the order it draws them.
     ///
@@ -1369,6 +1049,36 @@ struct SettingsView: View {
 
     private var notConnected: [ProviderSummary] {
         ringAccounts.filter { !preferences.isConnected($0.id) }
+    }
+
+    /// Sources kept on the list while switched off. A ring switched off is
+    /// still yours; only Remove sends it back to the Add menu. Stored as a
+    /// joined string so `AppStorage` can hold it; empty means "never set",
+    /// which lists whatever is connected.
+    @AppStorage("brinkListedSources") private var listedSourcesRaw = ""
+
+    private var listedSources: Set<String> {
+        Set(listedSourcesRaw.split(separator: ",").map(String.init)).subtracting(["-"])
+    }
+
+    private func setListed(_ id: String, _ listed: Bool) {
+        var set = listedSources
+        // The first change seeds the set with what is on, so nothing vanishes.
+        if listedSourcesRaw.isEmpty { set.formUnion(connected.map(\.id)) }
+        if listed { set.insert(id) } else { set.remove(id) }
+        // Never back to empty: empty means "never set" and would re-seed.
+        listedSourcesRaw = set.isEmpty ? "-" : set.sorted().joined(separator: ",")
+    }
+
+    /// What the Accounts list shows: everything on, plus what was added and
+    /// later switched off.
+    private var listedAccounts: [ProviderSummary] {
+        connected + notConnected.filter { listedSources.contains($0.id) }
+    }
+
+    /// What the Add menu offers: whatever is neither on nor kept.
+    private var addableAccounts: [ProviderSummary] {
+        notConnected.filter { !listedSources.contains($0.id) }
     }
 
     /// Nothing to read from anywhere. On a first launch that is the normal
@@ -1389,7 +1099,7 @@ struct SettingsView: View {
 
     /// Said before it happens rather than after. A system dialogue asking to
     /// read a *credential*, from an app installed a minute ago, looks alarming
-    /// unless it was expected — and choosing Allow instead of Always Allow made
+    /// unless it was expected — and choosing Allow instead of Always Allow makes
     /// it return on every read, which is what "it asks every time" turns out to
     /// be.
     static var keychainCopy: String {
@@ -1403,6 +1113,18 @@ struct SettingsView: View {
     /// providers lives here — `providerOrder` is empty until someone drags
     /// something, and "the end of the connected ones" cannot be expressed
     /// against an order that does not exist yet.
+    /// The menu's version of switching a row on: connect, place it, and open
+    /// wherever it signs in.
+    private func addSource(_ providerID: String) {
+        setListed(providerID, true)
+        preferences.setConnected(true, for: providerID)
+        connect(providerID)
+        if let summary = accounts.first(where: { $0.id == providerID }), summary.localModel == nil {
+            _ = signIn(providerID)
+        }
+        usageStore?.refresh(providerID: providerID)
+    }
+
     private func connect(_ providerID: String) {
         let ids = ProviderOrder.joiningConnected(providerID,
                                                  in: accounts.map(\.id),
@@ -1522,7 +1244,6 @@ private struct AccentColorSwatch: View {
     let select: () -> Void
 
     @Environment(\.codenotchReduceTransparency) private var reduceTransparency
-    @State private var isHovered = false
 
     var body: some View {
         Button(action: select) {
@@ -1530,9 +1251,6 @@ private struct AccentColorSwatch: View {
                 Circle()
                     .fill(choice.color)
                     .frame(width: 16, height: 16)
-                    // Grows a little under the pointer, so the one about to be
-                    // chosen is clear before the click.
-                    .scaleEffect(isHovered && !isSelected ? 1.15 : 1)
                     .overlay {
                         Circle().strokeBorder(.primary.opacity(reduceTransparency ? 0.35 : 0.18), lineWidth: 1)
                     }
@@ -1550,9 +1268,6 @@ private struct AccentColorSwatch: View {
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.12)) { isHovered = hovering }
-        }
         .help(choice.title)
         .accessibilityLabel(choice.title)
         .accessibilityValue(isSelected ? L10n.t("Selected") : L10n.t("Not selected"))
@@ -1560,53 +1275,73 @@ private struct AccentColorSwatch: View {
     }
 }
 
-/// A provider as the menu bar rows in Settings list it.
-private struct MenuBarChoice: Identifiable, Equatable {
-    let id: String
-    let name: String
-    let glyph: ProviderGlyph
-
-    /// What the menu bar could show, in the order it would show it: the
-    /// store's own snapshots, which only ever hold the providers being read,
-    /// narrowed to the ones the bar can summarise.
-    static func listed(in snapshots: [ProviderSnapshot]) -> [MenuBarChoice] {
-        snapshots.filter(StatusItemSummary.canSummarise).map { snapshot in
-            MenuBarChoice(id: snapshot.id, name: snapshot.displayName, glyph: snapshot.glyph)
-        }
-    }
-}
-
 /// One provider: whether Codenotch reads it, whose account that is, and where
 /// to go if there is nothing to read.
 /// One sound choice, with a preview button.
-private struct SoundRow: View {
-    let label: String
-    @Binding var name: String
-    /// The preview stays live even with the sound switched off — it is how you
-    /// find out what you are switching on, and a dead button teaches nothing.
-    let pickerEnabled: Bool
+/// The column titles over the event rows.
+private struct NotificationEventHeader: View {
+    var body: some View {
+        HStack(spacing: 16) {
+            Text(L10n.t("Event"))
+            Spacer(minLength: 0)
+            Text(L10n.t("Notify")).frame(width: NotificationEventRow.toggleWidth)
+            Text(L10n.t("Sound")).frame(width: NotificationEventRow.soundWidth, alignment: .leading)
+        }
+        .font(.system(size: 11, weight: .medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, SettingsChrome.rowPaddingH)
+        .padding(.top, 10)
+        .padding(.bottom, 4)
+    }
+}
+
+/// One event: whether it notifies, and with which sound ("Don't play" is
+/// one of the sounds).
+private struct NotificationEventRow: View {
+    let title: String
+    var description: String? = nil
+    @Binding var isOn: Bool
+    @Binding var sound: String
+
+    static let toggleWidth: CGFloat = 52
+    static let soundWidth: CGFloat = 186
 
     var body: some View {
-        HStack(spacing: 8) {
-            Picker(label, selection: $name) {
-                // A sound that has been removed since it was chosen still has
-                // to appear, or the picker would silently show a different one
-                // and the setting would look like it had changed itself.
-                if !SessionChime.available.contains(name) {
-                    Text(L10n.t("\(name) (missing)")).tag(name)
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(SettingsChrome.titleFont)
+                if let description {
+                    Text(description).font(SettingsChrome.bodyFont).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                ForEach(SessionChime.available, id: \.self) { Text($0).tag($0) }
             }
-            .disabled(!pickerEnabled)
-            Button {
-                Log.usage.info("preview \(name, privacy: .public)")
-                SessionChime.play(name)
-            } label: {
-                Image(systemName: "play.circle")
+            Spacer(minLength: 0)
+            Toggle("", isOn: $isOn).labelsHidden().toggleStyle(.switch)
+                .frame(width: Self.toggleWidth)
+            HStack(spacing: 6) {
+                Picker("", selection: $sound) {
+                    Text(L10n.t("Don't play")).tag("")
+                    Divider()
+                    // A sound removed since it was chosen still has to appear,
+                    // or the picker would silently show a different one.
+                    if !sound.isEmpty, !SessionChime.available.contains(sound) {
+                        Text(L10n.t("\(sound) (missing)")).tag(sound)
+                    }
+                    ForEach(SessionChime.available, id: \.self) { Text($0).tag($0) }
+                }
+                .labelsHidden()
+                .frame(width: 140)
+                .disabled(!isOn)
+                SettingsIconButton(systemName: "play.fill", help: L10n.t("Play \(sound)")) {
+                    _ = SessionChime.play(sound)
+                }
+                .disabled(sound.isEmpty)
+                .opacity(sound.isEmpty ? 0.35 : 1)
             }
-            .buttonStyle(SettingsIconButtonStyle())
-            .help(L10n.t("Play \(name)"))
+            .frame(width: Self.soundWidth, alignment: .leading)
         }
+        .padding(.horizontal, SettingsChrome.rowPaddingH)
+        .padding(.vertical, SettingsChrome.rowPaddingV)
     }
 }
 
@@ -1637,6 +1372,9 @@ private struct AccountRow: View {
     /// Called after this row is switched on, so the list can decide where it
     /// now belongs. The row itself cannot: it can see only itself.
     let didConnect: () -> Void
+    /// Takes a switched-off source off the list, back to the Add menu. Nil
+    /// while it is on: a ring in the notch is not something to delete.
+    var onRemove: (() -> Void)? = nil
 
     @Environment(\.codenotchReduceTransparency) private var reduceTransparency
 
@@ -1658,14 +1396,26 @@ private struct AccountRow: View {
                 // Grip, mark and name are one grab area: a 12pt square is a
                 // blank to hit, and none of the three do anything else. The
                 // buttons and the switch stay out — a drag would compete.
-                HStack(spacing: 10) {
+                HStack(spacing: 12) {
                     if isOrderable { handle }
 
-                    ProviderGlyphView(glyph: provider.glyph, customIconFilename: provider.customIconFilename, size: 16)
+                    // The mark on a tile, the way an app lists what it has
+                    // installed: one size for every source, whatever its glyph.
+                    ProviderGlyphView(glyph: provider.glyph, customIconFilename: provider.customIconFilename, size: 18)
                         .foregroundStyle(isConnected ? .primary : .tertiary)
+                        .frame(width: 36, height: 36)
+                        .background(
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .fill(Color.primary.opacity(0.06))
+                        )
 
-                    Text(provider.name)
-                        .foregroundStyle(isConnected ? .primary : .secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(provider.name)
+                            .font(SettingsChrome.titleFont)
+                            .foregroundStyle(isConnected ? .primary : .secondary)
+                        detail
+                            .font(SettingsChrome.bodyFont)
+                    }
                 }
                 // Without this only the drawn pixels are grabbable, and the
                 // gaps between the three of them are not.
@@ -1687,7 +1437,7 @@ private struct AccountRow: View {
                     // a lot of translucent furniture to move a ring one place
                     // up.
                     HStack(spacing: 6) {
-                        ProviderGlyphView(glyph: provider.glyph, customIconFilename: provider.customIconFilename, size: 12)
+                        ProviderGlyphView(glyph: provider.glyph, size: 12)
                         Text(provider.name)
                     }
                     .padding(.horizontal, 8)
@@ -1719,17 +1469,18 @@ private struct AccountRow: View {
                 // separate notifications pane — the thing being muted is this
                 // row's reading, so the control belongs on the row.
                 if isConnected, provider.kind == .usage {
-                    Button {
+                    SettingsIconButton(systemName: isMuted ? "bell.slash" : "bell",
+                                       tint: isMuted ? Color.secondary.opacity(0.6) : .secondary,
+                                       help: isMuted
+                                           ? L10n.t("Alerts for \(provider.name) are muted. Click to unmute.")
+                                           : L10n.t("Alert when \(provider.name) crosses 80% and 100% of a limit.")) {
                         preferences.setAlertsMuted(!isMuted, for: provider.id)
-                    } label: {
-                        Image(systemName: isMuted ? "bell.slash" : "bell")
-                            .font(.system(size: 11))
-                            .foregroundStyle(isMuted ? .tertiary : .secondary)
                     }
-                    .buttonStyle(SettingsIconButtonStyle())
-                    .help(isMuted
-                          ? L10n.t("Alerts for \(provider.name) are muted. Click to unmute.")
-                          : L10n.t("Alert when \(provider.name) crosses 80% and 100% of a limit."))
+                }
+                if let onRemove {
+                    SettingsIconButton(systemName: "trash",
+                                       help: L10n.t("Remove \(provider.name) from the list. It goes back to the Add menu."),
+                                       action: onRemove)
                 }
 
                 // Prefers the app that owns the account, and falls back to the
@@ -1755,7 +1506,7 @@ private struct AccountRow: View {
                         // Not "it will stop asking": for Claude it will not.
                         // Claude Code recreates its login when the token
                         // rotates, and a recreated item forgets the grant.
-                        .help(L10n.t("Asks macOS for \(provider.name)'s saved login again. Deny stops Codenotch reading it until you ask again."))
+                        .help(L10n.t("Asks macOS for \(provider.name)'s saved login again. Always Allow means it is asked less often."))
                 }
 
                 if isConnected, let destination {
@@ -1775,12 +1526,6 @@ private struct AccountRow: View {
                           : L10n.t("Switch on to sign in and read \(provider.name) again."))
             }
 
-            // 48 = the handle, the glyph and the two gaps before the name, so
-            // the detail still starts under the first letter of the name.
-            detail
-                .font(.caption)
-                .padding(.leading, 48)
-
             // Outside `detail` on purpose. That chain shows the account summary
             // whenever there is an account, and an aged-out token still has
             // one — the credential is there, it is simply too old to use. Put
@@ -1790,7 +1535,7 @@ private struct AccountRow: View {
                 Text(L10n.t("\(provider.name) usage needs its sign-in renewed — run `claude` once in a terminal."))
                     .font(.caption)
                     .foregroundStyle(.orange)
-                    .padding(.leading, 48)
+                    .padding(.leading, 60)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -1848,7 +1593,7 @@ private struct AccountRow: View {
             accountDetail
             
             // Antigravity limit dropdown
-            if isConnected, provider.id == AntigravityProfile.defaultID {
+            if isConnected, provider.id == "gemini" {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {
                         Text(L10n.t("Notch reads"))
@@ -2069,7 +1814,7 @@ private struct AccountRow: View {
                         .textSelection(.enabled)
                     if canOpenSignIn {
                         Button(L10n.t("Switch…")) { _ = switchAccount(provider.id) }
-                            .buttonStyle(SettingsLinkButtonStyle())
+                            .buttonStyle(.link)
                             .help(provider.signIn.switchHint)
                     }
                 }
@@ -2083,7 +1828,7 @@ private struct AccountRow: View {
             // Not a sign-in problem, so do not send them off to sign in. The
             // credential is right there and macOS is the one saying no — the
             // remedy is the button on this same row.
-            Text(L10n.t("Codenotch is not reading \(provider.name)'s saved login. Choose Allow access… above and answer Allow."))
+            Text(L10n.t("macOS is not letting Codenotch read \(provider.name)'s saved login. Choose Allow access… above, then Always Allow."))
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
         } else {
@@ -2209,17 +1954,15 @@ struct PhoneSettingsPane: View {
     private func lastSeenText(for device: PairedDevice) -> String {
         let diff = Date().timeIntervalSince(device.lastSeenAt)
         if diff < 60 {
-            return L10n.t("Active now")
+            return "Active now"
         }
         if device.lastSeenAt == device.pairedAt {
             let df = DateFormatter()
-            df.locale = L10n.locale
             df.dateStyle = .medium
             df.timeStyle = .none
-            return L10n.t("Paired \(df.string(from: device.pairedAt))")
+            return "Paired \(df.string(from: device.pairedAt))"
         }
         let rf = RelativeDateTimeFormatter()
-        rf.locale = L10n.locale
         rf.unitsStyle = .full
         return "Last seen \(rf.localizedString(for: device.lastSeenAt, relativeTo: Date()))"
     }
@@ -2264,7 +2007,7 @@ struct PhoneSettingsPane: View {
                     }
                     PhoneLinkWindowController.shared.show(pairing: pairing, registry: registry, port: preferences.phoneLinkPort, serverStatus: serverStatus)
                 }
-                .buttonStyle(SettingsButtonStyle(kind: .prominent))
+                .buttonStyle(.borderedProminent)
                 .controlSize(.large)
             }
             

@@ -39064,6 +39064,526 @@
           }
         }
       }
+    },
+    "A limit is available again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um limite voltou a ficar disponível."
+          }
+        }
+      }
+    },
+    "Activity": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atividade"
+          }
+        }
+      }
+    },
+    "Add": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar"
+          }
+        }
+      }
+    },
+    "Check for updates": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar atualizações"
+          }
+        }
+      }
+    },
+    "Connect another source. It joins the end of the list with a ring of its own.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectar outra fonte. Ela entra no fim da lista com um anel próprio."
+          }
+        }
+      }
+    },
+    "Costs & Tasks": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custos e Tarefas"
+          }
+        }
+      }
+    },
+    "Don't play": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não tocar"
+          }
+        }
+      }
+    },
+    "Event": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Evento"
+          }
+        }
+      }
+    },
+    "Events": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eventos"
+          }
+        }
+      }
+    },
+    "Focus": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foco"
+          }
+        }
+      }
+    },
+    "Focus block ended": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloco de foco terminou"
+          }
+        }
+      }
+    },
+    "Focus blocks by day, week and month, per project.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocos de foco por dia, semana e mês, por projeto."
+          }
+        }
+      }
+    },
+    "How long the notch stays open": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Por quanto tempo o notch fica aberto"
+          }
+        }
+      }
+    },
+    "Launch at login, updates and language.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir ao iniciar, atualizações e idioma."
+          }
+        }
+      }
+    },
+    "Limit reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite renovado"
+          }
+        }
+      }
+    },
+    "Notify": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avisar"
+          }
+        }
+      }
+    },
+    "Peek": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espiada"
+          }
+        }
+      }
+    },
+    "Per-token prices and the off-peak discount.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preço por token e o desconto fora de pico."
+          }
+        }
+      }
+    },
+    "Plans and market data, the task source, focus blocks and the session launcher.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planos e dados de mercado, fonte das tarefas, blocos de foco e o lançador de sessão."
+          }
+        }
+      }
+    },
+    "Position": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posição"
+          }
+        }
+      }
+    },
+    "Remove %@ from the list. It goes back to the Add menu.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tirar %@ da lista. Volta para o menu Adicionar."
+          }
+        }
+      }
+    },
+    "Reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redefinir"
+          }
+        }
+      }
+    },
+    "Rings": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anéis"
+          }
+        }
+      }
+    },
+    "Rings turn amber at the watch limit and red at the critical one.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os anéis ficam âmbar no limite de atenção e vermelhos no crítico."
+          }
+        }
+      }
+    },
+    "Search settings…": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar nos ajustes…"
+          }
+        }
+      }
+    },
+    "Session finished": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessão concluída"
+          }
+        }
+      }
+    },
+    "Session limit reached": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite da sessão atingido"
+          }
+        }
+      }
+    },
+    "Session waiting on you": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessão esperando você"
+          }
+        }
+      }
+    },
+    "Sessions, active time and estimated cost by day, week and month.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessões, tempo ativo e custo estimado por dia, semana e mês."
+          }
+        }
+      }
+    },
+    "Sound": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Som"
+          }
+        }
+      }
+    },
+    "Sounds, cards and banners when something finishes, stalls or resets.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sons, cards e avisos quando algo termina, trava ou renova."
+          }
+        }
+      }
+    },
+    "Sources": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fontes"
+          }
+        }
+      }
+    },
+    "The 5-hour allowance of a provider is spent.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cota de 5 horas de um provedor acabou."
+          }
+        }
+      }
+    },
+    "The agent stopped to ask you something.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O agente parou para perguntar algo."
+          }
+        }
+      }
+    },
+    "The agent's turn is done.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O turno do agente terminou."
+          }
+        }
+      }
+    },
+    "The block reached its target, or ran past two hours.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O bloco chegou à meta, ou passou de duas horas."
+          }
+        }
+      }
+    },
+    "The local runtime and what its models report.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O runtime local e o que os modelos dele informam."
+          }
+        }
+      }
+    },
+    "The logins the notch reads, and the order of its rings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As contas que o notch lê e a ordem dos anéis."
+          }
+        }
+      }
+    },
+    "The weekly allowance of a provider is spent.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cota semanal de um provedor acabou."
+          }
+        }
+      }
+    },
+    "Weekly limit reached": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite semanal atingido"
+          }
+        }
+      }
+    },
+    "Where the notch sits, how big it is, and what it shows.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onde o notch fica, o tamanho e o que ele mostra."
+          }
+        }
+      }
+    },
+    "Work": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trabalho"
+          }
+        }
+      }
+    },
+    "Your usage on a phone, over the local network.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu uso no celular, pela rede local."
+          }
+        }
+      }
+    },
+    "macOS is not letting Codenotch read %@'s saved login. Choose Allow access… above, then Always Allow.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O macOS não está deixando o Codenotch ler o login salvo do %@. Escolha Permitir acesso… acima e depois Sempre Permitir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS n'autorise pas Codenotch à lire les identifiants enregistrés de %@. Choisissez Autoriser l'accès… ci-dessus, puis Toujours autoriser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS が %@ の保存済みログインの読み取りを許可していません。上の「アクセスを許可…」を選び、「常に許可」を選んでください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 不让 Codenotch 读取 %@ 已保存的登录信息。点上面的「允许访问…」，然后选「始终允许」。"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS не разрешает Codenotch читать сохранённый вход %@. Выберите выше «Разрешить доступ…», затем «Разрешать всегда»."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS erlaubt Codenotch nicht, die gespeicherte Anmeldung von %@ zu lesen. Wähle oben „Zugriff erlauben…“ und dann „Immer erlauben“."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS не дає Codenotch прочитати збережений вхід %@. Виберіть вище «Дозволити доступ…», потім «Завжди дозволяти»."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

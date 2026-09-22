@@ -208,6 +208,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         show()
     }
 
+    /// Open the window on one section, named by its raw value ("activity",
+    /// "focus"…), the way a menu command that names a destination should.
+    func show(section: String) {
+        show()
+        NotificationCenter.default.post(name: SettingsView.openSection, object: nil,
+                                        userInfo: ["section": section])
+    }
+
     func show() {
         if let window {
             // Re-centered every time, not only at creation: a window is
@@ -222,15 +230,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             return
         }
 
+        // As large as the screen comfortably allows, never below the design
+        // size: the Activity and Focus sections are charts and tables.
+        let visible = NSScreen.main?.visibleFrame.size ?? CGSize(width: SettingsView.width, height: SettingsView.height)
+        let size = CGSize(width: min(max(SettingsView.width, visible.width * 0.8), 1400),
+                          height: min(max(SettingsView.height, visible.height * 0.85), 1000))
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0,
-                                width: SettingsView.width, height: SettingsView.height),
+            contentRect: NSRect(x: 0, y: 0, width: size.width, height: size.height),
             // `fullSizeContentView` runs the sidebar flush up under the traffic
             // lights, with no separate title strip above it. This reserved a
             // tall blank band once before, but that band was
             // `NavigationSplitView`'s own toolbar — the sidebar is a plain
             // `HStack` now, so there is no toolbar left to reserve for.
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -270,6 +282,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                                    previewSessionLimitAlert: previewSessionLimitAlert,
                                    previewWeeklyLimitAlert: previewWeeklyLimitAlert)
         )
+        window.minSize = NSSize(width: SettingsView.minWidth, height: SettingsView.minHeight)
         window.center()
         window.isReleasedWhenClosed = false
         self.window = window
