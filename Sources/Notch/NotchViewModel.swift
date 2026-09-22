@@ -583,7 +583,8 @@ final class NotchViewModel: ObservableObject {
 
     private func contentCardHeight(sessionCap: Int) -> CGFloat {
         snapshots.map { snapshot in
-            NotchLayout.cardHeight(windowCount: snapshot.windows.count,
+            if snapshot.id == TasksProvider.providerID { return TasksCard.height() }
+            return NotchLayout.cardHeight(windowCount: snapshot.windows.count,
                 groupCount: Set(snapshot.windows.compactMap(\.group)).count,
                 moneyWindowCount: snapshot.windows.filter { $0.money != nil }.count,
                 usageDetailGroupCount: snapshot.usageDetail?.visibleGroups.count ?? 0,

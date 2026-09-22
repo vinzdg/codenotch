@@ -90,6 +90,9 @@ targets:
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         NSLocalNetworkUsageDescription: "Codenotch answers your phone on this network so it can show your usage."
+        NSAppleEventsUsageDescription: "Codenotch asks Things 3 for today's tasks, to show them on its Tasks ring."
+        NSRemindersFullAccessUsageDescription: "Codenotch shows today's reminders on its Tasks ring and lets you complete or add them."
+        NSRemindersUsageDescription: "Codenotch shows today's reminders on its Tasks ring and lets you complete or add them."
         # --- Sparkle -------------------------------------------------------
         # Beside the download itself, on hivinz.com. It used to point at a
         # GitHub Pages URL for a repo that was never created, so every check

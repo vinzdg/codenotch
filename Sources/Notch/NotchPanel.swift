@@ -12,6 +12,8 @@ final class NotchPanel: NSPanel {
     /// A left click on the visible chrome. Handled here for the same reason the
     /// menu is: the hit test lands on a SwiftUI subview that may consume it.
     var onClick: ((CGPoint) -> Void)?
+    /// A double click on the chrome: open what the ring stands for.
+    var onDoubleClick: ((CGPoint) -> Void)?
     /// ⌥-drag on the chrome, reported as the raw pointer delta since the last
     /// event — not a cumulative offset, so the caller decides what "along the
     /// edge" means for the current one. Chosen over a plain click-and-hold
@@ -37,7 +39,11 @@ final class NotchPanel: NSPanel {
             return super.mouseDown(with: event)
         }
         guard event.modifierFlags.contains(.option), onDrag != nil else {
-            onClick?(event.locationInWindow)
+            if event.clickCount == 2, let onDoubleClick {
+                onDoubleClick(event.locationInWindow)
+            } else {
+                onClick?(event.locationInWindow)
+            }
             return
         }
         onDragStart?()
@@ -82,6 +88,9 @@ final class NotchPanel: NSPanel {
         isReleasedWhenClosed = false
     }
 
-    override var canBecomeKey: Bool { false }
+    /// Set while the tasks card is up: its text fields need the keyboard,
+    /// which a panel that can never be key would never hand them.
+    var allowsKeyboard = false
+    override var canBecomeKey: Bool { allowsKeyboard }
     override var canBecomeMain: Bool { false }
 }

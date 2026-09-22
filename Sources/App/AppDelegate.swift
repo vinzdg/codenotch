@@ -161,7 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                        Preferences.storedGeminiAPIMonthlyTokenBudget()
                    })]
                 + webProviders
-                + customProviders
+                + customProviders + [TasksProvider()]
             preferences.reconcile(discoveredIDs: allProviders.map(\.id))
             let store = UsageStore(
                 providers: allProviders,
@@ -187,6 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     store?.registerCustomProviders(providers)
                 }
                 .store(in: &cancellables)
+            Tasks.attach(to: store)
             deepSeek.onAuthenticated = { [weak store] in
                 store?.providerAuthenticationChanged(providerID: "deepseek")
             }
@@ -676,9 +677,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak statusItem] snapshots, paced in
                     let snapshots = DailyPace.apply(to: snapshots, enabled: paced)
                     statusItem?.snapshots = snapshots
-                    notifier.observe(snapshots)
-                    resetWatcher.observe(snapshots)
-                    limitWatcher.observe(snapshots)
+                    // The Tasks ring is done ÷ open, not a vendor's quota. A
+                    // list emptying or loading is not a limit resetting, and
+                    // fed to the watchers it announced "Tasks has reset" as
+                    // the day's to-dos came in.
+                    let watched = snapshots.filter { $0.id != TasksProvider.providerID }
+                    notifier.observe(watched)
+                    resetWatcher.observe(watched)
+                    limitWatcher.observe(watched)
                 }
                 .store(in: &cancellables)
             store.start()

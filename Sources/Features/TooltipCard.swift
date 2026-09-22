@@ -1068,6 +1068,8 @@ struct TooltipCard: View {
     /// How many sessions this screen has room to list. Solved from the display
     /// rather than fixed, so a big screen hides nothing.
     var sessionCap: Int = NotchLayout.defaultSessionCap
+    /// Task rows the tasks card may list.
+    var taskRows: Int = TasksCard.maxRows
     var resetTimeFormat: ResetTimeFormat = .automatic
     var deepSeekPricingEnabled: Bool = true
     var deepSeekPricingSchedule: DeepSeekPricing.Schedule = .current
@@ -1087,7 +1089,8 @@ struct TooltipCard: View {
     /// The same figure the hover region uses, so what is drawn and what is
     /// reachable can never drift apart.
     private var height: CGFloat {
-        NotchLayout.cardHeight(
+        if snapshot.id == TasksProvider.providerID { return TasksCard.height(rows: taskRows) }
+        return NotchLayout.cardHeight(
             windowCount: snapshot.windows.count,
             groupCount: snapshot.windowGroupCount,
             moneyWindowCount: snapshot.windows.filter { $0.money != nil }.count,
@@ -1114,6 +1117,11 @@ struct TooltipCard: View {
             // instead of shoving each other around. Top-aligned so neither
             // drifts while the card resizes around them.
             ZStack(alignment: .topLeading) {
+                if snapshot.id == TasksProvider.providerID {
+                    TasksCard(now: now, rows: taskRows)
+                        .id(snapshot.id)
+                        .transition(.opacity.animation(NotchMotion.crossfade))
+                } else {
                 VStack(alignment: .leading, spacing: 0) {
                     ProviderTooltip(activityNote: localActivityNote, snapshot: snapshot, now: now, resetTimeFormat: resetTimeFormat,
                                     showUsagePace: showUsagePace)
@@ -1141,6 +1149,7 @@ struct TooltipCard: View {
                 // of a cut in the middle of it.
                 .id(snapshot.id)
                 .transition(.opacity.animation(NotchMotion.crossfade))
+                }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }

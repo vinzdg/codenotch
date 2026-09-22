@@ -36,6 +36,12 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>15.0</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Codenotch asks Things 3 for today's tasks, to show them on its Tasks ring.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Codenotch shows today's reminders on its Tasks ring and lets you complete or add them.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>Codenotch shows today's reminders on its Tasks ring and lets you complete or add them.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Codenotch answers your phone on this network so it can show your usage.</string>
 	<key>SUAutomaticallyUpdate</key>
