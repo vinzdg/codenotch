@@ -37,22 +37,50 @@ fn main() {
     // Give up quietly — never affect Claude Code
 }
 
-/// Pulls auth token out of %APPDATA%\codenotch\auth_token (hand-rolled scan, no dependency)
+/// App config directory: `%APPDATA%\codenotch` on Windows, `$XDG_CONFIG_HOME/codenotch`
+/// or `~/.config/codenotch` elsewhere. The server writes both files with `dirs::config_dir()`.
+fn config_dir() -> Option<String> {
+    #[cfg(windows)]
+    {
+        std::env::var("APPDATA").ok().map(|a| format!("{a}\\codenotch"))
+    }
+    #[cfg(not(windows))]
+    {
+        if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+            if !xdg.is_empty() {
+                return Some(format!("{xdg}/codenotch"));
+            }
+        }
+        std::env::var("HOME")
+            .ok()
+            .map(|h| format!("{h}/.config/codenotch"))
+    }
+}
+
+fn join_config(name: &str) -> Option<String> {
+    let sep = if cfg!(windows) { '\\' } else { '/' };
+    config_dir().map(|dir| format!("{dir}{sep}{name}"))
+}
+
+/// Pulls the auth token out of the app config directory (hand-rolled scan, no dependency).
 fn read_token() -> String {
-    let path = match std::env::var("APPDATA") {
-        Ok(a) => format!("{a}\\codenotch\\auth_token"),
-        Err(_) => return String::new(),
+    let Some(path) = join_config("auth_token") else {
+        return String::new();
     };
     std::fs::read_to_string(path)
         .map(|s| s.trim().to_string())
         .unwrap_or_default()
 }
 
-/// Pulls "port": N out of %APPDATA%\codenotch\config.json (hand-rolled scan, no dependency)
+/// Pulls "port": N out of the app config (hand-rolled scan, no dependency).
+fn config_path() -> Option<String> {
+    join_config("config.json")
+}
+
 fn read_port() -> u16 {
-    let path = match std::env::var("APPDATA") {
-        Ok(a) => format!("{a}\\codenotch\\config.json"),
-        Err(_) => return DEFAULT_PORT,
+    let path = match config_path() {
+        Some(p) => p,
+        None => return DEFAULT_PORT,
     };
     let Ok(txt) = std::fs::read_to_string(path) else {
         return DEFAULT_PORT;
@@ -102,7 +130,11 @@ fn send(port: u16, token: &str, event: &str, ppid: u32, body: &str) -> std::io::
 fn spawn_main() {
     let Ok(me) = std::env::current_exe() else { return };
     let Some(dir) = me.parent() else { return };
-    let exe = dir.join("codenotch.exe");
+    let exe = dir.join(if cfg!(windows) {
+        "codenotch.exe"
+    } else {
+        "codenotch"
+    });
     if !exe.exists() {
         return;
     }

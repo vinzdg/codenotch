@@ -42,6 +42,9 @@ pub fn run() -> String {
         cfg.lang,
         crate::config::config_path().display()
     );
+    if let Some(msg) = crate::platform::session_warning() {
+        o += &format!("session: {msg}\n");
+    }
 
     match std::net::TcpListener::bind(("127.0.0.1", cfg.port)) {
         Ok(_) => o += "port: free — no Codenotch instance is running\n",

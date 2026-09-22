@@ -2203,6 +2203,9 @@ fn main() {
         ])
         .setup(move |app| {
             crate::platform::init();
+            if let Some(msg) = crate::platform::session_warning() {
+                applog(&msg);
+            }
             let handle = app.handle().clone();
             place_notch(&handle);
             // Before the notch is shown: a window shown on the system appearance and corrected
