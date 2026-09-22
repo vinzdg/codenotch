@@ -2,7 +2,7 @@
 name = "codenotch"
 version = "1.16.0"
 edition = "2021"
-description = "Codenotch for Windows — usage notch for Claude, Codex, Cursor and Antigravity"
+description = "Codenotch — usage notch for Claude, Codex, Cursor and Antigravity"
 license = "MIT"
 repository = "https://github.com/Im-Midi/codenotch-windows"
 
@@ -28,6 +28,9 @@ png = "0.17" # application icon → PNG (provider marks taken from the installed
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 # Cursor's credential lives in state.vscdb (SQLite); bundled = compile the SQLite C sources with the crate, which adds 1–2 minutes to the first build
 rusqlite = { version = "0.32", features = ["bundled"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11-dl = "2.21"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

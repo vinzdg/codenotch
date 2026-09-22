@@ -1,0 +1,86 @@
+name: Linux Package
+
+# Separate from Linux for the reason Package is separate from CI: that job
+# answers "does the port compile", this one answers "can somebody on Mint
+# install a .deb without a Rust toolchain".
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'linux/**'
+      - '.github/workflows/linux-package.yml'
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'linux/**'
+      - '.github/workflows/linux-package.yml'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  package:
+    if: github.repository == 'vinzdg/codenotch' || github.event_name == 'workflow_dispatch'
+    name: Debian package
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install WebKitGTK and dpkg tools
+        run: |
+          sudo apt-get update
+          xargs -a linux/apt-packages.txt sudo apt-get install -y
+        working-directory: .
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+
+      - name: Build the hook
+        run: cargo build --release --locked -p codenotch-hook --target-dir target/hook
+
+      - name: Build the .deb
+        working-directory: desktop/codenotch
+        run: npx --yes @tauri-apps/cli@2.11.4 build --bundles deb --config tauri.linux.bundle.conf.json -- --locked
+
+      - name: Name the package
+        run: |
+          shopt -s nullglob
+          debs=(target/release/bundle/deb/*.deb)
+          if [[ ${#debs[@]} -ne 1 ]]; then
+            echo "expected one .deb, found ${#debs[@]}" >&2
+            exit 1
+          fi
+          cp -f "${debs[0]}" Codenotch.deb
+          dpkg-deb -I Codenotch.deb
+
+      - name: Install, run doctor, uninstall
+        run: |
+          sudo apt-get install -y ./Codenotch.deb
+          command -v codenotch
+          test -x /usr/bin/codenotch-hook
+          doctor="$(codenotch doctor 2>&1)"
+          echo "$doctor"
+          echo "$doctor" | grep -q 'Codenotch doctor'
+          sudo apt-get remove -y codenotch
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Codenotch-${{ github.sha }}.deb
+          path: desktop/Codenotch.deb
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" Codenotch.deb --clobber

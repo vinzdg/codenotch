@@ -8,10 +8,12 @@ on:
   push:
     branches: [main]
     paths:
+      - 'desktop/**'
       - 'windows/**'
       - '.github/workflows/windows-package.yml'
   pull_request:
     paths:
+      - 'desktop/**'
       - 'windows/**'
       - '.github/workflows/windows-package.yml'
   # A v* release is cut from a Mac by `make publish`. This is what puts the
@@ -33,7 +35,7 @@ jobs:
     defaults:
       run:
         shell: pwsh
-        working-directory: windows
+        working-directory: desktop
     steps:
       - uses: actions/checkout@v7
 
@@ -43,7 +45,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: windows
+          workspaces: desktop
 
       # Its own target dir for two reasons. The bundler copies resources next to
       # the app in target/release, so a hook built there would be copied onto
@@ -75,7 +77,7 @@ jobs:
       # tauri.bundle.conf.json is merged only here, so a plain `cargo build`
       # never looks for a hook binary that has not been built.
       - name: Build the installer
-        working-directory: windows/codenotch
+        working-directory: desktop/codenotch
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -84,7 +86,7 @@ jobs:
           # Not $args: that is a PowerShell automatic variable, and splatting it here
           # silently dropped tauri.bundle.conf.json, so the hook was left out of the
           # installer and only the smoke test below noticed.
-          $cliArgs = @('--config', 'tauri.bundle.conf.json')
+          $cliArgs = @('--bundles', 'nsis', '--config', 'tauri.bundle.conf.json')
           if ($env:SIGNED -eq 'true') {
             $cliArgs += @('--config', '{"bundle":{"createUpdaterArtifacts":true}}')
           }
@@ -126,7 +128,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: Codenotch-Setup-${{ github.sha }}
-          path: windows/Codenotch-Setup.exe
+          path: desktop/Codenotch-Setup.exe
           if-no-files-found: error
 
       # SmartScreen's warning names neither the fix nor the reason, so the
@@ -176,8 +178,8 @@ jobs:
         with:
           name: Codenotch-update-feed-${{ github.sha }}
           path: |
-            windows/latest.json
-            windows/Codenotch-Setup.nsis.zip
+            desktop/latest.json
+            desktop/Codenotch-Setup.nsis.zip
           if-no-files-found: error
 
       # v* only: the rolling `preview` release belongs to Package, which deletes
@@ -201,7 +203,7 @@ jobs:
           SIGNED: ${{ steps.signing.outputs.signed }}
         run: |
           if ($env:SIGNED -ne 'true') {
-            throw 'No TAURI_SIGNING_PRIVATE_KEY, so this release carries no update feed and no installed copy will see it. The installer above is fine; see windows/README.md to make the key.'
+            throw 'No TAURI_SIGNING_PRIVATE_KEY, so this release carries no update feed and no installed copy will see it. The installer above is fine; see desktop/README.md to make the key.'
           }
           $feed = Get-Content latest.json -Raw | ConvertFrom-Json
           if (-not $feed.platforms.'windows-x86_64'.signature) {

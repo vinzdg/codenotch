@@ -76,14 +76,7 @@ pub fn quit_app(app: AppHandle) {
 /// The credit line's link, as on the Mac.
 #[tauri::command]
 pub fn open_author_page() {
-    let mut cmd = std::process::Command::new("cmd");
-    cmd.args(["/C", "start", "", "https://x.com/hivinz_"]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    let _ = cmd.spawn();
+    crate::platform::open_url("https://x.com/hivinz_");
 }
 
 fn has_mica() -> bool {

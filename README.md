@@ -51,13 +51,23 @@ instead, see [Building](#building).
 [![Download for Windows](docs/design/download-windows.svg)](../../releases/latest/download/Codenotch-Setup.exe)
 
 A Windows port — Rust/Tauri 2, same design and providers — lives in [`windows/`](windows/README.md).
-The button is the installer itself, named `Codenotch-Setup.exe` in every release for the same
-reason the dmg keeps one name. It installs for the current user without administrator rights,
-and fetches WebView2 if Windows does not already have it.
+The shared crate is [`desktop/`](desktop/README.md). The button is the installer itself, named
+`Codenotch-Setup.exe` in every release for the same reason the dmg keeps one name. It installs
+for the current user without administrator rights, and fetches WebView2 if Windows does not
+already have it.
 
 The installer is not code-signed, so the first time it runs SmartScreen says *Windows protected
 your PC*. Choose **More info**, then **Run anyway**. Every Windows change also leaves an
 installer on its [Windows Package run](../../actions/workflows/windows-package.yml).
+
+## Linux
+
+A Linux port of the same desktop crate — Mint / Cinnamon / X11 first — lives in
+[`linux/`](linux/README.md). The package is [`Codenotch.deb`](linux/README.md), named
+the same way in every release. Build it with `linux/package.sh`; a pull request that
+touches `desktop/` or `linux/` is compiled on Ubuntu by
+[Linux](../../actions/workflows/linux.yml) and packaged by
+[Linux Package](../../actions/workflows/linux-package.yml).
 
 ## Connect your phone
 
@@ -292,6 +302,9 @@ brew install xcodegen   # once
 make run                # generate, build, launch a Debug build
 make test               # unit tests
 ```
+
+The Windows/Linux crate is [`desktop/`](desktop/README.md). On Linux, start from
+[`linux/`](linux/README.md).
 
 No signing identity is required for either. `make release` — which archives,
 notarizes, and produces a signed auto-update feed — needs a Developer ID

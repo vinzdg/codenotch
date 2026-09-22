@@ -9,6 +9,14 @@ make test                # unit tests
 make run                 # build and launch
 ```
 
+The Windows/Linux crate is `desktop/`. Front doors only:
+
+```sh
+cd desktop && cargo test --locked    # shared crate
+# linux/README.md — Mint / Cinnamon / X11
+# windows/README.md — NSIS installer
+```
+
 None of these need an Apple Developer account. `xcodebuild` ad-hoc signs a
 Debug build automatically, which is enough to run and debug locally.
 
@@ -35,7 +43,8 @@ credentials only the maintainer has. You won't need it to contribute.
 
 ## Before opening a PR
 
-- `make test` passes.
+- `make test` passes (macOS changes).
+- Desktop changes: `cd desktop && cargo test --locked`.
 - New behavior has a test. `Tests/` mirrors `Sources/` by concern, not by
   file — look for the existing test class closest to what you're changing
   before adding a new one.
@@ -66,7 +75,7 @@ credentials only the maintainer has. You won't need it to contribute.
 - Don't freeze `L10n.t` in a `static let` — lookup has to see the current
   language.
 - Follow System plus the in-app Language setting; don't set `AppleLanguages`.
-- Windows `windows/codenotch/src/i18n.rs` is a separate system — don't merge
+- Desktop `desktop/codenotch/src/i18n.rs` is a separate system — don't merge
   the two.
 
 ## Adding a provider
