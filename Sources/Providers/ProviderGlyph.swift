@@ -43,6 +43,11 @@ enum ProviderGlyph: String, Codable, Equatable {
     case lmstudio
     case omlx
     case llamaCpp = "llamacpp"
+    /// The Tasks ring: drawn from an SF Symbol, not a traced outline. Three
+    /// marks, because the ring is a checklist at rest and a timer in focus.
+    case tasks
+    case focus
+    case focusPaused = "focus-paused"
     /// The QianwenAI platform's own console mark, which is a different emblem
     /// from the local Qwen model brand in `.qwen` — a ring wearing this one is
     /// the platform account, not a model.
@@ -101,7 +106,17 @@ enum ProviderGlyph: String, Codable, Equatable {
         case .qianwenAI, .qoder: return 0.97
         case .higgsfield: return 0.95
         case .krea: return 0.96
-        case .devin, .qwen, .gemma, .meta, .deepseek, .mistral: return 1.0
+        case .devin, .qwen, .gemma, .meta, .deepseek, .mistral, .tasks, .focus, .focusPaused: return 1.0
+        }
+    }
+
+    /// Glyphs drawn from SF Symbols rather than an outline of their own.
+    var symbolName: String? {
+        switch self {
+        case .tasks: return "checklist"
+        case .focus: return "play.fill"
+        case .focusPaused: return "pause.fill"
+        default: return nil
         }
     }
 
@@ -143,7 +158,8 @@ enum ProviderGlyph: String, Codable, Equatable {
         // glyph-kimi in the asset catalogue are drawn instead.
         case .glm:    return GlyphOutline.glm
         case .devin, .qwen, .gemma, .meta, .deepseek, .mistral, .lmstudio,
-             .omlx, .qianwenAI, .qoder, .amp, .apify, .llamaCpp, .grokbot, .higgsfield, .krea: return []
+             .omlx, .qianwenAI, .qoder, .amp, .apify, .llamaCpp, .grokbot, .higgsfield, .krea,
+             .tasks, .focus, .focusPaused: return []
         case .grok:   return GlyphOutline.grok
         case .opencode: return GlyphOutline.opencode
         case .commandcode: return GlyphOutline.commandcode
@@ -191,6 +207,11 @@ struct ProviderGlyphView: View {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFit()
+            } else if let symbol = glyph.symbolName {
+                Image(systemName: symbol)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(size * 0.12)
             } else if let image = NSImage(named: glyph.assetName) {
                 Image(nsImage: image)
                     .renderingMode(.template)

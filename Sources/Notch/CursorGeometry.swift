@@ -144,7 +144,7 @@ final class CursorGeometry {
         if let cached = tooltipRects[index] { return cached }
         guard model.snapshots.indices.contains(index) else { return nil }
         let snapshot = model.snapshots[index]
-        let cardHeight = NotchLayout.cardHeight(
+        let cardHeight = snapshot.id == TasksProvider.providerID ? TasksCard.height() : NotchLayout.cardHeight(
             windowCount: snapshot.windows.count,
             groupCount: snapshot.windowGroupCount,
             moneyWindowCount: snapshot.windows.filter { $0.money != nil }.count,

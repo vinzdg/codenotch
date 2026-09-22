@@ -282,6 +282,49 @@ final class NotchWindowController {
         }
         .store(in: &cancellables)
 
+        // The keyboard going elsewhere (a click in another app) ends any
+        // typing in the card, whatever the field's focus state last said.
+        NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)
+            .sink { [weak self] note in
+                MainActor.assumeIsolated {
+                    guard let self, let panel = self.panel, (note.object as? NSWindow) === panel else { return }
+                    if TodoStore.shared.editing { TodoStore.shared.editing = false }
+                }
+            }
+            .store(in: &cancellables)
+
+        // While a tasks field is being typed in the card holds still; once it
+        // is done the pointer decides again, and the keyboard goes back.
+        TodoStore.shared.$editing
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] editing in
+                MainActor.assumeIsolated {
+                    guard let self, !editing else { return }
+                    self.panel?.makeFirstResponder(nil)
+                    self.cursorMoved()
+                }
+            }
+            .store(in: &cancellables)
+
+        // The tasks card changes shape on its own: "@" opens a list of
+        // projects under the field, a tab has more rows, a focus block starts
+        // or stops. None of that goes through the snapshots, so the panel is
+        // re-measured here and the view told to draw again.
+        Publishers.Merge4(
+            TodoStore.shared.$layoutTick.map { _ in () }.eraseToAnyPublisher(),
+            TodoStore.shared.$tab.map { _ in () }.eraseToAnyPublisher(),
+            FocusStore.shared.$taskID.map { _ in () }.eraseToAnyPublisher(),
+            FocusStore.shared.$isRunning.map { _ in () }.eraseToAnyPublisher())
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.model.objectWillChange.send()
+                self.relocate()
+                self.updateInteractiveRects()
+            }
+            .store(in: &cancellables)
+
         NSWorkspace.shared.notificationCenter.publisher(
             for: NSWorkspace.activeSpaceDidChangeNotification
         )
@@ -465,6 +508,7 @@ final class NotchWindowController {
             let hosting = NotchHostingView(rootView: NotchRootView(model: model))
             panel.contextMenuProvider = { [weak self] in self?.contextMenu() }
             panel.onClick = { [weak self] point in self?.handleClick(at: point) }
+            panel.onDoubleClick = { [weak self] point in self?.handleDoubleClick(at: point) }
             panel.onDragStart = { [weak self] in self?.beginOptionDrag() }
             // The grip carries the notch without ⌥, the same way.
             panel.startsDrag = { [weak self] point in
@@ -1458,7 +1502,19 @@ final class NotchWindowController {
     /// Panel-local input also lets tests exercise the real callback without
     /// moving the system pointer or posting mouse events.
     func cursorMoved(at local: CGPoint) {
-        guard panel != nil, !isOptionDragging else { return }
+        guard let panel, !isOptionDragging else { return }
+        // Typing in the tasks card: the pointer's wanderings do not fold it.
+        // Reaching for another ring is not a wandering, though: that ends the
+        // typing and the other card comes up as it always does.
+        if TodoStore.shared.editing, panel.isKeyWindow {
+            let onOtherRing = model.isExpanded && notchRect.contains(local)
+                && cellIndex(along: placement.along(of: local)).map { index in
+                    model.snapshots.indices.contains(index) && model.snapshots[index].id != TasksProvider.providerID
+                } == true
+            guard onOtherRing else { return }
+            panel.makeFirstResponder(nil)
+            TodoStore.shared.editing = false
+        }
         var geometry = cursorGeometry
         let wasExpanded = model.isExpanded
         let overTooltip = model.hoveredIndex
@@ -1512,6 +1568,8 @@ final class NotchWindowController {
             || overHandle
         setCursor(overMove ? .openHand : pointing ? .pointingHand : nil)
 
+        panel.allowsKeyboard = model.isExpanded
+            && target.map { model.snapshots.indices.contains($0) && model.snapshots[$0].id == TasksProvider.providerID } == true
         if let target {
             clearHoverWork?.cancel()
             clearHoverWork = nil
@@ -1631,6 +1689,17 @@ final class NotchWindowController {
 
     /// A click on a ring refetches that provider; a click anywhere else on the
     /// open notch pins it. The ring is the more specific target, so it wins.
+    /// Two clicks on the Tasks ring open the list in the app that owns it.
+    func handleDoubleClick(at locationInWindow: CGPoint) {
+        guard let panel, model.isExpanded else { return }
+        let local = CGPoint(x: locationInWindow.x, y: panel.frame.height - locationInWindow.y)
+        guard notchRect.contains(local),
+              let index = cellIndex(along: placement.along(of: local)),
+              model.snapshots.indices.contains(index),
+              model.snapshots[index].id == TasksProvider.providerID else { return }
+        Tasks.open()
+    }
+
     func handleClick(at locationInWindow: CGPoint) {
         guard let panel else {
             setExpanded(true)
@@ -2154,6 +2223,10 @@ final class NotchWindowController {
         settings.isEnabled = true
         menu.addItem(settings)
         menu.addItem(.separator())
+        let focus = NSMenuItem(title: L10n.t("Focus…"), action: #selector(TasksMenuActions.openFocus(_:)), keyEquivalent: "")
+        focus.target = TasksMenuActions.shared
+        focus.isEnabled = true
+        menu.addItem(focus)
         menu.addItem(
             withTitle: L10n.t("Quit Codenotch"),
             action: #selector(NSApplication.terminate(_:)),

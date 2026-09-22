@@ -665,7 +665,8 @@ struct NotchRootView: View {
 
     /// The card's extent across the stack (its height on a horizontal edge).
     private func cardAcross(_ snapshot: ProviderSnapshot) -> CGFloat {
-        NotchLayout.cardHeight(
+        if snapshot.id == TasksProvider.providerID { return TasksCard.height() }
+        return NotchLayout.cardHeight(
             windowCount: snapshot.windows.count,
             groupCount: snapshot.windowGroupCount,
             moneyWindowCount: snapshot.windows.filter { $0.money != nil }.count,

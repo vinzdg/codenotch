@@ -1351,7 +1351,8 @@ final class NotchViewModel: ObservableObject {
         cardHeightEvaluationCount += 1
         #endif
         return snapshots.map { snapshot in
-            NotchLayout.cardHeight(windowCount: snapshot.windows.count,
+            if snapshot.id == TasksProvider.providerID { return TasksCard.height() }
+            return NotchLayout.cardHeight(windowCount: snapshot.windows.count,
                 groupCount: Set(snapshot.windows.compactMap(\.group)).count,
                 moneyWindowCount: snapshot.windows.filter { $0.money != nil }.count,
                 moneyResetCount: snapshot.windows.filter { $0.money != nil && $0.resetsAt != nil }.count,
