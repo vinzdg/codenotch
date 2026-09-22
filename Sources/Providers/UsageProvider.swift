@@ -58,6 +58,11 @@ protocol UsageProvider {
     var isVisibleWhenAbsent: Bool { get }
     /// Optional custom icon image filename saved on disk.
     var customIconFilename: String? { get }
+    /// Whether this provider came from a plugin manifest rather than shipping
+    /// with Codenotch. Everything that names a provider — settings row,
+    /// notch, tooltip, notifications — marks a plugin, so one can never pass
+    /// for a built-in.
+    var isPlugin: Bool { get }
 }
 
 extension UsageProvider {
@@ -66,13 +71,14 @@ extension UsageProvider {
     var isVisibleWhenAbsent: Bool { true }
 
     var customIconFilename: String? { nil }
+    var isPlugin: Bool { false }
 }
 
 extension UsageProvider {
     var kind: ProviderKind { .usage }
 }
 
-enum UsageProviderError: Error {
+enum UsageProviderError: Error, Equatable {
     /// No usable credential — the user has to sign in again.
     case needsAuth
     /// The credential is there, and macOS refused to hand it over — the

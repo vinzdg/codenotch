@@ -37,6 +37,12 @@ struct UsageAlertEvent: Equatable {
         self.currentFraction = currentFraction
         self.resetsAt = resetsAt
     }
+
+    /// The name as a system notification should print it: a notification
+    /// has no room for a badge, so a plugin's says so in words.
+    var notifiedName: String {
+        glyph == .external ? L10n.t("\(providerName) (plugin)") : providerName
+    }
 }
 
 typealias UsageResetEvent = UsageAlertEvent

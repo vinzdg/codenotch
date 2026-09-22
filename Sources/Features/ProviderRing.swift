@@ -14,6 +14,11 @@ struct ProviderRing: View {
     let usedFraction: Double?
     let glyph: ProviderGlyph
     var customIconFilename: String? = nil
+    /// Resolves `.external` plugin glyphs; unused by every built-in mark.
+    var providerID: String? = nil
+    /// Wears a small puzzle-piece badge: a plugin's mark and name are its
+    /// own, and a lookalike must still read as a plugin in the notch.
+    var isPlugin: Bool = false
     var isStale: Bool = false
     /// Blocked right now. Shown as spent whatever the arc says, because that is
     /// what it means for you — a ring reading 16% while the account is paused
@@ -158,7 +163,7 @@ struct ProviderRing: View {
                         .animation(NotchMotion.reading, value: weeklyBand)
                 }
 
-                ProviderGlyphView(glyph: glyph, customIconFilename: customIconFilename)
+                ProviderGlyphView(glyph: glyph, customIconFilename: customIconFilename, providerID: providerID)
                     .foregroundStyle(Palette.textPrimary)
                     // A spent limit dims its glyph so the ring reads as "waiting".
                     // Under reduce-transparency, boost opacity so it stays legible without low alpha.
@@ -168,6 +173,10 @@ struct ProviderRing: View {
 
             if let activity, activity.state != .idle {
                 ActivityArc(summary: activity)
+            }
+
+            if isPlugin {
+                PluginRingBadge()
             }
         }
         .frame(width: NotchLayout.ringDiameter, height: NotchLayout.ringDiameter)
@@ -193,6 +202,48 @@ struct ProviderRing: View {
                 spin += 360
             }
         }
+    }
+}
+
+/// The plugin marker on a ring: a puzzle piece on a disc at the lower-right
+/// edge, over the arc, so it is visible whatever the plugin's own glyph
+/// looks like. Never dimmed with the reading — being a plugin is not stale.
+private struct PluginRingBadge: View {
+    private var size: CGFloat { NotchLayout.ringDiameter * 0.34 }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Palette.notch)
+            Circle()
+                .strokeBorder(Palette.textSecondary, lineWidth: Design.px(2))
+            Image(systemName: "puzzlepiece.extension.fill")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(Palette.textPrimary)
+                .padding(size * 0.22)
+        }
+        .frame(width: size, height: size)
+        .offset(x: NotchLayout.ringDiameter * 0.33, y: NotchLayout.ringDiameter * 0.33)
+        .accessibilityLabel(L10n.t("Plugin"))
+    }
+}
+
+/// The plugin marker on a card: the word, in a hairline capsule, after the
+/// title. The settings rows draw the same word with system styling
+/// (`PluginBadge`); this one lives in the notch's own palette.
+struct NotchPluginBadge: View {
+    var body: some View {
+        Text(L10n.t("Plugin"))
+            .font(Typography.cardBody)
+            .foregroundStyle(Palette.textSecondary)
+            .padding(.horizontal, Design.px(10))
+            .padding(.vertical, Design.px(2))
+            .overlay {
+                Capsule()
+                    .stroke(Palette.textSecondary.opacity(0.6), lineWidth: Design.px(2))
+            }
+            .padding(.leading, Design.px(12))
     }
 }
 
@@ -277,6 +328,8 @@ struct ProviderCell: View {
                 usedFraction: snapshot.localModel == nil && snapshot.hasReading ? snapshot.ringFraction : nil,
                 glyph: snapshot.glyph,
                 customIconFilename: snapshot.customIconFilename,
+                providerID: snapshot.id,
+                isPlugin: snapshot.isPlugin,
                 isStale: snapshot.status.isStale || !snapshot.hasReading,
                 isBlocked: snapshot.block != nil,
                 activity: activity,
@@ -310,7 +363,7 @@ struct ProviderCell: View {
     var accessibilityText: String {
         snapshot.localModel.map {
             "\($0.brand.map { "\($0.displayName), " } ?? "")\($0.name), \(snapshot.displayName) local, \(snapshot.showsLocalPerformance ? (snapshot.localPerformance.map { "Last generation speed \($0.speedText), \($0.band.label)" } ?? "Speed not measured") : "Loaded"), \($0.detail)\(localActivityText)\(localLedgerText)"
-        } ?? "\(snapshot.displayName), \(readingText)"
+        } ?? "\(snapshot.displayName)\(snapshot.isPlugin ? " plugin" : ""), \(readingText)"
     }
 
     /// What the model is doing, the way the tooltip's header says it.

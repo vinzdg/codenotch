@@ -318,6 +318,12 @@ struct ProviderSnapshot: Identifiable, Equatable {
 
     var providerID: String { sourceProviderID ?? id }
 
+    /// A runtime-registered plugin's reading. Derived from the glyph rather
+    /// than stored: `.external` is the one case no built-in draws, and an
+    /// archived reading keeps its glyph, so the marker survives a relaunch
+    /// without a migration.
+    var isPlugin: Bool { glyph == .external }
+
     var notchSnapshots: [ProviderSnapshot] {
         guard kind == .localRuntime, localModel == nil else { return [self] }
         return (localRuntime?.models ?? []).map { model in

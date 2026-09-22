@@ -10,6 +10,12 @@ struct ThresholdAlert: Equatable {
     let windowLabel: String
     let usedPercent: Int
     let resetsAt: Date?
+    var isPlugin: Bool = false
+
+    /// See `UsageAlertEvent.notifiedName`.
+    var notifiedName: String {
+        isPlugin ? L10n.t("\(providerName) (plugin)") : providerName
+    }
 }
 
 /// Watches the store's snapshots and reports the moment a provider's headline
@@ -57,7 +63,8 @@ final class ThresholdNotifier {
                 providerName: snapshot.displayName,
                 windowLabel: headline.label,
                 usedPercent: Int((percent).rounded()),
-                resetsAt: headline.resetsAt
+                resetsAt: headline.resetsAt,
+                isPlugin: snapshot.isPlugin
             ))
         }
     }
@@ -74,8 +81,8 @@ enum ThresholdAlerts {
 
             let content = UNMutableNotificationContent()
             content.title = alert.threshold >= 100
-                ? L10n.t("\(alert.providerName) limit reached")
-                : L10n.t("\(alert.providerName) is at \(alert.usedPercent)%")
+                ? L10n.t("\(alert.notifiedName) limit reached")
+                : L10n.t("\(alert.notifiedName) is at \(alert.usedPercent)%")
             if alert.threshold >= 100 {
                 content.body = alert.resetsAt.map {
                     L10n.t("Its \(alert.windowLabel.lowercased()) limit is spent — resets \($0.formatted(date: .omitted, time: .shortened))")
@@ -110,10 +117,10 @@ enum UsageAlertNotifications {
             let window = event.windowLabel.lowercased()
             switch event.kind {
             case .reset:
-                content.title = L10n.t("\(event.providerName) has reset")
+                content.title = L10n.t("\(event.notifiedName) has reset")
                 content.body = L10n.t("Its \(window) limit is available again.")
             case .sessionLimitReached, .weeklyLimitReached:
-                content.title = L10n.t("\(event.providerName) limit reached")
+                content.title = L10n.t("\(event.notifiedName) limit reached")
                 content.body = event.resetsAt.map {
                     L10n.t("Its \(window) limit is spent — resets \($0.formatted(date: .omitted, time: .shortened))")
                 } ?? L10n.t("Its \(window) limit is spent.")

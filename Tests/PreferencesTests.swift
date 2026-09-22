@@ -1,3 +1,4 @@
+import Testing
 import XCTest
 @testable import Codenotch
 
@@ -500,4 +501,76 @@ final class MenuBarLimitsPreferenceTests: XCTestCase {
         XCTAssertFalse(reopened.isConnected("codex"))
         XCTAssertEqual(reopened.menuBarProviders, ["codex", "gemini"])
     }
+}
+
+/// Approving a plugin pins the hash of the build the user looked at and
+/// connects it in the same move — the approval would be meaningless if the
+/// provider stayed dark, and connecting without pinning would run whatever
+/// the executable becomes next.
+@MainActor
+@Test func approvingAPluginPinsTheHashAndConnectsIt() {
+    let suite = "PreferencesTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let store = EphemeralPluginApprovalStore()
+    let preferences = Preferences(defaults: defaults, pluginApprovals: store)
+
+    #expect(preferences.approvedHash(forPlugin: "plugin-codemie-budget") == nil)
+    #expect(!preferences.isConnected("plugin-codemie-budget"))
+
+    preferences.approvePlugin("plugin-codemie-budget", hash: "deadbeef")
+
+    #expect(preferences.approvedHash(forPlugin: "plugin-codemie-budget") == "deadbeef")
+    #expect(preferences.isConnected("plugin-codemie-budget"))
+    #expect(preferences.seenProviders.contains("plugin-codemie-budget"))
+
+    // Persisted through the store, not the suite: a fresh Preferences over
+    // the same store sees the approval, and the plist never holds it.
+    #expect(defaults.object(forKey: "pluginApprovals") == nil,
+            "an approval in the plist could be written by any process")
+    let reloaded = Preferences(defaults: defaults, pluginApprovals: store)
+    #expect(reloaded.approvedHash(forPlugin: "plugin-codemie-budget") == "deadbeef")
+    #expect(reloaded.isConnected("plugin-codemie-budget"))
+}
+
+/// The plist is where the earlier build kept approvals, and where a same-user
+/// process can plant one. Whatever it says is ignored and cleared.
+@MainActor
+@Test func anApprovalPlantedInDefaultsIsIgnored() {
+    let suite = "PreferencesTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    defaults.set(["plugin-codemie-budget": "deadbeef"], forKey: "pluginApprovals")
+    defaults.set(["plugin-codemie-budget"], forKey: "connectedProviders")
+
+    let preferences = Preferences(defaults: defaults)
+
+    #expect(preferences.approvedHash(forPlugin: "plugin-codemie-budget") == nil)
+    #expect(defaults.object(forKey: "pluginApprovals") == nil)
+}
+
+@MainActor
+@Test func revokingAPluginForgetsTheHashAndDisconnectsIt() {
+    let suite = "PreferencesTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let store = EphemeralPluginApprovalStore()
+    let preferences = Preferences(defaults: defaults, pluginApprovals: store)
+    preferences.approvePlugin("plugin-codemie-budget", hash: "deadbeef")
+
+    preferences.revokePlugin("plugin-codemie-budget")
+
+    #expect(preferences.approvedHash(forPlugin: "plugin-codemie-budget") == nil)
+    #expect(!preferences.isConnected("plugin-codemie-budget"))
+    #expect(store.load().isEmpty, "the store must forget it too")
+}
+
+@Test func theKeychainApprovalCodecRoundTripsAndFailsClosed() {
+    let approvals = ["plugin-codemie-budget": "deadbeef", "plugin-codemie-claude": "cafe"]
+    let text = KeychainPluginApprovalStore.encode(approvals)
+    #expect(text == #"{"plugin-codemie-budget":"deadbeef","plugin-codemie-claude":"cafe"}"#)
+    #expect(KeychainPluginApprovalStore.decode(text!) == approvals)
+    #expect(KeychainPluginApprovalStore.decode("not json").isEmpty)
+    #expect(KeychainPluginApprovalStore.decode(#"{"plugin-codemie-budget": 1}"#).isEmpty)
+    #expect(KeychainPluginApprovalStore.decode(#"["plugin-codemie-budget"]"#).isEmpty)
 }

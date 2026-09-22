@@ -370,6 +370,9 @@ private extension AnyTransition {
 struct SettingsView: View {
     @ObservedObject var preferences: Preferences
     let providers: () -> [ProviderSummary]
+    var pendingPlugins: () -> [PluginCoordinator.PendingPlugin] = { [] }
+    var approvePlugin: (String) -> Void = { _ in }
+    var revokePlugin: (String) -> Void = { _ in }
     var phoneLinkPairing: PhoneLinkPairing?
     var phoneLinkRegistry: PhoneLinkRegistry?
     var phoneLinkServerStatus: PhoneLinkServerStatus?
@@ -380,6 +383,7 @@ struct SettingsView: View {
     @State private var accounts: [ProviderSummary] = []
     /// The providers the menu bar can show, from the same snapshots it draws.
     @State private var menuBarChoices: [MenuBarChoice] = []
+    @State private var pending: [PluginCoordinator.PendingPlugin] = []
     @State private var displays: [DisplayOption] = []
     @State private var selection: SettingsSection = .accounts
     /// Whether Accounts shows its provider panes. Remembered, so someone who
@@ -714,7 +718,8 @@ struct SettingsView: View {
                                cursorRefresh: cursorRefresh,
                                onDrop: { cursorRefresh += 1 },
                                takePlaceOf: { move($0, onto: account.id) },
-                               didConnect: { connect(account.id) })
+                               didConnect: { connect(account.id) },
+                               revoke: revokeAndRefresh)
                 }
                 if connected.isEmpty {
                     Text(L10n.t("Nothing is connected, so the notch has no rings to draw."))
@@ -735,6 +740,29 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            // Pending plugins sit between the two provider groups: they are
+            // neither connected nor safe to treat as ordinary "off" rows,
+            // because enabling one is a trust decision about code.
+            if !pending.isEmpty {
+                Section(L10n.t("Plugins awaiting approval")) {
+                    ForEach(pending) { plugin in
+                        PendingPluginRow(plugin: plugin) {
+                            approvePlugin(plugin.id)
+                            pending = pendingPlugins()
+                            // The just-approved provider is registered
+                            // synchronously, so re-read the rows too — waiting
+                            // for the next window-key refresh would strand the
+                            // plugin out of both groups until then.
+                            accounts = providers()
+                        }
+                    }
+                    Text(L10n.t("A plugin is an executable another tool installed. It runs on every refresh as Codenotch — enable only one you installed yourself."))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
             // Absent rather than empty when everything is on: a titled, empty
             // group reads as something having failed to load.
             if !notConnected.isEmpty {
@@ -749,7 +777,8 @@ struct SettingsView: View {
                                    cursorRefresh: cursorRefresh,
                                    onDrop: {},
                                    takePlaceOf: { _ in false },
-                                   didConnect: { connect(account.id) })
+                                   didConnect: { connect(account.id) },
+                                   revoke: revokeAndRefresh)
                     }
                     // Says what switching one back on will do, which is the
                     // only question this group raises.
@@ -1298,7 +1327,16 @@ struct SettingsView: View {
 
     private func refreshVisibleState() {
         accounts = providers()
+        pending = pendingPlugins()
         displays = DisplayOption.connected
+    }
+
+    /// Revoking moves the plugin from the account rows back to the pending
+    /// list synchronously, so both are re-read at once.
+    private func revokeAndRefresh(_ pluginID: String) {
+        revokePlugin(pluginID)
+        accounts = providers()
+        pending = pendingPlugins()
     }
 
     private var displayExplanation: String {
@@ -1637,6 +1675,8 @@ private struct AccountRow: View {
     /// Called after this row is switched on, so the list can decide where it
     /// now belongs. The row itself cannot: it can see only itself.
     let didConnect: () -> Void
+    /// Plugin rows only: forget the approval and stop running it.
+    var revoke: (String) -> Void = { _ in }
 
     @Environment(\.codenotchReduceTransparency) private var reduceTransparency
 
@@ -1661,11 +1701,14 @@ private struct AccountRow: View {
                 HStack(spacing: 10) {
                     if isOrderable { handle }
 
-                    ProviderGlyphView(glyph: provider.glyph, customIconFilename: provider.customIconFilename, size: 16)
+                    ProviderGlyphView(glyph: provider.glyph, customIconFilename: provider.customIconFilename, size: 16,
+                                      providerID: provider.id)
                         .foregroundStyle(isConnected ? .primary : .tertiary)
 
                     Text(provider.name)
                         .foregroundStyle(isConnected ? .primary : .secondary)
+
+                    if provider.isPlugin { PluginBadge() }
                 }
                 // Without this only the drawn pixels are grabbable, and the
                 // gaps between the three of them are not.
@@ -1687,7 +1730,8 @@ private struct AccountRow: View {
                     // a lot of translucent furniture to move a ring one place
                     // up.
                     HStack(spacing: 6) {
-                        ProviderGlyphView(glyph: provider.glyph, customIconFilename: provider.customIconFilename, size: 12)
+                        ProviderGlyphView(glyph: provider.glyph, customIconFilename: provider.customIconFilename, size: 12,
+                                          providerID: provider.id)
                         Text(provider.name)
                     }
                     .padding(.horizontal, 8)
@@ -1762,6 +1806,15 @@ private struct AccountRow: View {
                     Button(destination.title) { open(destination) }
                         .controlSize(.small)
                         .help(destination.help)
+                }
+
+                // The switch only pauses a plugin; this forgets the trust
+                // decision itself, so the build has to be enabled again —
+                // and re-dropping it later cannot start it silently.
+                if provider.isPlugin {
+                    Button(L10n.t("Revoke…")) { revoke(provider.id) }
+                        .controlSize(.small)
+                        .help(L10n.t("Forget the approval for \(provider.name). It stops running and goes back to the approval list; enabling it again pins its files afresh."))
                 }
 
                 Toggle(provider.name, isOn: binding)

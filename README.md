@@ -333,6 +333,30 @@ layout can be checked against the design frame directly.
 - Design spec: [`docs/specs/2026-08-28-usage-notch-design.md`](docs/specs/2026-08-28-usage-notch-design.md)
 - Implementation history: [`TASKS.md`](TASKS.md)
 
+## Plugins
+
+Providers can also be registered at runtime, without being compiled into the
+app. A plugin is any executable that answers with a small JSON payload; its
+installer drops a `plugin.json` manifest into
+`~/Library/Application Support/Codenotch/Plugins/<id>/`, and Codenotch picks it
+up while running — ring, tooltip, settings row, alerts and ordering all behave
+exactly as they do for a built-in provider. The manifest, wire format and exit
+codes are specified in [`docs/design/plugin-protocol.md`](docs/design/plugin-protocol.md);
+the trust model — approval in Settings pinned to a hash of the plugin folder,
+kept in the data-protection keychain — under *What the approval guarantees*
+in the same document.
+
+Plugins live with their vendors, not in this repo. The reference
+implementation ships in the [CodeMie CLI](https://github.com/codemie-ai/codemie-code):
+`codemie install codenotch --budget-plugin` installs this app and registers
+**CodeMie Budget** (every budget bucket with a Total headline) and
+**CodeMie Claude** (per-bucket session spending plus live session activity),
+authenticated with the CodeMie CLI's own SSO session — no separate sign-in,
+and Codenotch picks both up without a restart.
+
+During development `CODENOTCH_PLUGINS_DIR` points Codenotch at a different
+plugins directory.
+
 ## The honest caveat
 
 No vendor publishes a clean "your session limit is N% used" API for any of

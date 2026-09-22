@@ -114,7 +114,7 @@ struct UsageResetCard: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center, spacing: NotchLayout.headerGap) {
-                    ProviderGlyphView(glyph: event.glyph)
+                    ProviderGlyphView(glyph: event.glyph, providerID: event.providerID)
                         .foregroundStyle(Palette.textPrimary)
 
                     VStack(alignment: .leading, spacing: 0) {
@@ -123,6 +123,10 @@ struct UsageResetCard: View {
                                 .font(Typography.cardTitle)
                                 .foregroundStyle(Palette.textPrimary)
                                 .layoutPriority(1)
+                            if event.glyph == .external {
+                                NotchPluginBadge()
+                                    .layoutPriority(1)
+                            }
 
                             Spacer(minLength: Design.px(12))
 

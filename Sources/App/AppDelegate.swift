@@ -75,6 +75,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var claudeProviders: [ClaudeOAuthProvider] = []
     /// MiniMax Platform sign-in sheet. Not a UsageProvider — that is MiniMaxProvider.
     private var miniMaxWeb: WebSessionProvider?
+    /// Runtime-registered plugins (see `docs/design/plugin-protocol.md`).
+    private var pluginCoordinator: PluginCoordinator?
+    /// What a plugin may not be named: every non-plugin provider, kept
+    /// current as custom endpoints come and go.
+    private var builtInProviders: BuiltInProviderSet?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set here, not in the Info.plist: this call is applied at launch and
@@ -89,7 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Before Preferences reads anything, or the first launch flag and
         // every choice would be read from an empty domain.
         Preferences.migrateFromPreviousName()
-        let preferences = Preferences()
+        let preferences = Preferences(pluginApprovals: KeychainPluginApprovalStore())
         self.preferences = preferences
 
         // One notch per display: the fleet owns a controller for each screen
@@ -99,6 +104,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // notch would already have flashed on the default edge.
         let fleet = NotchFleet(scope: preferences.notchScope, edge: preferences.notchEdge)
         self.notchFleet = fleet
+
+        // Set in the non-demo branch below; the plugin coordinator wires them
+        // up once the store and the activity coordinator exist.
+        var pluginRegistry: PluginRegistry?
+        var approvedPlugins: [PluginRegistry.RegisteredPlugin] = []
+        var pendingPlugins: [PluginRegistry.RegisteredPlugin] = []
 
         // `CODENOTCH_DEMO=1` puts the design frame's three providers on screen
         // with its numbers, for screenshots and for eyeballing the layout.
@@ -145,7 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let customProviders: [UsageProvider] = preferences.customEndpoints.filter(\.isEnabled).map { endpoint in
                 CustomEndpointProvider(endpoint: endpoint)
             }
-            let allProviders: [UsageProvider] = claudeProviders
+            var allProviders: [UsageProvider] = claudeProviders
                 + [CursorLocalProvider()]
                 + codexProfiles.map { CodexLocalProvider(profile: $0) }
                 + antigravityProfiles.map { AntigravityProvider(profile: $0) }
@@ -162,6 +173,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                    })]
                 + webProviders
                 + customProviders
+
+            // Runtime-registered plugins ride the same array from here on —
+            // but only ones whose current build matches the hash the user
+            // approved. The rest wait in Settings as pending approvals.
+            //
+            // Frozen now, before plugins join the array: a closure over the
+            // `var` would see them on later rescans and reject every plugin
+            // as colliding with itself.
+            let builtIns = BuiltInProviderSet()
+            builtIns.replace(with: allProviders)
+            let registry = PluginRegistry(
+                directory: PluginRegistry.defaultDirectory(),
+                builtInIDs: { builtIns.ids },
+                builtInDisplayNames: { builtIns.displayNames }
+            )
+            self.builtInProviders = builtIns
+            let discovered = registry.scan()
+            approvedPlugins = discovered.filter {
+                preferences.approvedHash(forPlugin: $0.manifest.id) == $0.contentHash
+            }
+            pendingPlugins = discovered.filter {
+                preferences.approvedHash(forPlugin: $0.manifest.id) != $0.contentHash
+            }
+            pluginRegistry = registry
+            allProviders += approvedPlugins.map { registry.provider(for: $0) }
             preferences.reconcile(discoveredIDs: allProviders.map(\.id))
             let store = UsageStore(
                 providers: allProviders,
@@ -180,11 +216,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 .removeDuplicates()
                 .receive(on: RunLoop.main)
-                .sink { [weak store] _ in
+                .sink { [weak self, weak store] _ in
                     let stored = Preferences.storedCustomEndpoints()
                     let active = stored.filter(\.isEnabled)
                     let providers: [UsageProvider] = active.map { CustomEndpointProvider(endpoint: $0) }
                     store?.registerCustomProviders(providers)
+                    // A custom endpoint's id and name are taken from now on;
+                    // the plugins are re-checked against the new set.
+                    guard let self, let store else { return }
+                    self.builtInProviders?.replace(with: store.providers)
+                    self.pluginCoordinator?.rescan()
                 }
                 .store(in: &cancellables)
             deepSeek.onAuthenticated = { [weak store] in
@@ -363,7 +404,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.previewWeeklyLimitAlert()
                 },
                 usageStore: store, ollamaRelay: relay, lmstudioMetrics: lmstudio,
-                phoneLinkPairing: phonePairing, phoneLinkRegistry: phoneRegistry, phoneLinkServerStatus: serverStatus
+                phoneLinkPairing: phonePairing, phoneLinkRegistry: phoneRegistry, phoneLinkServerStatus: serverStatus,
+                pendingPlugins: { [weak self] in self?.pluginCoordinator?.pendingPlugins ?? [] },
+                approvePlugin: { [weak self] in self?.pluginCoordinator?.approve(pluginID: $0) },
+                revokePlugin: { [weak self] in self?.pluginCoordinator?.revoke(pluginID: $0) }
             )
             // The gear toggles; everything else that opens settings opens it.
             fleet.onOpenSettings = { [weak settings] in settings?.toggle() }
@@ -771,14 +815,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.announceCompletions(sessions: fleet.sessions)
         }
         self.activityCoordinator = activity
-        let monitorIDs = Set(monitors.keys)
-        activity.setEnabled(Set(monitorIDs.filter { preferences.isConnected($0) }))
+
+        // Plugins found at launch need their glyphs and activity monitors
+        // attached; from here the coordinator also watches the plugins
+        // directory and registers/deregisters providers live. Done before the
+        // initial `setEnabled` so a plugin's monitor is in `monitorIDs` when
+        // the enabled set is first computed.
+        if let pluginRegistry, let store = self.store {
+            let coordinator = PluginCoordinator(registry: pluginRegistry, store: store,
+                                                preferences: preferences, activity: activity)
+            coordinator.bootstrap(approved: approvedPlugins, pending: pendingPlugins)
+            coordinator.start()
+            self.pluginCoordinator = coordinator
+        }
+
+        activity.setEnabled(Set(activity.monitorIDs.filter { preferences.isConnected($0) }))
         preferences.$connectedProviders
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak activity, weak preferences] _ in
-                guard let preferences else { return }
-                activity?.setEnabled(Set(monitorIDs.filter { preferences.isConnected($0) }))
+                guard let preferences, let activity else { return }
+                activity.setEnabled(Set(activity.monitorIDs.filter { preferences.isConnected($0) }))
             }
             .store(in: &cancellables)
         store?.isBusy = { [weak self, weak activity] in

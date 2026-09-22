@@ -287,6 +287,8 @@ private struct TooltipHeader<Mark: View>: View {
     /// Sits on the header's own line, so saying when a reading was taken costs
     /// the card no extra height.
     var note: String?
+    /// Marks a plugin's card, next to the title, whatever the title says.
+    var isPlugin: Bool = false
     @ViewBuilder let mark: Mark
     @Environment(\.tooltipSecondaryInk) private var secondaryInk
 
@@ -300,6 +302,10 @@ private struct TooltipHeader<Mark: View>: View {
                         .foregroundStyle(Palette.textPrimary)
                         // The title names the model; a long note yields before it does.
                         .layoutPriority(1)
+                    if isPlugin {
+                        NotchPluginBadge()
+                            .layoutPriority(1)
+                    }
                     if let note {
                         Spacer(minLength: Design.px(20))
                         Text(note)
@@ -597,8 +603,10 @@ private struct ProviderTooltip: View {
                           ? L10n.t("\(snapshot.localModel?.brand?.displayName ?? snapshot.displayName) · Local")
                           : L10n.t("\(snapshot.displayName) Usage"),
                           subtitle: snapshot.plan,
-                          note: activityNote ?? (snapshot.localModel?.brand != nil ? snapshot.displayName : readingAge)) {
-                ProviderGlyphView(glyph: snapshot.glyph, customIconFilename: snapshot.customIconFilename)
+                          note: activityNote ?? (snapshot.localModel?.brand != nil ? snapshot.displayName : readingAge),
+                          isPlugin: snapshot.isPlugin) {
+                ProviderGlyphView(glyph: snapshot.glyph, customIconFilename: snapshot.customIconFilename,
+                                  providerID: snapshot.providerID)
                     .foregroundStyle(Palette.textPrimary)
             }
 

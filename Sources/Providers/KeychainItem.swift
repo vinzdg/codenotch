@@ -42,6 +42,14 @@ enum KeychainItem {
     /// `kSecAttrModificationDate` is a timestamp, not a version counter — and
     /// where they would, either duplicate is an equally good answer.
     static func newest(service: String, account: String? = nil) -> Match? {
+        newest(among: matches(service: service, account: account))
+    }
+
+    /// Every item under a service, without its secret. Enumerating attributes
+    /// never prompts, so a caller that must know whether it is looking at
+    /// *one* item — its own — or at a name something else has also filed
+    /// under can find out for free.
+    static func matches(service: String, account: String? = nil) -> [Match] {
         var query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
@@ -53,13 +61,17 @@ enum KeychainItem {
 
         var result: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess
-        else { return nil }
+        else { return [] }
 
         // A single match still comes back as one dictionary rather than an
         // array of one — `kSecMatchLimitAll` promises "every match", not "an
         // array", and one is not the many it means.
         let items = (result as? [[CFString: Any]]) ?? (result as? [CFString: Any]).map { [$0] } ?? []
-        return winner(among: items)
+        return items.compactMap { item -> Match? in
+            guard let ref = item[kSecValuePersistentRef] as? Data else { return nil }
+            return Match(modifiedAt: item[kSecAttrModificationDate] as? Date, persistentRef: ref,
+                         service: item[kSecAttrService] as? String ?? "")
+        }
     }
 
     /// The selection itself, apart from the query that produces its input.
@@ -67,16 +79,19 @@ enum KeychainItem {
     /// to point it at — so this is the half that can be, and is: given several
     /// duplicates, does the newest one actually win.
     static func winner(among items: [[CFString: Any]]) -> Match? {
-        items
-            .compactMap { item -> Match? in
-                guard let ref = item[kSecValuePersistentRef] as? Data else { return nil }
-                return Match(modifiedAt: item[kSecAttrModificationDate] as? Date, persistentRef: ref,
-                             service: item[kSecAttrService] as? String ?? "")
-            }
-            // A duplicate with no modification date is possible in principle
-            // and worth keeping rather than discarding; `.distantPast` only
-            // decides its rank against the others, never whether it exists.
-            .max { ($0.modifiedAt ?? .distantPast) < ($1.modifiedAt ?? .distantPast) }
+        newest(among: items.compactMap { item -> Match? in
+            guard let ref = item[kSecValuePersistentRef] as? Data else { return nil }
+            return Match(modifiedAt: item[kSecAttrModificationDate] as? Date, persistentRef: ref,
+                         service: item[kSecAttrService] as? String ?? "")
+        })
+    }
+
+    /// The same choice over already-decoded matches.
+    static func newest(among matches: [Match]) -> Match? {
+        // A duplicate with no modification date is possible in principle
+        // and worth keeping rather than discarding; `.distantPast` only
+        // decides its rank against the others, never whether it exists.
+        matches.max { ($0.modifiedAt ?? .distantPast) < ($1.modifiedAt ?? .distantPast) }
     }
 
     /// When the owning app last wrote the newest item under this service, or
@@ -108,7 +123,14 @@ enum KeychainItem {
     /// which is why even own-item readers go through `CredentialCache`.
     static func read(service: String, account: String? = nil) -> String? {
         guard let match = newest(service: service, account: account) else { return nil }
-        var query: [CFString: Any] = [
+        return read(match)
+    }
+
+    /// Reads exactly the item a match points at — not whichever item is
+    /// under that name by the time the read happens. A caller that has
+    /// inspected an item and decided to trust it must read *that* item.
+    static func read(_ match: Match) -> String? {
+        let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecValuePersistentRef: match.persistentRef,
             kSecReturnData: true,
@@ -151,6 +173,87 @@ enum KeychainItem {
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: account
+        ]
+        return SecItemDelete(query as CFDictionary) == errSecSuccess
+    }
+}
+
+/// The data-protection keychain: items live in an access group that only
+/// code signed with this app's team can name, enforced by securityd from
+/// the caller's entitlements. No other process can file, read, replace or
+/// delete an item there, whatever it says about itself. It is available to
+/// a build that carries the `keychain-access-groups` entitlement (and, for
+/// Developer ID, the provisioning profile that grants it); anything else —
+/// an ad-hoc or unsigned development build — gets `errSecMissingEntitlement`
+/// and has to fall back.
+enum DataProtectionKeychain {
+    /// Whether this build is entitled to the data-protection keychain. A
+    /// read from an unentitled process answers "not found", the same as an
+    /// entitled build with nothing stored; only a write answers
+    /// `errSecMissingEntitlement`. So the answer comes from writing a probe
+    /// item once and deleting it — decided once per process, since the
+    /// entitlement cannot change while it runs.
+    static let isAvailable: Bool = {
+        let probe: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: "codenotch-keychain-probe",
+            kSecAttrAccount: "probe",
+            kSecValueData: Data("probe".utf8),
+            kSecUseDataProtectionKeychain: true
+        ]
+        switch SecItemAdd(probe as CFDictionary, nil) {
+        case errSecSuccess, errSecDuplicateItem:
+            delete(service: "codenotch-keychain-probe", account: "probe")
+            return true
+        default:
+            return false
+        }
+    }()
+
+    /// The stored text, or nil when there is none. Only meaningful where
+    /// `isAvailable`; an unentitled process is answered "not found".
+    static func read(service: String, account: String) -> String? {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+            kSecUseDataProtectionKeychain: true,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne
+        ]
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data
+        else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func store(service: String, account: String, value: String) -> Bool {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+            kSecUseDataProtectionKeychain: true
+        ]
+        let attributes: [CFString: Any] = [
+            kSecValueData: Data(value.utf8),
+            kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        ]
+        let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if updateStatus == errSecSuccess { return true }
+        guard updateStatus == errSecItemNotFound else { return false }
+        var addQuery = query
+        addQuery.merge(attributes) { _, new in new }
+        return SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess
+    }
+
+    @discardableResult
+    static func delete(service: String, account: String) -> Bool {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+            kSecUseDataProtectionKeychain: true
         ]
         return SecItemDelete(query as CFDictionary) == errSecSuccess
     }

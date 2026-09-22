@@ -155,4 +155,8 @@ struct ProviderSummary: Identifiable, Equatable {
     /// place and looking fine. Tying the warning to "is there a reading" would
     /// hide it behind exactly the stale number it is warning about.
     var needsSignInRenewal: Bool = false
+    /// Whether this provider came from a plugin manifest rather than shipping
+    /// with Codenotch — the settings row labels it so a plugin never reads
+    /// as a built-in.
+    var isPlugin: Bool = false
 }
