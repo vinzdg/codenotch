@@ -1880,7 +1880,7 @@ fn main() {
 mod tests {
     use super::{
         cursor_in_hot, edge_origin, notch_window_size, provider_page, ratio_along_edge, ring_window,
-        work_insets, Screen, HOT_PAD, NOTCH_H, NOTCH_W, TRAY_PROVIDER_IDS,
+        work_insets, Screen, HOT_PAD, NOTCH_W, TRAY_PROVIDER_IDS,
     };
     use crate::usage::LimitWindow;
 
