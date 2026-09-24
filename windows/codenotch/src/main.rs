@@ -18,6 +18,7 @@ mod cursor;
 mod grok;
 mod antigravity;
 mod glm;
+mod opencode;
 mod agy_cli;
 mod glyphs;
 mod trayicon;
@@ -57,6 +58,8 @@ pub struct AppState {
     pub antigravity: Mutex<usage::UsageSnapshot>,
     /// GLM Coding Plan snapshot, read from the existing Z.AI tool credentials.
     pub glm: Mutex<usage::UsageSnapshot>,
+    /// OpenCode Go plan snapshot, read with OpenCode's own sign-in (auth.json or opencode.db).
+    pub opencode: Mutex<usage::UsageSnapshot>,
     /// Provider glyph cache, collected at launch and again on a tray refresh
     pub glyphs: Mutex<std::collections::HashMap<String, glyphs::Glyph>>,
     /// Working state of the non-Claude providers (Cursor reports it; Codex and Antigravity are inferred from recent writes)
@@ -684,6 +687,7 @@ pub(crate) fn refresh_provider(app: &AppHandle, provider: &str) -> bool {
         "grok" => grok::request_refresh(),
         "gemini" => antigravity::request_refresh(),
         "glm" => glm::request_refresh(),
+        "opencode" => opencode::request_refresh(),
         _ => return false,
     }
     true
@@ -711,6 +715,11 @@ fn get_antigravity(state: tauri::State<AppState>) -> usage::UsageSnapshot {
 #[tauri::command]
 fn get_glm(state: tauri::State<AppState>) -> usage::UsageSnapshot {
     state.glm.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn get_opencode(state: tauri::State<AppState>) -> usage::UsageSnapshot {
+    state.opencode.lock().unwrap().clone()
 }
 
 #[tauri::command]
@@ -769,6 +778,7 @@ pub(crate) fn provider_page(provider: &str) -> Option<(&'static str, &'static st
         "grok" => ("https://grok.com/?_s=usage", "grok.com"),
         "gemini" => ("https://antigravity.google", "antigravity.google"),
         "glm" => ("https://z.ai/manage-apikey/apikey-list", "z.ai"),
+        "opencode" => ("https://opencode.ai", "opencode.ai"),
         _ => return None,
     })
 }
@@ -1231,6 +1241,8 @@ fn ring_window<'a>(
         // plan falls through to Antigravity's lane picker and the ring shows the
         // tightest window it can find instead of the session.
         "glm" => by_id("session"),
+        // The Mac sets headlineID "rolling", weeklyID "weekly".
+        "opencode" => by_id("rolling"),
         _ => antigravity_lane(windows, antigravity_limit, antigravity_model),
     }
 }
@@ -1287,6 +1299,7 @@ pub(crate) fn snapshot_of(app: &AppHandle, id: &str) -> usage::UsageSnapshot {
         "grok" => st.grok.lock().unwrap().clone(),
         "gemini" => st.antigravity.lock().unwrap().clone(),
         "glm" => st.glm.lock().unwrap().clone(),
+        "opencode" => st.opencode.lock().unwrap().clone(),
         _ => st.usage.lock().unwrap().clone(),
     }
 }
@@ -1654,12 +1667,13 @@ pub fn provider_label(id: &str) -> &'static str {
         "grok" => "Grok",
         "gemini" => "Antigravity",
         "glm" => "z.ai",
+        "opencode" => "OpenCode",
         _ => "Claude",
     }
 }
 
 /// Every provider the tray menu can offer, in the order the notch shows them.
-pub const TRAY_PROVIDER_IDS: [&str; 6] = ["claude", "codex", "glm", "cursor", "grok", "gemini"];
+pub const TRAY_PROVIDER_IDS: [&str; 7] = ["claude", "codex", "glm", "opencode", "cursor", "grok", "gemini"];
 
 /// Keeps the tray menu current. macOS rebuilds its menu as it opens; Tauri has no such hook, so it
 /// is rebuilt whenever a reading changes, and once a minute besides — otherwise "Resets in 12 min"
@@ -1804,6 +1818,7 @@ fn main() {
             grok: Mutex::new(grok::load_persisted()),
             antigravity: Mutex::new(antigravity::load_persisted()),
             glm: Mutex::new(glm::load_persisted()),
+            opencode: Mutex::new(opencode::load_persisted()),
             glyphs: Mutex::new(Default::default()),
             activity: Mutex::new(Vec::new()),
         })
@@ -1820,6 +1835,7 @@ fn main() {
             get_grok,
             get_antigravity,
             get_glm,
+            get_opencode,
             get_glyphs,
             get_activity,
             open_data_dir,
@@ -1894,6 +1910,7 @@ fn main() {
             grok::start(handle.clone());
             antigravity::start(handle.clone());
             glm::start(handle.clone());
+            opencode::start(handle.clone());
             activity::start(handle.clone());
             // Collecting glyphs may read icon resources out of a few executables; do it off the main thread and push when done
             let gh = handle.clone();
