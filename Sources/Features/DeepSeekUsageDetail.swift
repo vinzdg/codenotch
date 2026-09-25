@@ -9,6 +9,7 @@ struct DeepSeekUsageDetail: View {
     let schedule: DeepSeekPricing.Schedule
     let showsPricing: Bool
     @Environment(\.codenotchAccentColor) private var accentColor
+    @Environment(\.providerDetailWidth) private var detailWidth
 
     private var timeZoneText: String {
         let absolute = abs(detail.timeZoneSeconds)
@@ -87,7 +88,7 @@ struct DeepSeekUsageDetail: View {
                 DeepSeekMetric(label: L10n.t("Requests"), value: "\(detail.totalRequests)")
                 DeepSeekMetric(label: L10n.t("API keys"), value: "\(detail.visibleAPIKeyCount)")
             }
-            .frame(width: NotchLayout.cardTextWidth)
+            .frame(width: detailWidth)
             .padding(.top, NotchLayout.blockSpacing)
 
             if showsPricing {
@@ -158,11 +159,12 @@ private struct DeepSeekUsageChart: View {
     let values: [Double]
     let formatter: (Double) -> String
     @Environment(\.tooltipSecondaryInk) private var secondaryInk
+    @Environment(\.providerDetailWidth) private var detailWidth
 
     private var maximum: Double { max(values.max() ?? 0, 1) }
     private var barWidth: CGFloat {
         let count = CGFloat(max(values.count, 1))
-        return max(1, (NotchLayout.cardTextWidth - (count - 1) * NotchLayout.usageDetailBarGap) / count)
+        return max(1, (detailWidth - (count - 1) * NotchLayout.usageDetailBarGap) / count)
     }
 
     var body: some View {
@@ -187,7 +189,7 @@ private struct DeepSeekUsageChart: View {
                     }
                 }
             }
-            .frame(width: NotchLayout.cardTextWidth,
+            .frame(width: detailWidth,
                    height: NotchLayout.usageDetailChartHeight,
                    alignment: .bottom)
             .padding(.top, NotchLayout.usageDetailLabelToBar)

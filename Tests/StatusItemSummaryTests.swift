@@ -474,6 +474,27 @@ final class StatusItemSummaryTests: XCTestCase {
         XCTAssertGreaterThan(image.size.width, 0)
     }
 
+    func testActivityDimsOnlyTheMatchingProviderGlyph() throws {
+        let result = summary([claude(0.72, resetIn: hour), codex(0.41, resetIn: 2 * hour)])
+        let artwork = StatusItemArtwork(summary: result,
+                                        activeProviderIDs: ["codex"],
+                                        activeGlyphOpacity: 0.62)
+        let claude = try XCTUnwrap(result.entries.first { $0.id == "claude" })
+        let codex = try XCTUnwrap(result.entries.first { $0.id == "codex" })
+        XCTAssertEqual(artwork.glyphAlpha(for: claude), 1)
+        XCTAssertEqual(artwork.glyphAlpha(for: codex), 0.62, accuracy: 0.001)
+    }
+
+    func testPulseRunsFromFullToSubtleAndBack() {
+        let animation = StatusItemController.pulseAnimation(beginTime: 42)
+        XCTAssertEqual(animation.fromValue as? CGFloat, 1)
+        XCTAssertEqual(animation.toValue as? CGFloat, 0.62)
+        XCTAssertEqual(animation.duration, 0.6, accuracy: 0.001)
+        XCTAssertTrue(animation.autoreverses)
+        XCTAssertEqual(animation.repeatCount, .infinity)
+        XCTAssertEqual(animation.beginTime, 42)
+    }
+
     func testWeeklyRingAddsNoMenuBarWidth() {
         let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
         let snapshot = claude(0.72, resetIn: hour)

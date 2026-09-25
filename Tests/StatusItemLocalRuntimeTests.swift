@@ -5,6 +5,11 @@ import AppKit
 /// The menu bar's menu has to say about a local model what its cell says,
 /// which the store's own snapshot of the runtime cannot: speed, phase, context
 /// and today's tokens are put on the cells by the view model.
+///
+/// The menu draws cards now, so those facts are on the card and, in words, on
+/// the item AppKit hands to accessibility. Both are checked here: a card that
+/// drew from the raw provider snapshot instead of the cell would lose all of
+/// them, and a card VoiceOver cannot read is a picture of a reading.
 @MainActor
 final class StatusItemLocalRuntimeTests: XCTestCase {
     private let qwen = LMStudioMetrics.cellID(instance: "qwen3.8-27b")
@@ -13,7 +18,11 @@ final class StatusItemLocalRuntimeTests: XCTestCase {
         LMStudioFixtures.snapshot(try LMStudioUsage.parse(LMStudioFixtures.listing(instances: instances)))
     }
 
-    func testTheMenuListsEachLoadedModelWithWhatItsCellShows() throws {
+    private func spoken(_ menu: NSMenu) -> [String] {
+        menu.items.compactMap { $0.accessibilityLabel() }
+    }
+
+    func testTheMenuDrawsACardPerLoadedModelWithWhatItsCellShows() throws {
         let runtime = try lmstudio([("qwen3.8-27b", "qwen/qwen3.8-27b", 32_768),
                                     ("flash-next-test", "qwen/qwen3.8-flash-next", 8192)])
         let ollamaData = try JSONSerialization.data(withJSONObject: ["models": [["name": "gemma4:e4b", "size": 4_831_838_208]]])
@@ -43,32 +52,44 @@ final class StatusItemLocalRuntimeTests: XCTestCase {
         let titles = menu.items.map(\.title)
         let joined = titles.joined(separator: "\n")
 
-        let cell = try XCTUnwrap(fleet.menuModel.snapshots.first { $0.id == qwen })
-        XCTAssertTrue(titles.contains("LM Studio — 2 models loaded"), joined)
-        XCTAssertTrue(titles.contains("qwen3.8-27b: \(cell.headlineText) · Prompt · 1 queued · Context 61% · Today 20k in · 1200 out"), joined)
-        XCTAssertTrue(titles.contains("flash-next-test: — tok/s"), joined)
-        XCTAssertTrue(titles.contains("Ollama — 1 model loaded"), joined)
-        XCTAssertTrue(titles.contains("gemma4:e4b: \(expectedGigabytes(4.5)) · Thinking"), joined)
+        // One card per loaded model, plus the cloud provider's own.
+        XCTAssertTrue(titles.contains("LM Studio — qwen3.8-27b"), joined)
+        XCTAssertTrue(titles.contains("LM Studio — flash-next-test"), joined)
+        XCTAssertTrue(titles.contains("Ollama — gemma4:e4b"), joined)
         XCTAssertTrue(titles.contains { $0.hasPrefix("Claude — 73%") }, joined)
-        // The runtime's row refreshes the runtime; a model's line is not a button.
-        let header = try XCTUnwrap(menu.items.first { $0.title.hasPrefix("LM Studio") })
-        XCTAssertEqual(header.representedObject as? String, "lmstudio")
-        XCTAssertNotNil(header.action)
-        XCTAssertNil(try XCTUnwrap(menu.items.first { $0.title.hasPrefix("qwen3.8-27b") }).action)
+        // The runtime itself has no card while its models have.
+        XCTAssertFalse(titles.contains("LM Studio — 2 models loaded"), joined)
 
-        // A hidden model has no cell, so it has no line; the count still counts it.
+        // Every one of them is a card, not a line of text.
+        let cards = menu.items.filter { $0.representedObject is String }
+        XCTAssertEqual(cards.count, 4, joined)
+        XCTAssertTrue(cards.allSatisfy { $0.view != nil }, "a provider row was left as plain text")
+        XCTAssertTrue(cards.allSatisfy { $0.action == nil }, "a card is a reading, not a command")
+
+        // And what the cell knows is in the words VoiceOver gets.
+        let cell = try XCTUnwrap(fleet.menuModel.snapshots.first { $0.id == qwen })
+        let heard = spoken(menu).joined(separator: "\n")
+        XCTAssertTrue(
+            heard.contains("qwen3.8-27b: \(cell.headlineText) · Prompt · 1 queued · Context 61% · Today 20k in · 1200 out"),
+            heard)
+        XCTAssertTrue(heard.contains("gemma4:e4b: \(expectedGigabytes(4.5)) · Thinking"), heard)
+
+        // A hidden model has no cell, so it has no card.
         fleet.setSnapshots([cloud, ollama, runtime])
         fleet.menuModel.updateSnapshots(runtime.notchSnapshots.filter { $0.id == qwen } + [cloud])
         controller.rebuild(menu: menu, now: Date())
-        XCTAssertFalse(menu.items.map(\.title).contains { $0.hasPrefix("flash-next-test") })
+        XCTAssertFalse(menu.items.map(\.title).contains { $0.contains("flash-next-test") })
     }
 
+    /// Nothing loaded means nothing to draw a limit row from, so the runtime
+    /// keeps a card of its own and says why it is empty rather than vanishing.
     func testAnEmptyOrUnreachableRuntimeSaysSoOnce() throws {
         let controller = StatusItemController(onOpenSettings: {})
         let menu = NSMenu()
         controller.snapshots = [LMStudioFixtures.snapshot(LocalRuntimeReading(models: [], measuresSpeed: true))]
         controller.rebuild(menu: menu, now: Date())
         XCTAssertEqual(menu.items.map(\.title).first, "LM Studio — Server reachable · No models loaded")
+        XCTAssertNotNil(menu.items.first?.view, "the runtime lost its card")
         XCTAssertEqual(menu.items[1].isSeparatorItem, true, "the summary is not repeated under the header")
 
         var down = LMStudioFixtures.snapshot(LocalRuntimeReading(models: [], measuresSpeed: true))
@@ -78,7 +99,8 @@ final class StatusItemLocalRuntimeTests: XCTestCase {
         controller.snapshots = [down]
         controller.rebuild(menu: menu, now: Date())
         XCTAssertEqual(menu.items.map(\.title).first, "LM Studio — —")
-        XCTAssertTrue(menu.items[1].title.contains("API token"), menu.items[1].title)
-        XCTAssertFalse(menu.items[1].isEnabled)
+        XCTAssertEqual(menu.items[1].isSeparatorItem, true)
+        let heard = try XCTUnwrap(menu.items.first?.accessibilityLabel())
+        XCTAssertTrue(heard.contains("API token"), heard)
     }
 }

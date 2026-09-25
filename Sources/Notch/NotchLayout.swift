@@ -332,16 +332,47 @@ enum NotchLayout {
     ///
     /// Rounded up to whole lines: the card's height is a stack of line boxes,
     /// and half a line of budget leaves the last one straddling the clip.
-    static func bodyTextHeight(_ text: String) -> CGFloat {
+    ///
+    /// `width` is the column the text actually wraps to. The notch's card is
+    /// the default and the only one the panel geometry is solved against; the
+    /// Detail panel passes its own, so a name that fits one line there is not
+    /// given two lines of room.
+    static func bodyTextHeight(_ text: String, width: CGFloat = cardTextWidth) -> CGFloat {
         guard !text.isEmpty else { return cardBodyLineHeight }
         let bounds = (text as NSString).boundingRect(
-            with: CGSize(width: cardTextWidth, height: .greatestFiniteMagnitude),
+            with: CGSize(width: width, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: cardBodyFont]
         )
         let lines = max(1, Int((bounds.height / cardBodyLineHeight).rounded(.up)))
         return CGFloat(lines) * cardBodyLineHeight
     }
+
+    /// Whether a label and the value opposite it both fit on one row of
+    /// `width`, with the gap `SplitRow` keeps between them and a little room
+    /// to spare.
+    ///
+    /// Measured in the card's own body face, because this decides whether a
+    /// row may carry a longer string at all — a row that cannot is given the
+    /// short one rather than left to truncate.
+    ///
+    /// The slack is not padding for its own sake. `NSString`'s metrics come in
+    /// a point or two under what SwiftUI's `Text` asks for the same string in
+    /// the same face, so a row measured to fit exactly was still truncated on
+    /// screen — and a row that fits to the last point reads as crowded even
+    /// when it does not truncate. Both are answered by refusing the last few
+    /// points.
+    static func splitRowFits(leading: String, trailing: String, width: CGFloat) -> Bool {
+        let attributes: [NSAttributedString.Key: Any] = [.font: cardBodyFont]
+        let leadingWidth = (leading as NSString).size(withAttributes: attributes).width
+        let trailingWidth = (trailing as NSString).size(withAttributes: attributes).width
+        return leadingWidth + splitRowGap + trailingWidth + splitRowSlack <= width
+    }
+
+    /// The least `SplitRow` leaves between a label and its value.
+    static let splitRowGap = Design.px(20)
+    /// What `splitRowFits` keeps back — see its note.
+    static let splitRowSlack = Design.px(24)
 
     private static func lineHeight(_ font: NSFont) -> CGFloat {
         ceil(font.ascender - font.descender + font.leading)
@@ -544,8 +575,8 @@ enum NotchLayout {
         return height
     }
 
-    static func modelNameHeight(_ name: String) -> CGFloat {
-        min(2 * cardBodyLineHeight, bodyTextHeight(name))
+    static func modelNameHeight(_ name: String, width: CGFloat = cardTextWidth) -> CGFloat {
+        min(2 * cardBodyLineHeight, bodyTextHeight(name, width: width))
     }
 
 

@@ -168,16 +168,24 @@ struct StatusItemSummary: Equatable {
 /// so it is sharp at whatever scale the display has.
 struct StatusItemArtwork {
     let summary: StatusItemSummary
+    /// Provider ids whose glyphs are currently pulsing. Activity never changes
+    /// the figures beside them; only the matching mark's alpha is varied.
+    let activeProviderIDs: Set<String>
+    let activeGlyphOpacity: CGFloat
     let font: NSFont
     let height: CGFloat
 
     /// The menu bar's own type size, with figures of one width: "72%" and
     /// "18%" take the same room, so nothing jitters as the numbers move.
     init(summary: StatusItemSummary,
+         activeProviderIDs: Set<String> = [],
+         activeGlyphOpacity: CGFloat = 1,
          font: NSFont = .monospacedDigitSystemFont(ofSize: NSFont.menuBarFont(ofSize: 0).pointSize,
                                                    weight: .regular),
          height: CGFloat = NSStatusBar.system.thickness) {
         self.summary = summary
+        self.activeProviderIDs = activeProviderIDs
+        self.activeGlyphOpacity = min(max(activeGlyphOpacity, 0), 1)
         self.font = font
         self.height = height
     }
@@ -212,21 +220,41 @@ struct StatusItemArtwork {
     var size: NSSize { NSSize(width: layout().width, height: height) }
 
     func image() -> NSImage {
-        let (width, marks) = layout()
+        let (width, marks, _) = layout()
         let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
             for (mark, alpha) in marks { draw(mark, alpha: alpha) }
             return true
         }
+        image.cacheMode = .always
         image.isTemplate = true
         return image
     }
 
-    private func layout() -> (width: CGFloat, marks: [(Mark, CGFloat)]) {
+    func glyphFrame(for providerID: String) -> NSRect? {
+        layout().glyphFrames[providerID]
+    }
+
+    /// A provider mark cropped out of the existing artwork, retaining its
+    /// weekly ring, optical scaling and stale alpha without a second renderer.
+    func glyphImage(for providerID: String) -> NSImage? {
+        guard let frame = glyphFrame(for: providerID) else { return nil }
+        let whole = image()
+        let image = NSImage(size: frame.size, flipped: false) { target in
+            whole.draw(in: target, from: frame, operation: .sourceOver, fraction: 1)
+            return true
+        }
+        image.cacheMode = .always
+        image.isTemplate = true
+        return image
+    }
+
+    private func layout() -> (width: CGFloat, marks: [(Mark, CGFloat)], glyphFrames: [String: NSRect]) {
         // Figures centred on the bar by their cap height, which is what the eye
         // measures digits by; the marks are centred on the same line.
         let baseline = ((height - font.capHeight) / 2 * 2).rounded() / 2
         let middle = baseline + font.capHeight / 2
         var marks: [(Mark, CGFloat)] = []
+        var glyphFrames: [String: NSRect] = [:]
         var x: CGFloat = 0
         func text(_ string: String, alpha: CGFloat) {
             marks.append((.text(string, NSPoint(x: x, y: baseline)), alpha))
@@ -244,7 +272,9 @@ struct StatusItemArtwork {
             }
             let alpha: CGFloat = entry.isStale ? 0.5 : 1
             let box = NSRect(x: x, y: middle - glyphSize / 2, width: glyphSize, height: glyphSize)
-            marks.append((.glyph(entry.glyph, box, weeklyFraction: entry.weeklyFraction), alpha))
+            glyphFrames[entry.id] = box
+            marks.append((.glyph(entry.glyph, box, weeklyFraction: entry.weeklyFraction),
+                          glyphAlpha(for: entry)))
             x += glyphSize + glyphGap
             if let label = entry.label {
                 text(label, alpha: alpha)
@@ -265,7 +295,15 @@ struct StatusItemArtwork {
                 x = max(x, start + countdownRoom)
             }
         }
-        return (x.rounded(.up), marks)
+        return (x.rounded(.up), marks, glyphFrames)
+    }
+
+    /// Kept pure so the provider-specific activity contract is testable
+    /// without installing a real status item. Text continues to use the base
+    /// alpha in `layout`; only this glyph value follows the pulse.
+    func glyphAlpha(for entry: StatusItemSummary.Entry) -> CGFloat {
+        let base: CGFloat = entry.isStale ? 0.5 : 1
+        return activeProviderIDs.contains(entry.id) ? base * activeGlyphOpacity : base
     }
 
     private func width(_ string: String) -> CGFloat {

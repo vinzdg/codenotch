@@ -18,7 +18,7 @@ enum ResetTimeFormat: String, CaseIterable, Identifiable {
         case .automatic:
             return L10n.t("Minutes under an hour; otherwise the reset date and time.")
         case .remaining:
-            return L10n.t("Time until usage resets, such as 3 Days 3h or 3h 20m.")
+            return L10n.t("Time until usage resets, such as 3h 20m (20:30), with the reset time itself where there is room for it.")
         }
     }
 }
@@ -26,24 +26,39 @@ enum ResetTimeFormat: String, CaseIterable, Identifiable {
 /// "Resets in 51 min" under an hour, "Resets Thu 12:00 AM" within the week,
 /// "Resets Sep 28" beyond it.
 enum ResetCopy {
+    /// - Parameter withAbsoluteStamp: append when it lands, in brackets —
+    ///   "Resets in 2h 18m (20:30)". Only ever added to wording that is purely
+    ///   relative, so a line that already names the day never says it twice.
+    ///   Off by default because the bracket costs a row about 40pt and the
+    ///   notch's card has not got it; the caller that has the room asks.
     static func text(for resetsAt: Date, now: Date = Date(), calendar: Calendar = .current,
-                     format: ResetTimeFormat = .automatic, locale: Locale = L10n.locale) -> String {
+                     format: ResetTimeFormat = .automatic, locale: Locale = L10n.locale,
+                     withAbsoluteStamp: Bool = false) -> String {
         let seconds = resetsAt.timeIntervalSince(now)
         guard seconds > 0 else { return L10n.t("Resetting…", locale: locale) }
+
+        // One timestamp, read twice: how long there is, and when that is. They
+        // cannot disagree because neither is derived from the other.
+        func stamped(_ relative: String) -> String {
+            guard withAbsoluteStamp else { return relative }
+            // No word joins these, so there is nothing here to translate: a
+            // bracket is a bracket in every language the app ships.
+            return "\(relative) (\(absoluteStamp(for: resetsAt, now: now, calendar: calendar, locale: locale)))"
+        }
 
         if format == .remaining {
             let minutes = max(1, Int((seconds / 60).rounded()))
             let hours = minutes / 60
             let days = hours / 24
             if days > 0 {
-                return days == 1
+                return stamped(days == 1
                     ? L10n.t("Resets in \(days) Day \(hours % 24)h", locale: locale)
-                    : L10n.t("Resets in \(days) Days \(hours % 24)h", locale: locale)
+                    : L10n.t("Resets in \(days) Days \(hours % 24)h", locale: locale))
             }
             if hours > 0 {
-                return L10n.t("Resets in \(hours)h \(minutes % 60)m", locale: locale)
+                return stamped(L10n.t("Resets in \(hours)h \(minutes % 60)m", locale: locale))
             }
-            return L10n.t("Resets in \(minutes) min", locale: locale)
+            return stamped(L10n.t("Resets in \(minutes) min", locale: locale))
         }
 
         // Rounding, not truncation, so 50m40s reads as 51 rather than 50. A
@@ -51,7 +66,9 @@ enum ResetCopy {
         // "Resets in 60 min" never appears.
         let minutes = Int((seconds / 60).rounded())
         if minutes < 60 {
-            return L10n.t("Resets in \(max(1, minutes)) min", locale: locale)
+            // The one relative case this format has, so the one that can carry
+            // a stamp; everything below already says when.
+            return stamped(L10n.t("Resets in \(max(1, minutes)) min", locale: locale))
         }
 
         let formatter = formatter(for: calendar)
@@ -77,6 +94,32 @@ enum ResetCopy {
         // English is still "Thu 12:00 AM".
         formatter.setLocalizedDateFormatFromTemplate("E j:mm")
         return L10n.t("Resets \(formatter.string(from: resetsAt))", locale: locale)
+    }
+
+    /// When a reset lands, as short as it can be said without being ambiguous:
+    /// the time alone today, a weekday and time inside the week, a date beyond
+    /// it.
+    ///
+    /// The day is dropped when there is only one day it could mean. The week
+    /// boundary is `text`'s own, and for its reason: a weekday identifies a day
+    /// only inside the coming week, and Codex's monthly window resets 26 days
+    /// out — "(Mon 08:55)" there would read as this Monday.
+    static func absoluteStamp(for resetsAt: Date, now: Date = Date(),
+                              calendar: Calendar = .current,
+                              locale: Locale = L10n.locale) -> String {
+        let formatter = formatter(for: calendar)
+        formatter.locale = locale
+        let days = daysApart(from: now, to: resetsAt, calendar: calendar)
+        if days >= 7 {
+            formatter.setLocalizedDateFormatFromTemplate("MMM d")
+        } else if days == 0 {
+            // `j` rather than a literal hour, for the reason spelled out in
+            // `text`: the locale decides whether this is 13:30 or 1:30 PM.
+            formatter.setLocalizedDateFormatFromTemplate("j:mm")
+        } else {
+            formatter.setLocalizedDateFormatFromTemplate("E j:mm")
+        }
+        return formatter.string(from: resetsAt)
     }
 
     /// The time left before a reset, as short as the menu bar needs it: "2h 05m",

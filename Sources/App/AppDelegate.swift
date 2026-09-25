@@ -151,8 +151,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Log.usage.info("codex profiles: \(self.codexProfiles.map(\.displayPath).joined(separator: ", "), privacy: .public)")
             Log.usage.info("antigravity profiles: \(self.antigravityProfiles.map(\.displayPath).joined(separator: ", "), privacy: .public)")
             // Named together rather than one by one: a name derived from the
-            // signed-in address can collide with another profile's, and only a
-            // caller holding every profile can see that.
+            // signed-in address can collide with another profile's, and a lone
+            // profile needs no name beyond "Claude" — only a caller holding
+            // every profile can see either.
             let claudeNames = ClaudeProfile.displayNames(for: claudeProfiles)
             let claudeProviders = claudeProfiles.map {
                 ClaudeOAuthProvider(profile: $0, displayName: claudeNames[$0.id])
@@ -416,13 +417,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             let statusItem = StatusItemController { [weak settings] in settings?.show() }
             self.statusItem = statusItem
-            statusItem.onRefreshProvider = { [weak store] id in store?.refresh(providerID: id) }
+            // The cards in the menu are drawn from the fleet's panel-less
+            // model — the very snapshots and Appearance settings the notches
+            // are handed. No provider is read to open the menu and no second
+            // store is kept: the menu is another reader of the one the notch
+            // already reads, which is what keeps the two from disagreeing.
+            statusItem.model = fleet.menuModel
             statusItem.onRefreshAll = { [weak store] in store?.refreshNow() }
             // The menu's tick writes to the same preference Settings writes to,
             // and reads nothing back of its own: the sink below carries the new
             // value to the item, and Settings — a published property away —
             // redraws its own switch from it in the same breath.
             statusItem.onToggleLimits = { [weak preferences] in preferences?.showsLimitsInMenuBar = $0 }
+            // A card's own switch, written back the same way: into Preferences,
+            // and read back through the sink below. The controller keeps no
+            // copy, so the switch and what the card draws cannot disagree.
+            statusItem.onToggleDetail = { [weak preferences] id, expanded in
+                preferences?.setDetailExpanded(expanded, for: id)
+            }
+            statusItem.expandedDetail = preferences.expandedDetailProviders
             // Read when the menu opens, so a model's line is as current as its cell.
             statusItem.cells = { [weak fleet] in fleet?.menuModel.snapshots ?? [] }
             statusItem.activity = { [weak fleet] in fleet?.menuModel.activity(for: $0) }
@@ -453,6 +466,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // menu, which the run loop's default mode would hold back.
                 .receive(on: DispatchQueue.main)
                 .sink { [weak statusItem] in statusItem?.limits = $0 }
+                .store(in: &cancellables)
+
+            // Dispatch, not the run loop, for the reason the limit switch
+            // above gives: this lands while AppKit is still tracking the menu
+            // the card is in, which is exactly when a card is opened.
+            preferences.$expandedDetailProviders
+                .removeDuplicates()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak statusItem] in statusItem?.expandedDetail = $0 }
                 .store(in: &cancellables)
 
             // Presentation only, like the parent limit switch: redraw from the
@@ -852,6 +874,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let activity = ActivityCoordinator(monitors: monitors) { [weak self, weak fleet] id, sessions in
             guard let fleet else { return }
             fleet.setSessions(providerID: id, sessions: sessions)
+            self?.statusItem?.setActivity(providerID: id, sessions: sessions)
             self?.announceCompletions(sessions: fleet.sessions)
         }
         self.activityCoordinator = activity

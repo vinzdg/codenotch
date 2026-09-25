@@ -11,6 +11,11 @@ import AppKit
 /// break one of these.
 @MainActor
 final class StatusItemQuickToggleTests: XCTestCase {
+    private func session(_ state: AgentSession.State, id: String) -> AgentSession {
+        AgentSession(id: id, name: id, detail: "Terminal", state: state,
+                     waitingFor: nil, since: Date())
+    }
+
     private func makeDefaults() throws -> (UserDefaults, String) {
         let name = "StatusItemQuickToggleTests.\(UUID().uuidString)"
         return (try XCTUnwrap(UserDefaults(suiteName: name)), name)
@@ -118,5 +123,21 @@ final class StatusItemQuickToggleTests: XCTestCase {
         let quit = try XCTUnwrap(titles.firstIndex(of: L10n.t("Quit Codenotch")), joined)
         XCTAssertTrue(index < refresh && refresh < settings && settings < quit, joined)
         XCTAssertTrue(titles.contains { $0.hasPrefix("Claude — ") }, "the readings are still there: \(joined)")
+    }
+
+    func testOnlyBusyProvidersBecomeActiveIndependently() {
+        let controller = StatusItemController(onOpenSettings: {})
+
+        controller.setActivity(providerID: "claude", sessions: [session(.idle, id: "claude-idle")])
+        controller.setActivity(providerID: "codex", sessions: [session(.busy, id: "codex-busy")])
+        XCTAssertEqual(controller.activeProviderIDs, ["codex"])
+
+        controller.setActivity(providerID: "claude", sessions: [session(.busy, id: "claude-busy")])
+        XCTAssertEqual(controller.activeProviderIDs, ["claude", "codex"])
+
+        controller.setActivity(providerID: "codex", sessions: [session(.success, id: "codex-done")])
+        XCTAssertEqual(controller.activeProviderIDs, ["claude"])
+        controller.setActivity(providerID: "claude", sessions: [])
+        XCTAssertTrue(controller.activeProviderIDs.isEmpty)
     }
 }

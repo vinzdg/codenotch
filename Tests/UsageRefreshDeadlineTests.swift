@@ -132,6 +132,20 @@ final class UsageRefreshDeadlineTests: XCTestCase {
         blocked.release()
     }
 
+    /// Refused, but not turned away empty-handed: the second caller is given
+    /// the pass that is running, so it can wait for the same readings. The
+    /// menu's Refresh all says "Refreshing…" for as long as that takes.
+    func testASecondCallerIsHandedThePassAlreadyRunning() async {
+        let blocked = BlockingProvider()
+        let store = store([blocked], deadline: 30)
+        let first = store.refreshNow()
+        let second = store.refreshNow()
+        XCTAssertNotNil(first)
+        XCTAssertEqual(first, second)
+        await settle(0.2)
+        blocked.release()
+    }
+
     // MARK: - Recovery
 
     /// The point of the whole change, and the exact shape of the bug: the

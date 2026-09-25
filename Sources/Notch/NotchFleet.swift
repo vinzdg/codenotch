@@ -77,7 +77,12 @@ final class NotchFleet {
     var onRefresh: (() -> Void)?
     var onRefreshProvider: ((String) async -> Void)?
     var onOpenSettings: (() -> Void)?
-    var onFocusSession: ((pid_t) -> Void)?
+    /// Also given to `menuModel`, which has no controller to copy it from:
+    /// the Detail panel draws the same session rows the notch does, and a row
+    /// that takes you to its terminal in one place must do it in both.
+    var onFocusSession: ((pid_t) -> Void)? {
+        didSet { menuModel.onFocusSession = onFocusSession }
+    }
     var signInItems: [(title: String, action: () -> Void)] = []
     /// An ⌥-drag on any one panel settled at a new offset. Persisting it is
     /// Preferences' job, same division `apply(edge:)` already keeps.
@@ -160,10 +165,15 @@ final class NotchFleet {
         reconcile(screens: NSScreen.screens)
     }
 
+    /// Fanned to `models`, not to the controllers alone: `menuModel` is what
+    /// the menu bar's menu and its Detail panel read, and a reset worded one
+    /// way in the notch and another way in Detail is two answers to one
+    /// setting. The same goes for every apply below that writes a *model*
+    /// property rather than rebuilding a panel.
     func apply(resetTimeFormat: ResetTimeFormat) {
         self.resetTimeFormat = resetTimeFormat
-        for controller in controllers.values {
-            controller.model.resetTimeFormat = resetTimeFormat
+        for model in models {
+            model.resetTimeFormat = resetTimeFormat
         }
     }
 
@@ -192,24 +202,27 @@ final class NotchFleet {
 
     func apply(weeklyRingDashed: Bool) {
         self.weeklyRingDashed = weeklyRingDashed
-        for controller in controllers.values {
-            controller.model.weeklyRingDashed = weeklyRingDashed
+        for model in models {
+            model.weeklyRingDashed = weeklyRingDashed
         }
     }
 
     func apply(weeklyRing: WeeklyRing) {
         self.weeklyRing = weeklyRing
-        for controller in controllers.values {
-            controller.model.weeklyRing = weeklyRing
+        for model in models {
+            model.weeklyRing = weeklyRing
         }
     }
 
+    /// The Watch and Critical thresholds from Appearance. One pair for every
+    /// surface: the notch, and the Detail panel reading `menuModel`, colour a
+    /// percentage by the same rule or they disagree about what is urgent.
     func apply(watchLimit: Double, criticalLimit: Double) {
         self.watchLimit = watchLimit
         self.criticalLimit = criticalLimit
-        for controller in controllers.values {
-            controller.model.watchLimit = watchLimit
-            controller.model.criticalLimit = criticalLimit
+        for model in models {
+            model.watchLimit = watchLimit
+            model.criticalLimit = criticalLimit
         }
     }
 
@@ -222,8 +235,8 @@ final class NotchFleet {
 
     func apply(accentColor: AccentColorChoice) {
         self.accentColor = accentColor
-        for controller in controllers.values {
-            controller.model.accentColor = accentColor
+        for model in models {
+            model.accentColor = accentColor
         }
     }
 
@@ -236,15 +249,15 @@ final class NotchFleet {
 
     func apply(deepSeekPricingEnabled: Bool) {
         self.deepSeekPricingEnabled = deepSeekPricingEnabled
-        for controller in controllers.values {
-            controller.model.deepSeekPricingEnabled = deepSeekPricingEnabled
+        for model in models {
+            model.deepSeekPricingEnabled = deepSeekPricingEnabled
         }
     }
 
     func apply(deepSeekPricingSchedule: DeepSeekPricing.Schedule) {
         self.deepSeekPricingSchedule = deepSeekPricingSchedule
-        for controller in controllers.values {
-            controller.model.deepSeekPricingSchedule = deepSeekPricingSchedule
+        for model in models {
+            model.deepSeekPricingSchedule = deepSeekPricingSchedule
         }
     }
 

@@ -446,6 +446,20 @@ final class ClaudeAccountNameTests: XCTestCase {
         XCTAssertEqual(profile(slug: "work", in: home).displayName, "Claude (work)")
     }
 
+    // MARK: - One account, with nothing to tell it from
+
+    /// The label tells rings apart. A machine with one Claude account has one
+    /// ring, and `Claude Gmail Usage` over the only Claude card named a product
+    /// that does not exist.
+    func testALoneAccountIsJustClaude() throws {
+        let home = try home(default: "paulo@gmail.com")
+        let profiles = [ClaudeProfile.default(home: home)]
+
+        let names = ClaudeProfile.displayNames(for: profiles)
+
+        XCTAssertEqual(names, ["claude": "Claude"])
+    }
+
     // MARK: - Two accounts that would be called the same thing
 
     /// Two gmail logins would both derive `Claude Gmail`, which is worse than

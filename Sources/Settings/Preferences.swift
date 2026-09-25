@@ -353,6 +353,36 @@ final class Preferences: ObservableObject {
         MenuBarLimits(isOn: showsLimitsInMenuBar, chosen: menuBarProviders)
     }
 
+    /// The providers whose card in the menu is opened out, as ids.
+    ///
+    /// Closed is the base state, and closed is not nothing: the card still
+    /// carries what the limits say — the windows, their bars, the percentages,
+    /// the resets, and a block if there is one. What the switch adds is
+    /// everything the notch's tooltip carries besides: the live sessions, a
+    /// local model's readings, Codex's unused resets and account activity,
+    /// DeepSeek's usage breakdown.
+    ///
+    /// Presentation only, and per provider. Nothing here decides what is read
+    /// or how often — the same distinction `menuBarProviders` keeps.
+    @Published private(set) var expandedDetailProviders: Set<String> {
+        didSet {
+            guard expandedDetailProviders != oldValue else { return }
+            defaults.set(expandedDetailProviders.sorted(), forKey: Keys.expandedDetailProviders)
+        }
+    }
+
+    func isDetailExpanded(_ providerID: String) -> Bool {
+        expandedDetailProviders.contains(providerID)
+    }
+
+    func setDetailExpanded(_ expanded: Bool, for providerID: String) {
+        if expanded {
+            expandedDetailProviders.insert(providerID)
+        } else {
+            expandedDetailProviders.remove(providerID)
+        }
+    }
+
     /// Open the notch for a few seconds when an agent stops working.
     ///
     /// On by default: the app already knows the moment a session ends, and a
@@ -497,6 +527,7 @@ final class Preferences: ObservableObject {
         static let showsLimitsInMenuBar = "showsLimitsInMenuBar"
         static let showsWeeklyLimitInMenuBar = "showsWeeklyLimitInMenuBar"
         static let menuBarProviders = "menuBarProviders"
+        static let expandedDetailProviders = "expandedDetailProviders"
         static let edge = "notchEdge"
         // A new key, so there is nothing under the old app name to migrate.
         static let size = "notchSize"
@@ -783,6 +814,9 @@ final class Preferences: ObservableObject {
         self.showsWeeklyLimitInMenuBar = defaults.bool(forKey: Keys.showsWeeklyLimitInMenuBar)
         // Absent is kept distinct from empty: never chosen is not choosing none.
         self.menuBarProviders = defaults.stringArray(forKey: Keys.menuBarProviders).map(Set.init)
+        self.expandedDetailProviders = Set(
+            defaults.stringArray(forKey: Keys.expandedDetailProviders) ?? []
+        )
         // The right edge is where the notch has always been, and it is the one
         // side of a Mac that no system chrome claims by default.
         self.notchEdge = defaults.string(forKey: Keys.edge)

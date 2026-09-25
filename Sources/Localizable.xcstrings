@@ -17538,6 +17538,83 @@
         }
       }
     },
+    "Refreshing…": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновление…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualisation…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新中…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualizando…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在刷新…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重新整理…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird aktualisiert…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оновлення…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로 고치는 중…"
+          }
+        },
+        "uz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yangilanmoqda…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yenileniyor…"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menyegarkan…"
+          }
+        }
+      }
+    },
     "Reset date": {
       "extractionState": "manual",
       "localizations": {
@@ -17765,83 +17842,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Bir saatin altındaysa dakika; değilse sıfırlanma tarihi ve saati."
-          }
-        }
-      }
-    },
-    "Time until usage resets, such as 3 Days 3h or 3h 20m.": {
-      "extractionState": "manual",
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Temps avant la réinitialisation de la consommation, par exemple 3 j 3h ou 3h 20m."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用量がリセットされるまでの時間。「3 日 3 時間」「3 時間 20 分」など。"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tempo até o uso renovar, como 3 dias 3h ou 3h 20m."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "距离用量重置还有多久，例如 3 Days 3h 或 3h 20m。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "距離用量重置還有多久，例如 3 Days 3h 或 3h 20m。"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Время до сброса использования, например 3 дня 3 ч или 3 ч 20 мин."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeit bis zur Zurücksetzung der Nutzung, etwa 3 Tage 3 Std. oder 3 Std. 20 Min."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Час до скидання використання, наприклад 3 дні 3 год або 3 год 20 хв."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용량이 재설정될 때까지 남은 시간을 3일 3시간 또는 3시간 20분처럼 표시합니다."
-          }
-        },
-        "uz": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Foydalanish yangilanishiga qolgan vaqt — masalan, 3 kun 3 soat yoki 3 soat 20 daqiqa."
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Waktu hingga penggunaan direset, seperti 3 Hari 3 jam atau 3 jam 20 mnt."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kullanımın sıfırlanmasına kalan süre, örneğin 3 Gün 3 sa veya 3 sa 20 dk."
           }
         }
       }
@@ -48489,6 +48489,237 @@
           "stringUnit": {
             "state": "translated",
             "value": "Baris Tema — Sistem, Terang, atau Gelap — yang diikuti oleh notch, jendela pengaturan, dan overlay saat menyeret. Português (Brasil) ditambahkan ke port Windows, dan pegangan pemindahan tetap terlihat di layar saat Anda menyeretnya."
+          }
+        }
+      }
+    },
+    "Time until usage resets, such as 3h 20m (20:30), with the reset time itself where there is room for it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время до сброса использования, например 3 ч 20 мин (20:30); время сброса добавляется, когда для него есть место."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temps avant la réinitialisation de la consommation, par exemple 3h 20m (20:30) ; l’heure de réinitialisation s’ajoute quand la place le permet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用量がリセットされるまでの時間。「3時間20分（20:30）」のように、余白があればリセット時刻も添えます。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tempo até o uso renovar, como 3h 20m (20:30); o horário de renovação aparece quando há espaço."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "距离用量重置还有多久，例如 3h 20m（20:30）；空间允许时还会显示重置时刻。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "距離用量重置還有多久，例如 3h 20m（20:30）；空間足夠時也會顯示重置時刻。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeit bis zur Zurücksetzung der Nutzung, etwa 3 Std. 20 Min. (20:30) – mit der Uhrzeit, wenn der Platz reicht."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Час до скидання використання, наприклад 3 год 20 хв (20:30); час скидання додається, коли для нього є місце."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용량이 재설정될 때까지 남은 시간을 3시간 20분(20:30)처럼 표시하며, 공간이 있으면 재설정 시각도 함께 보여줍니다."
+          }
+        },
+        "uz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foydalanish yangilanishiga qolgan vaqt — masalan, 3 soat 20 daqiqa (20:30); joy yetsa, yangilanish vaqti ham ko‘rsatiladi."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanımın sıfırlanmasına kalan süre, örneğin 3 sa 20 dk (20:30); yer olduğunda sıfırlanma saati de eklenir."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waktu hingga penggunaan direset, seperti 3 jam 20 mnt (20:30); waktu resetnya ditambahkan jika ada ruang."
+          }
+        }
+      }
+    },
+    "Detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подробности"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détails"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detalhes"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "详情"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細資料"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подробиці"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세부 정보"
+          }
+        },
+        "uz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tafsilotlar"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ayrıntılar"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detail"
+          }
+        }
+      }
+    },
+    "%@ detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подробности: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détails de %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の詳細"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detalhes de %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 详情"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 詳細資料"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details zu %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подробиці: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 세부 정보"
+          }
+        },
+        "uz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ tafsilotlari"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ayrıntıları"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detail %@"
           }
         }
       }
