@@ -218,6 +218,10 @@ final class NotchViewModel: ObservableObject {
     /// Whether each ring carries its percentage beside the hardware notch.
     /// Mirrors the Appearance setting; see `showsCellReading`.
     @Published var showsNotchReadings = false
+    /// Whether the figure under each ring reads what is left rather than
+    /// what is spent. Mirrors the Appearance setting; the ring itself still
+    /// sweeps by what is spent either way.
+    @Published var showsRemainingInNotch = false
 
     /// How much screen there is to spend on the panel.
     ///

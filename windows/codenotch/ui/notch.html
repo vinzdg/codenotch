@@ -331,6 +331,7 @@ const rampTone=f=>{
 };
 const tone=f=> colorTransition==='ramp'?rampTone(f):stepTone(f);
 // Whole percents, except where rounding would read as nothing used or nothing left, as the Mac's Percent does
+// HEADLINE_PCT_START
 function smallPct(v){
   if(v<=0) return '0';
   const t=Math.round(v*10)/10;
@@ -339,6 +340,14 @@ function smallPct(v){
   return t.toFixed(1);
 }
 function pctText(f){ const v=f*100; return v>0&&v<1?smallPct(v):String(Math.round(v)); }
+// The tooltip's own left half, not one minus the fraction: it derives from the *rounded* used
+// figure, so the notch and the card never disagree by a point. As the Mac's Percent.halves does.
+function leftPctText(f){
+  const v=f*100;
+  if((v>0&&v<1)||(v>99&&v<100)){ const l=Math.max(0,100-v); return l>99.9?'>99.9':smallPct(l); }
+  return String(Math.max(0,100-Math.round(v)));
+}
+// HEADLINE_PCT_END
 // Both ends, since vendors disagree on which they print; the left half comes from the rounded used half, as their dashboards do
 function usedCopy(w){
   const v=w.used*100;
@@ -1118,7 +1127,7 @@ function renderRing(){
     }
     if(p.snap.status==='needsAuth'||p.snap.status==='none') pct.textContent='—';
     else if(h && h.count!=null) pct.textContent='~'+h.count;
-    else if(h) pct.textContent=(h.derived?'~':'')+pctText(h.used)+'%';
+    else if(h) pct.textContent=(h.derived?'~':'')+(showRemaining?leftPctText(h.used):pctText(h.used))+'%';
     else pct.textContent=p.snap.windows.length?'—':'…'; // its declared window is missing: a dash, not a wait
     glyph.classList.toggle('dim', !!(h && h.used>=1));
     wrap.classList.toggle('stale', staleOf(p.snap));
@@ -1481,7 +1490,7 @@ function notice(msg){
    A click on the settings orb opens Settings; holding the move handle carries the notch. */
 const orb=document.getElementById('orb'), moveHandle=document.getElementById('move');
 const HANDLE_REACH=28.5; // the Mac's hot zone, half of 57
-let orbAt=null, moveAt=null, hovered=null, orbSpins=0, moveSpins=0, showMove=true, carrying=false;
+let orbAt=null, moveAt=null, hovered=null, orbSpins=0, moveSpins=0, showMove=true, showRemaining=false, carrying=false;
 function put(el,x,y,z){
   el.style.left=(x/z-HANDLE_REACH)+'px'; el.style.top=(y/z-HANDLE_REACH)+'px';
   el.classList.add('placed');
@@ -1579,6 +1588,8 @@ listen('pill_backdrop',e=>{
 invoke('get_ui_flags').then(applyUiFlags).catch(()=>{});
 listen('move_handle',e=>{ showMove=e.payload!==false; reportHot(); }).catch(()=>{});
 invoke('get_move_handle').then(v=>{ showMove=v!==false; reportHot(); }).catch(()=>{});
+listen('notch_shows_remaining',e=>{ showRemaining=e.payload===true; renderRing(); }).catch(()=>{});
+invoke('get_notch_shows_remaining').then(v=>{ showRemaining=v===true; renderRing(); }).catch(()=>{});
 
 listen('usage',e=>{usage=e.payload||usage;claudeActionMessage='';settle('claude');renderRing();if(card.classList.contains('show'))renderCard();})
   .catch(e=>notice('listen(usage) failed: '+e));

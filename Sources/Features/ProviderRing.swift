@@ -292,11 +292,18 @@ struct ProviderCell: View {
     /// away in the card.
     var showsReading: Bool = true
 
+    /// Whether the figure reads what is left rather than what is spent.
+    /// The ring itself still sweeps by what is spent either way.
+    var showsRemaining: Bool = false
+
     /// A dash, not "0%": nothing read is not the same as nothing used.
     private var readingText: String {
         guard snapshot.hasReading else { return "—" }
-        guard let weekly = weeklyReading else { return snapshot.headlineText }
-        return "\(snapshot.headlineText)/\(Percent.text(for: weekly))%"
+        guard let weekly = weeklyReading else { return snapshot.headlineText(showingRemaining: showsRemaining) }
+        // The second number flips with the first: in remaining mode both ends
+        // read what is left, each from the tooltip's own left half.
+        let second = showsRemaining ? Percent.halves(for: weekly).left : Percent.text(for: weekly)
+        return "\(snapshot.headlineText(showingRemaining: showsRemaining))/\(second)%"
     }
 
     /// What the weekly ring draws, when it and its reading are on. The pair

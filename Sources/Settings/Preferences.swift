@@ -262,6 +262,17 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(showsNotchReadings, forKey: Keys.showsNotchReadings) }
     }
 
+    /// Whether the figure under each ring reads what is left rather than
+    /// what is spent.
+    ///
+    /// Off by default: used is what the notch has always drawn, and flipping
+    /// it changes what every number under every ring means. The rings
+    /// themselves still sweep by what is spent either way — only the figure
+    /// flips, to the same left half the tooltip already prints beside it.
+    @Published var showsRemainingInNotch: Bool {
+        didSet { defaults.set(showsRemainingInNotch, forKey: Keys.showsRemainingInNotch) }
+    }
+
     @Published var weeklyRingDashed: Bool {
         didSet { defaults.set(weeklyRingDashed, forKey: Keys.weeklyRingDashed) }
     }
@@ -530,6 +541,7 @@ final class Preferences: ObservableObject {
         static let weeklyRingDashed = "weeklyRingDashed"
         static let showsNotchReadings = "showsNotchReadings"
         static let weeklyReading = "weeklyReading"
+        static let showsRemainingInNotch = "showsRemainingInNotch"
         static let claudeDailyPaceRing = "claudeDailyPaceRing"
         static let weeklyHeadline = "weeklyHeadline"
         static let showsMoveHandle = "showsMoveHandle"
@@ -867,6 +879,9 @@ final class Preferences: ObservableObject {
         self.weeklyRingDashed = defaults.object(forKey: Keys.weeklyRingDashed) as? Bool ?? false
         self.showsNotchReadings = defaults.object(forKey: Keys.showsNotchReadings) as? Bool ?? true
         self.weeklyReading = defaults.object(forKey: Keys.weeklyReading) as? Bool ?? false
+        // Off by default: it swaps what the figure under every ring means,
+        // and that is a choice for whoever budgets from the other end.
+        self.showsRemainingInNotch = defaults.bool(forKey: Keys.showsRemainingInNotch)
 
         self.weeklyRing = defaults.string(forKey: Keys.weeklyRing)
             .flatMap(WeeklyRing.init(rawValue:)) ?? .off

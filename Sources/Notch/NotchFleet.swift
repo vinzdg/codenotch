@@ -61,6 +61,7 @@ final class NotchFleet {
     private var weeklyRingDashed: Bool = false
     private var showsNotchReadings: Bool = true
     private var weeklyReading: Bool = false
+    private var showsRemainingInNotch: Bool = false
     private var showsMoveHandle = true
     private var foldsForFullScreen = true
     private var surfaceStyle: NotchSurfaceStyle = .glass
@@ -195,6 +196,15 @@ final class NotchFleet {
         self.weeklyReading = weeklyReading
         for controller in controllers.values {
             controller.model.weeklyReading = weeklyReading
+        }
+    }
+
+    func apply(showsRemainingInNotch: Bool) {
+        self.showsRemainingInNotch = showsRemainingInNotch
+        // Straight onto the model: only the figure's text changes, so the
+        // window keeps its size and nothing relocates.
+        for controller in controllers.values {
+            controller.model.showsRemainingInNotch = showsRemainingInNotch
         }
     }
 
@@ -452,6 +462,7 @@ final class NotchFleet {
         controller.model.weeklyRingDashed = weeklyRingDashed
         controller.model.showsNotchReadings = showsNotchReadings
         controller.model.weeklyReading = weeklyReading
+        controller.model.showsRemainingInNotch = showsRemainingInNotch
         controller.model.showsMoveHandle = showsMoveHandle
         controller.model.surfaceStyle = surfaceStyle
         controller.model.deepSeekPricingEnabled = deepSeekPricingEnabled

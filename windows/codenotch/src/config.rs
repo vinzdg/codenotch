@@ -114,6 +114,11 @@ pub struct Config {
     /// (backdrop.rs). Opt-in for that reason; off, the pill takes Theme's colour.
     #[serde(default)]
     pub adaptive_pill: bool,
+    /// true = the figure under each ring reads what is left rather than what is spent, as the
+    /// Mac's Appearance toggle. Off by default: used is what the notch has always drawn. The
+    /// rings themselves still sweep by what is spent either way.
+    #[serde(default)]
+    pub notch_shows_remaining: bool,
 }
 
 fn default_notch_y() -> f64 {
@@ -268,6 +273,7 @@ impl Default for Config {
             tray_visible: true,
             show_move_handle: true,
             adaptive_pill: false,
+            notch_shows_remaining: false,
         }
     }
 }

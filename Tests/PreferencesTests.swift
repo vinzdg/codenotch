@@ -292,6 +292,17 @@ final class PreferencesMigrationTests: XCTestCase {
         XCTAssertFalse(Preferences(defaults: UserDefaults(suiteName: name)!).showsMoveHandle)
     }
 
+    /// Off by default — used is what the notch has always drawn — and once
+    /// somebody flips it, it has to stay flipped across a relaunch.
+    func testRemainingStaysUsedUntilAskedForAndThenSurvivesARelaunch() {
+        let (fresh, name) = makeDefaults()
+        XCTAssertFalse(Preferences(defaults: fresh).showsRemainingInNotch)
+
+        Preferences(defaults: fresh).showsRemainingInNotch = true
+
+        XCTAssertTrue(Preferences(defaults: UserDefaults(suiteName: name)!).showsRemainingInNotch)
+    }
+
     /// The size has to outlive the launch that chose it, or it reads as a
     /// setting that did not take.
     func testTheNotchSizeSurvivesARelaunch() {

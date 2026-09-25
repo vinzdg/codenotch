@@ -431,14 +431,26 @@ struct ProviderSnapshot: Identifiable, Equatable {
     /// without a denominator — the same rule the headline ring follows.
     var weeklyFraction: Double? { weeklyWindow?.usedFraction }
 
-    /// What the cell prints under the ring.
-    var headlineText: String {
+    /// What the cell prints under the ring: the used percentage, unless the
+    /// notch is set to show what is left instead.
+    var headlineText: String { headlineText(showingRemaining: false) }
+
+    /// The same figure from the other end. Only the percentage line flips —
+    /// local runtimes report memory and speed rather than a quota, and an
+    /// explicit used-text or count line has no remaining figure to show.
+    func headlineText(showingRemaining: Bool) -> String {
         if kind == .localRuntime {
             return showsLocalPerformance ? (localPerformance?.headlineText ?? "— tok/s")
                 : (localModel?.memoryText ?? "—")
         }
         if headline?.prefersUsedText == true, let usedText = headline?.usedText { return usedText }
-        if let usedFraction { return Percent.text(for: usedFraction) + "%" }
+        if let usedFraction {
+            // The tooltip's own left half, not one minus the fraction: it
+            // derives from the *rounded* used figure, so the notch and the
+            // card never disagree by a point. See `Percent.halves`.
+            if showingRemaining { return Percent.halves(for: usedFraction).left + "%" }
+            return Percent.text(for: usedFraction) + "%"
+        }
         if let remaining = headline?.remaining { return LimitWindow.compact(remaining) }
         if let usedText = headline?.usedText { return usedText }
         if let used = headline?.used { return LimitWindow.compact(used) }
