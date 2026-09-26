@@ -354,17 +354,15 @@ struct ProviderCell: View {
         snapshot.block?.isWeeklyExhaustion == true
     }
 
-    /// The figure reads grey once the reading behind it has gone stale — a
-    /// white number would claim a freshness it no longer has. Same rule as
-    /// the ring's own dimming, plus the local case and the shut week: a speed
-    /// with nothing measured yet makes no claim, and headline room beside a
-    /// spent week is unusable, however freshly confirmed — in remaining mode,
-    /// where the figure reads what is left. In used mode the spent week is
-    /// 100% like anything else spent, and the figure stays white.
+    /// Grey only when a window is actually spent — the headline or the
+    /// weekly — and only where the figure reads what is left. Grey means
+    /// "nothing usable": a stale number is merely old, a dash is merely
+    /// missing, and in used mode a spent window is 100% like anything else
+    /// spent — red, not grey — so all of those stay white.
     var readingIsDimmed: Bool {
-        snapshot.status.isStale || !snapshot.hasReading
-            || (isWeeklyExhausted && showsRemaining)
-            || (snapshot.showsLocalPerformance && snapshot.localPerformance == nil)
+        guard showsRemaining else { return false }
+        return (snapshot.headline?.usedFraction ?? 0) >= 1
+            || (snapshot.weeklyFraction ?? 0) >= 1
     }
 
     var body: some View {
