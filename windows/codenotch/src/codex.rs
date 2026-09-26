@@ -105,7 +105,12 @@ pub fn find_executable() -> Option<PathBuf> {
         if let Ok(rd) = std::fs::read_dir(pkg.join("bin")) {
             for e in rd.flatten() {
                 let n = e.file_name().to_string_lossy().to_lowercase();
-                if n.starts_with("codex-") && n.contains("windows") && n.ends_with(".exe") {
+                let native = if cfg!(windows) {
+                    n.contains("windows") && n.ends_with(".exe")
+                } else {
+                    n.contains("linux") && !n.ends_with(".exe")
+                };
+                if n.starts_with("codex-") && native {
                     cands.push(e.path());
                 }
             }
@@ -113,13 +118,17 @@ pub fn find_executable() -> Option<PathBuf> {
         if let Ok(rd) = std::fs::read_dir(pkg.join("vendor")) {
             // Newer packages keep the native exe at vendor/<triple>/codex/codex.exe
             for e in rd.flatten() {
-                let p = e.path().join("codex").join("codex.exe");
-                if p.exists() {
-                    cands.push(p);
+                for n in crate::usage::command_names("codex") {
+                    let p = e.path().join("codex").join(n);
+                    if p.exists() {
+                        cands.push(p);
+                    }
                 }
             }
         }
-        cands.push(appdata.join("npm").join("codex.cmd"));
+        for n in crate::usage::command_names("codex") {
+            cands.push(appdata.join("npm").join(n));
+        }
     }
     if let Some(h) = codex_home() {
         cands.push(h.join("bin").join("codex.exe"));
@@ -127,8 +136,9 @@ pub fn find_executable() -> Option<PathBuf> {
     }
     if let Some(path) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&path) {
-            cands.push(dir.join("codex.exe"));
-            cands.push(dir.join("codex.cmd"));
+            for n in crate::usage::command_names("codex") {
+                cands.push(dir.join(n));
+            }
         }
     }
     cands.into_iter().find(|p| p.is_file())

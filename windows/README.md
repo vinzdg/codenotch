@@ -149,6 +149,46 @@ npx @tauri-apps/cli@2 build --config tauri.bundle.conf.json
 # → ..\target\release\bundle\nsis\Codenotch_<version>_x64-setup.exe
 ```
 
+### Linux
+
+The same crate builds and runs on Linux; the Win32 pieces already sat behind `cfg(windows)`,
+and the rest of the port is portable Rust. Prerequisites on a Debian or Ubuntu machine:
+
+```sh
+sudo apt install build-essential pkg-config libssl-dev libwebkit2gtk-4.1-dev \
+                 libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+cargo build --release -p codenotch
+./scripts/run-linux.sh          # pill appears on the right edge
+./scripts/run-linux.sh doctor   # self-diagnosis, same as on Windows
+```
+
+`scripts/run-linux.sh` exists because of two things the desktop does not do by itself.
+**Wayland does not let a client place its own windows**, and the notch has to sit on a
+screen edge, so it runs as an X11 client under XWayland. And a shell started from a
+**snap** — Ubuntu's VS Code, for one — exports that snap's library paths, which make a
+binary built against the system glibc die with
+`symbol lookup error: … undefined symbol: __libc_pthread_init`. The script unsets those
+and sets `GDK_BACKEND=x11`; launched from the desktop rather than such a shell, the
+binary runs on its own.
+
+The tray needs GNOME's *AppIndicator Support* extension, as every Tauri tray does there.
+The data folder follows the XDG directories (`~/.config/codenotch`), and providers are
+found at their Linux paths: `~/.claude`, `~/.codex`, `~/.grok`,
+`~/.config/Cursor/User/globalStorage/state.vscdb`.
+
+What does not work yet, and degrades quietly rather than misbehaving:
+
+| Feature | Why |
+|---|---|
+| Dragging the pill along its edge | Follows the mouse through `GetAsyncKeyState`; needs an X11 pointer query. |
+| Seen-clears-it, and jumping back to the terminal | `focus.rs` reads the foreground window and the process tree through Toolhelp; `/proc` plus a window-manager call would replace it. |
+| Antigravity | Its credential is read from the Windows Credential Manager; libsecret is the equivalent. |
+| App icons taken from an installed `.exe` | The built-in provider SVGs cover every provider, so little is lost. |
+
+Everything else — all providers, the hover card, the settings window, the tray menu, hooks,
+start at sign-in (an XDG autostart entry rather than a registry value) — behaves as it does
+on Windows.
+
 Tray menu: the readings themselves — a line per provider with its headline figure, and under it
 one line per limit window — then **Refresh all**, **Settings…** and **Quit Codenotch**. Clicking a
 provider's line re-reads that provider. Everything else is in the settings window: which rings the
