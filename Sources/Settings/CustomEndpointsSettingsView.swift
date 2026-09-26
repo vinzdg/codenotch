@@ -1020,6 +1020,7 @@ struct CustomEndpointsSettingsView: View {
         case .newAPI: return L10n.t("New-API")
         case .vllm: return L10n.t("vLLM")
         case .llamaCpp: return L10n.t("llama.cpp")
+        case .abacus: return L10n.t("Abacus.AI")
         }
     }
 
@@ -1028,6 +1029,7 @@ struct CustomEndpointsSettingsView: View {
         case .litellm, .openRouter: return L10n.t("USD spend")
         case .newAPI: return L10n.t("Quota units")
         case .vllm, .llamaCpp: return L10n.t("Tokens since server start")
+        case .abacus: return L10n.t("Subscription credits")
         }
     }
 

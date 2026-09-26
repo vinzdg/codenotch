@@ -126,9 +126,13 @@ public actor CustomEndpointNetwork {
             case metrics(URL)
             case newAPI(URL)
             case liteLLM(URL)
+            case abacus(URL)
         }
 
         var targets: [ProbeTarget] = []
+        if let abacusURL = CustomEndpointPresetUsage.presetURL(.abacus, baseURL: baseURL) {
+            targets.append(.abacus(abacusURL))
+        }
         if let openRouterURL = CustomEndpointPresetUsage.presetURL(.openRouter, baseURL: baseURL) {
             targets.append(.openRouter(openRouterURL))
         }
@@ -151,7 +155,7 @@ public actor CustomEndpointNetwork {
             for target in targets {
                 let targetURL: URL
                 switch target {
-                case .openRouter(let url), .metrics(let url), .newAPI(let url), .liteLLM(let url):
+                case .openRouter(let url), .metrics(let url), .newAPI(let url), .liteLLM(let url), .abacus(let url):
                     targetURL = url
                 }
                 group.addTask {
@@ -167,6 +171,13 @@ public actor CustomEndpointNetwork {
 
         if Task.isCancelled {
             return .unavailable
+        }
+
+        if let abacusTarget = targets.first(where: { if case .abacus = $0 { return true }; return false }),
+           let res = results[abacusTarget],
+           case .success(let data) = res,
+           CustomEndpointPresetUsage.parsePreset(.abacus, data: data) != nil {
+            return .matched(.abacus)
         }
 
         // Evaluate in priority order: OpenRouter, vLLM, llamaCpp, New-API, LiteLLM
@@ -562,6 +573,23 @@ actor CustomEndpointProvider: UsageProvider {
                     id: "preset-quota", label: L10n.t("Quota Used"),
                     usedFraction: fraction, usedText: text,
                     detail: granted.flatMap { $0 > 0 ? "\(used) / \($0)" : nil } ?? text,
+                    prefersUsedText: true
+                )
+            case .credits(let left, let monthly, let total):
+                // The ring tracks the monthly allowance; credits bought on top
+                // are reported beside it rather than folded into the plan.
+                let usedOfMonthly = max(0, monthly - min(left, monthly))
+                let fmt = CustomEndpointPresetUsage.formatCredits
+                let leftText = String(format: L10n.t("%@ left"), fmt(left))
+                let extra = total - monthly
+                let detail = extra >= 1
+                    ? String(format: L10n.t("%@ credits left · %@ monthly + %@ extra"),
+                             fmt(left), fmt(monthly), fmt(extra))
+                    : String(format: L10n.t("%@ of %@ monthly credits left"), fmt(left), fmt(monthly))
+                window = LimitWindow(
+                    id: "preset-credits", label: L10n.t("Credits"),
+                    usedFraction: min(max(usedOfMonthly / monthly, 0), 1),
+                    usedText: leftText, detail: detail,
                     prefersUsedText: true
                 )
             }

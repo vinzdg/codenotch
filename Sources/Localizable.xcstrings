@@ -49535,6 +49535,18 @@
     "Quota units": {
       "extractionState": "manual"
     },
+    "Abacus.AI": {
+      "extractionState": "manual"
+    },
+    "Subscription credits": {
+      "extractionState": "manual"
+    },
+    "%@ credits left · %@ monthly + %@ extra": {
+      "extractionState": "manual"
+    },
+    "%@ of %@ monthly credits left": {
+      "extractionState": "manual"
+    },
     "LiteLLM key info may require a management credential; use Manual USD entry if unavailable.": {
       "extractionState": "manual"
     },
