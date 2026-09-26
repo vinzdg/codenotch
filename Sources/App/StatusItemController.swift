@@ -337,6 +337,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             ).target = self
         }
         menu.addItem(
+            withTitle: L10n.t("Activity…"), action: #selector(openActivity), keyEquivalent: ""
+        ).target = self
+        menu.addItem(
             withTitle: L10n.t("Settings…"), action: #selector(openSettings), keyEquivalent: ","
         ).target = self
         menu.addItem(.separator())
@@ -371,6 +374,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     @objc private func openSettings() { onOpenSettings() }
+    @objc private func openActivity() { Costs.showActivity() }
     @objc private func quit() { NSApp.terminate(nil) }
 
     @objc private func refreshProvider(_ sender: NSMenuItem) {

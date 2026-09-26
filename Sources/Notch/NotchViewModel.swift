@@ -21,7 +21,7 @@ final class NotchViewModel: ObservableObject {
 
     func updateSnapshots(_ providerSnapshots: [ProviderSnapshot]) {
         let hoveredID = hoveredSnapshot?.id
-        let next = ProviderOrder.cells(from: providerSnapshots, keeping: snapshots).map(decorated)
+        let next = ProviderOrder.cells(from: providerSnapshots, keeping: snapshots).map(decorated).map(Costs.decorate)
         let nextHoveredIndex = hoveredID.flatMap { id in next.firstIndex { $0.id == id } }
         if hoveredIndex != nextHoveredIndex { hoveredIndex = nextHoveredIndex }
         snapshots = next
@@ -1127,6 +1127,12 @@ final class NotchViewModel: ObservableObject {
                                            hasResetCredits: hasResetCredits)
     }
 
+    /// Project rows a card may list: the ones the cost model has, capped at
+    /// what the section draws.
+    func costRows(for snapshot: ProviderSnapshot) -> Int {
+        CostSection.rowCount(for: snapshot)
+    }
+
     private func contentCardHeight(sessionCap: Int) -> CGFloat {
         snapshots.map { snapshot in
             NotchLayout.cardHeight(windowCount: snapshot.windows.count,
@@ -1144,7 +1150,8 @@ final class NotchViewModel: ObservableObject {
                 showsLocalPerformance: snapshot.showsLocalPerformance,
                 localLedgerRows: snapshot.localLedgerRowCount,
                 compactRowCount: snapshot.compactRowCount,
-                showsDeepSeekPricing: deepSeekPricingEnabled)
+                showsDeepSeekPricing: deepSeekPricingEnabled,
+                costRows: costRows(for: snapshot))
         }.max() ?? 0
     }
 

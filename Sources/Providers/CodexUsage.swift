@@ -93,12 +93,17 @@ enum CodexUsage {
         let plan_type: String?
         let additional_rate_limits: [AdditionalRateLimit]
         let code_review_rate_limit: RateLimit?
+        /// Business and Team seats have no rolling windows; they draw on
+        /// credits under a workspace spend control, which is the only
+        /// allowance that account can show.
+        let spend_control: SpendControl?
 
         private enum CodingKeys: String, CodingKey {
             case rate_limit
             case plan_type
             case additional_rate_limits
             case code_review_rate_limit
+            case spend_control
         }
 
         init(from decoder: Decoder) throws {
@@ -115,6 +120,31 @@ enum CodexUsage {
             code_review_rate_limit = try? container.decodeIfPresent(
                 RateLimit.self, forKey: .code_review_rate_limit
             )
+            spend_control = try? container.decodeIfPresent(SpendControl.self, forKey: .spend_control)
+        }
+    }
+
+    private struct SpendControl: Decodable {
+        let individual_limit: CreditLimit?
+    }
+
+    /// Amounts arrive as decimal strings ("374.92"); percentages as numbers.
+    private struct CreditLimit: Decodable {
+        let limit: Double?
+        let used: Double?
+        let used_percent: Double?
+        let reset_at: Double?
+
+        private enum CodingKeys: String, CodingKey { case limit, used, used_percent, reset_at }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            func number(_ key: CodingKeys) -> Double? {
+                if let d = try? c.decodeIfPresent(Double.self, forKey: key) { return d }
+                if let s = try? c.decodeIfPresent(String.self, forKey: key) { return Double(s) }
+                return nil
+            }
+            limit = number(.limit); used = number(.used); used_percent = number(.used_percent); reset_at = number(.reset_at)
         }
     }
 
@@ -285,6 +315,16 @@ enum CodexUsage {
                 now: now,
                 to: &windows
             )
+        }
+        // No rolling windows at all: a credit-based seat. Its cap is the ring.
+        if windows.isEmpty, let credit = response.spend_control?.individual_limit,
+           let pct = credit.used_percent {
+            let resets = credit.reset_at.map { Date(timeIntervalSince1970: $0) }
+            windows.append(LimitWindow(id: "credits", label: L10n.t("Credits"),
+                                       usedFraction: min(max(pct / 100, 0), 1),
+                                       remaining: credit.limit.flatMap { l in credit.used.map { Int((l - $0).rounded()) } },
+                                       used: credit.used.map { Int($0.rounded()) },
+                                       resetsAt: resets))
         }
         guard !windows.isEmpty else {
             throw UsageProviderError.nothingMetered(L10n.t("Codex reported no usage windows"))

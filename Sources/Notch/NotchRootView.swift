@@ -115,6 +115,7 @@ struct NotchRootView: View {
                         now: model.now,
                         direction: model.edge.tooltipDirection,
                         sessionCap: model.sessionCap,
+                        costRows: model.costRows(for: snapshot),
                         resetTimeFormat: model.resetTimeFormat,
                         deepSeekPricingEnabled: model.deepSeekPricingEnabled,
                         deepSeekPricingSchedule: model.deepSeekPricingSchedule,
@@ -410,26 +411,29 @@ struct NotchRootView: View {
     }
 
     private func tooltipLength(_ snapshot: ProviderSnapshot) -> CGFloat {
-        model.edge.isVertical
-            ? NotchLayout.cardHeight(
-                windowCount: snapshot.windows.count,
-                groupCount: snapshot.windowGroupCount,
-                moneyWindowCount: snapshot.windows.filter { $0.money != nil }.count,
-                usageDetailGroupCount: snapshot.usageDetail?.visibleGroups.count ?? 0,
-                sessionCount: snapshot.localModel == nil ? (model.activity(for: snapshot.id)?.sessions.count ?? 0) : 0,
-                sessionCap: model.sessionCap,
-                statusMessage: snapshot.statusMessage,
-                blockMessage: snapshot.block?.summary(now: model.now),
-                hasTokenUsage: snapshot.tokenUsage != nil,
-                hasPlan: snapshot.plan != nil,
-                hasResetCredits: snapshot.hasAvailableResetCredits,
-                localModelName: snapshot.localModel?.name,
-                showsLocalPerformance: snapshot.showsLocalPerformance,
-                localLedgerRows: snapshot.localLedgerRowCount,
-                compactRowCount: snapshot.compactRowCount,
-                showsDeepSeekPricing: model.deepSeekPricingEnabled
-            )
-            : NotchLayout.cardWidth
+        model.edge.isVertical ? cardAcross(snapshot) : NotchLayout.cardWidth
+    }
+
+    /// The card's extent across the stack (its height on a horizontal edge).
+    private func cardAcross(_ snapshot: ProviderSnapshot) -> CGFloat {
+        NotchLayout.cardHeight(
+            windowCount: snapshot.windows.count,
+            groupCount: snapshot.windowGroupCount,
+            moneyWindowCount: snapshot.windows.filter { $0.money != nil }.count,
+            usageDetailGroupCount: snapshot.usageDetail?.visibleGroups.count ?? 0,
+            sessionCount: snapshot.localModel == nil ? (model.activity(for: snapshot.id)?.sessions.count ?? 0) : 0,
+            sessionCap: model.sessionCap,
+            statusMessage: snapshot.statusMessage,
+            blockMessage: snapshot.block?.summary(now: model.now),
+            hasTokenUsage: snapshot.tokenUsage != nil,
+            hasPlan: snapshot.plan != nil,
+            hasResetCredits: snapshot.hasAvailableResetCredits,
+            localModelName: snapshot.localModel?.name,
+            showsLocalPerformance: snapshot.showsLocalPerformance,
+            localLedgerRows: snapshot.localLedgerRowCount,
+            compactRowCount: snapshot.compactRowCount,
+            showsDeepSeekPricing: model.deepSeekPricingEnabled,
+            costRows: model.costRows(for: snapshot))
     }
 
     private func tooltipTailOffset(index: Int, snapshot: ProviderSnapshot) -> CGFloat {
@@ -442,26 +446,7 @@ struct NotchRootView: View {
     private func tooltipCentre(
         _ place: NotchPlacement, index: Int, snapshot: ProviderSnapshot
     ) -> CGPoint {
-        let card = model.edge.isVertical
-            ? NotchLayout.cardWidth
-            : NotchLayout.cardHeight(
-                windowCount: snapshot.windows.count,
-                groupCount: snapshot.windowGroupCount,
-                moneyWindowCount: snapshot.windows.filter { $0.money != nil }.count,
-                usageDetailGroupCount: snapshot.usageDetail?.visibleGroups.count ?? 0,
-                sessionCount: snapshot.localModel == nil ? (model.activity(for: snapshot.id)?.sessions.count ?? 0) : 0,
-                sessionCap: model.sessionCap,
-                statusMessage: snapshot.statusMessage,
-                blockMessage: snapshot.block?.summary(now: model.now),
-                hasTokenUsage: snapshot.tokenUsage != nil,
-                hasPlan: snapshot.plan != nil,
-                hasResetCredits: snapshot.hasAvailableResetCredits,
-                localModelName: snapshot.localModel?.name,
-                showsLocalPerformance: snapshot.showsLocalPerformance,
-                localLedgerRows: snapshot.localLedgerRowCount,
-                compactRowCount: snapshot.compactRowCount,
-                showsDeepSeekPricing: model.deepSeekPricingEnabled
-            )
+        let card = model.edge.isVertical ? NotchLayout.cardWidth : cardAcross(snapshot)
         // The ring it points at has moved with the notch, so the tail follows
         // it — but the card beyond the tail is drawn at its own size, and
         // `tooltipInset` already ends where the drawn notch does.
