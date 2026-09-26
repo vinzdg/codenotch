@@ -303,6 +303,20 @@ final class CustomEndpointTests: XCTestCase {
                        .quota(used: 0, granted: nil))
         XCTAssertNil(parse(.newAPI, #"{"data":{"object":"token_usage","total_used":false}}"#))
         XCTAssertNil(parse(.litellm, #"{"info":{"spend":true}}"#))
+        XCTAssertEqual(parse(.abacus, #"{"success":true,"result":{"computePointsLeft":934.25,"totalComputePoints":83666.66,"monthlyPtsPerUser":30000.0,"normalMonthlyCredits":20000.0,"userCount":1}}"#),
+                       .credits(left: 934.25, monthly: 20000, total: 83666.66))
+        XCTAssertNil(parse(.abacus, #"{"success":false,"error":"Invalid API key"}"#))
+        XCTAssertNil(parse(.abacus, #"{"success":true,"result":{"computePointsLeft":-1,"totalComputePoints":1,"normalMonthlyCredits":20000}}"#))
+        XCTAssertEqual(CustomEndpointPresetUsage.formatCredits(934.25), "934")
+        XCTAssertEqual(CustomEndpointPresetUsage.formatCredits(19065), "19.1K")
+        XCTAssertEqual(CustomEndpointPresetUsage.formatCredits(20000), "20K")
+    }
+
+    func testAbacusPresetURLIsPinnedToRouteLLMHost() {
+        XCTAssertEqual(CustomEndpointPresetUsage.presetURL(.abacus, baseURL: "https://routellm.abacus.ai/v1")?.absoluteString,
+                       "https://routellm.abacus.ai/api/v0/_getOrganizationComputePoints")
+        XCTAssertNil(CustomEndpointPresetUsage.presetURL(.abacus, baseURL: "https://evil.example/v1"))
+        XCTAssertNil(CustomEndpointPresetUsage.presetURL(.abacus, baseURL: "http://routellm.abacus.ai/v1"))
     }
 
     func testPresetURLCannotLeakCredentialsOrChangeOpenRouterOrigin() {

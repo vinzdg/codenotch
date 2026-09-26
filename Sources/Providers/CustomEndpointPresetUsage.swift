@@ -6,6 +6,7 @@ public enum CustomEndpointUsagePreset: String, Codable, CaseIterable, Sendable {
     case newAPI
     case vllm
     case llamaCpp
+    case abacus
 }
 
 enum CustomEndpointSpendPeriod: Equatable {
@@ -17,6 +18,10 @@ enum CustomEndpointPresetReading: Equatable {
     case tokens(Int)
     case spendUSD(Double, period: CustomEndpointSpendPeriod)
     case quota(used: Int, granted: Int?)
+    /// Abacus.AI subscription credits: what is left, the plan's monthly
+    /// allowance, and everything available this cycle (allowance plus any
+    /// credits bought on top).
+    case credits(left: Double, monthly: Double, total: Double)
 }
 
 enum CustomEndpointFileImportError: LocalizedError, Equatable {
@@ -168,6 +173,14 @@ enum CustomEndpointPresetUsage {
                 return nil
             }
             components.percentEncodedPath = "/api/v1/key"
+        } else if preset == .abacus {
+            // Only Abacus's own RouteLLM host carries the credits endpoint; never
+            // send an Abacus-shaped request to anything else.
+            guard scheme == "https", host.lowercased() == "routellm.abacus.ai",
+                  components.port == nil else {
+                return nil
+            }
+            components.percentEncodedPath = "/api/v0/_getOrganizationComputePoints"
         } else {
             var path = components.percentEncodedPath
             while path.hasSuffix("/") { path.removeLast() }
@@ -181,7 +194,7 @@ enum CustomEndpointPresetUsage {
             case .litellm: suffix = "/key/info"
             case .newAPI: suffix = "/api/usage/token"
             case .vllm, .llamaCpp: suffix = "/metrics"
-            case .openRouter: return nil
+            case .openRouter, .abacus: return nil
             }
             components.percentEncodedPath = path + suffix
         }
@@ -208,7 +221,38 @@ enum CustomEndpointPresetUsage {
             return parseCounters(data, prompt: "vllm:prompt_tokens_total", completion: "vllm:generation_tokens_total")
         case .llamaCpp:
             return parseCounters(data, prompt: "llamacpp:prompt_tokens_total", completion: "llamacpp:tokens_predicted_total")
+        case .abacus:
+            guard let value = try? JSONDecoder().decode(AbacusCreditsResponse.self, from: data),
+                  value.success else { return nil }
+            let r = value.result
+            let users = max(1.0, r.userCount ?? 1)
+            let monthly = r.normalMonthlyCredits * users
+            guard r.computePointsLeft.isFinite, r.computePointsLeft >= 0,
+                  monthly.isFinite, monthly > 0,
+                  r.totalComputePoints.isFinite, r.totalComputePoints >= 0 else { return nil }
+            return .credits(left: r.computePointsLeft, monthly: monthly,
+                            total: max(r.totalComputePoints, monthly))
         }
+    }
+
+    private struct AbacusCreditsResponse: Decodable {
+        struct Result: Decodable {
+            let computePointsLeft: Double
+            let totalComputePoints: Double
+            let normalMonthlyCredits: Double
+            let userCount: Double?
+        }
+        let success: Bool
+        let result: Result
+    }
+
+    /// 934 -> "934", 19_065 -> "19.1K", 20_000 -> "20K".
+    static func formatCredits(_ value: Double) -> String {
+        let v = max(0, value)
+        if v < 1_000 { return String(format: "%.0f", v.rounded()) }
+        let k = (v / 100).rounded() / 10
+        return k.truncatingRemainder(dividingBy: 1) == 0
+            ? String(format: "%.0fK", k) : String(format: "%.1fK", k)
     }
 
     private struct LiteLLMResponse: Decodable {
