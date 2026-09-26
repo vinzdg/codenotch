@@ -36,13 +36,26 @@ final class ProviderCellTests: XCTestCase {
 
     func testWeekShutCellIsGreyEvenWithHeadlineRoom() {
         // Freshly confirmed room on the 5-hour beside a spent week: the room
-        // is unusable, so the whole cell reads grey, not white-on-red.
+        // is unusable, so in remaining mode the whole cell reads grey, not
+        // white-on-red.
+        var shut = snapshot()
+        shut.block = UsageBlock(reason: "Weekly limit reached", resetsAt: nil,
+                                isWeeklyExhaustion: true)
+        let cell = ProviderCell(snapshot: shut, showsRemaining: true)
+        XCTAssertTrue(cell.isWeeklyExhausted)
+        XCTAssertTrue(cell.readingIsDimmed)
+    }
+
+    func testWeekShutCellKeepsColoursInUsedMode() {
+        // The grey week is a remaining-mode reading. Where the figure says
+        // what was spent, a spent week is 100% like anything else spent —
+        // red, not grey — so the figure stays white.
         var shut = snapshot()
         shut.block = UsageBlock(reason: "Weekly limit reached", resetsAt: nil,
                                 isWeeklyExhaustion: true)
         let cell = ProviderCell(snapshot: shut)
         XCTAssertTrue(cell.isWeeklyExhausted)
-        XCTAssertTrue(cell.readingIsDimmed)
+        XCTAssertFalse(cell.readingIsDimmed)
     }
 
     func testProviderPauseKeepsItsColours() {
@@ -53,5 +66,15 @@ final class ProviderCellTests: XCTestCase {
         let cell = ProviderCell(snapshot: paused)
         XCTAssertFalse(cell.isWeeklyExhausted)
         XCTAssertFalse(cell.readingIsDimmed)
+    }
+
+    func testExhaustedWeekGreysRingsOnlyInRemainingMode() {
+        let remaining = ProviderRing(usedFraction: 0.3, glyph: .claude,
+                                     showsRemaining: true, weeklyExhausted: true)
+        XCTAssertTrue(remaining.showsExhaustedWeekGrey)
+        let used = ProviderRing(usedFraction: 0.3, glyph: .claude, weeklyExhausted: true)
+        XCTAssertFalse(used.showsExhaustedWeekGrey)
+        let unspent = ProviderRing(usedFraction: 0.3, glyph: .claude, showsRemaining: true)
+        XCTAssertFalse(unspent.showsExhaustedWeekGrey)
     }
 }

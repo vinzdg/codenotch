@@ -24,10 +24,10 @@ struct ProviderRing: View {
     /// what it means for you — a ring reading 16% while the account is paused
     /// is technically true and practically a lie.
     var isBlocked: Bool = false
-    /// The week is spent, shutting the headline with it. Grey, not red: red
-    /// says "you spent this", grey says "this tells you nothing usable" — the
-    /// 5-hour room beside a spent week is exactly that. Always arrives with
-    /// `isBlocked`, which still dims the glyph.
+    /// The week is spent, shutting the headline with it. Always arrives with
+    /// `isBlocked`, which still dims the glyph. Whether the rings go grey for
+    /// it is `showsExhaustedWeekGrey`, not this: grey is a remaining-mode
+    /// reading, and in used mode a spent week is 100% like anything spent.
     var weeklyExhausted: Bool = false
     var activity: ActivitySummary?
     /// A fetch this cell asked for, in flight.
@@ -79,8 +79,14 @@ struct ProviderRing: View {
     /// back to the discrete `band.color(accent:)` in hard-step mode and everywhere `band` itself
     /// special-cases — blocked (no fraction is meaningful once a limit is spent) and an explicit
     /// override from the caller (a deliberate discrete choice, not a reading to interpolate).
+    /// Grey, not red, but only where the meters read what is left: red says
+    /// "you spent this", grey says "this tells you nothing usable" — the
+    /// 5-hour room beside a spent week is exactly that. In used mode the
+    /// spent week keeps the red 100% earns anywhere else.
+    var showsExhaustedWeekGrey: Bool { weeklyExhausted && showsRemaining }
+
     private var primaryRingColor: Color {
-        if weeklyExhausted { return Palette.textSecondary }
+        if showsExhaustedWeekGrey { return Palette.textSecondary }
         guard !isBlocked, bandOverride == nil, colorTransitionStyle == .ramp else {
             return band.color(accent: accentColor)
         }
@@ -96,7 +102,7 @@ struct ProviderRing: View {
     private var weeklySweep: CGFloat { CGFloat(min(max(displayWeeklyFraction ?? 0, 0), 1)) }
     /// Same fallback rule as `primaryRingColor`, minus `bandOverride` — the weekly ring has none.
     private var weeklyRingColor: Color {
-        if weeklyExhausted { return Palette.textSecondary }
+        if showsExhaustedWeekGrey { return Palette.textSecondary }
         guard !isBlocked, colorTransitionStyle == .ramp else { return weeklyBand.color(accent: accentColor) }
         return UsageBand.rampColor(for: weeklyFraction ?? 0, watchLimit: watchLimit, accent: accentColor)
     }
@@ -352,9 +358,12 @@ struct ProviderCell: View {
     /// white number would claim a freshness it no longer has. Same rule as
     /// the ring's own dimming, plus the local case and the shut week: a speed
     /// with nothing measured yet makes no claim, and headline room beside a
-    /// spent week is unusable, however freshly confirmed.
+    /// spent week is unusable, however freshly confirmed — in remaining mode,
+    /// where the figure reads what is left. In used mode the spent week is
+    /// 100% like anything else spent, and the figure stays white.
     var readingIsDimmed: Bool {
-        snapshot.status.isStale || !snapshot.hasReading || isWeeklyExhausted
+        snapshot.status.isStale || !snapshot.hasReading
+            || (isWeeklyExhausted && showsRemaining)
             || (snapshot.showsLocalPerformance && snapshot.localPerformance == nil)
     }
 
