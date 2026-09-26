@@ -149,7 +149,6 @@ struct ProviderSummary: Identifiable, Equatable {
             || id == AntigravityProfile.defaultID || id == "cursor" || id == "muse"
             || id == "apify"
     }
-    }
 
     let id: String
     let name: String

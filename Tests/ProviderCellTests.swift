@@ -3,7 +3,7 @@ import XCTest
 
 /// The figure under the ring reads grey once the reading behind it has gone
 /// stale — a white number would claim a freshness it no longer has.
-final class ProviderCellReadingTests: XCTestCase {
+final class ProviderCellTests: XCTestCase {
     private func snapshot(status: ProviderStatus = .ok,
                           windows: [LimitWindow]? = nil) -> ProviderSnapshot {
         ProviderSnapshot(id: "claude", displayName: "Claude", glyph: .claude,
