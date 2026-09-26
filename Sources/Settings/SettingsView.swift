@@ -26,7 +26,7 @@ extension View {
 /// crossing-and-notification machinery it switches is Notifications' to
 /// explain.
 private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
-    case accounts, phone, deepseek, ollama, lmstudio, customEndpoints, appearance, notifications, general
+    case accounts, phone, deepseek, ollama, lmstudio, customEndpoints, remoteHosts, appearance, notifications, general
 
     /// The sections the sidebar lists; Phone only once pairing is offered.
     static var visible: [SettingsSection] {
@@ -36,7 +36,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     /// Providers with a pane of their own. They are accounts too, so the
     /// sidebar nests them under Accounts rather than listing them beside
     /// Appearance and General, where they read as app-wide settings.
-    static let providerPanes: [SettingsSection] = [.deepseek, .ollama, .lmstudio, .customEndpoints]
+    static let providerPanes: [SettingsSection] = [.deepseek, .ollama, .lmstudio, .customEndpoints, .remoteHosts]
 
     /// The sidebar's own rows: everything visible that is not nested.
     static var topLevel: [SettingsSection] {
@@ -53,6 +53,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .ollama:        return "Ollama"   // a product name, the same in every language
         case .lmstudio:      return "LM Studio"
         case .customEndpoints: return L10n.t("Custom Endpoints")
+        case .remoteHosts:    return L10n.t("Remote Hosts")
         case .appearance:    return L10n.t("Appearance")
         case .notifications: return L10n.t("Notifications")
         case .general:       return L10n.t("General")
@@ -79,6 +80,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .ollama:        return L10n.t("Models running in Ollama on this Mac.")
         case .lmstudio:      return L10n.t("Models loaded in LM Studio on this Mac.")
         case .customEndpoints: return L10n.t("OpenAI-compatible APIs, local runtimes and custom proxies.")
+        case .remoteHosts:    return L10n.t("Claude and Codex accounts on servers you reach over SSH.")
         case .appearance:    return L10n.t("How the notch looks and where it sits.")
         case .notifications: return L10n.t("What Codenotch tells you, and when.")
         case .general:       return L10n.t("Startup, updates and everything else.")
@@ -93,6 +95,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .ollama:        return "desktopcomputer"
         case .lmstudio:      return "cpu"
         case .customEndpoints: return "network"
+        case .remoteHosts:    return "server.rack"
         case .appearance:    return "paintbrush.fill"
         case .notifications: return "bell.badge.fill"
         case .general:       return "gearshape.fill"
@@ -110,6 +113,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .ollama:        return .teal
         case .lmstudio:      return .purple
         case .customEndpoints: return .indigo
+        case .remoteHosts:    return .orange
         case .appearance:    return .indigo
         case .notifications: return .red
         case .general:       return .gray
@@ -560,6 +564,9 @@ struct SettingsView: View {
         .onReceive(preferences.$customEndpoints.receive(on: RunLoop.main)) { _ in
             accounts = providers()
         }
+        .onReceive(preferences.$remoteHosts.receive(on: RunLoop.main)) { _ in
+            accounts = providers()
+        }
     }
 
     /// The subject list: a full-height column on a shade lighter than the
@@ -714,6 +721,8 @@ struct SettingsView: View {
             }
         case .customEndpoints:
             CustomEndpointsSettingsView(preferences: preferences)
+        case .remoteHosts:
+            RemoteHostsSettingsView(preferences: preferences)
         case .appearance:    appearancePane
         case .notifications: notificationsPane
         case .general:       generalPane
@@ -845,7 +854,7 @@ struct SettingsView: View {
 
                 Toggle(L10n.t("Show remaining instead of used"),
                        isOn: $preferences.showsRemainingInNotch)
-                Text(L10n.t("The figure under each ring reads what is left — 87% instead of 13% used, the same number the card prints beside it. The rings themselves still fill by what is spent."))
+                Text(L10n.t("The notch reads what is left — the figures, the rings' sweep, and the card's bars and percentages. Colours still judge by what is spent, so a nearly empty ring still reads red."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1492,7 +1501,7 @@ struct SettingsView: View {
     /// this, sees four blank rings and concludes it is broken — and the
     /// distinction that catches them out is Claude *Code*, not the Claude app.
     static var setupCopy: String {
-        L10n.t("Codenotch reads usage from tools already signed in on this Mac — it never asks for your password. Install and sign in to any of Claude Code (the terminal tool, not the Claude app), Cursor (the editor or cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, the Kilo CLI or a Gemini API key (via Gemini CLI, OpenCode or Hermes), and its ring appears in the notch.")
+        L10n.t("Codenotch reads usage from tools already signed in on this Mac — it never asks for your password. Install and sign in to any of Claude Code (the terminal tool, not the Claude app), Cursor (the editor or cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, the Kilo CLI, Muse or a Gemini API key (via Gemini CLI, OpenCode or Hermes), and its ring appears in the notch.")
     }
 
     /// Said before it happens rather than after. A system dialogue asking to
@@ -1501,7 +1510,7 @@ struct SettingsView: View {
     /// it return on every read, which is what "it asks every time" turns out to
     /// be.
     static var keychainCopy: String {
-        L10n.t("macOS may ask before Codenotch reads Claude Code's, Antigravity's or cursor-agent's saved login. Background refreshes never show that question; it appears only when you click Allow access…, and Deny stops Codenotch reading that login until you ask again.")
+        L10n.t("macOS may ask before Codenotch reads Claude Code's, Antigravity's, cursor-agent's or Muse's saved login. Background refreshes never show that question; it appears only when you click Allow access…, and Deny stops Codenotch reading that login until you ask again.")
     }
 
     /// A provider has just been switched on: put it after the ones already

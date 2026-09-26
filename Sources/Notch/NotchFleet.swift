@@ -201,7 +201,7 @@ final class NotchFleet {
 
     func apply(showsRemainingInNotch: Bool) {
         self.showsRemainingInNotch = showsRemainingInNotch
-        // Straight onto the model: only the figure's text changes, so the
+        // Straight onto the model: only figures and sweeps change, so the
         // window keeps its size and nothing relocates.
         for controller in controllers.values {
             controller.model.showsRemainingInNotch = showsRemainingInNotch

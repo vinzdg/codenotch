@@ -101,8 +101,12 @@ struct StatusItemSummary: Equatable {
             percent = Percent.whole(for: fraction) + "%"
         }
         let countdown = window?.resetsAt.flatMap { ResetCopy.countdown(to: $0, now: now) }
+        // A remote login's "slug" would be `<kind>-remote-<uuid>` — its
+        // display name is the user's own short word for it, and the label.
         let label = sharesMark
-            ? ClaudeProfile.slug(fromProviderID: snapshot.id) ?? CodexProfile.slug(fromProviderID: snapshot.id)
+            ? (RemoteHost.isRemote(providerID: snapshot.id)
+                ? snapshot.displayName
+                : ClaudeProfile.slug(fromProviderID: snapshot.id) ?? CodexProfile.slug(fromProviderID: snapshot.id))
             : nil
         let weeklyWindow = showingWeeklyLimit ? snapshot.weeklyLimitWindow : nil
         let weeklyIsOver = weeklyWindow?.resetsAt.map { $0 <= now } ?? false

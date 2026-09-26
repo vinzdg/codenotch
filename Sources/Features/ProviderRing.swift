@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 
 /// The ring around a provider glyph: a grey track with a coloured arc that
-/// starts at 12 o'clock and sweeps clockwise by the fraction used.
+/// starts at 12 o'clock and sweeps clockwise by the fraction used — or by
+/// what is left, when the notch is set that way.
 ///
 /// When that provider is doing something right now, a second, much thinner arc
 /// appears *inside* the ring, in the gap between the glyph and the track. It is
@@ -14,11 +15,20 @@ struct ProviderRing: View {
     let usedFraction: Double?
     let glyph: ProviderGlyph
     var customIconFilename: String? = nil
+    /// Whether the arcs sweep by what is left rather than what is spent.
+    /// Only the sweep flips: the bands still judge by what is spent, so a
+    /// nearly empty ring still reads red — that is what almost-out means.
+    var showsRemaining: Bool = false
     var isStale: Bool = false
     /// Blocked right now. Shown as spent whatever the arc says, because that is
     /// what it means for you — a ring reading 16% while the account is paused
     /// is technically true and practically a lie.
     var isBlocked: Bool = false
+    /// The week is spent, shutting the headline with it. Grey, not red: red
+    /// says "you spent this", grey says "this tells you nothing usable" — the
+    /// 5-hour room beside a spent week is exactly that. Always arrives with
+    /// `isBlocked`, which still dims the glyph.
+    var weeklyExhausted: Bool = false
     var activity: ActivitySummary?
     /// A fetch this cell asked for, in flight.
     var isRefreshing: Bool = false
@@ -47,7 +57,13 @@ struct ProviderRing: View {
         if let bandOverride { return bandOverride }
         return UsageBand.band(for: usedFraction ?? 0, watchLimit: watchLimit, criticalLimit: criticalLimit)
     }
-    private var sweep: CGFloat { CGFloat(min(max(usedFraction ?? 0, 0), 1)) }
+    /// The fraction the headline arc draws. Nil stays nil — the
+    /// `usedFraction != nil` gate below keeps meaning "there is a
+    /// denominator", in either mode.
+    private var displayFraction: Double? {
+        usedFraction.map { Percent.metered($0, showingRemaining: showsRemaining) }
+    }
+    private var sweep: CGFloat { CGFloat(min(max(displayFraction ?? 0, 0), 1)) }
     private var localSweep: CGFloat { Self.localSweep(for: localContextFraction) }
     /// The floor is a drawing decision only — the number under the ring and in
     /// the card stays true.
@@ -64,6 +80,7 @@ struct ProviderRing: View {
     /// special-cases — blocked (no fraction is meaningful once a limit is spent) and an explicit
     /// override from the caller (a deliberate discrete choice, not a reading to interpolate).
     private var primaryRingColor: Color {
+        if weeklyExhausted { return Palette.textSecondary }
         guard !isBlocked, bandOverride == nil, colorTransitionStyle == .ramp else {
             return band.color(accent: accentColor)
         }
@@ -73,9 +90,13 @@ struct ProviderRing: View {
     private var weeklyBand: UsageBand {
         isBlocked ? .exhausted : UsageBand.band(for: weeklyFraction ?? 0, watchLimit: watchLimit, criticalLimit: criticalLimit)
     }
-    private var weeklySweep: CGFloat { CGFloat(min(max(weeklyFraction ?? 0, 0), 1)) }
+    private var displayWeeklyFraction: Double? {
+        weeklyFraction.map { Percent.metered($0, showingRemaining: showsRemaining) }
+    }
+    private var weeklySweep: CGFloat { CGFloat(min(max(displayWeeklyFraction ?? 0, 0), 1)) }
     /// Same fallback rule as `primaryRingColor`, minus `bandOverride` — the weekly ring has none.
     private var weeklyRingColor: Color {
+        if weeklyExhausted { return Palette.textSecondary }
         guard !isBlocked, colorTransitionStyle == .ramp else { return weeklyBand.color(accent: accentColor) }
         return UsageBand.rampColor(for: weeklyFraction ?? 0, watchLimit: watchLimit, accent: accentColor)
     }
@@ -292,8 +313,9 @@ struct ProviderCell: View {
     /// away in the card.
     var showsReading: Bool = true
 
-    /// Whether the figure reads what is left rather than what is spent.
-    /// The ring itself still sweeps by what is spent either way.
+    /// Whether the cell reads what is left rather than what is spent: the
+    /// figure under the ring and the arcs' sweep. The bands still judge by
+    /// what is spent — colour answers how bad, sweep answers how much.
     var showsRemaining: Bool = false
 
     /// A dash, not "0%": nothing read is not the same as nothing used.
@@ -319,14 +341,33 @@ struct ProviderCell: View {
         return snapshot.weeklyFraction
     }
 
+    /// The week is spent, shutting the headline with it even where it shows
+    /// room. The ring reads this off the block the store attached — a pause
+    /// the provider reported itself is not this.
+    var isWeeklyExhausted: Bool {
+        snapshot.block?.isWeeklyExhaustion == true
+    }
+
+    /// The figure reads grey once the reading behind it has gone stale — a
+    /// white number would claim a freshness it no longer has. Same rule as
+    /// the ring's own dimming, plus the local case and the shut week: a speed
+    /// with nothing measured yet makes no claim, and headline room beside a
+    /// spent week is unusable, however freshly confirmed.
+    var readingIsDimmed: Bool {
+        snapshot.status.isStale || !snapshot.hasReading || isWeeklyExhausted
+            || (snapshot.showsLocalPerformance && snapshot.localPerformance == nil)
+    }
+
     var body: some View {
         VStack(spacing: NotchLayout.ringLabelGap) {
             ProviderRing(
                 usedFraction: snapshot.localModel == nil && snapshot.hasReading ? snapshot.ringFraction : nil,
                 glyph: snapshot.glyph,
                 customIconFilename: snapshot.customIconFilename,
+                showsRemaining: showsRemaining,
                 isStale: snapshot.status.isStale || !snapshot.hasReading,
                 isBlocked: snapshot.block != nil,
+                weeklyExhausted: isWeeklyExhausted,
                 activity: activity,
                 isRefreshing: isRefreshing,
                 localPerformance: snapshot.localPerformance,
@@ -338,8 +379,7 @@ struct ProviderCell: View {
             if showsReading {
             Text(readingText)
                 .font(snapshot.hasReading && weeklyReading != nil ? Typography.percentPair : Typography.percent)
-                .foregroundStyle(snapshot.showsLocalPerformance && snapshot.localPerformance == nil
-                                 ? Palette.textSecondary : Palette.textPrimary)
+                .foregroundStyle(readingIsDimmed ? Palette.textSecondary : Palette.textPrimary)
                 // Keep local speeds inside the ring's column so longer units
                 // cannot consume the notch's existing side margins.
                 .lineLimit(1)

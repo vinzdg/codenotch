@@ -163,6 +163,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let customProviders: [UsageProvider] = preferences.customEndpoints.filter(\.isEnabled).map { endpoint in
                 CustomEndpointProvider(endpoint: endpoint)
             }
+            let remoteProviders: [UsageProvider] = preferences.remoteHosts
+                .filter { $0.isEnabled && $0.isConfigured }
+                .map { $0.makeProvider() }
             let allProviders: [UsageProvider] = claudeProviders
                 + [CursorLocalProvider()]
                 + codexProfiles.map { CodexLocalProvider(profile: $0) }
@@ -170,6 +173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 + [GLMProvider(), MiniMaxProvider(web: miniMaxWeb), GrokLocalProvider(), DevinLocalProvider(), OpenCodeProvider(),
                    CommandCodeProvider(), GitHubCopilotProvider(), KimiProvider(), KiroProvider(), AmpProvider(),
                    ApifyProvider(), KiloProvider(),
+                   MuseLocalProvider(),
                    OllamaLocalProvider(endpoint: URL(string: preferences.ollamaEndpoint)!),
                    LMStudioLocalProvider(endpoint: URL(string: preferences.lmstudioEndpoint)!),
                    OllamaProvider(),
@@ -181,6 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                    })]
                 + webProviders
                 + customProviders
+                + remoteProviders
             preferences.reconcile(discoveredIDs: allProviders.map(\.id))
             let store = UsageStore(
                 providers: allProviders,
@@ -204,6 +209,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let active = stored.filter(\.isEnabled)
                     let providers: [UsageProvider] = active.map { CustomEndpointProvider(endpoint: $0) }
                     store?.registerCustomProviders(providers)
+                }
+                .store(in: &cancellables)
+            preferences.$remoteHosts
+                .map { hosts in
+                    hosts.filter { $0.isEnabled && $0.isConfigured }.map {
+                        "\($0.id):\($0.kind):\($0.name):\($0.host):\($0.user):\($0.port):\($0.identityFile ?? "")"
+                    }
+                }
+                .removeDuplicates()
+                .receive(on: RunLoop.main)
+                .sink { [weak store] _ in
+                    let stored = Preferences.storedRemoteHosts()
+                    let active = stored.filter { $0.isEnabled && $0.isConfigured }
+                    let providers: [UsageProvider] = active.map { $0.makeProvider() }
+                    store?.registerRemoteProviders(providers)
                 }
                 .store(in: &cancellables)
             deepSeek.onAuthenticated = { [weak store] in

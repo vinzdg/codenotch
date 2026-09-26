@@ -124,3 +124,88 @@ final class RemainingHeadlineTests: XCTestCase {
         XCTAssertEqual(snapshot([]).headlineText(showingRemaining: true), "—")
     }
 }
+
+/// The one rule behind the ring's sweep, the card's bars, and every flipped
+/// figure: spent by default, what is left when the notch is set that way.
+final class MeteredFractionTests: XCTestCase {
+    func testSpentPassesThrough() {
+        XCTAssertEqual(Percent.metered(0.125, showingRemaining: false), 0.125, accuracy: 1e-9)
+        XCTAssertEqual(Percent.metered(0, showingRemaining: false), 0, accuracy: 1e-9)
+    }
+
+    func testRemainingComplements() {
+        XCTAssertEqual(Percent.metered(0.125, showingRemaining: true), 0.875, accuracy: 1e-9)
+        XCTAssertEqual(Percent.metered(0, showingRemaining: true), 1, accuracy: 1e-9)
+        XCTAssertEqual(Percent.metered(1, showingRemaining: true), 0, accuracy: 1e-9)
+    }
+
+    /// Unclamped: callers draw 0…1, so an overspent limit reads empty rather
+    /// than negative at the draw site, where the clamp belongs.
+    func testOverspentStaysRawForTheCallerToClamp() {
+        XCTAssertEqual(Percent.metered(1.28, showingRemaining: true), -0.28, accuracy: 1e-9)
+        XCTAssertEqual(Percent.metered(1.28, showingRemaining: false), 1.28, accuracy: 1e-9)
+    }
+}
+
+/// A spent weekly allowance shuts the headline with it, for every provider:
+/// the headline's room is unusable, so the ring must not read green. The
+/// headline keeps its own reading; the ring goes red and the card leads
+/// with when the week lifts.
+final class WeeklyExhaustionBlockTests: XCTestCase {
+    private let reset = Date(timeIntervalSince1970: 1790553600)
+
+    private func snapshot(headlineFraction: Double?, weeklyFraction: Double?,
+                          weeklyID: String? = "weekly") -> ProviderSnapshot {
+        var windows = [
+            LimitWindow(id: "session", label: "Session", usedFraction: headlineFraction)
+        ]
+        if weeklyID != nil {
+            windows.append(LimitWindow(id: "weekly", label: "Weekly",
+                                       usedFraction: weeklyFraction, resetsAt: reset))
+        }
+        return ProviderSnapshot(id: "p", displayName: "P", glyph: .claude,
+                                fidelity: .official, status: .ok, windows: windows,
+                                headlineID: "session", weeklyID: weeklyID)
+    }
+
+    func testSpentWeekBlocksARoomyHeadline() throws {
+        let blocked = snapshot(headlineFraction: 0.2, weeklyFraction: 1).blockingSpentWeek()
+        let block = try XCTUnwrap(blocked.block)
+        XCTAssertEqual(block.reason, "Weekly limit reached")
+        XCTAssertEqual(block.resetsAt, reset)
+        XCTAssertTrue(block.isWeeklyExhaustion)
+        // The headline keeps its own reading — only the ring's band changes.
+        XCTAssertEqual(blocked.usedFraction, 0.2)
+        XCTAssertEqual(blocked.headlineText, "20%")
+    }
+
+    func testOverQuotaWeekBlocks() {
+        XCTAssertNotNil(snapshot(headlineFraction: 0.2, weeklyFraction: 1.28).blockingSpentWeek().block)
+    }
+
+    func testNearlySpentWeekDoesNotBlock() {
+        XCTAssertNil(snapshot(headlineFraction: 0.2, weeklyFraction: 0.999).blockingSpentWeek().block)
+    }
+
+    func testWeekWithoutADenominatorDoesNotBlock() {
+        XCTAssertNil(snapshot(headlineFraction: 0.2, weeklyFraction: nil).blockingSpentWeek().block)
+    }
+
+    func testMissingWeekDoesNotBlock() {
+        XCTAssertNil(snapshot(headlineFraction: 0.2, weeklyFraction: nil, weeklyID: nil).blockingSpentWeek().block)
+    }
+
+    func testAProviderBlockIsNeverReplaced() {
+        let providerBlock = UsageBlock(reason: "Paused", resetsAt: nil)
+        var s = snapshot(headlineFraction: 0.2, weeklyFraction: 1)
+        s.block = providerBlock
+        XCTAssertEqual(s.blockingSpentWeek().block, providerBlock)
+    }
+
+    func testSpentWeekBlocksEvenAsTheHeadline() throws {
+        var s = snapshot(headlineFraction: 0.2, weeklyFraction: 1)
+        s.headlineID = "weekly"
+        let blocked = s.blockingSpentWeek()
+        XCTAssertEqual(try XCTUnwrap(blocked.block).reason, "Weekly limit reached")
+    }
+}

@@ -141,9 +141,14 @@ struct ProviderSummary: Identifiable, Equatable {
     ///
     /// Apify's CLI files its token in the login keychain too, so a Deny is
     /// possible there — and "Allow access…" is the only way back from one.
+    ///
+    /// Remote logins borrow their token over SSH and touch no local
+    /// keychain item at all — same exclusion, for the same reason.
     var usesKeychain: Bool {
-        ClaudeProfile.isClaude(providerID: id) || id == AntigravityProfile.defaultID || id == "cursor"
+        (ClaudeProfile.isClaude(providerID: id) && !RemoteHost.isRemoteClaude(providerID: id))
+            || id == AntigravityProfile.defaultID || id == "cursor" || id == "muse"
             || id == "apify"
+    }
     }
 
     let id: String
