@@ -303,6 +303,17 @@ final class PreferencesMigrationTests: XCTestCase {
         XCTAssertTrue(Preferences(defaults: UserDefaults(suiteName: name)!).showsRemainingInNotch)
     }
 
+    /// On by default — a spent window pretending its rings are usable is the
+    /// worse surprise — and it has to stay off across a relaunch once asked.
+    func testShutRingsDefaultOnAndSurviveARelaunch() {
+        let (fresh, name) = makeDefaults()
+        XCTAssertTrue(Preferences(defaults: fresh).shutRingsWhenSpent)
+
+        Preferences(defaults: fresh).shutRingsWhenSpent = false
+
+        XCTAssertFalse(Preferences(defaults: UserDefaults(suiteName: name)!).shutRingsWhenSpent)
+    }
+
     /// The size has to outlive the launch that chose it, or it reads as a
     /// setting that did not take.
     func testTheNotchSizeSurvivesARelaunch() {

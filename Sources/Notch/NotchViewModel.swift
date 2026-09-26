@@ -222,6 +222,9 @@ final class NotchViewModel: ObservableObject {
     /// Mirrors the Appearance setting; the figure and the arcs' sweep follow
     /// it, the bands still judge by what is spent.
     @Published var showsRemainingInNotch = false
+    /// Whether a spent window shuts the rings beside it. Mirrors the
+    /// Appearance setting.
+    @Published var shutRingsWhenSpent = true
 
     /// How much screen there is to spend on the panel.
     ///

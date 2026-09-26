@@ -322,7 +322,8 @@ struct NotchRootView: View {
                 weeklyRing: model.weeklyRing,
                 showsWeeklyReading: model.weeklyReading,
                 showsReading: model.showsCellReading,
-                showsRemaining: model.showsRemainingInNotch
+                showsRemaining: model.showsRemainingInNotch,
+                shutRingsWhenSpent: model.shutRingsWhenSpent
             )
                 // Pinned to what the cell claims along the stack, or the drawn
                 // rings stop lining up with the centres `ringCenter` hands to

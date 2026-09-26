@@ -288,6 +288,17 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(showsRemainingInNotch, forKey: Self.showsRemainingInNotchKey) }
     }
 
+    /// Whether a spent window shuts the rings beside it. A spent 5-hour with
+    /// a healthy week, or the reverse, leaves rings that read usable and are
+    /// not: with this on, both rings say shut instead — dark grey where the
+    /// notch reads what is left, the red 100% earns where it reads spent.
+    ///
+    /// On by default: a spent window pretending its rings are usable is the
+    /// worse surprise.
+    @Published var shutRingsWhenSpent: Bool {
+        didSet { defaults.set(shutRingsWhenSpent, forKey: Keys.shutRingsWhenSpent) }
+    }
+
     @Published var weeklyRingDashed: Bool {
         didSet { defaults.set(weeklyRingDashed, forKey: Keys.weeklyRingDashed) }
     }
@@ -556,6 +567,7 @@ final class Preferences: ObservableObject {
         static let weeklyRingDashed = "weeklyRingDashed"
         static let showsNotchReadings = "showsNotchReadings"
         static let weeklyReading = "weeklyReading"
+        static let shutRingsWhenSpent = "shutRingsWhenSpent"
         static let claudeDailyPaceRing = "claudeDailyPaceRing"
         static let weeklyHeadline = "weeklyHeadline"
         static let showsMoveHandle = "showsMoveHandle"
@@ -918,6 +930,7 @@ final class Preferences: ObservableObject {
         // Off by default: it swaps what every meter means, and that is a
         // choice for whoever budgets from the other end.
         self.showsRemainingInNotch = defaults.bool(forKey: Self.showsRemainingInNotchKey)
+        self.shutRingsWhenSpent = defaults.object(forKey: Keys.shutRingsWhenSpent) as? Bool ?? true
 
         self.weeklyRing = defaults.string(forKey: Keys.weeklyRing)
             .flatMap(WeeklyRing.init(rawValue:)) ?? .off

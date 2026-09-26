@@ -87,13 +87,19 @@ final class ProviderCellTests: XCTestCase {
         XCTAssertFalse(cell.readingIsDimmed)
     }
 
-    func testExhaustedWeekGreysRingsOnlyInRemainingMode() {
-        let remaining = ProviderRing(usedFraction: 0.3, glyph: .claude,
-                                     showsRemaining: true, weeklyExhausted: true)
-        XCTAssertTrue(remaining.showsExhaustedWeekGrey)
-        let used = ProviderRing(usedFraction: 0.3, glyph: .claude, weeklyExhausted: true)
-        XCTAssertFalse(used.showsExhaustedWeekGrey)
-        let unspent = ProviderRing(usedFraction: 0.3, glyph: .claude, showsRemaining: true)
-        XCTAssertFalse(unspent.showsExhaustedWeekGrey)
+    func testShutRingsNeedTheSettingAndASpentWindow() {
+        // A spent week shuts, on by default.
+        let weekShut = ProviderRing(usedFraction: 0.3, glyph: .claude, weeklyExhausted: true)
+        XCTAssertTrue(weekShut.showsShutRings)
+        // A spent 5-hour with no block: the headline fraction alone shuts.
+        let sessionShut = ProviderRing(usedFraction: 1.0, glyph: .claude)
+        XCTAssertTrue(sessionShut.showsShutRings)
+        // The setting off keeps every ring its own colour, however spent.
+        let off = ProviderRing(usedFraction: 1.0, glyph: .claude,
+                               weeklyExhausted: true, shutRingsWhenSpent: false)
+        XCTAssertFalse(off.showsShutRings)
+        // Nothing spent, nothing shut.
+        let healthy = ProviderRing(usedFraction: 0.3, glyph: .claude)
+        XCTAssertFalse(healthy.showsShutRings)
     }
 }

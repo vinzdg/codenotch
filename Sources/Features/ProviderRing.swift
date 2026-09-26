@@ -25,10 +25,12 @@ struct ProviderRing: View {
     /// is technically true and practically a lie.
     var isBlocked: Bool = false
     /// The week is spent, shutting the headline with it. Always arrives with
-    /// `isBlocked`, which still dims the glyph. Whether the rings go grey for
-    /// it is `showsExhaustedWeekGrey`, not this: grey is a remaining-mode
-    /// reading, and in used mode a spent week is 100% like anything spent.
+    /// `isBlocked`, which still dims the glyph. Whether the rings shut for it
+    /// is `showsShutRings`, not this.
     var weeklyExhausted: Bool = false
+    /// Whether a spent window shuts the rings. Mirrors the Appearance
+    /// setting; off, every ring keeps its own window's colour.
+    var shutRingsWhenSpent: Bool = true
     var activity: ActivitySummary?
     /// A fetch this cell asked for, in flight.
     var isRefreshing: Bool = false
@@ -79,14 +81,26 @@ struct ProviderRing: View {
     /// back to the discrete `band.color(accent:)` in hard-step mode and everywhere `band` itself
     /// special-cases — blocked (no fraction is meaningful once a limit is spent) and an explicit
     /// override from the caller (a deliberate discrete choice, not a reading to interpolate).
-    /// Grey, not red, but only where the meters read what is left: red says
-    /// "you spent this", grey says "this tells you nothing usable" — the
-    /// 5-hour room beside a spent week is exactly that. In used mode the
-    /// spent week keeps the red 100% earns anywhere else.
-    var showsExhaustedWeekGrey: Bool { weeklyExhausted && showsRemaining }
+    /// Both rings shut when either window is spent — the week's block, or a
+    /// headline fraction at the limit with no block to say it. A spent 5-hour
+    /// beside a healthy week shuts like the reverse: right now nothing on
+    /// either arc is usable, however green one of them reads alone.
+    var showsShutRings: Bool {
+        shutRingsWhenSpent && (weeklyExhausted || (usedFraction ?? 0) >= 1)
+    }
+
+    /// The shutdown colour: dark grey where the meters read what is left —
+    /// grey says "this tells you nothing usable" — and the red 100% earns
+    /// where they read what is spent, even where the arc's own window is
+    /// healthy.
+    private var shutRingColor: Color {
+        if showsRemaining { return Palette.textSecondary }
+        guard colorTransitionStyle == .ramp else { return UsageBand.exhausted.color(accent: accentColor) }
+        return UsageBand.rampColor(for: 1, watchLimit: watchLimit, accent: accentColor)
+    }
 
     private var primaryRingColor: Color {
-        if showsExhaustedWeekGrey { return Palette.textSecondary }
+        if showsShutRings { return shutRingColor }
         guard !isBlocked, bandOverride == nil, colorTransitionStyle == .ramp else {
             return band.color(accent: accentColor)
         }
@@ -102,7 +116,7 @@ struct ProviderRing: View {
     private var weeklySweep: CGFloat { CGFloat(min(max(displayWeeklyFraction ?? 0, 0), 1)) }
     /// Same fallback rule as `primaryRingColor`, minus `bandOverride` — the weekly ring has none.
     private var weeklyRingColor: Color {
-        if showsExhaustedWeekGrey { return Palette.textSecondary }
+        if showsShutRings { return shutRingColor }
         guard !isBlocked, colorTransitionStyle == .ramp else { return weeklyBand.color(accent: accentColor) }
         return UsageBand.rampColor(for: weeklyFraction ?? 0, watchLimit: watchLimit, accent: accentColor)
     }
@@ -323,6 +337,9 @@ struct ProviderCell: View {
     /// figure under the ring and the arcs' sweep. The bands still judge by
     /// what is spent — colour answers how bad, sweep answers how much.
     var showsRemaining: Bool = false
+    /// Whether a spent window shuts the rings: both arcs say shut rather
+    /// than their own window's colour. Mirrors the Appearance setting.
+    var shutRingsWhenSpent: Bool = true
 
     /// A dash, not "0%": nothing read is not the same as nothing used.
     private var readingText: String {
@@ -375,6 +392,7 @@ struct ProviderCell: View {
                 isStale: snapshot.status.isStale || !snapshot.hasReading,
                 isBlocked: snapshot.block != nil,
                 weeklyExhausted: isWeeklyExhausted,
+                shutRingsWhenSpent: shutRingsWhenSpent,
                 activity: activity,
                 isRefreshing: isRefreshing,
                 localPerformance: snapshot.localPerformance,

@@ -62,6 +62,7 @@ final class NotchFleet {
     private var showsNotchReadings: Bool = true
     private var weeklyReading: Bool = false
     private var showsRemainingInNotch: Bool = false
+    private var shutRingsWhenSpent: Bool = true
     private var showsMoveHandle = true
     private var foldsForFullScreen = true
     private var surfaceStyle: NotchSurfaceStyle = .glass
@@ -205,6 +206,15 @@ final class NotchFleet {
         // window keeps its size and nothing relocates.
         for controller in controllers.values {
             controller.model.showsRemainingInNotch = showsRemainingInNotch
+        }
+    }
+
+    func apply(shutRingsWhenSpent: Bool) {
+        self.shutRingsWhenSpent = shutRingsWhenSpent
+        // Straight onto the model: only ring colours change, so the
+        // window keeps its size and nothing relocates.
+        for controller in controllers.values {
+            controller.model.shutRingsWhenSpent = shutRingsWhenSpent
         }
     }
 
@@ -463,6 +473,7 @@ final class NotchFleet {
         controller.model.showsNotchReadings = showsNotchReadings
         controller.model.weeklyReading = weeklyReading
         controller.model.showsRemainingInNotch = showsRemainingInNotch
+        controller.model.shutRingsWhenSpent = shutRingsWhenSpent
         controller.model.showsMoveHandle = showsMoveHandle
         controller.model.surfaceStyle = surfaceStyle
         controller.model.deepSeekPricingEnabled = deepSeekPricingEnabled
