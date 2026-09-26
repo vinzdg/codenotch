@@ -11,6 +11,15 @@ on:
   # main first — this is the button to press when you just want to try it.
   workflow_dispatch:
 
+# One run at a time per ref. On main every run rewrites the one `preview`
+# release — moves its tag, deletes its assets, uploads a new dmg — so two
+# overlapping runs interleave those steps and whichever finishes last wins,
+# even when it built the older commit. Queued rather than cancelled so a push
+# is never left without its build; a newer push still replaces one waiting.
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   package:
     if: github.repository == 'vinzdg/codenotch'
