@@ -980,8 +980,10 @@ private struct BlockedRow: View {
 private struct SessionRow: View {
     let session: AgentSession
     let now: Date
-    /// Set when rows can be clicked to jump to the session's terminal.
-    var onFocus: ((pid_t) -> Void)? = nil
+    /// The pointer is on it. Decided by `NotchWindowController`, which also
+    /// takes the click: SwiftUI's own hover and tap only see this
+    /// non-activating panel some of the time.
+    var highlighted = false
     @Environment(\.codenotchAccentColor) private var accentColor
     @Environment(\.tooltipSecondaryInk) private var secondaryInk
 
@@ -994,13 +996,11 @@ private struct SessionRow: View {
         }
     }
 
+    /// Only waiting says so in words: the ring beside it already spins for
+    /// working and sits still for idle, and a word on every row repeated it
+    /// ten times over.
     private var stateWord: String {
-        switch session.state {
-        case .busy:    return L10n.t("working")
-        case .waiting: return L10n.t("waiting")
-        case .success: return L10n.t("complete")
-        case .idle:    return L10n.t("idle")
-        }
+        session.state == .waiting ? L10n.t("waiting") : ""
     }
 
     /// While blocked, what it is blocked on matters more than where it lives.
@@ -1024,13 +1024,15 @@ private struct SessionRow: View {
             )
             .padding(.top, NotchLayout.sessionRowGap)
         }
-        // Sessions that publish a pid can be jumped to; the rest are text,
-        // and a gesture on them would promise something it cannot do.
-        .contentShape(Rectangle())
-        .onTapGesture {
-            guard let pid = session.processID else { return }
-            onFocus?(pid)
-        }
+        // The plate reaches out into the card's padding rather than pushing
+        // the text in, so the rows stay aligned with the limit rows above.
+        .padding(NotchLayout.sessionRowPadding)
+        .background(
+            RoundedRectangle(cornerRadius: Design.px(18), style: .continuous)
+                .fill(Palette.textPrimary.opacity(highlighted ? 0.10 : 0))
+        )
+        .animation(.easeOut(duration: 0.12), value: highlighted)
+        .padding(.horizontal, -NotchLayout.sessionRowPadding)
     }
 }
 
@@ -1041,23 +1043,17 @@ private struct SessionList: View {
     let now: Date
     /// How many rows this screen has room for; the rest are counted.
     let cap: Int
-    var onFocus: ((pid_t) -> Void)? = nil
+    var highlightedID: String? = nil
+    var showsIdle = false
+    var footerHovered = false
     @Environment(\.tooltipSecondaryInk) private var secondaryInk
 
-    /// Busy sessions first, so what is hidden is what matters least.
-    private var ordered: [AgentSession] {
-        summary.sessions.sorted { a, b in
-            let rank: (AgentSession) -> Int = {
-                switch $0.state { case .waiting: 0; case .busy: 1; case .success: 2; case .idle: 3 }
-            }
-            return rank(a) == rank(b) ? a.since > b.since : rank(a) < rank(b)
-        }
+    private var groups: ActivitySummary.SessionGroups {
+        summary.sessionGroups(now: now, cap: cap, showingIdle: showsIdle)
     }
 
-    private var shown: [AgentSession] { Array(ordered.prefix(max(0, cap))) }
-    private var hidden: Int { max(0, summary.sessions.count - shown.count) }
-
     var body: some View {
+        let groups = self.groups
         VStack(alignment: .leading, spacing: 0) {
             Rectangle()
                 .fill(Palette.ringTrack)
@@ -1067,15 +1063,35 @@ private struct SessionList: View {
             // Only as many as the card's budgeted height can hold. The rest
             // are counted rather than drawn: the card is clipped, not scrolled,
             // so anything past the budget silently pushes the title off the top.
-            ForEach(Array(shown.enumerated()), id: \.element.id) { index, session in
-                SessionRow(session: session, now: now, onFocus: onFocus)
-                    .padding(.top, NotchLayout.blockSpacing)
+            ForEach(Array(groups.active.enumerated()), id: \.element.id) { index, session in
+                SessionRow(session: session, now: now, highlighted: session.id == highlightedID)
+                    .padding(.top, index == 0 ? NotchLayout.blockSpacing : NotchLayout.sessionRowSpacing)
             }
 
-            if hidden > 0 {
-                Text(L10n.t("and \(hidden) more"))
+            // The idle group's header: "N idle" opens it, "Hide idle" folds it,
+            // and it stays above its rows either way. Hit-tested by the controller.
+            if groups.hasHeader {
+                HStack(spacing: Design.px(8)) {
+                    Text(showsIdle ? L10n.t("Hide idle") : L10n.t("\(groups.folded) idle"))
+                    Image(systemName: showsIdle ? "chevron.up" : "chevron.down")
+                        .font(.system(size: Design.fontSize(capPixels: 12), weight: .semibold))
+                }
+                .font(Typography.cardBody)
+                .foregroundStyle(footerHovered ? Palette.textPrimary : secondaryInk)
+                .frame(height: NotchLayout.cardBodyLineHeight)
+                .padding(.top, NotchLayout.blockSpacing)
+            }
+
+            ForEach(groups.idle, id: \.id) { session in
+                SessionRow(session: session, now: now, highlighted: session.id == highlightedID)
+                    .padding(.top, NotchLayout.sessionRowSpacing)
+            }
+
+            if groups.more > 0 {
+                Text(L10n.t("and \(groups.more) more"))
                     .font(Typography.cardBody)
                     .foregroundStyle(secondaryInk)
+                    .frame(height: NotchLayout.cardBodyLineHeight)
                     .padding(.top, NotchLayout.blockSpacing)
             }
         }
@@ -1099,7 +1115,12 @@ struct TooltipCard: View {
     var tailOffset: CGFloat = 0
     /// A tap on a session row jumps to that session's terminal — nil leaves
     /// the rows as plain text.
-    var onFocusSession: ((pid_t) -> Void)? = nil
+    /// The session row under the pointer, drawn with its plate.
+    var highlightedSessionID: String? = nil
+    /// The "N idle" line was clicked open; see `ActivitySummary.listedSessions`.
+    var showsIdleSessions = false
+    /// The pointer is on that line.
+    var footerHovered = false
     @AppStorage(Preferences.showUsagePaceKey) private var showUsagePace = false
 
     /// The phase a local model is in, and the queue behind it, for the header.
@@ -1117,7 +1138,9 @@ struct TooltipCard: View {
             groupCount: snapshot.windowGroupCount,
             moneyWindowCount: snapshot.windows.filter { $0.money != nil }.count,
             usageDetailGroupCount: snapshot.usageDetail?.visibleGroups.count ?? 0,
-            sessionCount: snapshot.localModel == nil ? (activity?.sessions.count ?? 0) : 0,
+            sessionCount: snapshot.localModel == nil ? (activity?.listedSessions(now: now, showingIdle: showsIdleSessions).count ?? 0) : 0,
+            foldedSessions: snapshot.localModel == nil ? (activity?.foldedIdleCount(now: now) ?? 0) : 0,
+            idleRows: snapshot.localModel == nil ? (activity?.sessionGroups(now: now, cap: sessionCap, showingIdle: showsIdleSessions).idle.count ?? 0) : 0,
             sessionCap: sessionCap,
             statusMessage: snapshot.statusMessage,
             blockMessage: snapshot.block?.summary(now: now),
@@ -1155,7 +1178,8 @@ struct TooltipCard: View {
                     }
                     if let activity, snapshot.localModel == nil {
                         SessionList(summary: activity, now: now, cap: sessionCap,
-                                    onFocus: onFocusSession)
+                                    highlightedID: highlightedSessionID,
+                                    showsIdle: showsIdleSessions, footerHovered: footerHovered)
                     }
                 }
                 // An identity, so one provider's rows are never interpolated

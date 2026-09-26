@@ -11,6 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var phoneLinkRegistry: PhoneLinkRegistry?
     private var activityCoordinator: ActivityCoordinator?
     private var ollamaRelay: OllamaActivityRelay?
+    /// Where Claude Code's permission prompts and questions arrive. See `HookBridge`.
+    private var hookBridge: HookBridge?
     private var lmstudioMetrics: LMStudioMetrics?
     private var preferences: Preferences?
     private var settings: SettingsWindowController?
@@ -28,6 +30,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Turns the monitors' running commentary into the one event worth
     /// interrupting for: an agent that has just stopped working.
     private var completions = SessionCompletionWatcher()
+    /// The stopped sessions on the notch, oldest first.
+    private var completionQueue = CompletionQueue()
+    /// Clears the front card under a timed `peekDuration`; which card it is for.
+    private var completionExpiry: (event: SessionCompletionWatcher.Event, work: DispatchWorkItem)?
 
     /// The unit bundle is hosted by this app, so `xcodebuild test` launches it
     /// for real. Without this guard every test run put a live request on the
@@ -95,6 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         guard !isRunningTests else { return }
         Self.retireOlderInstances()
+        BackgroundCursor.enable()
 
         // Before Preferences reads anything, or the first launch flag and
         // every choice would be read from an empty domain.
@@ -215,6 +222,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             let updater = Updater()
             self.updater = updater
+
+            let hookBridge = HookBridge(sessionDirectories: claudeProfiles.map(\.sessionsDirectory))
+            self.hookBridge = hookBridge
+            // The hook and the endpoint it posts to go on and off together.
+            // Re-applied at launch, so a hook removed by hand comes back while
+            // the setting says it should be there.
+            let profiles = claudeProfiles
+            preferences.$answerClaudeFromNotch
+                .removeDuplicates()
+                .sink { [weak hookBridge] enabled in
+                    for profile in profiles {
+                        do {
+                            try ClaudeHookInstaller.setInstalled(enabled, profile: profile)
+                        } catch {
+                            Log.sessions.error("hook \(enabled ? "install" : "removal", privacy: .public) failed for \(profile.displayPath, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                        }
+                    }
+                    if enabled {
+                        hookBridge?.start()
+                    } else {
+                        Task { @MainActor in await hookBridge?.stop() }
+                    }
+                }
+                .store(in: &cancellables)
 
             let relay = OllamaActivityRelay()
             self.ollamaRelay = relay
@@ -389,6 +420,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             fleet.onFocusSession = { pid in
                 Task { _ = await SessionFocus.focus(pid: pid) }
             }
+            // Claude Code's prompts, answered from the notch.
+            fleet.onDecidePermission = { [weak hookBridge] id, decision in
+                // "Answer in <app>": no decision from the notch, and a jump
+                // to where Claude's own prompt — with all its context — waits.
+                if decision == .passThrough,
+                   let pid = hookBridge?.pending.first(where: { $0.id == id })?.processID {
+                    Task { _ = await SessionFocus.focus(pid: pid) }
+                }
+                hookBridge?.answer(id, decision)
+            }
+            // A card clicked: go there, and the next one waiting comes up.
+            fleet.onOpenCompletion = { [weak self] event in
+                if let pid = event.session.processID {
+                    Task { _ = await SessionFocus.focus(pid: pid) }
+                }
+                self?.completionQueue.remove(event)
+                self?.publishCompletions()
+            }
+            // Its app coming to the front, however that happened, is looking.
+            NSWorkspace.shared.notificationCenter
+                .publisher(for: NSWorkspace.didActivateApplicationNotification)
+                .compactMap { $0.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication }
+                .receive(on: RunLoop.main)
+                .sink { [weak self] app in self?.clearCompletions(ownedBy: app) }
+                .store(in: &cancellables)
+            hookBridge.$pending
+                .removeDuplicates()
+                .receive(on: RunLoop.main)
+                .sink { [weak self, weak fleet] pending in
+                    fleet?.setPermissionRequests(pending)
+                    self?.dropCompletionsCoveredByPrompts()
+                }
+                .store(in: &cancellables)
             self.settings = settings
 
             // What changed, once per version — including on a fresh install,
@@ -537,7 +601,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // just changed. Dragging the slider keeps re-arming this, so
                 // it simply stays open until the drag stops. `peek` still
                 // declines outright when the notch is set to Hide.
-                fleet.peek(for: 1.2, focusing: nil)
+                fleet.peek(for: 1.2)
             }
             .store(in: &cancellables)
 
@@ -931,7 +995,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fleet.show()
     }
 
-    /// Open the notch, and make a noise, when something has just finished.
+    /// Queue a card, and make a noise, when something has just stopped.
     ///
     /// The watcher is fed on every publication whether or not anything is
     /// switched on, because it is a difference engine: skipping a reading would
@@ -939,23 +1003,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// transition it reported would be one that never happened.
     ///
     /// Several sessions can land in the same reading — one turn ending often
-    /// unblocks another — and that gets one peek and one chime rather than a
-    /// chord. The newest is the one offered, since it is the one whose window
-    /// you were most recently in.
+    /// unblocks another — and that gets one chime rather than a chord. Each
+    /// gets its own card, in line behind whatever is already waiting.
     @MainActor
     private func announceCompletions(sessions: [String: [AgentSession]]) {
-        let events = completions.absorb(sessions)
-        guard let event = events.first, let preferences, let fleet = notchFleet else { return }
-        Log.usage.info("session \(event.session.name, privacy: .public) \(String(describing: event.reason), privacy: .public)")
-
-        if preferences.sessionEndSound {
-            SessionChime.play(event.reason == .blocked
-                              ? preferences.sessionBlockedSoundName
-                              : preferences.sessionEndSoundName)
+        guard let preferences else { return }
+        // Already looking at it: nothing to announce, and a chime would only
+        // say what the screen in front of you already does.
+        // ponytail: app-level — a different tab or window of the same app
+        // counts as looking at it. Tab-level needs each terminal's scripting.
+        let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let fresh = completions.absorb(sessions).filter { event in
+            owningApp(of: event)?.processIdentifier != frontmost
         }
-        guard preferences.announceSessionEnd else { return }
-        fleet.peek(for: preferences.peekDuration.seconds,
-                   focusing: event.session.processID)
+        if let event = fresh.first {
+            Log.usage.info("session \(event.session.name, privacy: .public) \(String(describing: event.reason), privacy: .public)")
+            if preferences.sessionEndSound {
+                SessionChime.play(event.reason == .blocked
+                                  ? preferences.sessionBlockedSoundName
+                                  : preferences.sessionEndSoundName)
+            }
+        }
+        let before = completionQueue.events
+        completionQueue.absorb(preferences.announceSessionEnd ? fresh : [], sessions: sessions)
+        completionQueue.removeBlocked(askingFrom: promptingPIDs)
+        if completionQueue.events != before { publishCompletions() }
+    }
+
+    /// The processes with a prompt on the notch right now.
+    @MainActor private var promptingPIDs: Set<pid_t> {
+        Set(hookBridge?.pending.compactMap(\.processID) ?? [])
+    }
+
+    /// The prompt and the session's "waiting" state arrive separately, in
+    /// either order, so this runs on both.
+    @MainActor
+    private func dropCompletionsCoveredByPrompts() {
+        let before = completionQueue.events
+        completionQueue.removeBlocked(askingFrom: promptingPIDs)
+        if completionQueue.events != before { publishCompletions() }
+    }
+
+    private func owningApp(of event: SessionCompletionWatcher.Event) -> NSRunningApplication? {
+        event.session.processID.flatMap(SessionFocus.owningApp(of:))
+    }
+
+    @MainActor
+    private func clearCompletions(ownedBy app: NSRunningApplication) {
+        let before = completionQueue.events
+        completionQueue.removeAll { owningApp(of: $0)?.processIdentifier == app.processIdentifier }
+        if completionQueue.events != before { publishCompletions() }
+    }
+
+    /// Hand the queue to the notch; under a timed `peekDuration`, the front
+    /// card's clock starts when it reaches the front.
+    @MainActor
+    private func publishCompletions() {
+        notchFleet?.setCompletions(completionQueue.events)
+        guard let front = completionQueue.events.first,
+              let seconds = preferences?.peekDuration.seconds else {
+            completionExpiry?.work.cancel()
+            completionExpiry = nil
+            return
+        }
+        if let expiry = completionExpiry, CompletionQueue.sameSession(expiry.event, front) { return }
+        completionExpiry?.work.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.completionExpiry = nil
+                self.completionQueue.remove(front)
+                self.publishCompletions()
+            }
+        }
+        completionExpiry = (front, work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
     /// Open the notch and show a usage reset notification modal when a limit resets.
@@ -1092,5 +1214,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         activityCoordinator?.stop()
         notchFleet?.stop()
         Task { await phoneLinkServer?.stop() }
+        Task { @MainActor in await hookBridge?.stop() }
     }
 }

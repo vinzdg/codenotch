@@ -253,6 +253,11 @@ enum NotchLayout {
 
     // The hover tooltip
     static let cardWidth     = Design.px(600)
+    /// The permission card, which carries a command or a diff and the
+    /// terminal's own choices, and read cramped at the tooltip's width. The
+    /// panel reserves room for whichever card is wider.
+    static let permissionCardWidth = Design.px(780)
+    static var widestCard: CGFloat { max(cardWidth, permissionCardWidth) }
     static let cardCorner    = Design.px(49.5)
     static let cardPadding   = Design.px(32)
     static let tailLength    = Design.px(75)
@@ -275,6 +280,10 @@ enum NotchLayout {
     static let usageDetailChartGap = Design.px(18)
     static let usageDetailBarGap = Design.px(5)
     static let sessionRowGap = Design.px(10)   // the two lines of one session
+    /// Inside a session row, around its two lines: room for the hover plate.
+    static let sessionRowPadding = Design.px(12)
+    /// Between one session's plate and the next.
+    static let sessionRowSpacing = Design.px(8)
     /// The spinner beside a session's status. Sized against the body text's cap
     /// (18px) rather than picked by eye, so it reads as part of the word rather
     /// than a bullet pinned near it.
@@ -343,7 +352,7 @@ enum NotchLayout {
         return CGFloat(lines) * cardBodyLineHeight
     }
 
-    private static func lineHeight(_ font: NSFont) -> CGFloat {
+    static func lineHeight(_ font: NSFont) -> CGFloat {
         ceil(font.ascender - font.descender + font.leading)
     }
 
@@ -455,6 +464,8 @@ enum NotchLayout {
     static func cardHeight(windowCount: Int, groupCount: Int = 0,
                            moneyWindowCount: Int = 0, usageDetailGroupCount: Int = 0,
                            sessionCount: Int = 0,
+                           foldedSessions: Int = 0,
+                           idleRows: Int = 0,
                            sessionCap: Int = defaultSessionCap,
                            statusMessage: String? = nil,
                            blockMessage: String? = nil,
@@ -530,16 +541,23 @@ enum NotchLayout {
                 + codexChartTop + codexChartHeight
         }
 
-        if sessionCount > 0 {
-            let shown = min(sessionCount, max(0, sessionCap))
-            let row = 2 * cardBodyLineHeight + sessionRowGap
-            height += blockSpacing + hairline + blockSpacing
-                + CGFloat(shown) * row
-                + CGFloat(max(0, shown - 1)) * blockSpacing
-            // The "and N more" line, which only exists when something is hidden.
-            if sessionCount > shown {
-                height += blockSpacing + cardBodyLineHeight
-            }
+        if sessionCount > 0 || foldedSessions > 0 {
+            // Laid out as `SessionList` draws it: active rows, the idle
+            // header with `idleRows` under it, then "and N more".
+            var shown = min(sessionCount, max(0, sessionCap))
+            // Header and "and N more" together give up a row for the second
+            // line, so the list never outgrows the one-line budget above —
+            // the same rule `ActivitySummary.sessionGroups` applies.
+            if foldedSessions > 0, sessionCount > shown { shown = max(0, sessionCap - 1) }
+            let active = max(0, shown - idleRows)
+            let row = 2 * cardBodyLineHeight + sessionRowGap + 2 * sessionRowPadding
+            let line = blockSpacing + cardBodyLineHeight
+            height += blockSpacing + hairline
+                + CGFloat(shown) * (row + sessionRowSpacing)
+                // The first row after the rule sits a block below it, not a row gap.
+                + (active > 0 ? blockSpacing - sessionRowSpacing : 0)
+                + (foldedSessions > 0 ? line : 0)
+                + (sessionCount > shown ? line : 0)
         }
         return height
     }
@@ -575,7 +593,7 @@ enum NotchLayout {
                       notchScale: CGFloat = 1) -> CGFloat {
         edge.isVertical
             ? max(endSlack * notchScale, maxCardHeight / 2 + cardCorner)
-            : max(endSlack * notchScale, cardWidth / 2 + cardCorner)
+            : max(endSlack * notchScale, widestCard / 2 + cardCorner)
     }
 
     private static let endSlack = Design.px(190)
@@ -652,6 +670,6 @@ enum NotchLayout {
     /// below or above it on a horizontal one.
     static func tooltipDepth(for edge: NotchEdge,
                              maxCardHeight: CGFloat = defaultMaxCardHeight) -> CGFloat {
-        (edge.isVertical ? cardWidth : maxCardHeight) + tailLength + tailGap
+        (edge.isVertical ? widestCard : maxCardHeight) + tailLength + tailGap
     }
 }

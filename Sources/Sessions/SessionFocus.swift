@@ -33,7 +33,7 @@ enum SessionFocus {
             Log.usage.debug("no owning app for pid \(pid, privacy: .public)")
             return false
         }
-        return await MainActor.run { app.activate() }
+        return await MainActor.run { raise(app) }
     }
 
     /// The process's controlling terminal, named the way ps prints it
@@ -78,10 +78,29 @@ enum SessionFocus {
             Log.usage.debug("no owning app for pid \(pid, privacy: .public)")
             return false
         }
-        // `activate()` rather than the deprecated options form: the notch's own
-        // panel is non-activating, so there is no focus of ours to hand over
-        // and nothing to co-ordinate.
-        return app.activate()
+        return raise(app)
+    }
+
+    /// Bring `app` to the front from a background app.
+    ///
+    /// Not `app.activate()`: since macOS 14 activation is cooperative, and a
+    /// request from an app that is not itself active is quietly refused. The
+    /// notch never is — its panel is non-activating — except just after
+    /// launch, which is why a jump worked once and then never again. Opening
+    /// the app through Launch Services is an explicit user-driven activation
+    /// and is honoured; for a running app it brings it forward and launches
+    /// nothing.
+    @discardableResult
+    static func raise(_ app: NSRunningApplication) -> Bool {
+        guard let url = app.bundleURL else { return app.activate() }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, error in
+            if let error {
+                Log.sessions.error("raise \(url.lastPathComponent, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        return true
     }
 
     /// The nearest ancestor process that macOS knows as a running application.

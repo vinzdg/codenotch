@@ -79,7 +79,46 @@ struct NotchRootView: View {
                             .animation(motion(orbMotion), value: model.isExpanded)
                 }
 
-                if let resetEvent = model.activeResetAlert,
+                if let request = model.permissionRequests.first, model.isExpanded {
+                    let index = model.permissionIndex
+                    let snapshot = model.snapshots[safe: index] ?? model.snapshots.first ?? Fixtures.snapshots().first!
+                    PermissionCard(
+                        request: request,
+                        queued: model.permissionRequests.count - 1,
+                        direction: model.edge.tooltipDirection,
+                        tailOffset: tooltipTailOffset(index: index, snapshot: snapshot),
+                        questionIndex: model.permissionQuestionIndex,
+                        hoveredChoice: model.hoveredChoice,
+                        appLinkHovered: model.isHoveringAppLink,
+                        heightLimit: model.permissionCardLimit,
+                        onDecide: { decision in model.onDecidePermission?(request.id, decision) },
+                        onNextQuestion: { model.permissionQuestionIndex += 1 }
+                    )
+                    // A fresh card per request, so a half-answered set of
+                    // questions never carries over to the next one.
+                    .id(request.id)
+                    .position(permissionCardCentre(place, index: index, request: request))
+                    .transition(.opacity.combined(with: .offset(
+                        x: model.edge.outward.x * Design.px(24),
+                        y: model.edge.outward.y * Design.px(24)
+                    )))
+                } else if let completion = model.activeCompletion, model.isExpanded, model.hoveredIndex == nil {
+                    let index = model.completionIndex(for: completion)
+                    let snapshot = model.snapshots[safe: index] ?? model.snapshots.first ?? Fixtures.snapshots().first!
+                    CompletionCard(
+                        event: completion,
+                        glyph: snapshot.glyph,
+                        direction: model.edge.tooltipDirection,
+                        tailOffset: tooltipTailOffset(index: index, snapshot: snapshot),
+                        hovered: model.isHoveringCompletion,
+                        queued: model.completions.count - 1
+                    )
+                    .position(completionCardCentre(place, index: index))
+                    .transition(.opacity.combined(with: .offset(
+                        x: model.edge.outward.x * Design.px(24),
+                        y: model.edge.outward.y * Design.px(24)
+                    )))
+                } else if let resetEvent = model.activeResetAlert,
                    model.isExpanded,
                    model.hoveredIndex == nil {
                     let index = model.resetAlertIndex(for: resetEvent) ?? 0
@@ -111,7 +150,9 @@ struct NotchRootView: View {
                         deepSeekPricingEnabled: model.deepSeekPricingEnabled,
                         deepSeekPricingSchedule: model.deepSeekPricingSchedule,
                         tailOffset: tooltipTailOffset(index: index, snapshot: snapshot),
-                        onFocusSession: model.onFocusSession
+                        highlightedSessionID: model.hoveredSessionID,
+                        showsIdleSessions: model.showsIdleSessions,
+                        footerHovered: model.isHoveringIdleToggle
                     )
                         // Deliberately *no* `.id` here: the card is one object
                         // that travels and resizes between cells, which reads
@@ -479,7 +520,9 @@ struct NotchRootView: View {
                 groupCount: snapshot.windowGroupCount,
                 moneyWindowCount: snapshot.windows.filter { $0.money != nil }.count,
                 usageDetailGroupCount: snapshot.usageDetail?.visibleGroups.count ?? 0,
-                sessionCount: snapshot.localModel == nil ? (model.activity(for: snapshot.id)?.sessions.count ?? 0) : 0,
+                sessionCount: snapshot.localModel == nil ? (model.activity(for: snapshot.id)?.listedSessions(now: model.now, showingIdle: model.showsIdleSessions).count ?? 0) : 0,
+                foldedSessions: snapshot.localModel == nil ? (model.activity(for: snapshot.id)?.foldedIdleCount(now: model.now) ?? 0) : 0,
+                idleRows: snapshot.localModel == nil ? (model.activity(for: snapshot.id)?.sessionGroups(now: model.now, cap: model.sessionCap, showingIdle: model.showsIdleSessions).idle.count ?? 0) : 0,
                 sessionCap: model.sessionCap,
                 statusMessage: snapshot.statusMessage,
                 blockMessage: snapshot.block?.summary(now: model.now),
@@ -512,7 +555,9 @@ struct NotchRootView: View {
                 groupCount: snapshot.windowGroupCount,
                 moneyWindowCount: snapshot.windows.filter { $0.money != nil }.count,
                 usageDetailGroupCount: snapshot.usageDetail?.visibleGroups.count ?? 0,
-                sessionCount: snapshot.localModel == nil ? (model.activity(for: snapshot.id)?.sessions.count ?? 0) : 0,
+                sessionCount: snapshot.localModel == nil ? (model.activity(for: snapshot.id)?.listedSessions(now: model.now, showingIdle: model.showsIdleSessions).count ?? 0) : 0,
+                foldedSessions: snapshot.localModel == nil ? (model.activity(for: snapshot.id)?.foldedIdleCount(now: model.now) ?? 0) : 0,
+                idleRows: snapshot.localModel == nil ? (model.activity(for: snapshot.id)?.sessionGroups(now: model.now, cap: model.sessionCap, showingIdle: model.showsIdleSessions).idle.count ?? 0) : 0,
                 sessionCap: model.sessionCap,
                 statusMessage: snapshot.statusMessage,
                 blockMessage: snapshot.block?.summary(now: model.now),
@@ -530,6 +575,25 @@ struct NotchRootView: View {
         // `tooltipInset` already ends where the drawn notch does.
         return place.point(
             along: model.tooltipAlong(index: index, length: tooltipLength(snapshot)),
+            across: model.tooltipInset + (NotchLayout.tailLength + card) / 2
+        )
+    }
+
+    private func permissionCardCentre(_ place: NotchPlacement, index: Int, request: PermissionRequest) -> CGPoint {
+        let height = PermissionCard.height(for: request, limit: model.permissionCardLimit)
+        let card = model.edge.isVertical ? PermissionCard.width : height
+        let cardAlong = model.edge.isVertical ? height : PermissionCard.width
+        return place.point(
+            along: model.tooltipAlong(index: index, length: cardAlong),
+            across: model.tooltipInset + (NotchLayout.tailLength + card) / 2
+        )
+    }
+
+    private func completionCardCentre(_ place: NotchPlacement, index: Int) -> CGPoint {
+        let card = model.edge.isVertical ? NotchLayout.cardWidth : CompletionCard.cardHeight
+        let cardAlong = model.edge.isVertical ? CompletionCard.cardHeight : NotchLayout.cardWidth
+        return place.point(
+            along: model.tooltipAlong(index: index, length: cardAlong),
             across: model.tooltipInset + (NotchLayout.tailLength + card) / 2
         )
     }

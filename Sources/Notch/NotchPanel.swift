@@ -85,3 +85,27 @@ final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
+
+/// Lets the notch change the cursor while Codenotch is not the active app —
+/// which is always, since its panel is non-activating.
+///
+/// WindowServer ignores `NSCursor` changes from a background app, so without
+/// this the pointing hand over a ring or a session row only ever appeared in
+/// the moment after launch. The switch is a private connection property, the
+/// one every menu-bar and notch app uses for this; it is looked up at run time
+/// so a macOS that drops it costs the hand cursor and nothing else.
+enum BackgroundCursor {
+    static func enable() {
+        typealias DefaultConnection = @convention(c) () -> Int32
+        typealias SetProperty = @convention(c) (Int32, Int32, CFString, CFTypeRef) -> Int32
+        let handle = UnsafeMutableRawPointer(bitPattern: -2)   // RTLD_DEFAULT
+        guard let connectionSymbol = dlsym(handle, "_CGSDefaultConnection"),
+              let setSymbol = dlsym(handle, "CGSSetConnectionProperty") else {
+            Log.usage.debug("background cursor unavailable")
+            return
+        }
+        let connection = unsafeBitCast(connectionSymbol, to: DefaultConnection.self)()
+        let set = unsafeBitCast(setSymbol, to: SetProperty.self)
+        _ = set(connection, connection, "SetsCursorInBackground" as CFString, kCFBooleanTrue)
+    }
+}

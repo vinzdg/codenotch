@@ -384,7 +384,39 @@ Cursor both feed it, through one display model.
       inputs, summary precedence, label widths, elapsed copy
 - [ ] Notify on `waiting` (deliberately not built — colour and pulse only, per the
       design call. The hook is `ActivitySummary.waitingSessions`)
-- [ ] Click a session to focus its terminal window
+- [x] Click a session to focus its terminal window (`SessionFocus`)
+- [x] Sessions idle for 10+ minutes fold into one "N idle" line, and only
+      `waiting` keeps its word — ten two-line rows buried the one asking for you
+
+## M4c — Answer Claude from the notch
+
+- [x] `HookBridgeServer` — loopback HTTP on 11436 that Claude Code's
+      `PermissionRequest` hook posts to (an `http` hook, so no script ships).
+      Refuses anything with an `Origin`, so a web page cannot put cards up
+- [x] `PermissionCard` — Allow / Deny with a diff for Edit / Write, or the
+      options of an `AskUserQuestion`, answered as `updatedInput.answers`.
+      Holds the notch open until answered
+- [x] Settings → "Answer from the notch" writes the hook into each Claude
+      profile's `settings.json` and removes it when off (backup kept once)
+- [x] Answered in the terminal instead: the card drops within a second
+- [ ] Keyboard shortcuts (⌘1…) — the panel never takes key focus
+- [ ] Multi-select questions take one choice on the notch
+
+### What Claude Code does with the hook (checked against 2.1.282)
+
+- The terminal prompt and the hook run **in parallel**; whichever answers first wins.
+- App not running → connection refused → the terminal prompt as normal.
+- Answering in the terminal does **not** close the hook's connection; only the
+  process exiting does. Hence the transcript watch in `HookBridge`.
+- `AskUserQuestion` goes through `PermissionRequest`; allow with
+  `updatedInput` = original input + `answers: {question: label}`.
+
+Under the Agent SDK (Zed, VS Code, Claude desktop; 2.1.280) it differs:
+
+- The payload has no `tool_use_id`, and the connection stays open until the
+  session ends — so the call is found in the transcript by its input.
+- An `ExitPlanMode` allow without `updatedInput` is ignored and the host's own
+  prompt wins. Every allow echoes the input back.
 
 ### Why it is inside the ring
 

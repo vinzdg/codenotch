@@ -74,13 +74,48 @@ final class NotchViewModel: ObservableObject {
     /// rather than SwiftUI's `.onHover`: the panel ignores mouse events until
     /// the cursor is over it, so SwiftUI cannot see the crossing that turns
     /// event handling on in the first place.
-    @Published var hoveredIndex: Int?
+    @Published var hoveredIndex: Int? {
+        // Opened idle sessions last as long as that ring's tooltip does.
+        didSet { if hoveredIndex != oldValue { showsIdleSessions = false } }
+    }
     /// Ticked on refresh so the "Resets in N min" copy stays honest.
     @Published var now: Date = Date()
     @Published var resetTimeFormat: ResetTimeFormat = .automatic
 
     /// Active usage reset notification event to present beside the notch.
     @Published var activeResetAlert: UsageResetEvent?
+    /// Stopped sessions waiting to be looked at, oldest first — see
+    /// `CompletionQueue`. The first is on screen, behind any permission card.
+    @Published var completions: [SessionCompletionWatcher.Event] = []
+    var activeCompletion: SessionCompletionWatcher.Event? { completions.first }
+    /// Wired by the app delegate: jump to the session and clear its card.
+    var onOpenCompletion: ((SessionCompletionWatcher.Event) -> Void)?
+    /// The pointer is on the completion card.
+    @Published var isHoveringCompletion = false
+
+    /// The ring a completed session belongs to; the first when it is not shown.
+    func completionIndex(for event: SessionCompletionWatcher.Event) -> Int {
+        snapshots.firstIndex { $0.providerID == event.providerID } ?? 0
+    }
+
+    /// What Claude Code is waiting on the notch for, oldest first. The first
+    /// one is on screen; the notch stays open until the list is empty.
+    @Published var permissionRequests: [PermissionRequest] = []
+    /// Wired to `HookBridge.answer` by the app delegate.
+    var onDecidePermission: ((UUID, PermissionDecision) -> Void)?
+    /// Which question of the showing `AskUserQuestion` is up; back to the
+    /// first whenever a different request comes to the front.
+    @Published var permissionQuestionIndex = 0
+    /// The permission card's choice row under the pointer, set by the controller.
+    @Published var hoveredChoice: Int?
+    /// The pointer is on the card's "Answer in <app>" button.
+    @Published var isHoveringAppLink = false
+
+    /// The Claude ring, which the card points at. The first cell when Claude
+    /// is not in the notch at all — the request still needs somewhere to go.
+    var permissionIndex: Int {
+        snapshots.firstIndex { $0.providerID == "claude" } ?? 0
+    }
 
     func resetAlertIndex(for event: UsageResetEvent) -> Int? {
         snapshots.firstIndex { $0.id == event.providerID }
@@ -157,6 +192,13 @@ final class NotchViewModel: ObservableObject {
     /// A tap on a session row in the tooltip: jump to the terminal tab the
     /// session runs in. Takes the session's pid; wired to `SessionFocus`.
     var onFocusSession: ((pid_t) -> Void)?
+    /// The clickable session row under the pointer, set by the controller.
+    @Published var hoveredSessionID: String?
+    /// The tooltip's "N idle" line was clicked open. Back to folded whenever
+    /// the tooltip closes, so the list is calm each time it is opened.
+    @Published var showsIdleSessions = false
+    /// The pointer is on that line.
+    @Published var isHoveringIdleToggle = false
     /// Which screen edge the notch is welded to. Everything geometric reads
     /// this through `placement` rather than assuming an axis.
     @Published var edge: NotchEdge = .right
@@ -1056,11 +1098,19 @@ final class NotchViewModel: ObservableObject {
 
     func maxCardHeight(cellCount: Int) -> CGFloat {
         let cap = sessionCap(cellCount: cellCount)
-        return snapshots.isEmpty
+        let content = snapshots.isEmpty
             ? NotchLayout.maxCardHeight(sessionCap: cap, hasTokenUsage: hasTokenUsage, hasPlan: hasPlan,
                                         hasResetCredits: hasResetCredits)
             : contentCardHeight(sessionCap: cap)
+        // A pending request's card counts too, but only as far as the screen
+        // allows; past that the card trims its preview (`permissionCardLimit`).
+        guard let request = permissionRequests.first else { return content }
+        let budget = cardBudget(cellCount: cellCount)
+        return max(content, min(PermissionCard.height(for: request, limit: budget), budget))
     }
+
+    /// The most height the permission card may take on this screen.
+    var permissionCardLimit: CGFloat { cardBudget(cellCount: snapshots.count) }
 
     /// How tall the tallest card may be before the panel runs off the screen.
     ///

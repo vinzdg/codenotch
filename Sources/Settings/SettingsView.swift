@@ -1244,6 +1244,15 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            Section(L10n.t("Claude Code prompts")) {
+                Toggle(L10n.t("Answer from the notch"), isOn: $preferences.answerClaudeFromNotch)
+
+                Text(L10n.t("Shows Allow / Deny and Claude's questions beside the notch. Adds a hook to Claude Code's settings.json while on, and removes it when turned off. The terminal still asks too; whichever you answer first wins."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Section(L10n.t("When a limit resets")) {
                 Toggle(L10n.t("Show notification from notch"), isOn: $preferences.announceUsageReset)
 

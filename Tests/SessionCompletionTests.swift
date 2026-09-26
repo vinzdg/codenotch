@@ -160,7 +160,7 @@ final class PeekTests: XCTestCase {
         controller.show()
         defer { controller.stop() }
 
-        controller.peek(for: 2, focusing: nil)
+        controller.peek(for: 2)
         XCTAssertTrue(controller.model.isExpanded)
         pump(1.2)
         XCTAssertTrue(controller.model.isExpanded,
@@ -174,8 +174,91 @@ final class PeekTests: XCTestCase {
         defer { controller.stop() }
 
         controller.apply(.hidden)
-        controller.peek(for: 2, focusing: nil)
+        controller.peek(for: 2)
         XCTAssertFalse(controller.model.isExpanded)
+    }
+
+    /// A stopped session's card has no clock: the notch stays open well past
+    /// the hover fold, and the next card takes the first one's place.
+    func testCompletionsHoldTheNotchOpenAndQueue() {
+        let controller = NotchWindowController()
+        controller.show()
+        defer { controller.stop() }
+
+        func event(_ id: String) -> SessionCompletionWatcher.Event {
+            .init(session: AgentSession(id: id, name: id, detail: "", state: .idle, waitingFor: nil,
+                                        since: Date(), processID: nil),
+                  reason: .finished, providerID: "claude")
+        }
+        controller.showCompletions([event("a"), event("b")])
+        pump(1.2)
+        XCTAssertTrue(controller.model.isExpanded)
+        XCTAssertEqual(controller.model.activeCompletion?.session.id, "a")
+
+        controller.showCompletions([event("b")])
+        XCTAssertEqual(controller.model.activeCompletion?.session.id, "b")
+        pump(1.2)
+        XCTAssertTrue(controller.model.isExpanded)
+    }
+}
+
+/// One card per session, in arrival order, gone once it says nothing true.
+final class CompletionQueueTests: XCTestCase {
+    private func session(_ id: String, _ state: AgentSession.State) -> AgentSession {
+        AgentSession(id: id, name: id, detail: "", state: state, waitingFor: nil, since: Date(), processID: nil)
+    }
+    private func event(_ id: String, _ reason: SessionCompletionWatcher.Reason = .finished) -> SessionCompletionWatcher.Event {
+        .init(session: session(id, reason == .blocked ? .waiting : .idle), reason: reason, providerID: "claude")
+    }
+
+    func testCardsQueueOldestFirst() {
+        var queue = CompletionQueue()
+        let live = ["claude": [session("a", .idle), session("b", .idle)]]
+        queue.absorb([event("a")], sessions: live)
+        // The watcher returns newest first; the older of the two lands first.
+        queue.absorb([event("b")], sessions: live)
+        XCTAssertEqual(queue.events.map(\.session.id), ["a", "b"])
+    }
+
+    /// Stopping again replaces its own card rather than queueing behind it.
+    func testASessionHasOneCard() {
+        var queue = CompletionQueue()
+        let live = ["claude": [session("a", .waiting), session("b", .idle)]]
+        queue.absorb([event("a"), event("b")].reversed(), sessions: live)
+        queue.absorb([event("a", .blocked)], sessions: live)
+        XCTAssertEqual(queue.events.map(\.session.id), ["a", "b"])
+        XCTAssertEqual(queue.events.first?.reason, .blocked)
+    }
+
+    /// Back at work (answered in its own window) or gone: the card goes.
+    func testBusyOrGoneSessionsLeaveTheQueue() {
+        var queue = CompletionQueue()
+        queue.absorb([event("b"), event("a")], sessions: ["claude": [session("a", .idle), session("b", .idle)]])
+        queue.absorb([], sessions: ["claude": [session("a", .busy)]])
+        XCTAssertTrue(queue.events.isEmpty)
+    }
+
+    /// The question's own card is on the notch; a "Needs you" for the same
+    /// process would be a second card for one prompt. "Done" cards stay.
+    func testNeedsYouGivesWayToThePromptItself() {
+        func event(_ id: String, _ reason: SessionCompletionWatcher.Reason, pid: pid_t) -> SessionCompletionWatcher.Event {
+            .init(session: AgentSession(id: id, name: id, detail: "", state: reason == .blocked ? .waiting : .idle,
+                                        waitingFor: nil, since: Date(), processID: pid),
+                  reason: reason, providerID: "claude")
+        }
+        var queue = CompletionQueue()
+        let live = ["claude": [session("a", .waiting), session("b", .waiting), session("c", .idle)]]
+        queue.absorb([event("c", .finished, pid: 7), event("b", .blocked, pid: 8), event("a", .blocked, pid: 7)],
+                     sessions: live)
+        queue.removeBlocked(askingFrom: [7])
+        XCTAssertEqual(queue.events.map(\.session.id), ["b", "c"])
+    }
+
+    func testRemovingOneBringsUpTheNext() {
+        var queue = CompletionQueue()
+        queue.absorb([event("b"), event("a")], sessions: ["claude": [session("a", .idle), session("b", .idle)]])
+        queue.remove(event("a"))
+        XCTAssertEqual(queue.events.map(\.session.id), ["b"])
     }
 }
 
@@ -183,15 +266,17 @@ final class PeekTests: XCTestCase {
 final class PeekDurationTests: XCTestCase {
     func testEveryDurationIsAUsefulLength() {
         for duration in PeekDuration.allCases {
-            XCTAssertGreaterThanOrEqual(duration.seconds, 1)
-            XCTAssertLessThanOrEqual(duration.seconds, 30)
+            guard let seconds = duration.seconds else { continue }
+            XCTAssertGreaterThanOrEqual(seconds, 1)
+            XCTAssertLessThanOrEqual(seconds, 30)
         }
+        XCTAssertNil(PeekDuration.untilSeen.seconds)
     }
 
     /// The raw values are written to UserDefaults, so renaming a case would
     /// silently reset everybody's choice to the default.
     func testRawValuesAreStable() {
-        XCTAssertEqual(PeekDuration.allCases.map(\.rawValue), ["brief", "standard", "long"])
+        XCTAssertEqual(PeekDuration.allCases.map(\.rawValue), ["untilSeen", "brief", "standard", "long"])
         XCTAssertEqual(PeekDuration(rawValue: "standard")?.seconds, 5)
     }
 

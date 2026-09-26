@@ -34,6 +34,53 @@ final class ActivitySummaryTests: XCTestCase {
         XCTAssertEqual(ActivitySummary(sessions: [session(.busy)])?.color, Palette.textPrimary)
         XCTAssertEqual(ActivitySummary(sessions: [session(.waiting)])?.color, Palette.watch)
     }
+
+    /// Long-idle sessions are counted, not listed; anything else keeps its row.
+    func testLongIdleSessionsFoldIntoACount() throws {
+        let now = Date()
+        let old = now.addingTimeInterval(-ActivitySummary.idleFoldAfter - 1)
+        let make = { (id: String, state: AgentSession.State, since: Date) in
+            AgentSession(id: id, name: id, detail: "", state: state, waitingFor: nil, since: since)
+        }
+        let summary = try XCTUnwrap(ActivitySummary(sessions: [
+            make("stale", .idle, old), make("fresh", .idle, now), make("busy", .busy, old),
+        ]))
+        XCTAssertEqual(summary.listedSessions(now: now).map(\.id), ["fresh", "busy"])
+        XCTAssertEqual(summary.foldedIdleCount(now: now), 1)
+
+        // Clicked open, every session gets a row; the count stays, for "Hide idle".
+        XCTAssertEqual(Set(summary.listedSessions(now: now, showingIdle: true).map(\.id)), ["stale", "fresh", "busy"])
+        XCTAssertEqual(summary.shownSessions(now: now, cap: 3, showingIdle: true).map(\.id), ["busy", "fresh", "stale"])
+        XCTAssertEqual(summary.foldedIdleCount(now: now), 1)
+    }
+
+    /// Opened, the idle group sits under its header after every active row,
+    /// and the cap cuts from the bottom — idle rows go first.
+    func testIdleGroupFollowsTheActiveRowsAndIsCutFirst() throws {
+        let now = Date()
+        let old = now.addingTimeInterval(-ActivitySummary.idleFoldAfter - 1)
+        let make = { (id: String, state: AgentSession.State, since: Date) in
+            AgentSession(id: id, name: id, detail: "", state: state, waitingFor: nil, since: since)
+        }
+        let summary = try XCTUnwrap(ActivitySummary(sessions: [
+            make("stale1", .idle, old), make("busy", .busy, now), make("stale2", .idle, old.addingTimeInterval(-60)),
+        ]))
+        let open = summary.sessionGroups(now: now, cap: 4, showingIdle: true)
+        XCTAssertEqual(open.active.map(\.id), ["busy"])
+        XCTAssertEqual(open.idle.map(\.id), ["stale1", "stale2"])
+        XCTAssertEqual(open.more, 0)
+
+        // Header plus "and N more" is two lines; one row makes way for them.
+        let tight = summary.sessionGroups(now: now, cap: 2, showingIdle: true)
+        XCTAssertEqual(tight.active.map(\.id), ["busy"])
+        XCTAssertEqual(tight.idle, [])
+        XCTAssertEqual(tight.more, 2)
+
+        let closed = summary.sessionGroups(now: now, cap: 4)
+        XCTAssertEqual(closed.idle, [])
+        XCTAssertEqual(closed.folded, 2)
+        XCTAssertEqual(closed.more, 0)
+    }
 }
 
 /// The instant every fixture's `unfinishedRunAt` names. At file scope so it can

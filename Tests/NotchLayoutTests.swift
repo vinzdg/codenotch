@@ -57,7 +57,8 @@ final class NotchLayoutTests: XCTestCase {
         XCTAssertGreaterThan(one, bare)
         XCTAssertEqual(
             two - one,
-            2 * NotchLayout.cardBodyLineHeight + NotchLayout.sessionRowGap + NotchLayout.blockSpacing,
+            2 * NotchLayout.cardBodyLineHeight + NotchLayout.sessionRowGap
+                + 2 * NotchLayout.sessionRowPadding + NotchLayout.sessionRowSpacing,
             accuracy: 0.001
         )
     }
