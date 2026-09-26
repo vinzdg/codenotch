@@ -115,6 +115,36 @@ final class UsageLimitWatcherTests: XCTestCase {
         XCTAssertEqual(alerts[0].kind, .sessionLimitReached)
     }
 
+    /// A spent week blocks the headline with it, but the session card must
+    /// not claim the session itself spent: the weekly alert is the accurate
+    /// one.
+    func testWeeklyCausedBlockDoesNotFireSessionAlert() {
+        watcher.observe([snapshot("claude", "Claude", sessionFraction: 0.50, weeklyFraction: 0.80)])
+        watcher.observe([snapshot("claude", "Claude", sessionFraction: 0.50, weeklyFraction: 1.00,
+                                  block: UsageBlock(reason: "Weekly limit reached", resetsAt: nil,
+                                                    isWeeklyExhaustion: true))])
+        XCTAssertEqual(alerts.map(\.kind), [.weeklyLimitReached])
+    }
+
+    /// Under the daily pace derivation the weekly id points at the session
+    /// window, so no weekly alert fires — and the weekly-caused block must
+    /// not fire a session one with the wrong copy either. Silent, as before.
+    func testWeeklyCausedBlockUnderPaceDerivationStaysSilent() {
+        let windows = [
+            LimitWindow(id: DailyPace.windowID, label: "Daily pace", usedFraction: 0.5),
+            LimitWindow(id: "session", label: "Session", usedFraction: 0.6),
+        ]
+        func paced(block: UsageBlock?) -> ProviderSnapshot {
+            ProviderSnapshot(id: "claude", displayName: "Claude", glyph: .claude,
+                             fidelity: .official, status: .ok, windows: windows,
+                             headlineID: DailyPace.windowID, weeklyID: "session", block: block)
+        }
+        watcher.observe([paced(block: nil)])
+        watcher.observe([paced(block: UsageBlock(reason: "Weekly limit reached", resetsAt: nil,
+                                                 isWeeklyExhaustion: true))])
+        XCTAssertTrue(alerts.isEmpty)
+    }
+
     func testNoRepeatAlertWhileExhausted() {
         watcher.observe([snapshot("claude", "Claude", sessionFraction: 0.80)])
         watcher.observe([snapshot("claude", "Claude", sessionFraction: 1.00)])

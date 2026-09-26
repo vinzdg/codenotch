@@ -7,6 +7,9 @@ import os
 @MainActor
 final class Preferences: ObservableObject {
     static let showUsagePaceKey = "showUsagePace"
+    /// Beside `showUsagePaceKey` rather than inside `Keys`: the tooltip card
+    /// reads it straight from the store, and `Keys` is private.
+    static let showsRemainingInNotchKey = "showsRemainingInNotch"
 
     /// Provider IDs that currently have a ring. Stored as the ones that are
     /// on, so a provider added later stays off until someone switches it on —
@@ -61,6 +64,16 @@ final class Preferences: ObservableObject {
         didSet {
             if let data = try? JSONEncoder().encode(customEndpoints) {
                 defaults.set(data, forKey: Keys.customEndpoints)
+            }
+        }
+    }
+
+    /// User-configured coding accounts on other machines, reached over SSH.
+    @Published var remoteHosts: [RemoteHost] {
+        didSet {
+            if let data = try? JSONEncoder().encode(remoteHosts) {
+                defaults.set(data, forKey: Keys.remoteHosts)
+                defaults.removeObject(forKey: Keys.remoteClaudeHosts)
             }
         }
     }
@@ -260,6 +273,30 @@ final class Preferences: ObservableObject {
     /// `NotchViewModel.showsCellReading`.
     @Published var showsNotchReadings: Bool {
         didSet { defaults.set(showsNotchReadings, forKey: Keys.showsNotchReadings) }
+    }
+
+    /// Whether the notch reads what is left rather than what is spent: the
+    /// figure under each ring, the arcs' sweep, and the card's bars and
+    /// percentages.
+    ///
+    /// Off by default: used is what the notch has always drawn, and flipping
+    /// it changes what every meter means. Bands still judge by what is
+    /// spent — colour answers how bad, sweep answers how much — and the
+    /// usage pace still compares spent against elapsed, which is the only
+    /// comparison a deficit can be computed from.
+    @Published var showsRemainingInNotch: Bool {
+        didSet { defaults.set(showsRemainingInNotch, forKey: Self.showsRemainingInNotchKey) }
+    }
+
+    /// Whether a spent window shuts the rings beside it. A spent 5-hour with
+    /// a healthy week, or the reverse, leaves rings that read usable and are
+    /// not: with this on, both rings say shut instead — dark grey where the
+    /// notch reads what is left, the red 100% earns where it reads spent.
+    ///
+    /// On by default: a spent window pretending its rings are usable is the
+    /// worse surprise.
+    @Published var shutRingsWhenSpent: Bool {
+        didSet { defaults.set(shutRingsWhenSpent, forKey: Keys.shutRingsWhenSpent) }
     }
 
     @Published var weeklyRingDashed: Bool {
@@ -530,6 +567,7 @@ final class Preferences: ObservableObject {
         static let weeklyRingDashed = "weeklyRingDashed"
         static let showsNotchReadings = "showsNotchReadings"
         static let weeklyReading = "weeklyReading"
+        static let shutRingsWhenSpent = "shutRingsWhenSpent"
         static let claudeDailyPaceRing = "claudeDailyPaceRing"
         static let weeklyHeadline = "weeklyHeadline"
         static let showsMoveHandle = "showsMoveHandle"
@@ -538,6 +576,11 @@ final class Preferences: ObservableObject {
         static let criticalLimit = "criticalLimit"
         static let colorTransitionStyle = "colorTransitionStyle"
         static let customEndpoints = "customEndpoints"
+        static let remoteHosts = "remoteHosts"
+        /// Entries written when remote hosts were Claude-only. Read once on
+        /// the way to the new key, then dropped — the shapes match, and kinds
+        /// default to Claude.
+        static let remoteClaudeHosts = "remoteClaudeHosts"
         static let lastSeenVersion = "lastSeenVersion"
         static let order = "providerOrder"
         static let announceSessionEnd = "announceSessionEnd"
@@ -662,6 +705,23 @@ final class Preferences: ObservableObject {
         if let data = try? JSONEncoder().encode(endpoints) {
             defaults.set(data, forKey: Keys.customEndpoints)
         }
+    }
+
+    /// Remote hosts read straight from disk, off the main actor.
+    ///
+    /// Copy that only has a provider id — the tooltip's sign-in guidance —
+    /// needs the `user@host` behind it, and `@Published` state is
+    /// main-actor-isolated where `UserDefaults` is thread-safe.
+    nonisolated static func storedRemoteHosts(
+        defaults: UserDefaults = .standard
+    ) -> [RemoteHost] {
+        for key in [Keys.remoteHosts, Keys.remoteClaudeHosts] {
+            if let data = defaults.data(forKey: key),
+               let hosts = try? JSONDecoder().decode([RemoteHost].self, from: data) {
+                return hosts
+            }
+        }
+        return []
     }
 
     /// The MiniMax region read straight from disk, off the main actor.
@@ -867,6 +927,10 @@ final class Preferences: ObservableObject {
         self.weeklyRingDashed = defaults.object(forKey: Keys.weeklyRingDashed) as? Bool ?? false
         self.showsNotchReadings = defaults.object(forKey: Keys.showsNotchReadings) as? Bool ?? true
         self.weeklyReading = defaults.object(forKey: Keys.weeklyReading) as? Bool ?? false
+        // Off by default: it swaps what every meter means, and that is a
+        // choice for whoever budgets from the other end.
+        self.showsRemainingInNotch = defaults.bool(forKey: Self.showsRemainingInNotchKey)
+        self.shutRingsWhenSpent = defaults.object(forKey: Keys.shutRingsWhenSpent) as? Bool ?? true
 
         self.weeklyRing = defaults.string(forKey: Keys.weeklyRing)
             .flatMap(WeeklyRing.init(rawValue:)) ?? .off
@@ -922,6 +986,7 @@ final class Preferences: ObservableObject {
         } else {
             self.customEndpoints = []
         }
+        self.remoteHosts = Self.storedRemoteHosts(defaults: defaults)
         // Read from the system rather than from our own store: the user can turn
         // this off in System Settings, and a remembered `true` would then be a lie.
         self.launchAtLogin = Self.isRegisteredForLogin
@@ -979,6 +1044,29 @@ final class Preferences: ObservableObject {
             }
         }
         customEndpoints.removeAll { $0.id == id }
+    }
+
+    // MARK: Remote hosts
+
+    func addRemoteHost(_ host: RemoteHost) {
+        remoteHosts.append(host)
+        if host.isEnabled {
+            setConnected(true, for: host.providerID)
+        }
+    }
+
+    func updateRemoteHost(_ host: RemoteHost) {
+        if let idx = remoteHosts.firstIndex(where: { $0.id == host.id }) {
+            remoteHosts[idx] = host
+            setConnected(host.isEnabled, for: host.providerID)
+        }
+    }
+
+    func removeRemoteHost(id: String) {
+        if let host = remoteHosts.first(where: { $0.id == id }) {
+            setConnected(false, for: host.providerID)
+        }
+        remoteHosts.removeAll { $0.id == id }
     }
 
     // MARK: Account names

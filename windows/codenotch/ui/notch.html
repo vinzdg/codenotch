@@ -331,6 +331,7 @@ const rampTone=f=>{
 };
 const tone=f=> colorTransition==='ramp'?rampTone(f):stepTone(f);
 // Whole percents, except where rounding would read as nothing used or nothing left, as the Mac's Percent does
+// HEADLINE_PCT_START
 function smallPct(v){
   if(v<=0) return '0';
   const t=Math.round(v*10)/10;
@@ -339,15 +340,35 @@ function smallPct(v){
   return t.toFixed(1);
 }
 function pctText(f){ const v=f*100; return v>0&&v<1?smallPct(v):String(Math.round(v)); }
-// Both ends, since vendors disagree on which they print; the left half comes from the rounded used half, as their dashboards do
-function usedCopy(w){
-  const v=w.used*100;
+// The tooltip's own left half, not one minus the fraction: it derives from the *rounded* used
+// figure, so the notch and the card never disagree by a point. As the Mac's Percent.halves does.
+function leftPctText(f){
+  const v=f*100;
+  if((v>0&&v<1)||(v>99&&v<100)){ const l=Math.max(0,100-v); return l>99.9?'>99.9':smallPct(l); }
+  return String(Math.max(0,100-Math.round(v)));
+}
+// The share of the allowance the meters draw: spent by default, what is left when the notch is
+// set that way. One rule behind the rings' sweep and the card's bars — callers clamp to what
+// they draw, so an overspent limit reads empty rather than negative. As the Mac's Percent.metered
+// does. Colours never come through here: how bad a reading is stays a question about what was spent.
+function meteredFraction(f,showRemaining){ return showRemaining?1-f:f; }
+// Both halves as text, the '~' staying on the used half it qualifies. Shared so the card line and
+// the tests below read the same computation.
+function usedHalves(f,derived){
+  const v=f*100;
   let used, left;
   if((v>0&&v<1)||(v>99&&v<100)){ used=smallPct(v); left=100-v>99.9?'>99.9':smallPct(Math.max(0,100-v)); }
   else { const u=Math.round(v); used=String(u); left=String(Math.max(0,100-u)); }
-  if(w.derived) used='~'+used;
-  return ui().usedLeft(used,left);
+  if(derived) used='~'+used;
+  return [used,left];
 }
+// Both ends, since vendors disagree on which they print; the left half comes from the rounded used half, as their dashboards do.
+// The line keeps both ends either way — the card is the detailed view — but the remaining figure leads when set.
+function usedCopy(w){
+  const [u,l]=usedHalves(w.used,w.derived);
+  return showRemaining?ui().leftUsed(l,u):ui().usedLeft(u,l);
+}
+// HEADLINE_PCT_END
 
 let usage={status:'',windows:[],fetched_at:0,note:''};
 let codexSnap={status:'absent',windows:[],fetched_at:0,note:''};
@@ -909,31 +930,31 @@ const UI={
   ko:{locale:'ko-KR',title:n=>n+' 사용량',resetting:'재설정 중…',resetsIn:m=>`${m}분 후 재설정`,
       resetsAt:t=>`${t}에 재설정`,resetsOn:(d,t)=>`${d} ${t}에 재설정`,resetsDate:d=>`${d}에 재설정`,
       ago:m=>m<60?`${m}분 전`:`${Math.round(m/60)}시간 전`,
-      usedLeft:(used,left)=>`${used}% 사용 · ${left}% 남음`,andMore:n=>`외 ${n}개`,updated:a=>`${a}에 마지막 업데이트됨`},
+      usedLeft:(used,left)=>`${used}% 사용 · ${left}% 남음`,leftUsed:(left,used)=>`${left}% 남음 · ${used}% 사용`,andMore:n=>`외 ${n}개`,updated:a=>`${a}에 마지막 업데이트됨`},
   'pt-BR':{locale:'pt-BR',title:n=>'Uso do '+n,resetting:'Renovando…',resetsIn:m=>`Renova em ${m} min`,
       resetsAt:t=>`Renova às ${t}`,resetsOn:(d,t)=>`Renova ${d} às ${t}`,resetsDate:d=>`Renova ${d}`,
       ago:m=>m<60?`há ${m} min`:`há ${Math.round(m/60)} h`,
-      usedLeft:(used,left)=>`${used}% usado · ${left}% restante`,andMore:n=>`e mais ${n}`},
+      usedLeft:(used,left)=>`${used}% usado · ${left}% restante`,leftUsed:(left,used)=>`${left}% restante · ${used}% usado`,andMore:n=>`e mais ${n}`},
   en:{locale:'en-US',title:n=>n+' Usage',resetting:'Resetting…',resetsIn:m=>`Resets in ${m} min`,
       resetsAt:t=>`Resets at ${t}`,resetsOn:(d,t)=>`Resets ${d} ${t}`,resetsDate:d=>`Resets ${d}`,
       ago:m=>m<60?`${m}m ago`:`${Math.round(m/60)}h ago`,
-      usedLeft:(used,left)=>`${used}% Used · ${left}% left`,andMore:n=>`and ${n} more`,updated:a=>`Updated ${a}`},
+      usedLeft:(used,left)=>`${used}% Used · ${left}% left`,leftUsed:(left,used)=>`${left}% left · ${used}% Used`,andMore:n=>`and ${n} more`,updated:a=>`Updated ${a}`},
   uk:{locale:'uk-UA',title:n=>'Використання '+n,resetting:'Скидання…',resetsIn:m=>`Скидання через ${m} хв`,
       resetsAt:t=>`Скидання о ${t}`,resetsOn:(d,t)=>`Скидання: ${d} ${t}`,resetsDate:d=>`Скидання: ${d}`,
       ago:m=>m<60?`${m} хв тому`:`${Math.round(m/60)} год тому`,
-      usedLeft:(used,left)=>`Використано ${used}% · лишилось ${left}%`,andMore:n=>`і ще ${n}`,updated:a=>`Оновлено ${a}`},
+      usedLeft:(used,left)=>`Використано ${used}% · лишилось ${left}%`,leftUsed:(left,used)=>`лишилось ${left}% · Використано ${used}%`,andMore:n=>`і ще ${n}`,updated:a=>`Оновлено ${a}`},
   ru:{locale:'ru-RU',title:n=>'Использование '+n,resetting:'Сброс…',resetsIn:m=>`Сброс через ${m} мин`,
       resetsAt:t=>`Сброс в ${t}`,resetsOn:(d,t)=>`Сброс: ${d} ${t}`,resetsDate:d=>`Сброс: ${d}`,
       ago:m=>m<60?`${m} мин назад`:`${Math.round(m/60)} ч назад`,
-      usedLeft:(used,left)=>`Использовано ${used}% · осталось ${left}%`,andMore:n=>`и ещё ${n}`,updated:a=>`Обновлено ${a}`},
+      usedLeft:(used,left)=>`Использовано ${used}% · осталось ${left}%`,leftUsed:(left,used)=>`осталось ${left}% · Использовано ${used}%`,andMore:n=>`и ещё ${n}`,updated:a=>`Обновлено ${a}`},
   zh:{locale:'zh-CN',title:n=>n+' 用量',resetting:'正在重置…',resetsIn:m=>`${m} 分钟后重置`,
       resetsAt:t=>`${t} 重置`,resetsOn:(d,t)=>`${d} ${t} 重置`,resetsDate:d=>`${d} 重置`,
       ago:m=>m<60?`${m} 分钟前`:`${Math.round(m/60)} 小时前`,
-      usedLeft:(used,left)=>`已用 ${used}% · 剩余 ${left}%`,andMore:n=>`另有 ${n} 个`,updated:a=>`更新于 ${a}`},
+      usedLeft:(used,left)=>`已用 ${used}% · 剩余 ${left}%`,leftUsed:(left,used)=>`剩余 ${left}% · 已用 ${used}%`,andMore:n=>`另有 ${n} 个`,updated:a=>`更新于 ${a}`},
   'zh-Hant':{locale:'zh-TW',title:n=>n+' 用量',resetting:'正在重置…',resetsIn:m=>`${m} 分鐘後重置`,
       resetsAt:t=>`${t} 重置`,resetsOn:(d,t)=>`${d} ${t} 重置`,resetsDate:d=>`${d} 重置`,
       ago:m=>m<60?`${m} 分鐘前`:`${Math.round(m/60)} 小時前`,
-      usedLeft:(used,left)=>`已用 ${used}% · 剩餘 ${left}%`,andMore:n=>`另有 ${n} 個`,updated:a=>`更新於 ${a}`},
+      usedLeft:(used,left)=>`已用 ${used}% · 剩餘 ${left}%`,leftUsed:(left,used)=>`剩餘 ${left}% · 已用 ${used}%`,andMore:n=>`另有 ${n} 個`,updated:a=>`更新於 ${a}`},
 };
 function ui(){return UI[uiLang]||UI.en;}
 function textCopy(value){
@@ -1097,7 +1118,7 @@ function renderRing(){
     const h=headlineOf(p.snap,p.base);
     let inner=`<circle cx="28" cy="28" r="22" fill="${HOLE}"/><circle cx="28" cy="28" r="25" fill="none" stroke="${TRACK}" stroke-width="5"/>`;
     wrap.classList.toggle('pressed',!!refreshing[p.id]);
-    reading.innerHTML=h && h.count==null?svgArc(25,Math.min(h.used,1),tone(h.used),5):'';
+    reading.innerHTML=h && h.count==null?svgArc(25,Math.min(Math.max(meteredFraction(h.used,showRemaining),0),1),tone(h.used),5):'';
     if(weeklyRing!=='off'){ // the week, thinner and at its own radius, in its own colour: a session at 12% beside a week at 91% is the case this exists for
       const wk=weeklyOf(p.snap,p.base);
       // Inside, it shares the gap with the working indicator, so it stands down while that is showing
@@ -1105,7 +1126,7 @@ function renderRing(){
       if(wk&&(!h||wk.id!==h.id)&&!taken){
         const r=weeklyRing==='inside'?16:31;
         inner+=`<circle cx="28" cy="28" r="${r}" fill="none" stroke="${TRACK}" stroke-width="2.4" opacity="0.7"/>`
-          +svgArc(r,Math.min(wk.used,1),tone(wk.used),2.4,'opacity="0.85"');
+          +svgArc(r,Math.min(Math.max(meteredFraction(wk.used,showRemaining),0),1),tone(wk.used),2.4,'opacity="0.85"');
       }
     }
     svg.innerHTML=inner;
@@ -1118,7 +1139,7 @@ function renderRing(){
     }
     if(p.snap.status==='needsAuth'||p.snap.status==='none') pct.textContent='—';
     else if(h && h.count!=null) pct.textContent='~'+h.count;
-    else if(h) pct.textContent=(h.derived?'~':'')+pctText(h.used)+'%';
+    else if(h) pct.textContent=(h.derived?'~':'')+(showRemaining?leftPctText(h.used):pctText(h.used))+'%';
     else pct.textContent=p.snap.windows.length?'—':'…'; // its declared window is missing: a dash, not a wait
     glyph.classList.toggle('dim', !!(h && h.used>=1));
     wrap.classList.toggle('stale', staleOf(p.snap));
@@ -1209,7 +1230,7 @@ function renderCard(){
       }
       html+=`<div class="win">
         <div class="w-row"><span class="w-label">${esc(textCopy(w.label))}</span><span class="w-reset">${resetCopy(w.resets_at)}</span></div>
-        <div class="w-track"><div class="w-fill" style="width:${(Math.min(w.used,1)*100).toFixed(0)}%;background:${tone(w.used)}"></div></div>
+        <div class="w-track"><div class="w-fill" style="width:${(Math.min(Math.max(meteredFraction(w.used,showRemaining),0),1)*100).toFixed(0)}%;background:${tone(w.used)}"></div></div>
         <div class="w-used">${esc(usedCopy(w))}</div>
       </div>`;
     }
@@ -1481,7 +1502,7 @@ function notice(msg){
    A click on the settings orb opens Settings; holding the move handle carries the notch. */
 const orb=document.getElementById('orb'), moveHandle=document.getElementById('move');
 const HANDLE_REACH=28.5; // the Mac's hot zone, half of 57
-let orbAt=null, moveAt=null, hovered=null, orbSpins=0, moveSpins=0, showMove=true, carrying=false;
+let orbAt=null, moveAt=null, hovered=null, orbSpins=0, moveSpins=0, showMove=true, showRemaining=false, carrying=false;
 function put(el,x,y,z){
   el.style.left=(x/z-HANDLE_REACH)+'px'; el.style.top=(y/z-HANDLE_REACH)+'px';
   el.classList.add('placed');
@@ -1579,6 +1600,8 @@ listen('pill_backdrop',e=>{
 invoke('get_ui_flags').then(applyUiFlags).catch(()=>{});
 listen('move_handle',e=>{ showMove=e.payload!==false; reportHot(); }).catch(()=>{});
 invoke('get_move_handle').then(v=>{ showMove=v!==false; reportHot(); }).catch(()=>{});
+listen('notch_shows_remaining',e=>{ showRemaining=e.payload===true; renderRing(); }).catch(()=>{});
+invoke('get_notch_shows_remaining').then(v=>{ showRemaining=v===true; renderRing(); }).catch(()=>{});
 
 listen('usage',e=>{usage=e.payload||usage;claudeActionMessage='';settle('claude');renderRing();if(card.classList.contains('show'))renderCard();})
   .catch(e=>notice('listen(usage) failed: '+e));

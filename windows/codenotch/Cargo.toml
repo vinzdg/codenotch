@@ -28,6 +28,10 @@ png = "0.17" # application icon → PNG (provider marks taken from the installed
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 # Cursor's credential lives in state.vscdb (SQLite); bundled = compile the SQLite C sources with the crate, which adds 1–2 minutes to the first build
 rusqlite = { version = "0.32", features = ["bundled"] }
+# ZCode seals its credentials with AES-256-GCM keyed by SHA-256 (see glm.rs); ring does both,
+# and base64 the base64url parts. (ring was already in the transitive closure via rustls.)
+ring = "0.17"
+base64 = "0.22"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

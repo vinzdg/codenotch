@@ -166,6 +166,8 @@
           <div class="item cap" id="cap-edge" data-dynamic></div>
           <div class="item"><span>Show move handle</span><button class="switch" id="sw-move" role="switch" aria-checked="false" aria-label="Show move handle"></button></div>
           <div class="item cap">The arc above the notch. Hold it to carry the notch to another edge — Edge above does the same.</div>
+          <div class="item"><span>Show remaining instead of used</span><button class="switch" id="sw-remaining" role="switch" aria-checked="false" aria-label="Show remaining instead of used"></button></div>
+          <div class="item cap">The figure under each ring reads what is left — 87% instead of 13% used, the same number the card prints beside it. The rings themselves still fill by what is spent.</div>
           <div class="item" id="row-screen" hidden><span>Screen</span>
             <select id="screen" aria-label="Screen"></select>
           </div>
@@ -1141,6 +1143,8 @@ const moveHandle = remote('get_move_handle', 'set_move_handle', 'Show move handl
 document.getElementById('sw-move').addEventListener('click', () => moveHandle.toggle());
 const adaptivePill = remote('get_adaptive_pill', 'set_adaptive_pill', 'Adaptive pill', () => drawSwitch(document.getElementById('sw-adaptive'), adaptivePill));
 document.getElementById('sw-adaptive').addEventListener('click', () => adaptivePill.toggle());
+const showRemaining = remote('get_notch_shows_remaining', 'set_notch_shows_remaining', 'Show remaining instead of used', () => drawSwitch(document.getElementById('sw-remaining'), showRemaining));
+document.getElementById('sw-remaining').addEventListener('click', () => showRemaining.toggle());
 
 /* ---- Accounts: which providers get a ring --------------------------------
    Stored as {provider} slots, and an EMPTY list means every provider, so a provider added in a
@@ -1630,6 +1634,7 @@ function boot(){
   autostart.refresh();
   moveHandle.refresh();
   adaptivePill.refresh();
+  showRemaining.refresh();
   hooks.refresh();
 }
 /* Readings and the accent can change while the window is behind something else; coming back to it is
