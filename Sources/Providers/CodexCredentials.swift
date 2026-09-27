@@ -12,6 +12,13 @@ enum CodexCredentials {
     }
 
     static func load(from url: URL = authURL, now: Date = Date()) throws -> Credential {
+        guard let data = try? Data(contentsOf: url) else { throw UsageProviderError.needsAuth }
+        return try load(from: data, now: now)
+    }
+
+    /// The same judgement over bytes that arrived another way — the remote
+    /// reader's SSH output is this file over a wire.
+    static func load(from data: Data, now: Date = Date()) throws -> Credential {
         struct Auth: Decodable {
             struct Tokens: Decodable {
                 let access_token: String
@@ -19,8 +26,7 @@ enum CodexCredentials {
             }
             let tokens: Tokens
         }
-        guard let data = try? Data(contentsOf: url),
-              let auth = try? JSONDecoder().decode(Auth.self, from: data),
+        guard let auth = try? JSONDecoder().decode(Auth.self, from: data),
               !auth.tokens.access_token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !auth.tokens.account_id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { throw UsageProviderError.needsAuth }

@@ -1622,6 +1622,25 @@ fn set_adaptive_pill(app: AppHandle, on: bool) -> bool {
     on
 }
 
+#[tauri::command]
+fn get_notch_shows_remaining(app: AppHandle) -> bool {
+    let st = app.state::<AppState>();
+    let c = st.cfg.lock().unwrap();
+    c.notch_shows_remaining
+}
+
+#[tauri::command]
+fn set_notch_shows_remaining(app: AppHandle, on: bool) -> bool {
+    {
+        let st = app.state::<AppState>();
+        let mut c = st.cfg.lock().unwrap();
+        c.notch_shows_remaining = on;
+        config::save(&c);
+    }
+    let _ = app.emit("notch_shows_remaining", on);
+    on
+}
+
 /// One attached monitor, as Settings lists it.
 #[derive(serde::Serialize)]
 pub struct MonitorInfo {
@@ -1949,6 +1968,8 @@ fn main() {
             set_move_handle,
             get_adaptive_pill,
             set_adaptive_pill,
+            get_notch_shows_remaining,
+            set_notch_shows_remaining,
             dropzones::get_zones,
             settings_window::get_system_look,
             settings_window::quit_app,

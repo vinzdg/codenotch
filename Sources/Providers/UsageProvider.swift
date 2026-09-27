@@ -56,6 +56,11 @@ protocol UsageProvider {
     /// so users see sign-in guidance; local daemon providers return `false`
     /// so an inactive service does not take up a ring in the notch.
     var isVisibleWhenAbsent: Bool { get }
+    /// Whether the idle timer skips this provider. For refreshes that cost
+    /// something per call, so the background never spends on its own. Such a
+    /// provider still refreshes on launch, on wake, when one of its windows
+    /// rolls over, and whenever asked: refresh-all, per-cell, and Settings.
+    var skipsIdleRefresh: Bool { get }
     /// Optional custom icon image filename saved on disk.
     var customIconFilename: String? { get }
 }
@@ -64,6 +69,8 @@ extension UsageProvider {
     func presentAccountSwitch() { presentSignIn() }
 
     var isVisibleWhenAbsent: Bool { true }
+
+    var skipsIdleRefresh: Bool { false }
 
     var customIconFilename: String? { nil }
 }

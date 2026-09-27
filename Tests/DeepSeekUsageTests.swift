@@ -242,3 +242,27 @@ final class DeepSeekUsageTests: XCTestCase {
         }
     }
 }
+
+/// The money bar's headline reads spent by default, what is left when the
+/// notch is set that way — the same rounded-used derivation as the window
+/// rows, so the two never disagree by a point.
+final class MoneyHeadlineTests: XCTestCase {
+    private let balance = UsageMoneyBreakdown(currency: "CNY", spent: 9.20, remaining: 10.87)
+
+    func testSpentLeadsByDefault() {
+        XCTAssertEqual(balance.headlineText(showingRemaining: false), "46% used")
+    }
+
+    func testRemainingLeadsWhenSet() {
+        XCTAssertEqual(balance.headlineText(showingRemaining: true), "54% left")
+    }
+
+    func testTheEndsAgreeAtTheBoundaries() {
+        let empty = UsageMoneyBreakdown(currency: "USD", spent: 0, remaining: 0)
+        XCTAssertEqual(empty.headlineText(showingRemaining: false), "0% used")
+        XCTAssertEqual(empty.headlineText(showingRemaining: true), "100% left")
+        let drained = UsageMoneyBreakdown(currency: "USD", spent: 20, remaining: 0)
+        XCTAssertEqual(drained.headlineText(showingRemaining: false), "100% used")
+        XCTAssertEqual(drained.headlineText(showingRemaining: true), "0% left")
+    }
+}

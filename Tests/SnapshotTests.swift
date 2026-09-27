@@ -69,3 +69,143 @@ final class SnapshotTests: XCTestCase {
         XCTAssertEqual(Fidelity.manual.qualifier, "~")
     }
 }
+
+/// The notch can show what is left instead of what is spent. The figure is
+/// the tooltip's own left half, so the two never disagree by a point.
+final class RemainingHeadlineTests: XCTestCase {
+    private func snapshot(_ windows: [LimitWindow]) -> ProviderSnapshot {
+        ProviderSnapshot(id: "p", displayName: "P", glyph: .claude,
+                         fidelity: .official, status: .ok, windows: windows)
+    }
+
+    private func window(_ used: Double) -> LimitWindow {
+        LimitWindow(id: "w", label: "W", usedFraction: used)
+    }
+
+    func testRemainingReadsFromTheOtherEnd() {
+        let s = snapshot([window(0.125)])
+        XCTAssertEqual(s.headlineText, "13%")
+        XCTAssertEqual(s.headlineText(showingRemaining: true), "87%")
+    }
+
+    /// The left half derives from the *rounded* used figure — 9.5% used is
+    /// "10% Used · 90% left" in the card, so the notch reads 90, not the 91
+    /// one-minus-the-fraction would give.
+    func testRemainingAgreesWithTheTooltipLeftHalf() {
+        for (used, expected) in [(0.0, "100%"), (0.095, "90%"), (0.003, "99.7%"),
+                                 (1.0, "0%"), (1.28, "0%")] as [(Double, String)] {
+            let s = snapshot([window(used)])
+            XCTAssertEqual(s.headlineText(showingRemaining: true), expected, "used \(used)")
+            XCTAssertEqual(s.headlineText(showingRemaining: true),
+                           Percent.halves(for: used).left + "%", "used \(used)")
+        }
+    }
+
+    /// A count of what is left already reads from the asked-for end.
+    func testRemainingCountsAreUnchanged() {
+        let s = snapshot([LimitWindow(id: "r", label: "R", remaining: 2)])
+        XCTAssertEqual(s.headlineText(showingRemaining: true), "2")
+    }
+
+    /// A used count has no remaining figure to show; the number stays rather
+    /// than turning into a dash.
+    func testUsedCountsAreUnchanged() {
+        let s = snapshot([LimitWindow(id: "u", label: "U", used: 651_061)])
+        XCTAssertEqual(s.headlineText(showingRemaining: true), "651k")
+    }
+
+    func testAnExplicitUsedTextIsUnchanged() {
+        let s = snapshot([LimitWindow(id: "u", label: "U", usedFraction: 0.25,
+                                      usedText: "$4.20 spent", prefersUsedText: true)])
+        XCTAssertEqual(s.headlineText(showingRemaining: true), "$4.20 spent")
+    }
+
+    func testNoReadingIsStillADash() {
+        XCTAssertEqual(snapshot([]).headlineText(showingRemaining: true), "—")
+    }
+}
+
+/// The one rule behind the ring's sweep, the card's bars, and every flipped
+/// figure: spent by default, what is left when the notch is set that way.
+final class MeteredFractionTests: XCTestCase {
+    func testSpentPassesThrough() {
+        XCTAssertEqual(Percent.metered(0.125, showingRemaining: false), 0.125, accuracy: 1e-9)
+        XCTAssertEqual(Percent.metered(0, showingRemaining: false), 0, accuracy: 1e-9)
+    }
+
+    func testRemainingComplements() {
+        XCTAssertEqual(Percent.metered(0.125, showingRemaining: true), 0.875, accuracy: 1e-9)
+        XCTAssertEqual(Percent.metered(0, showingRemaining: true), 1, accuracy: 1e-9)
+        XCTAssertEqual(Percent.metered(1, showingRemaining: true), 0, accuracy: 1e-9)
+    }
+
+    /// Unclamped: callers draw 0…1, so an overspent limit reads empty rather
+    /// than negative at the draw site, where the clamp belongs.
+    func testOverspentStaysRawForTheCallerToClamp() {
+        XCTAssertEqual(Percent.metered(1.28, showingRemaining: true), -0.28, accuracy: 1e-9)
+        XCTAssertEqual(Percent.metered(1.28, showingRemaining: false), 1.28, accuracy: 1e-9)
+    }
+}
+
+/// A spent weekly allowance shuts the headline with it, for every provider:
+/// the headline's room is unusable, so the ring must not read green. The
+/// headline keeps its own reading; the ring goes red and the card leads
+/// with when the week lifts.
+final class WeeklyExhaustionBlockTests: XCTestCase {
+    private let reset = Date(timeIntervalSince1970: 1790553600)
+
+    private func snapshot(headlineFraction: Double?, weeklyFraction: Double?,
+                          weeklyID: String? = "weekly") -> ProviderSnapshot {
+        var windows = [
+            LimitWindow(id: "session", label: "Session", usedFraction: headlineFraction)
+        ]
+        if weeklyID != nil {
+            windows.append(LimitWindow(id: "weekly", label: "Weekly",
+                                       usedFraction: weeklyFraction, resetsAt: reset))
+        }
+        return ProviderSnapshot(id: "p", displayName: "P", glyph: .claude,
+                                fidelity: .official, status: .ok, windows: windows,
+                                headlineID: "session", weeklyID: weeklyID)
+    }
+
+    func testSpentWeekBlocksARoomyHeadline() throws {
+        let blocked = snapshot(headlineFraction: 0.2, weeklyFraction: 1).blockingSpentWeek()
+        let block = try XCTUnwrap(blocked.block)
+        XCTAssertEqual(block.reason, "Weekly limit reached")
+        XCTAssertEqual(block.resetsAt, reset)
+        XCTAssertTrue(block.isWeeklyExhaustion)
+        // The headline keeps its own reading — only the ring's band changes.
+        XCTAssertEqual(blocked.usedFraction, 0.2)
+        XCTAssertEqual(blocked.headlineText, "20%")
+    }
+
+    func testOverQuotaWeekBlocks() {
+        XCTAssertNotNil(snapshot(headlineFraction: 0.2, weeklyFraction: 1.28).blockingSpentWeek().block)
+    }
+
+    func testNearlySpentWeekDoesNotBlock() {
+        XCTAssertNil(snapshot(headlineFraction: 0.2, weeklyFraction: 0.999).blockingSpentWeek().block)
+    }
+
+    func testWeekWithoutADenominatorDoesNotBlock() {
+        XCTAssertNil(snapshot(headlineFraction: 0.2, weeklyFraction: nil).blockingSpentWeek().block)
+    }
+
+    func testMissingWeekDoesNotBlock() {
+        XCTAssertNil(snapshot(headlineFraction: 0.2, weeklyFraction: nil, weeklyID: nil).blockingSpentWeek().block)
+    }
+
+    func testAProviderBlockIsNeverReplaced() {
+        let providerBlock = UsageBlock(reason: "Paused", resetsAt: nil)
+        var s = snapshot(headlineFraction: 0.2, weeklyFraction: 1)
+        s.block = providerBlock
+        XCTAssertEqual(s.blockingSpentWeek().block, providerBlock)
+    }
+
+    func testSpentWeekBlocksEvenAsTheHeadline() throws {
+        var s = snapshot(headlineFraction: 0.2, weeklyFraction: 1)
+        s.headlineID = "weekly"
+        let blocked = s.blockingSpentWeek()
+        XCTAssertEqual(try XCTUnwrap(blocked.block).reason, "Weekly limit reached")
+    }
+}
