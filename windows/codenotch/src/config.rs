@@ -279,13 +279,40 @@ pub fn config_path() -> PathBuf {
         .join("config.json")
 }
 
+/// A byte-order mark is not JSON. PowerShell 5's `Set-Content -Encoding UTF8` and Notepad's "UTF-8
+/// with BOM" both write one, and serde_json takes it for a stray character, so a file edited that way
+/// lost every setting in it — and the migrations below, which read the same text, misread it too.
+fn without_bom(text: String) -> String {
+    match text.strip_prefix('\u{feff}') {
+        Some(rest) => rest.to_string(),
+        None => text,
+    }
+}
+
+/// A file that does not parse runs on the defaults, and the first thing saved would write them over
+/// it. So the owner's file is copied out of the way first, and run.log says why — before this a single
+/// hand-edit typo reset everything without a word. File names only in the log line: run.log is what
+/// gets pasted into issues.
+fn set_aside(path: &std::path::Path, err: &serde_json::Error) {
+    let kept = path.with_file_name("config.unreadable.json");
+    let note = match std::fs::copy(path, &kept) {
+        Ok(_) => "the file is kept as config.unreadable.json".to_string(),
+        Err(e) => format!("could not keep a copy ({e})"),
+    };
+    crate::applog(&format!("config: config.json could not be read ({err}), running on defaults; {note}"));
+}
+
 pub fn load() -> Config {
     let path = config_path();
-    let raw = std::fs::read_to_string(&path).ok();
-    let mut cfg: Config = raw
-        .as_deref()
-        .and_then(|t| serde_json::from_str(t).ok())
-        .unwrap_or_default();
+    let raw = std::fs::read_to_string(&path).ok().map(without_bom);
+    let mut cfg: Config = match raw.as_deref().map(serde_json::from_str::<Config>) {
+        Some(Ok(cfg)) => cfg,
+        Some(Err(e)) => {
+            set_aside(&path, &e);
+            Config::default()
+        }
+        None => Config::default(),
+    };
     keep_open_on_upgrade(&mut cfg, raw.as_deref());
 
     // Migration: before slots existed the notch was a plain provider list, one ring each. That is
@@ -361,8 +388,31 @@ pub fn save(cfg: &Config) {
 mod tests {
     use super::{
         carry_shared_position, color_transition_or_step, keep_open_on_upgrade, snap_scale, theme_or_system,
-        weekly_ring_or_off, Config,
+        weekly_ring_or_off, without_bom, Config,
     };
+
+    /// What PowerShell 5 writes for `Set-Content -Encoding UTF8`: the same JSON behind a BOM. It used
+    /// to read as an unreadable file, and every setting in it fell back to its default.
+    #[test]
+    fn a_byte_order_mark_keeps_the_settings() {
+        let text = without_bom("\u{feff}{\"lang\":\"ko\",\"scale\":0.8,\"notch_edge\":\"left\"}".to_string());
+        let cfg: Config = serde_json::from_str(&text).expect("a BOM-prefixed config parses");
+        assert_eq!(cfg.lang, "ko");
+        assert_eq!(cfg.scale, 0.8);
+        assert_eq!(cfg.notch_edge, "left");
+
+        // The migrations read the same text, so they must see past the mark too
+        let mut upgraded = Config::default();
+        keep_open_on_upgrade(&mut upgraded, Some(&without_bom("\u{feff}{\"notch_visible\":true}".to_string())));
+        assert!(!upgraded.notch_on_hover, "an upgrade saved with a BOM still stays open");
+    }
+
+    #[test]
+    fn text_without_a_mark_is_left_alone() {
+        assert_eq!(without_bom("{}".to_string()), "{}");
+        // Only a leading mark is one; anywhere else it is content
+        assert_eq!(without_bom("{\"a\":\"\u{feff}\"}".to_string()), "{\"a\":\"\u{feff}\"}");
+    }
 
     /// Show on hover is the Mac's default, so a fresh install gets it — but an update must not start
     /// folding a notch whose owner has only ever known it open.
