@@ -1331,9 +1331,10 @@ final class StatusMenuTests: XCTestCase {
         XCTAssertEqual(details, ["Sign in to Codex to read your usage"])
     }
 
-    /// The header carries the headline figure and the reading's age — the same
-    /// pair the tooltip header shows.
-    func testTheMenuListsEveryProviderWithRefreshAndSettings() {
+    /// Every provider gets a card, and the card carries the headline figure
+    /// and the reading's age — the same pair the tooltip header shows — with
+    /// its windows in the words accessibility is handed.
+    func testTheMenuDrawsEveryProviderWithRefreshAndSettings() throws {
         let controller = StatusItemController(onOpenSettings: {})
         controller.snapshots = [snapshot(
             status: .stale(since: now.addingTimeInterval(-(20 * 3600 + 21 * 60))),
@@ -1346,12 +1347,15 @@ final class StatusMenuTests: XCTestCase {
         let titles = menu.items.map(\.title)
         XCTAssertTrue(titles[0].contains("Codex — 29%"), titles[0])
         XCTAssertTrue(titles[0].contains("20 hr 21 min ago"), titles[0])
-        XCTAssertTrue(titles[1].contains("Weekly limit"), titles[1])
-        XCTAssertTrue(titles[1].contains("29% Used · 71% left"), titles[1])
+        XCTAssertNotNil(menu.items[0].view, "the provider was drawn as text")
+        let heard = try XCTUnwrap(menu.items[0].accessibilityLabel())
+        XCTAssertTrue(heard.contains("Weekly limit"), heard)
+        XCTAssertTrue(heard.contains("29% Used · 71% left"), heard)
         XCTAssertTrue(titles.contains("Refresh all"))
         XCTAssertTrue(titles.contains("Settings…"))
         XCTAssertTrue(titles.contains("Quit Codenotch"))
-        // The header re-reads its own provider.
+        // The card knows which provider it is drawn for, so an open menu can
+        // put a fresh reading on it without being rebuilt.
         XCTAssertEqual(menu.items[0].representedObject as? String, "codex")
     }
 
