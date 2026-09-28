@@ -206,6 +206,10 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(showUsagePace, forKey: Self.showUsagePaceKey) }
     }
 
+    @Published var showUsageHistory: Bool {
+        didSet { defaults.set(showUsageHistory, forKey: Keys.showUsageHistory) }
+    }
+
     /// Whether Claude's big ring shows the day's share of the weekly limit
     /// instead of the session. See `DailyPace`.
     @Published var claudeDailyPaceRing: Bool {
@@ -223,6 +227,10 @@ final class Preferences: ObservableObject {
     /// the main Codex window either way.
     @Published var showCodexExtraLimits: Bool {
         didSet { defaults.set(showCodexExtraLimits, forKey: Keys.showCodexExtraLimits) }
+    }
+
+    @Published var showCodexDailyLimit: Bool {
+        didSet { defaults.set(showCodexDailyLimit, forKey: Keys.showCodexDailyLimit) }
     }
 
     /// Whether DeepSeek's current peak/off-peak billing phase is shown in its
@@ -555,6 +563,8 @@ final class Preferences: ObservableObject {
         static let deepSeekPricingEnabled = "deepSeekPricingEnabled"
         static let deepSeekPricingSchedule = "deepSeekPricingSchedule"
         static let showCodexExtraLimits = "showCodexExtraLimits"
+        static let showUsageHistory = "showUsageHistory"
+        static let showCodexDailyLimit = "showCodexDailyLimit"
     }
 
     /// The budget read straight from disk, off the main actor.
@@ -601,6 +611,11 @@ final class Preferences: ObservableObject {
         defaults: UserDefaults = .standard
     ) -> Bool {
         defaults.object(forKey: Keys.showCodexExtraLimits) as? Bool ?? true
+    }
+
+    /// Read by the Codex provider, an actor, which cannot touch `@Published` state.
+    nonisolated static func storedShowCodexDailyLimit(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: Keys.showCodexDailyLimit)
     }
 
     /// The MiniMax region read straight from disk, off the main actor.
@@ -834,12 +849,14 @@ final class Preferences: ObservableObject {
         self.resetTimeFormat = defaults.string(forKey: Keys.resetTimeFormat)
             .flatMap(ResetTimeFormat.init(rawValue:)) ?? .automatic
         self.showUsagePace = defaults.bool(forKey: Self.showUsagePaceKey)
+        self.showUsageHistory = defaults.bool(forKey: Keys.showUsageHistory)
         // Off by default: it swaps what Claude's ring means, and that is a
         // choice for whoever budgets their week that way.
         self.claudeDailyPaceRing = defaults.bool(forKey: Keys.claudeDailyPaceRing)
         // Off by default for the same reason: it changes what every ring means.
         self.weeklyHeadline = defaults.bool(forKey: Keys.weeklyHeadline)
         self.showCodexExtraLimits = Self.storedShowCodexExtraLimits(defaults: defaults)
+        self.showCodexDailyLimit = Self.storedShowCodexDailyLimit(defaults: defaults)
         self.deepSeekPricingEnabled = defaults.object(forKey: Keys.deepSeekPricingEnabled) as? Bool ?? true
         if let data = defaults.data(forKey: Keys.deepSeekPricingSchedule),
            let schedule = try? JSONDecoder().decode(DeepSeekPricing.Schedule.self, from: data) {

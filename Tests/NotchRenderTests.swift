@@ -1078,3 +1078,42 @@ final class ReadingToggleRelaysThePanelOutTests: XCTestCase {
         }
     }
 }
+
+/// **The panel grows with the projection line.** The line comes and goes with
+/// the pace switch and the clock, not with a new reading, so waiting for the
+/// next snapshot left the tallest card deeper than its panel.
+@MainActor
+final class PanelFollowsTheProjectionTests: XCTestCase {
+    private func settle(_ seconds: TimeInterval) {
+        let until = Date().addingTimeInterval(seconds)
+        while Date() < until {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        }
+    }
+
+    func testThePanelFollowsThePaceSwitch() throws {
+        let controller = NotchWindowController()
+        controller.show()
+        defer { controller.stop() }
+        let now = Date()
+        controller.model.now = now
+        controller.model.updateSnapshots([ProviderSnapshot(
+            id: "claude", displayName: "Claude", glyph: .claude, fidelity: .official, status: .ok,
+            windows: (0..<4).map {
+                LimitWindow(id: "w\($0)", label: "Window", usedFraction: 0.8,
+                            resetsAt: now.addingTimeInterval(9000), duration: 18000)
+            }
+        )])
+        controller.apply(edge: .right)
+        controller.relocate()
+        settle(0.3)
+        let before = try XCTUnwrap(controller.panelContentViewForTesting?.window?.frame.size)
+
+        controller.model.showsUsagePace = true
+        settle(0.3)
+        let after = try XCTUnwrap(controller.panelContentViewForTesting?.window?.frame.size)
+        XCTAssertNotEqual(after, before, "turning pace on added lines the panel never made room for")
+        XCTAssertEqual(after.height, controller.model.panelSize.height, accuracy: 1)
+        XCTAssertEqual(after.width, controller.model.panelSize.width, accuracy: 1)
+    }
+}

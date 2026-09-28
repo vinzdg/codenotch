@@ -64,6 +64,7 @@ final class NotchFleet {
     private var foldsForFullScreen = true
     private var surfaceStyle: NotchSurfaceStyle = .glass
     private var deepSeekPricingEnabled = true
+    private var showsUsagePace = false
     private var deepSeekPricingSchedule = DeepSeekPricing.Schedule.current
     /// The ⌥-drag nudge along the current edge. One value for the whole
     /// fleet, the same as `edge` itself — displays do not each get their own
@@ -260,6 +261,13 @@ final class NotchFleet {
         self.deepSeekPricingEnabled = deepSeekPricingEnabled
         for controller in controllers.values {
             controller.model.deepSeekPricingEnabled = deepSeekPricingEnabled
+        }
+    }
+
+    func apply(showsUsagePace: Bool) {
+        self.showsUsagePace = showsUsagePace
+        for controller in controllers.values {
+            controller.model.showsUsagePace = showsUsagePace
         }
     }
 
@@ -468,6 +476,7 @@ final class NotchFleet {
         controller.model.weeklyReading = weeklyReading
         controller.model.surfaceStyle = surfaceStyle
         controller.model.deepSeekPricingEnabled = deepSeekPricingEnabled
+        controller.model.showsUsagePace = showsUsagePace
         controller.model.deepSeekPricingSchedule = deepSeekPricingSchedule
 
         controller.onRefresh = onRefresh
