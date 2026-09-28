@@ -244,6 +244,16 @@ final class NotchWindowController {
             .sink { [weak self] _ in self?.relocate() }
             .store(in: &cancellables)
 
+        // Projection lines come and go with the pace switch and the clock, not
+        // with a new reading. Counted after the hop, once both values have landed.
+        model.$showsUsagePace.combineLatest(model.$now)
+            .receive(on: RunLoop.main)
+            .map { [model] _ in model.projectionRows }
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in self?.relocate() }
+            .store(in: &cancellables)
+
         // No `receive(on:)`: the appearance has to be on the window before the
         // next draw, or the frame's hexes and the glass would be resolved
         // against the appearance the panel is about to stop having.
@@ -1244,6 +1254,8 @@ final class NotchWindowController {
             showsLocalPerformance: snapshot.showsLocalPerformance,
                 localLedgerRows: snapshot.localLedgerRowCount,
             compactRowCount: snapshot.compactRowCount,
+            projectionRowCount: snapshot.projectionRowCount(now: model.now, showsUsagePace: model.showsUsagePace),
+            hasUsageHistory: snapshot.chartedHistory != nil,
             showsDeepSeekPricing: model.deepSeekPricingEnabled
         )
         // Across the stack the region is the card, its tail, and the gap the

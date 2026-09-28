@@ -495,6 +495,15 @@ private struct LimitWindowRow: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
                     .padding(.top, NotchLayout.barToUsed)
+
+                if showsUsagePace, let projection = window.projection(now: now) {
+                    Text(projection.summary(now: now))
+                        .font(Typography.cardBody)
+                        .foregroundStyle(secondaryInk)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .padding(.top, NotchLayout.projectionGap)
+                }
             }
         }
     }
@@ -1082,6 +1091,81 @@ private struct SessionList: View {
     }
 }
 
+/// The charted window's used share across this cycle, beside the even pace
+/// that would spend it exactly at the reset.
+private struct UsageHistorySection: View {
+    let series: UsageHistory.Series
+    let window: LimitWindow
+    let now: Date
+    @Environment(\.codenotchAccentColor) private var accentColor
+    @Environment(\.tooltipSecondaryInk) private var secondaryInk
+
+    private var end: Date { window.resetsAt ?? now }
+    private var duration: TimeInterval { max(1, window.duration ?? 1) }
+    private var start: Date { end.addingTimeInterval(-duration) }
+
+    private func point(_ date: Date, _ used: Double, in size: CGSize) -> CGPoint {
+        let x = min(max(date.timeIntervalSince(start) / duration, 0), 1)
+        let y = 1 - min(max(used, 0), 1)
+        return CGPoint(x: size.width * CGFloat(x), y: size.height * CGFloat(y))
+    }
+
+    private func measured(observed: Bool, in size: CGSize) -> Path {
+        Path { path in
+            for segment in series.segments where segment.observed == observed {
+                path.move(to: point(segment.from.at, segment.from.used, in: size))
+                path.addLine(to: point(segment.to.at, segment.to.used, in: size))
+            }
+        }
+    }
+
+    private func label(_ date: Date) -> String {
+        let formatter = ResetCopy.formatter(for: .current)
+        formatter.locale = L10n.locale
+        formatter.setLocalizedDateFormatFromTemplate(duration >= 86400 ? "E d" : "j:mm")
+        return formatter.string(from: date)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Rectangle()
+                .fill(Palette.ringTrack)
+                .frame(height: NotchLayout.hairline)
+                .padding(.top, NotchLayout.codexUsageTop)
+
+            GeometryReader { proxy in
+                let size = proxy.size
+                ZStack {
+                    Path { path in
+                        path.move(to: point(start, 0, in: size))
+                        path.addLine(to: point(end, 1, in: size))
+                    }
+                    .stroke(secondaryInk, style: StrokeStyle(lineWidth: Design.px(2), dash: [Design.px(6), Design.px(6)]))
+
+                    measured(observed: true, in: size)
+                        .stroke(accentColor, style: StrokeStyle(lineWidth: Design.px(4), lineCap: .round))
+                    measured(observed: false, in: size)
+                        .stroke(accentColor, style: StrokeStyle(lineWidth: Design.px(4), lineCap: .round,
+                                                                dash: [Design.px(4), Design.px(8)]))
+
+                    if let projection = window.projection(now: now), let used = window.usedFraction {
+                        Path { path in
+                            path.move(to: point(now, used, in: size))
+                            path.addLine(to: point(projection.hitAt, 1, in: size))
+                        }
+                        .stroke(secondaryInk, style: StrokeStyle(lineWidth: Design.px(3), dash: [Design.px(4), Design.px(6)]))
+                    }
+                }
+            }
+            .frame(height: NotchLayout.historyChartHeight)
+            .padding(.top, NotchLayout.historyChartTop)
+
+            SplitRow(leading: label(start), trailing: label(end))
+                .padding(.top, NotchLayout.codexUsageRowGap)
+        }
+    }
+}
+
 // MARK: - Entry point
 
 struct TooltipCard: View {
@@ -1128,6 +1212,8 @@ struct TooltipCard: View {
             showsLocalPerformance: snapshot.showsLocalPerformance,
                 localLedgerRows: snapshot.localLedgerRowCount,
             compactRowCount: snapshot.compactRowCount,
+            projectionRowCount: snapshot.projectionRowCount(now: now, showsUsagePace: showUsagePace),
+            hasUsageHistory: snapshot.chartedHistory != nil,
             showsDeepSeekPricing: deepSeekPricingEnabled
         )
     }
@@ -1142,6 +1228,9 @@ struct TooltipCard: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ProviderTooltip(activityNote: localActivityNote, snapshot: snapshot, now: now, resetTimeFormat: resetTimeFormat,
                                     showUsagePace: showUsagePace)
+                    if let charted = snapshot.chartedHistory {
+                        UsageHistorySection(series: charted.series, window: charted.window, now: now)
+                    }
                     if let resetCredits = snapshot.availableResetCredits(at: now) {
                         UsageResetCreditsSection(credits: resetCredits, now: now)
                     }

@@ -334,4 +334,24 @@ final class TooltipRenderTests: XCTestCase {
                            "\(direction): the outline left a tail behind where the tail no longer is")
         }
     }
+
+    func testUsageHistoryChartRenders() throws {
+        let now = Date()
+        var snapshot = ProviderSnapshot(
+            id: "claude", displayName: "Claude", glyph: .claude, fidelity: .official, status: .ok,
+            windows: [LimitWindow(id: "weekly_all", label: "Weekly", usedFraction: 0.6,
+                                  resetsAt: now.addingTimeInterval(302400), duration: 604800)],
+            weeklyID: "weekly_all"
+        )
+        snapshot.usageHistory = UsageHistory.Series(
+            windowID: "weekly_all", cycleStart: now.addingTimeInterval(-302400),
+            samples: [.init(at: now.addingTimeInterval(-200000), used: 0.2),
+                      .init(at: now.addingTimeInterval(-100000), used: 0.35),
+                      .init(at: now.addingTimeInterval(-60), used: 0.6)]
+        )
+        let renderer = ImageRenderer(content: TooltipCard(snapshot: snapshot, now: now, direction: .trailing)
+            .environment(\.colorScheme, .dark)
+            .environment(\.codenotchHeadlessGlass, true))
+        XCTAssertNotNil(renderer.cgImage)
+    }
 }

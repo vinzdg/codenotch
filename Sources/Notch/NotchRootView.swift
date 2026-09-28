@@ -590,6 +590,8 @@ struct NotchRootView: View {
                 showsLocalPerformance: snapshot.showsLocalPerformance,
                 localLedgerRows: snapshot.localLedgerRowCount,
                 compactRowCount: snapshot.compactRowCount,
+                projectionRowCount: snapshot.projectionRowCount(now: model.now, showsUsagePace: model.showsUsagePace),
+                hasUsageHistory: snapshot.chartedHistory != nil,
                 showsDeepSeekPricing: model.deepSeekPricingEnabled
             )
             : NotchLayout.cardWidth
@@ -623,6 +625,8 @@ struct NotchRootView: View {
                 showsLocalPerformance: snapshot.showsLocalPerformance,
                 localLedgerRows: snapshot.localLedgerRowCount,
                 compactRowCount: snapshot.compactRowCount,
+                projectionRowCount: snapshot.projectionRowCount(now: model.now, showsUsagePace: model.showsUsagePace),
+                hasUsageHistory: snapshot.chartedHistory != nil,
                 showsDeepSeekPricing: model.deepSeekPricingEnabled
             )
         // The ring it points at has moved with the notch, so the tail follows

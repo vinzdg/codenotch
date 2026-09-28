@@ -193,6 +193,7 @@ enum NotchLayout {
     static let headerToBlock = Design.px(21)
     static let labelToBar    = Design.px(16.8)
     static let barToUsed     = Design.px(17.8)
+    static let projectionGap = Design.px(4)
     static let blockSpacing  = Design.px(20)
     static let moneyBarHeight = Design.px(12)
     static let moneyBarToStats = Design.px(14)
@@ -227,6 +228,15 @@ enum NotchLayout {
     /// expiry cannot shrink the hover region under the card.
     static var codexResetCreditsHeight: CGFloat {
         blockSpacing + 3 * cardBodyLineHeight + 2 * codexUsageRowGap
+    }
+
+    // Weekly usage history
+    static let historyChartTop = Design.px(15)
+    static let historyChartHeight = Design.px(115)
+    /// Separator, chart, and the line naming the cycle's two ends.
+    static var historyBlockHeight: CGFloat {
+        codexUsageTop + hairline + historyChartTop + historyChartHeight
+            + codexUsageRowGap + cardBodyLineHeight
     }
 
     /// The percent label's line box. Fixed rather than intrinsic so the panel
@@ -394,6 +404,8 @@ enum NotchLayout {
                            localModelName: String? = nil, showsLocalPerformance: Bool = false,
                            localLedgerRows: Int = 0,
                            compactRowCount: Int = 0,
+                           projectionRowCount: Int = 0,
+                           hasUsageHistory: Bool = false,
                            showsDeepSeekPricing: Bool = true) -> CGFloat {
         let header = max(glyphSize, cardTitleLineHeight)
             + (hasPlan ? cardBodyLineHeight : 0)
@@ -426,6 +438,7 @@ enum NotchLayout {
                 + CGFloat(moneyCount) * moneyBlock
                 + CGFloat(compactRowCount) * compactBlock
                 + CGFloat(windowCount - 1) * blockSpacing
+            height += CGFloat(max(0, projectionRowCount)) * (projectionGap + cardBodyLineHeight)
             if groupCount > 0 {
                 // Each group adds a title line, spacing (12), and 16px vertical padding inside the box
                 let groupExtra = cardBodyLineHeight + Design.px(12) + 2 * Design.px(16)
@@ -442,6 +455,10 @@ enum NotchLayout {
         } else {
             // The status message, at whatever height it actually wraps to.
             height += headerToBlock + bodyTextHeight(statusMessage ?? "")
+        }
+
+        if hasUsageHistory {
+            height += historyBlockHeight
         }
 
         if hasResetCredits {
@@ -536,7 +553,9 @@ enum NotchLayout {
                                 groupCount: Int = 2,
                                 hasTokenUsage: Bool = false,
                                 hasPlan: Bool = false,
-                                hasResetCredits: Bool = false) -> Int {
+                                hasResetCredits: Bool = false,
+                                projectionRowCount: Int = 0,
+                                hasUsageHistory: Bool = false) -> Int {
         var fits = 0
         for n in 1...sessionCeiling {
             // Costed as though something were still hidden, so that admitting
@@ -545,7 +564,9 @@ enum NotchLayout {
             let height = cardHeight(windowCount: windowCount, groupCount: groupCount,
                                     sessionCount: n + 1, sessionCap: n,
                                     hasTokenUsage: hasTokenUsage, hasPlan: hasPlan,
-                                    hasResetCredits: hasResetCredits)
+                                    hasResetCredits: hasResetCredits,
+                                    projectionRowCount: projectionRowCount,
+                                    hasUsageHistory: hasUsageHistory)
             guard height <= cardBudget else { break }
             fits = n
         }

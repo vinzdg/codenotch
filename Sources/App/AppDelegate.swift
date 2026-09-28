@@ -500,6 +500,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak fleet] in fleet?.apply(deepSeekPricingEnabled: $0) }
                 .store(in: &cancellables)
 
+            preferences.$showUsagePace
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet] in fleet?.apply(showsUsagePace: $0) }
+                .store(in: &cancellables)
+
+            preferences.$showUsageHistory
+                .receive(on: RunLoop.main)
+                .sink { [weak store] in store?.recordsUsageHistory = $0 }
+                .store(in: &cancellables)
+
             preferences.$deepSeekPricingSchedule
                 .receive(on: RunLoop.main)
                 .sink { [weak fleet] in fleet?.apply(deepSeekPricingSchedule: $0) }
@@ -988,6 +998,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fleet.apply(foldsForFullScreen: preferences.foldsForFullScreen)
         fleet.apply(surfaceStyle: preferences.notchSurfaceStyle)
         fleet.apply(deepSeekPricingEnabled: preferences.deepSeekPricingEnabled)
+        fleet.apply(showsUsagePace: preferences.showUsagePace)
         fleet.apply(deepSeekPricingSchedule: preferences.deepSeekPricingSchedule)
         fleet.show()
     }

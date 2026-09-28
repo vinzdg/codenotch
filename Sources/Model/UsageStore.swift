@@ -140,6 +140,32 @@ final class UsageStore: ObservableObject {
     private let pollingNow: () -> Date
 
     private let archive: UsageArchive
+    private let history: UsageHistory
+    /// What `history` holds, kept here so publishing a snapshot never decodes it.
+    private var historySeries: [String: UsageHistory.Series] = [:]
+
+    /// Mirrors "Show usage history". Off keeps nothing: turning it off deletes
+    /// what was recorded, so the preference is the whole of the feature's cost.
+    var recordsUsageHistory = false {
+        didSet {
+            if recordsUsageHistory {
+                historySeries = history.all()
+            } else {
+                history.clear()
+                historySeries = [:]
+            }
+            snapshots = snapshots.map(charted)
+        }
+    }
+
+    /// Attached on the way out rather than at the fetch, so a reading re-shown
+    /// after a failure carries the series the switch allows now, not the one
+    /// it had when it was fetched.
+    private func charted(_ snapshot: ProviderSnapshot) -> ProviderSnapshot {
+        var snapshot = snapshot
+        snapshot.usageHistory = historySeries[snapshot.id]
+        return snapshot
+    }
     private var lastGood: [String: (snapshot: ProviderSnapshot, fetchedAt: Date)] = [:]
     private var timer: Timer?
     private var localTimer: Timer?
@@ -184,6 +210,7 @@ final class UsageStore: ObservableObject {
         // one tick rather than the rest of the day.
         refreshDeadline: TimeInterval = 60,
         archive: UsageArchive = UsageArchive(),
+        history: UsageHistory = UsageHistory(),
         disconnected: Set<String> = [],
         order: [String] = [],
         pollingNow: @escaping () -> Date = Date.init
@@ -196,6 +223,7 @@ final class UsageStore: ObservableObject {
         self.staleAfter = staleAfter
         self.refreshDeadline = refreshDeadline
         self.archive = archive
+        self.history = history
 
         // Open on what we knew last time rather than on an empty ring; the
         // first fetch will either confirm it or replace it.
@@ -524,7 +552,7 @@ final class UsageStore: ObservableObject {
     private func publish(_ snapshot: ProviderSnapshot) {
         guard !disconnected.contains(snapshot.id) else { return }
         var current = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.id, $0) })
-        current[snapshot.id] = named(snapshot)
+        current[snapshot.id] = named(charted(snapshot))
         snapshots = orderedProviders.compactMap { disconnected.contains($0.id) ? nil : current[$0.id] }
     }
 
@@ -547,6 +575,8 @@ final class UsageStore: ObservableObject {
         snapshots.removeAll { $0.id == providerID }
         lastGood.removeValue(forKey: providerID)
         archive.forget(providerID)
+        history.forget(providerID)
+        historySeries[providerID] = nil
 
         Task { await provider.signOut() }
     }
@@ -667,6 +697,9 @@ final class UsageStore: ObservableObject {
             // Model residency becomes untrue as soon as a server stops. It must
             // never use quota's last-good cache or survive an app relaunch.
             if provider.kind == .usage {
+                if recordsUsageHistory {
+                    historySeries[provider.id] = history.record(fresh, at: pollingNow())
+                }
                 lastGood[provider.id] = (fresh, Date())
                 archive.save(lastGood)
             }

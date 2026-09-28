@@ -362,6 +362,10 @@ struct ProviderSnapshot: Identifiable, Equatable {
     /// Locally sampled cumulative token usage for a custom endpoint.
     var customUsageHistory: [CustomEndpointUsageDay]? = nil
 
+    /// The charted window's readings across its current cycle, while usage
+    /// history is on. Attached by the store; providers never set it.
+    var usageHistory: UsageHistory.Series? = nil
+
     /// The number on the cell: the provider's declared primary window — for
     /// Claude, the current session.
     ///
