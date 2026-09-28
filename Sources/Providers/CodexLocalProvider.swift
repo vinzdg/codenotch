@@ -12,17 +12,28 @@ actor CodexLocalProvider: UsageProvider {
     nonisolated private let authURL: URL
     private let archive: UsageArchive
     private var retryNoEarlierThan: Date?
+    private let showsDailyLimit: @Sendable () -> Bool
+    private let clock: @Sendable () -> Date
+    /// The last attempt, kept even when it failed, so a failing endpoint is
+    /// asked no more often than a working one. Keyed to the account, since
+    /// `codex login` can switch it under the same profile.
+    private var dailyLimit: (usage: CodexLimitUsage?, attemptedAt: Date, accountID: String)?
+    private static let dailyLimitInterval: TimeInterval = 15 * 60
 
     init(profile: CodexProfile = .default(),
          session: URLSession = .shared,
          authURL: URL? = nil,
-         archive: UsageArchive = UsageArchive()) {
+         archive: UsageArchive = UsageArchive(),
+         showsDailyLimit: @escaping @Sendable () -> Bool = { Preferences.storedShowCodexDailyLimit() },
+         clock: @escaping @Sendable () -> Date = { Date() }) {
         self.profile = profile
         self.id = profile.id
         self.displayName = profile.displayName
         self.session = session
         self.authURL = authURL ?? profile.authURL
         self.archive = archive
+        self.showsDailyLimit = showsDailyLimit
+        self.clock = clock
         // Recreating the provider or relaunching must not bypass the server's retry deadline.
         self.retryNoEarlierThan = archive.loadBackoffUntil(providerID: profile.id)
     }
@@ -38,7 +49,7 @@ actor CodexLocalProvider: UsageProvider {
     }
 
     func fetchSnapshot() async throws -> ProviderSnapshot {
-        let now = Date()
+        let now = clock()
         if let retryNoEarlierThan, retryNoEarlierThan > now {
             throw UsageProviderError.rateLimited(retryAfter: retryNoEarlierThan.timeIntervalSince(now))
         }
@@ -88,7 +99,7 @@ actor CodexLocalProvider: UsageProvider {
         )
         retryNoEarlierThan = nil
         archive.saveBackoffUntil(nil, providerID: id)
-        return ProviderSnapshot(
+        var snapshot = ProviderSnapshot(
             id: id, displayName: displayName, glyph: glyph,
             fidelity: .official, status: .ok, windows: windows,
             // Named, not positional. `windows.first` would let Spark take the
@@ -101,6 +112,42 @@ actor CodexLocalProvider: UsageProvider {
             plan: CodexUsage.plan(from: data) ?? account()?.plan?.nonEmptyPlan,
             resetCredits: await resetCredits
         )
+        snapshot.codexLimitUsage = await dailyLimitUsage(credential: credential, now: now)
+        return snapshot
+    }
+
+    private func dailyLimitUsage(credential: CodexCredentials.Credential, now: Date) async -> CodexLimitUsage? {
+        guard showsDailyLimit() else {
+            dailyLimit = nil
+            return nil
+        }
+        if let dailyLimit, dailyLimit.accountID == credential.accountID,
+           now.timeIntervalSince(dailyLimit.attemptedAt) < Self.dailyLimitInterval {
+            return dailyLimit.usage
+        }
+        let usage = try? await Self.fetchDailyLimit(session: session, credential: credential)
+        dailyLimit = (usage, now, credential.accountID)
+        return usage
+    }
+
+    private static func fetchDailyLimit(
+        session: URLSession,
+        credential: CodexCredentials.Credential
+    ) async throws -> CodexLimitUsage {
+        var request = URLRequest(
+            url: URL(string: "https://chatgpt.com/backend-api/wham/usage/daily-token-usage-breakdown")!,
+            cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: 15
+        )
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(credential.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(credential.accountID, forHTTPHeaderField: "ChatGPT-Account-Id")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("no-cache, no-store", forHTTPHeaderField: "Cache-Control")
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else { throw UsageProviderError.badResponse(status: status) }
+        return try CodexLimitUsage.parse(data)
     }
 
     private static func fetchProfileUsage(

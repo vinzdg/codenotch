@@ -216,6 +216,8 @@ final class NotchViewModel: ObservableObject {
     @Published var surfaceStyle: NotchSurfaceStyle = .glass
     /// Whether DeepSeek's billing phase rows are visible in its usage card.
     @Published var deepSeekPricingEnabled = true
+    /// Mirrors "Show usage pace", which also adds a projection line to the card.
+    @Published var showsUsagePace = false
     /// The rule used by the DeepSeek card, mirrored from Preferences so a
     /// settings change is reflected in every notch immediately.
     @Published var deepSeekPricingSchedule = DeepSeekPricing.Schedule.current
@@ -1253,13 +1255,28 @@ final class NotchViewModel: ObservableObject {
         snapshots.contains(where: \.hasAvailableResetCredits)
     }
 
+    private var hasUsageHistory: Bool {
+        snapshots.contains { $0.chartedHistory != nil }
+    }
+
+    private var hasCodexLimitUsage: Bool {
+        snapshots.contains(where: \.showsCodexLimitUsage)
+    }
+
+    var projectionRows: Int {
+        snapshots.map { $0.projectionRowCount(now: now, showsUsagePace: showsUsagePace) }.max() ?? 0
+    }
+
     func sessionCap(cellCount: Int) -> Int {
         guard screenSize != .zero else { return NotchLayout.defaultSessionCap }
         return NotchLayout.sessionsFitting(cardBudget: cardBudget(cellCount: cellCount),
                                            windowCount: NotchLayout.maxWindowCount,
                                            hasTokenUsage: hasTokenUsage,
                                            hasPlan: hasPlan,
-                                           hasResetCredits: hasResetCredits)
+                                           hasResetCredits: hasResetCredits,
+                                           projectionRowCount: projectionRows,
+                                           hasUsageHistory: hasUsageHistory,
+                                           hasCodexLimitUsage: hasCodexLimitUsage)
     }
 
     private func contentCardHeight(sessionCap: Int) -> CGFloat {
@@ -1279,6 +1296,9 @@ final class NotchViewModel: ObservableObject {
                 showsLocalPerformance: snapshot.showsLocalPerformance,
                 localLedgerRows: snapshot.localLedgerRowCount,
                 compactRowCount: snapshot.compactRowCount,
+                projectionRowCount: snapshot.projectionRowCount(now: now, showsUsagePace: showsUsagePace),
+                hasUsageHistory: snapshot.chartedHistory != nil,
+                hasCodexLimitUsage: snapshot.showsCodexLimitUsage,
                 showsDeepSeekPricing: deepSeekPricingEnabled)
         }.max() ?? 0
     }

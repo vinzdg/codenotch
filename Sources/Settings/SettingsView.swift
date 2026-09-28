@@ -823,6 +823,12 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
+                Toggle(L10n.t("Show usage history"), isOn: $preferences.showUsageHistory)
+                Text(L10n.t("Charts the weekly limit across its current cycle, from the readings Codenotch takes while it runs. Turning this off deletes the history."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 Toggle(L10n.t("Show Spark and code review"), isOn: $preferences.showCodexExtraLimits)
                     .onChange(of: preferences.showCodexExtraLimits) { _ in
                         for account in providers() where CodexProfile.isCodex(providerID: account.id) {
@@ -830,6 +836,17 @@ struct SettingsView: View {
                         }
                     }
                 Text(L10n.t("The ring still follows the main Codex window. Spark and code review stay in the hover card."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Toggle(L10n.t("Show Codex weekly limit by day"), isOn: $preferences.showCodexDailyLimit)
+                    .onChange(of: preferences.showCodexDailyLimit) { _ in
+                        for account in providers() where CodexProfile.isCodex(providerID: account.id) {
+                            usageStore?.refresh(providerID: account.id)
+                        }
+                    }
+                Text(L10n.t("Seven bars from Codex's own usage dashboard, one per day, split by model. Asks Codex at most every 15 minutes, only while this is on."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

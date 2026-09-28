@@ -193,6 +193,7 @@ enum NotchLayout {
     static let headerToBlock = Design.px(21)
     static let labelToBar    = Design.px(16.8)
     static let barToUsed     = Design.px(17.8)
+    static let projectionGap = Design.px(4)
     static let blockSpacing  = Design.px(20)
     static let moneyBarHeight = Design.px(12)
     static let moneyBarToStats = Design.px(14)
@@ -227,6 +228,39 @@ enum NotchLayout {
     /// expiry cannot shrink the hover region under the card.
     static var codexResetCreditsHeight: CGFloat {
         blockSpacing + 3 * cardBodyLineHeight + 2 * codexUsageRowGap
+    }
+
+    // Weekly usage history
+    static let historyChartTop = Design.px(15)
+    /// The inset that lines the scale up with the plot costs a line; given back.
+    static let historyChartHeight = Design.px(115) + cardBodyLineHeight
+    /// Separator, title, chart, the dates under it, the legend and the detail line.
+    static var historyBlockHeight: CGFloat {
+        codexUsageTop + hairline + blockSpacing + cardBodyLineHeight
+            + historyChartTop + historyChartHeight
+            + 3 * (codexUsageRowGap + cardBodyLineHeight)
+    }
+    /// Room left of a chart for its scale, sized to the history chart's widest
+    /// mark; a wider one shrinks to fit.
+    static let axisGutter: CGFloat = ceil(("100%" as NSString).size(withAttributes: [.font: cardBodyFont]).width)
+        + Design.px(8)
+
+    /// Whether `label`, centred at `fraction` of `width`, clears the labels at
+    /// both ends of the row, measured in the card's body font.
+    static func fitsBetween(_ label: String, at fraction: Double, width: CGFloat,
+                            leading: String, trailing: String) -> Bool {
+        func measure(_ text: String) -> CGFloat {
+            (text as NSString).size(withAttributes: [.font: cardBodyFont]).width
+        }
+        let centre = width * CGFloat(fraction), half = measure(label) / 2, gap = Design.px(12)
+        return centre - half >= measure(leading) + gap && centre + half <= width - measure(trailing) - gap
+    }
+
+    /// Separator, title, bars, weekday labels, the legend and the detail line.
+    static var codexLimitBlockHeight: CGFloat {
+        codexUsageTop + hairline + blockSpacing + cardBodyLineHeight
+            + codexChartTop + codexChartHeight + cardBodyLineHeight
+            + 3 * (codexUsageRowGap + cardBodyLineHeight)
     }
 
     /// The percent label's line box. Fixed rather than intrinsic so the panel
@@ -394,6 +428,9 @@ enum NotchLayout {
                            localModelName: String? = nil, showsLocalPerformance: Bool = false,
                            localLedgerRows: Int = 0,
                            compactRowCount: Int = 0,
+                           projectionRowCount: Int = 0,
+                           hasUsageHistory: Bool = false,
+                           hasCodexLimitUsage: Bool = false,
                            showsDeepSeekPricing: Bool = true) -> CGFloat {
         let header = max(glyphSize, cardTitleLineHeight)
             + (hasPlan ? cardBodyLineHeight : 0)
@@ -426,6 +463,7 @@ enum NotchLayout {
                 + CGFloat(moneyCount) * moneyBlock
                 + CGFloat(compactRowCount) * compactBlock
                 + CGFloat(windowCount - 1) * blockSpacing
+            height += CGFloat(max(0, projectionRowCount)) * (projectionGap + cardBodyLineHeight)
             if groupCount > 0 {
                 // Each group adds a title line, spacing (12), and 16px vertical padding inside the box
                 let groupExtra = cardBodyLineHeight + Design.px(12) + 2 * Design.px(16)
@@ -444,6 +482,10 @@ enum NotchLayout {
             height += headerToBlock + bodyTextHeight(statusMessage ?? "")
         }
 
+        if hasUsageHistory {
+            height += historyBlockHeight
+        }
+
         if hasResetCredits {
             height += codexUsageTop + hairline + codexResetCreditsHeight
         }
@@ -458,6 +500,10 @@ enum NotchLayout {
                 + 2 * cardBodyLineHeight
                 + codexUsageRowGap
                 + codexChartTop + codexChartHeight
+        }
+
+        if hasCodexLimitUsage {
+            height += codexLimitBlockHeight
         }
 
         if sessionCount > 0 {
@@ -536,7 +582,10 @@ enum NotchLayout {
                                 groupCount: Int = 2,
                                 hasTokenUsage: Bool = false,
                                 hasPlan: Bool = false,
-                                hasResetCredits: Bool = false) -> Int {
+                                hasResetCredits: Bool = false,
+                                projectionRowCount: Int = 0,
+                                hasUsageHistory: Bool = false,
+                                hasCodexLimitUsage: Bool = false) -> Int {
         var fits = 0
         for n in 1...sessionCeiling {
             // Costed as though something were still hidden, so that admitting
@@ -545,7 +594,10 @@ enum NotchLayout {
             let height = cardHeight(windowCount: windowCount, groupCount: groupCount,
                                     sessionCount: n + 1, sessionCap: n,
                                     hasTokenUsage: hasTokenUsage, hasPlan: hasPlan,
-                                    hasResetCredits: hasResetCredits)
+                                    hasResetCredits: hasResetCredits,
+                                    projectionRowCount: projectionRowCount,
+                                    hasUsageHistory: hasUsageHistory,
+                                    hasCodexLimitUsage: hasCodexLimitUsage)
             guard height <= cardBudget else { break }
             fits = n
         }
