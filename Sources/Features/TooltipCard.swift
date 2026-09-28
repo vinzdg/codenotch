@@ -495,6 +495,15 @@ private struct LimitWindowRow: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
                     .padding(.top, NotchLayout.barToUsed)
+
+                if showsUsagePace, let projection = window.projection(now: now) {
+                    Text(projection.summary(now: now))
+                        .font(Typography.cardBody)
+                        .foregroundStyle(secondaryInk)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .padding(.top, NotchLayout.projectionGap)
+                }
             }
         }
     }
@@ -1128,6 +1137,7 @@ struct TooltipCard: View {
             showsLocalPerformance: snapshot.showsLocalPerformance,
                 localLedgerRows: snapshot.localLedgerRowCount,
             compactRowCount: snapshot.compactRowCount,
+            projectionRowCount: snapshot.projectionRowCount(now: now, showsUsagePace: showUsagePace),
             showsDeepSeekPricing: deepSeekPricingEnabled
         )
     }
