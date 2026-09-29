@@ -37,6 +37,9 @@ jobs:
       - name: Test Claude sign-in controls
         run: node scripts/test-claude-auth-ui.cjs
 
+      - name: Test Claude quota freshness
+        run: node scripts/test-claude-quota-freshness.cjs
+
       - name: Test Korean card localization
         run: node --test scripts/test-ko-i18n.cjs
 
