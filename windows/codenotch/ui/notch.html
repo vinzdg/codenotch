@@ -544,6 +544,8 @@ const TEXT={
     'Working in':'Працює в'
   },
   ru:{
+    'Last known usage — not current.':'Последние известные данные — не текущие лимиты.',
+    'Last reported reset':'Последнее известное время сброса',
     'Included usage':'Включённое использование',
     'Sign in':'Авторизоваться',
     'Signing in...':'Вход…',
@@ -1067,6 +1069,22 @@ function weeklyOf(snap,id){
 // provider that is answering perfectly well, which made "stale" mean "recently fetched" rather than
 // "old enough not to trust". A provider that knows its own reading is stale still says so in status.
 function staleOf(snap){ if(snap.status==='stale') return true; return snap.fetched_at>0 && (Date.now()-snap.fetched_at)>15*60*1000; }
+// CLAUDE_QUOTA_FRESHNESS_START
+// Cached quota is useful in the card, but must not look like a current reading
+// after sign-out, a denied request, or the reported window's reset.
+function claudeQuotaCurrent(snap,w,now=Date.now()){
+  return snap.status==='ok' && snap.fetched_at>0 && !staleOf(snap)
+    && !!w && (w.resets_at==null || w.resets_at>now);
+}
+function ringWindow(snap,id,w){
+  return id!=='claude' || claudeQuotaCurrent(snap,w) ? w : null;
+}
+function quotaResetCopy(snap,id,w){
+  if(id==='claude' && !claudeQuotaCurrent(snap,w))
+    return w.resets_at ? textCopy('Last reported reset')+': '+new Date(w.resets_at).toLocaleString() : '';
+  return resetCopy(w.resets_at);
+}
+// CLAUDE_QUOTA_FRESHNESS_END
 let stateSnap={sessions:[],agg:'idle'};
 
 function svgArc(r,frac,color,width,extra=''){
@@ -1081,6 +1099,7 @@ function svgArc(r,frac,color,width,extra=''){
     transform="rotate(-90 28 28)" ${extra}/>`;
 }
 
+// QUOTA_RING_RENDER_START
 function renderRing(){
   const ps=providers();
   // Rebuild the DOM only when the structure changes (never swap the element under the cursor)
@@ -1094,12 +1113,12 @@ function renderRing(){
   for(const p of ps){
     const cell=pill.querySelector(`.cell[data-p="${p.id}"]`); if(!cell) continue;
     const svg=cell.querySelector('svg.ring'), reading=cell.querySelector('svg.reading'), activity=cell.querySelector('svg.activity'), pct=cell.querySelector('.pct'), glyph=cell.querySelector('.glyph'), wrap=cell.querySelector('.ringwrap');
-    const h=headlineOf(p.snap,p.base);
+    const h=ringWindow(p.snap,p.base,headlineOf(p.snap,p.base));
     let inner=`<circle cx="28" cy="28" r="22" fill="${HOLE}"/><circle cx="28" cy="28" r="25" fill="none" stroke="${TRACK}" stroke-width="5"/>`;
     wrap.classList.toggle('pressed',!!refreshing[p.id]);
     reading.innerHTML=h && h.count==null?svgArc(25,Math.min(h.used,1),tone(h.used),5):'';
     if(weeklyRing!=='off'){ // the week, thinner and at its own radius, in its own colour: a session at 12% beside a week at 91% is the case this exists for
-      const wk=weeklyOf(p.snap,p.base);
+      const wk=ringWindow(p.snap,p.base,weeklyOf(p.snap,p.base));
       // Inside, it shares the gap with the working indicator, so it stands down while that is showing
       const taken=weeklyRing==='inside'&&workState(p.base)!=='idle';
       if(wk&&(!h||wk.id!==h.id)&&!taken){
@@ -1126,6 +1145,7 @@ function renderRing(){
   reportHot(); // a provider appearing or leaving resizes the pill
 }
 
+// QUOTA_RING_RENDER_END
 function resetCopy(ms){
   if(!ms) return '';
   const diff=ms-Date.now();
@@ -1195,6 +1215,8 @@ function renderCard(){
     html+=`<div class="c-note">${esc(textCopy(snap.note||'Waiting for first reading…'))}</div>`;
   }else{
     // Windows that share a group (Antigravity's model families) sit in one box under its name, as on the Mac
+    if(p.base==='claude' && snap.windows.some(w=>!claudeQuotaCurrent(snap,w)))
+      html+=`<div class="c-note">${esc(textCopy('Last known usage — not current.'))}</div>`;
     let group=null;
     for(const w of snap.windows){
       if((w.group||null)!==group){
@@ -1208,7 +1230,7 @@ function renderCard(){
         continue;
       }
       html+=`<div class="win">
-        <div class="w-row"><span class="w-label">${esc(textCopy(w.label))}</span><span class="w-reset">${resetCopy(w.resets_at)}</span></div>
+        <div class="w-row"><span class="w-label">${esc(textCopy(w.label))}</span><span class="w-reset">${esc(quotaResetCopy(snap,p.base,w))}</span></div>
         <div class="w-track"><div class="w-fill" style="width:${(Math.min(w.used,1)*100).toFixed(0)}%;background:${tone(w.used)}"></div></div>
         <div class="w-used">${esc(usedCopy(w))}</div>
       </div>`;
@@ -1622,7 +1644,7 @@ invoke('get_notch_edge').then(e=>{applyEdge(e);reportDpr();}).catch(()=>reportDp
 invoke('get_codex').then(u=>{codexSnap=u||codexSnap;renderRing();}).catch(()=>{});
 invoke('get_usage').then(u=>{usage=u||usage;renderRing();}).catch(e=>notice('get_usage failed: '+e));
 invoke('get_state').then(s=>{stateSnap=s||stateSnap;setUiLanguage(stateSnap.lang_resolved);renderRing();}).catch(()=>{});
-setInterval(renderRing,30_000); // stale state and reset copy move with time
+setInterval(()=>{renderRing();if(card.classList.contains('show'))renderCard();},30_000); // freshness changes even without a new response
 setInterval(async()=>{
   if(!claudeAuth.busy&&!(hoverId==='claude'&&card.classList.contains('show'))) return;
   try{

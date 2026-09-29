@@ -79,6 +79,19 @@ To read Claude again, click its ring or choose **Refresh now** from the notch's
 right-click menu. HTTP 403 is reported as an access/network refusal rather than claiming
 that a still-valid login has expired. Existing automatic renewal is unchanged.
 
+Browser approval is only one part of sign-in: wait for the CLI terminal to report
+`Login successful`. If it reports 403 afterwards, do not interpret that as a
+successful login or repeatedly delete credentials. Check the CLI error and the
+network/account access used by that CLI; browser and terminal connectivity can
+differ. Keep authorization codes, tokens and raw debug logs out of issue reports.
+
+The Claude quota arcs and headline require a fresh successful reading whose
+reported reset has not passed. On sign-out or a stale/error response they show
+no quota arc instead of presenting a cached percentage as current. The hover
+card can retain the last known values, explicitly labelled as historical, with
+their last reported reset time. A successful refresh restores the live reading;
+this display rule does not bypass HTTP 403 or change OAuth, polling or backoff.
+
 ### Antigravity
 
 - **Official CLI (Preferred)**: When the official Antigravity CLI (`agy.exe`) is installed (`%LOCALAPPDATA%\agy\bin\agy.exe` or on `PATH`) and signed in, Codenotch reads official quotas directly without keeping the full IDE running.
