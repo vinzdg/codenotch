@@ -78,6 +78,8 @@ public struct CustomEndpoint: Identifiable, Codable, Equatable, Sendable {
     public var isEnabled: Bool
     public var accentColorHex: String
     public var iconPreset: String?
+    /// Exact OpenCode provider key, set only when activity monitoring is enabled.
+    public var openCodeProviderID: String?
     public var customIconFilename: String?
     public var usageSource: CustomEndpointUsageSource
     public var usagePreset: CustomEndpointUsagePreset?
@@ -109,6 +111,7 @@ public struct CustomEndpoint: Identifiable, Codable, Equatable, Sendable {
         isEnabled: Bool = true,
         accentColorHex: String = "#6366F1",
         iconPreset: String? = "openai",
+        openCodeProviderID: String? = nil,
         customIconFilename: String? = nil,
         usageSource: CustomEndpointUsageSource = .manual,
         usagePreset: CustomEndpointUsagePreset? = nil,
@@ -139,6 +142,7 @@ public struct CustomEndpoint: Identifiable, Codable, Equatable, Sendable {
         self.isEnabled = isEnabled
         self.accentColorHex = accentColorHex
         self.iconPreset = iconPreset
+        self.openCodeProviderID = openCodeProviderID
         self.customIconFilename = customIconFilename
         self.usageSource = usageSource
         self.usagePreset = usagePreset
@@ -266,6 +270,7 @@ public struct CustomEndpoint: Identifiable, Codable, Equatable, Sendable {
         case isEnabled
         case accentColorHex
         case iconPreset
+        case openCodeProviderID
         case customIconFilename
         case usageSource
         case usagePreset
@@ -302,6 +307,7 @@ public struct CustomEndpoint: Identifiable, Codable, Equatable, Sendable {
         self.isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
         self.accentColorHex = try container.decodeIfPresent(String.self, forKey: .accentColorHex) ?? "#6366F1"
         self.iconPreset = try container.decodeIfPresent(String.self, forKey: .iconPreset)
+        self.openCodeProviderID = try container.decodeIfPresent(String.self, forKey: .openCodeProviderID)
         self.customIconFilename = try container.decodeIfPresent(String.self, forKey: .customIconFilename)
         self.usageSource = try container.decodeIfPresent(CustomEndpointUsageSource.self, forKey: .usageSource) ?? .manual
         self.usagePreset = try container.decodeIfPresent(CustomEndpointUsagePreset.self, forKey: .usagePreset)
@@ -347,6 +353,7 @@ public struct CustomEndpoint: Identifiable, Codable, Equatable, Sendable {
         try container.encode(isEnabled, forKey: .isEnabled)
         try container.encode(accentColorHex, forKey: .accentColorHex)
         try container.encodeIfPresent(iconPreset, forKey: .iconPreset)
+        try container.encodeIfPresent(openCodeProviderID, forKey: .openCodeProviderID)
         try container.encodeIfPresent(customIconFilename, forKey: .customIconFilename)
         if usageSource != .manual {
             try container.encode(usageSource, forKey: .usageSource)

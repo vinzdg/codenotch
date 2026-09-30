@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var phoneLinkRegistry: PhoneLinkRegistry?
     private var activityCoordinator: ActivityCoordinator?
     private var piResponseMonitor: PiResponseMonitor?
+    private var openCodeActivityBridge: OpenCodeActivityBridge?
     private var ollamaRelay: OllamaActivityRelay?
     private var lmstudioMetrics: LMStudioMetrics?
     private var preferences: Preferences?
@@ -915,6 +916,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
+        let openCodeBridge = OpenCodeActivityBridge { [weak activity] id, sessions in
+            activity?.setSupplementalSessions(providerID: id, source: "opencode", sessions: sessions)
+        }
+        self.openCodeActivityBridge = openCodeBridge
+        Publishers.CombineLatest(preferences.$customEndpoints, preferences.$connectedProviders)
+            .receive(on: RunLoop.main)
+            .sink { [weak openCodeBridge] endpoints, enabled in
+                openCodeBridge?.configure(endpoints: endpoints, enabled: enabled)
+            }
+            .store(in: &cancellables)
+
         let piResponseMonitor = PiResponseMonitor(
             onResponse: { [weak self] providerID in
                 _ = self?.store?.refresh(providerID: providerID)
@@ -1244,6 +1256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         tokenRefresher?.stop()
         piResponseMonitor?.stop()
         store?.stop()
+        openCodeActivityBridge?.stop()
         activityCoordinator?.stop()
         notchFleet?.stop()
         Task { await phoneLinkServer?.stop() }

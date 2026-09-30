@@ -1,6 +1,30 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Answer required": {
+      "extractionState": "manual"
+    },
+    "Approval required": {
+      "extractionState": "manual"
+    },
+    "OpenCode activity": {
+      "extractionState": "manual"
+    },
+    "OpenCode provider ID (optional)": {
+      "extractionState": "manual"
+    },
+    "Use the provider key from OpenCode settings. Activity is matched to this provider and the selected model. Leave empty to disable.": {
+      "extractionState": "manual"
+    },
+    "Install OpenCode bridge": {
+      "extractionState": "manual"
+    },
+    "Bridge installed. Restart OpenCode, then save this endpoint.": {
+      "extractionState": "manual"
+    },
+    "Could not install the bridge.": {
+      "extractionState": "manual"
+    },
     "%@ · %@": {
       "extractionState": "manual",
       "localizations": {
