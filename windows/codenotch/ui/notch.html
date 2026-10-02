@@ -1373,23 +1373,28 @@ function renderCard(){
 // The Mac's NotchLayout.tailGap and tailLength: the tail's tip stops short of the notch, as the CSS above has it
 const TAIL_GAP=10.5, TAIL_LENGTH=28.2;
 function placeCard(){
+  // Rects and the viewport come back zoomed when fitZoom has zoomed the page; offsetWidth/Height and
+  // the styles written here are not, so the rects are brought back first, as placeHandles does. Mixed,
+  // a page zoomed past 1 put the bottom edge's card down behind the pill, which then hid all but its top.
+  const z=parseFloat(document.documentElement.style.zoom)||1;
+  const box=el=>{ const r=el.getBoundingClientRect(); return {left:r.left/z,top:r.top/z,bottom:r.bottom/z,width:r.width/z,height:r.height/z}; };
   const cell=pill.querySelector(`.cell[data-p="${hoverId}"]`)||pill;
-  const cr=cell.getBoundingClientRect();
+  const cr=box(cell);
   // The point sits on the ring, not the cell, which includes the label below it
-  const rr=(cell.querySelector('.ringwrap')||cell).getBoundingClientRect();
+  const rr=box(cell.querySelector('.ringwrap')||cell);
   card.style.transform='none';
   if(edgeIsVertical()){
     const cy=cr.top+cr.height/2;
-    const H=innerHeight, ch=card.offsetHeight||0;
+    const H=innerHeight/z, ch=card.offsetHeight||0;
     let top=Math.round(cy-ch/2); top=Math.max(8+insets[0],Math.min(top,H-insets[2]-ch-8));
     card.style.top=top+'px'; card.style.left='';
     const ry=rr.top+rr.height/2;
     const th=tail.offsetHeight||33, ty=Math.max(top+16+th/2,Math.min(top+ch-16-th/2,ry));
     tail.style.top=Math.round(ty-th/2)+'px'; tail.style.left='';
   }else{
-    const pr=pill.getBoundingClientRect();
+    const pr=box(pill);
     const cx=cr.left+cr.width/2;
-    const W=innerWidth, cw=card.offsetWidth||0, ch=card.offsetHeight||0;
+    const W=innerWidth/z, cw=card.offsetWidth||0, ch=card.offsetHeight||0;
     let left=Math.round(cx-cw/2); left=Math.max(8+insets[3],Math.min(left,W-insets[1]-cw-8));
     card.style.left=left+'px';
     const rx=rr.left+rr.width/2;

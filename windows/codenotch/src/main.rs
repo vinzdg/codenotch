@@ -2020,8 +2020,8 @@ mod tests {
 
     /// `fitZoom` treats a window wider than the page's design width as a DPI disagreement and zooms
     /// the layout to close the gap, so a design width left behind when the window is widened zooms
-    /// the whole notch instead — and `placeCard`, which writes unzoomed styles from zoomed rects,
-    /// then puts the card at the wrong place entirely.
+    /// the whole notch instead. (`placeCard` unzooms its rects since the bottom edge's card fell
+    /// behind the pill under such a zoom, but the notch is still drawn at the wrong size.)
     #[test]
     fn the_pages_design_widths_are_the_window_widths() {
         let page = include_str!("../ui/notch.html");
