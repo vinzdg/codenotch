@@ -123,6 +123,12 @@ pub struct Config {
     /// leave the app running with no way to reach it.
     #[serde(default = "yes")]
     pub tray_visible: bool,
+    /// Show a temporary card when any provider (Claude, Codex, Cursor, …) renews a used quota window.
+    #[serde(default = "yes")]
+    pub reset_notifications: bool,
+    /// false = the reset card above appears silently, with no notification sound.
+    #[serde(default = "yes")]
+    pub reset_notification_sound: bool,
     /// true = the folded pill follows what is behind it, which means reading the screen beside it
     /// (backdrop.rs). Opt-in for that reason; off, the pill takes Theme's colour.
     #[serde(default)]
@@ -300,6 +306,8 @@ impl Default for Config {
             notch_visible: true,
             notch_on_hover: true,
             tray_visible: true,
+            reset_notifications: true,
+            reset_notification_sound: true,
             adaptive_pill: false,
         }
     }
@@ -417,6 +425,22 @@ mod tests {
         carry_shared_position, clamp_critical_limit, clamp_watch_limit, color_transition_or_step,
         keep_open_on_upgrade, snap_scale, theme_or_system, weekly_ring_or_off, Config,
     };
+
+    #[test]
+    fn reset_switches_default_on_and_round_trip_without_changing_other_settings() {
+        let old: Config = serde_json::from_str(r#"{"notch_visible":false,"theme":"light"}"#).unwrap();
+        assert!(old.reset_notifications);
+        assert!(old.reset_notification_sound);
+        assert!(!old.notch_visible);
+        assert_eq!(old.theme, "light");
+        let chosen = Config { reset_notifications: false, reset_notification_sound: false, ..old };
+        let saved = serde_json::to_string(&chosen).unwrap();
+        let restored: Config = serde_json::from_str(&saved).unwrap();
+        assert!(!restored.reset_notifications);
+        assert!(!restored.reset_notification_sound);
+        assert!(!restored.notch_visible);
+        assert_eq!(restored.theme, "light");
+    }
 
     /// Show on hover is the Mac's default, so a fresh install gets it — but an update must not start
     /// folding a notch whose owner has only ever known it open.

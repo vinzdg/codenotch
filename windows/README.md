@@ -63,6 +63,28 @@ The optional `cargo test --release --locked codex::tests::live_native_quota -- -
 checks the actual native transport against an already signed-in local client;
 it prints no account credentials or quota values and is not run by CI.
 
+### Reset cards
+
+The Windows app can show a short card when any active provider — Claude,
+Codex, Cursor, GLM, OpenCode, Grok, Antigravity — renews a quota window it was
+using. Each provider's own windows are watched independently and by their own
+id, not by a fixed duration, so this needs no per-provider list to stay
+current. Each window needs at least 10% usage before its reset counts, and a
+fresh reading must confirm the change, so the card can appear on the next
+poll rather than instantly. Saved, stale and first-launch readings do not
+trigger a card, and a provider's own cooldown after firing keeps a jittery
+reading from reporting the same reset twice.
+
+The card uses the notch's appearance and follows its configured screen, edge,
+size and theme, positioned from the notch's own measured on-screen rectangle
+rather than an assumed offset — a taskbar docked to that edge, or the notch
+dragged along it, cannot leave the card off by itself. It also appears when
+the notch is set to **Hide**, without changing that setting. General →
+Notifications has one switch for every provider's reset cards (on by
+default), a switch for the notification sound, and a **Preview card** button.
+When more than one window renews together, their cards appear one after the
+other. The Windows app must be running to observe and show a reset.
+
 ### Claude sign-in
 
 When Claude is signed out, its card offers **Sign in**, which opens the standalone

@@ -176,16 +176,18 @@ mod tests {
     fn failed_exit_and_timeout_are_reaped() {
         use std::os::windows::process::CommandExt;
         let root = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap());
-        let shell = root.join("System32/WindowsPowerShell/v1.0/powershell.exe");
-        let mut child = Command::new(&shell)
-            .args(["-NoProfile", "-NonInteractive", "-Command", "exit 7"]).creation_flags(0x0800_0000).spawn().unwrap();
+        let where_exe = root.join("System32/where.exe");
+        let mut child = Command::new(&where_exe)
+            .arg("codenotch-no-such-command-394.exe").creation_flags(0x0800_0000)
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
         assert!(!wait_child(&mut child, Duration::from_secs(5)));
-        let mut child = Command::new(&shell)
-            .args(["-NoProfile", "-NonInteractive", "-Command", "exit 0"]).creation_flags(0x0800_0000).spawn().unwrap();
+        let mut child = Command::new(&where_exe)
+            .arg("cmd.exe").creation_flags(0x0800_0000)
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
         assert!(wait_child(&mut child, Duration::from_secs(5)));
-        let mut child = Command::new(root.join("System32/WindowsPowerShell/v1.0/powershell.exe"))
-            .args(["-NoProfile", "-Command", "Start-Sleep -Seconds 30"])
-            .creation_flags(0x0800_0000).spawn().unwrap();
+        let mut child = Command::new(root.join("System32/ping.exe"))
+            .args(["-n", "30", "127.0.0.1"]).creation_flags(0x0800_0000)
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
         let start = Instant::now();
         assert!(!wait_child(&mut child, Duration::from_millis(300)));
         assert!(start.elapsed() < Duration::from_secs(5));

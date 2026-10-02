@@ -9,3 +9,5 @@ xcuserdata/
 .swiftpm/
 .agents/
 .forgeguard/
+.playwright-mcp/
+plans/

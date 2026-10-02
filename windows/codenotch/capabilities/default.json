@@ -3,7 +3,8 @@
   "description": "Codenotch notch & settings windows: allow core APIs (event.listen is required for state broadcasts), plus dragging and closing the frameless settings window, and the updater the About pane checks with",
   "windows": [
     "notch",
-    "settings"
+    "settings",
+    "reset-alert"
   ],
   "permissions": [
     "core:default",

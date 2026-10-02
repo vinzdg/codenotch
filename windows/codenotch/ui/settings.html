@@ -216,6 +216,13 @@
           <div class="item"><span>Updates</span><span class="value" id="update-status" data-dynamic></span><button class="btn" id="btn-update" data-dynamic>Check for updates</button></div>
           <div class="item cap">Codenotch checks for new Windows releases shortly after it starts. Signed updates install here; otherwise download and run the official installer from GitHub.</div>
         </div>
+        <div class="sec">Notifications</div>
+        <div class="group">
+          <div class="item"><span>Reset notifications</span><button class="switch" id="sw-reset-alert" role="switch" aria-checked="false" aria-label="Reset notifications"></button></div>
+          <div class="item cap">Show a card when Claude, Codex, Cursor or another active provider renews a window after at least 10% use. The card also appears while the notch is hidden.</div>
+          <div class="item"><span>Notification sound</span><button class="switch" id="sw-reset-sound" role="switch" aria-checked="false" aria-label="Notification sound"></button></div>
+          <div class="item"><span>Preview the reset card</span><button class="btn" id="btn-reset-preview">Preview card</button></div>
+        </div>
         <div class="group">
           <div class="item"><span>Data folder</span><button class="btn" id="btn-data">Open folder</button></div>
           <div class="item cap">Everything Codenotch remembers lives in one folder: your settings, its log file, and the "glyphs" folder where you can drop your own icons. Opens in File Explorer.</div>
@@ -983,6 +990,19 @@ const UK_STATIC = {
   'Model data':'Дані моделі'
 };
 const STATIC_TEXT = { 'pt-BR': PT_BR_STATIC, ru: RU_STATIC, zh: ZH_STATIC, 'zh-Hant': ZH_HANT_STATIC, ja: JA_STATIC, ko: KO_STATIC, uk: UK_STATIC };
+const RESET_COPY = {
+  'pt-BR':['Notificações de reset','Mostrar um cartão quando o Claude, Codex, Cursor ou outro provedor ativo renovar uma janela após pelo menos 10% de uso. O cartão também aparece com a notch oculta.','Som de notificação','Prévia do cartão de reset','Ver prévia','Notificações'],
+  ru:['Уведомления о сбросе','Показывать карточку, когда Claude, Codex, Cursor или другой активный провайдер обновляет окно, если использовано не менее 10%. Карточка видна и при скрытой панели.','Звук уведомления','Предпросмотр карточки','Показать','Уведомления'],
+  zh:['重置通知','当 Claude、Codex、Cursor 或其他活跃的服务商窗口在使用至少 10% 后更新时显示卡片。隐藏缺口栏时也会显示。','通知声音','预览重置卡片','预览卡片','通知'],
+  'zh-Hant':['重設通知','當 Claude、Codex、Cursor 或其他啟用中的服務窗口在使用至少 10% 後更新時顯示卡片。隱藏凹口列時也會顯示。','通知音效','預覽重設卡片','預覽卡片','通知'],
+  ja:['リセット通知','Claude、Codex、Cursor などアクティブなプロバイダーの枠を 10% 以上使った後に更新されたらカードを表示します。ノッチを非表示にしていても表示されます。','通知音','リセットカードをプレビュー','プレビュー','通知'],
+  ko:['한도 초기화 알림','Claude, Codex, Cursor 등 활성 공급자의 한도를 10% 이상 사용한 뒤 갱신되면 카드를 표시합니다. 노치를 숨겨도 표시됩니다.','알림 소리','초기화 카드 미리 보기','미리 보기','알림'],
+  uk:['Сповіщення про скидання','Показувати картку, коли Claude, Codex, Cursor чи інший активний провайдер оновлює вікно, якщо використано щонайменше 10%. Картка зʼявляється і за прихованої панелі.','Звук сповіщення','Попередній перегляд картки','Переглянути','Сповіщення'],
+};
+const RESET_KEYS = ['Reset notifications', 'Show a card when Claude, Codex, Cursor or another active provider renews a window after at least 10% use. The card also appears while the notch is hidden.', 'Notification sound', 'Preview the reset card', 'Preview card', 'Notifications'];
+for(const [lang, values] of Object.entries(RESET_COPY)){
+  RESET_KEYS.forEach((key, index) => { STATIC_TEXT[lang][key] = values[index]; });
+}
 const STATUS_TEXT = {
   en:{ ok:'', stale:'last reading is old', needsAuth:'not signed in', absent:'not installed', none:'nothing to report', error:'not reachable' },
   'pt-BR':{ ok:'', stale:'última leitura desatualizada', needsAuth:'não autenticado', absent:'não instalado', none:'nada para exibir', error:'indisponível' },
@@ -1193,6 +1213,18 @@ function drawSwitch(el, s){
 const hooks = remote('get_hooks_installed', 'set_hooks_installed', 'The Claude Code messages', () => renderAccounts());
 const autostart = remote('get_autostart', 'set_autostart', 'Open Codenotch at login', () => drawSwitch(document.getElementById('sw-autostart'), autostart));
 document.getElementById('sw-autostart').addEventListener('click', () => autostart.toggle());
+const resetAlert = remote('get_reset_notifications', 'set_reset_notifications', 'Reset notifications', () => drawSwitch(document.getElementById('sw-reset-alert'), resetAlert));
+document.getElementById('sw-reset-alert').addEventListener('click', () => resetAlert.toggle());
+const resetSound = remote('get_reset_notification_sound', 'set_reset_notification_sound', 'Notification sound', () => drawSwitch(document.getElementById('sw-reset-sound'), resetSound));
+document.getElementById('sw-reset-sound').addEventListener('click', () => resetSound.toggle());
+document.getElementById('btn-reset-preview').addEventListener('click', async e => {
+  const button = e.currentTarget;
+  button.disabled = true;
+  try { await invoke('preview_reset_alert'); }
+  catch(err) { strip('Preview card failed: ' + errText(err)); }
+  finally { button.disabled = false; }
+});
+try { window.__TAURI__.event.listen('reset_alert_preview_error', e => strip('Preview card failed: ' + errText(e.payload))); } catch(e) { /* invoke failure uses the strip */ }
 const adaptivePill = remote('get_adaptive_pill', 'set_adaptive_pill', 'Adaptive pill', () => drawSwitch(document.getElementById('sw-adaptive'), adaptivePill));
 document.getElementById('sw-adaptive').addEventListener('click', () => adaptivePill.toggle());
 const weeklyDashed = remote('get_weekly_ring_dashed', 'set_weekly_ring_dashed', 'Dashed weekly ring', () => drawSwitch(document.getElementById('sw-weekly-dashed'), weeklyDashed));
@@ -1704,6 +1736,8 @@ function renderAll(){
   renderTheme();
   renderTransition();
   drawSwitch(document.getElementById('sw-autostart'), autostart);
+  drawSwitch(document.getElementById('sw-reset-alert'), resetAlert);
+  drawSwitch(document.getElementById('sw-reset-sound'), resetSound);
   drawSwitch(document.getElementById('sw-adaptive'), adaptivePill);
   drawSwitch(document.getElementById('sw-weekly-dashed'), weeklyDashed);
   if(updState) renderUpdate(updState);
@@ -1739,6 +1773,8 @@ function boot(){
       setUiLanguage(l === 'auto' && typeof resolved === 'string' ? resolved : l);
     }),
     autostart.refresh(),
+    resetAlert.refresh(),
+    resetSound.refresh(),
     adaptivePill.refresh(),
     weeklyDashed.refresh(),
     hooks.refresh()
