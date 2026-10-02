@@ -160,6 +160,8 @@
         <div class="group">
           <div class="item"><span>Show</span><span class="seg" id="seg-show"><button data-v="show">Always show</button><button data-v="hover">Show on hover</button><button data-v="hide">Hide</button></span></div>
           <div class="item cap" id="cap-show" data-dynamic></div>
+          <div class="item"><span>Fold for full-screen apps</span><button class="switch" id="sw-fullscreen" role="switch" aria-checked="false" aria-label="Fold for full-screen apps"></button></div>
+          <div class="item cap">The notch folds away while a full-screen app is frontmost, and returns when you leave it. Off keeps it in place over full-screen apps.</div>
           <div class="item"><span>Adaptive pill</span><button class="switch" id="sw-adaptive" role="switch" aria-checked="false" aria-label="Adaptive pill"></button></div>
           <div class="item cap">While the notch is folded, its pill follows what is behind it: light over a dark background, black over a light one, so it stays easy to find. To tell, Codenotch reads a thin strip of the screen beside the pill twice a second and keeps only its average brightness.</div>
           <div class="item"><span>Size</span><span class="seg" id="seg-size"><button data-v="0.8">Small</button><button data-v="1">Medium</button><button data-v="1.25">Large</button></span></div>
@@ -328,6 +330,8 @@ const PT_BR_STATIC = {
   'A thinner ring for the weekly limit, drawn around the main one, in the margin between the ring and the notch edge.':'Um anel mais fino para o limite semanal, desenhado ao redor do principal, no espaço entre o anel e a borda do notch.',
   'Show on hover':'Exibir ao passar o cursor',
   'A small pill at the screen edge that opens when you reach it.':'Uma pequena cápsula na borda da tela que abre quando você chega nela.',
+  'Fold for full-screen apps':'Recolher em apps de tela cheia',
+  'The notch folds away while a full-screen app is frontmost, and returns when you leave it. Off keeps it in place over full-screen apps.':'O notch se recolhe enquanto um app em tela cheia está à frente e volta quando você sai dele. Desligado, ele continua no lugar sobre apps em tela cheia.',
   'Adaptive pill':'Cápsula adaptável',
   'While the notch is folded, its pill follows what is behind it: light over a dark background, black over a light one, so it stays easy to find. To tell, Codenotch reads a thin strip of the screen beside the pill twice a second and keeps only its average brightness.':'Com o notch recolhido, a cápsula acompanha o que está atrás dela: clara sobre um fundo escuro, preta sobre um claro, para continuar fácil de achar. Para isso, o Codenotch lê duas vezes por segundo uma faixa estreita da tela ao lado da cápsula e guarda só o brilho médio dela.',
   'The notch stays open with every reading visible.':'O notch fica aberto com todas as leituras visíveis.',
@@ -420,6 +424,8 @@ const RU_STATIC = {
   'A thinner ring for the weekly limit, drawn around the main one, in the margin between the ring and the notch edge.':'Тонкое кольцо недельного лимита вокруг основного, в промежутке между кольцом и краем панели.',
   'Show on hover':'Показывать при наведении',
   'A small pill at the screen edge that opens when you reach it.':'Небольшая панель у края экрана, которая открывается при наведении.',
+  'Fold for full-screen apps':'Сворачивать для полноэкранных приложений',
+  'The notch folds away while a full-screen app is frontmost, and returns when you leave it. Off keeps it in place over full-screen apps.':'Панель сворачивается, пока впереди полноэкранное приложение, и возвращается, когда вы из него выходите. Если выключено, она остаётся на месте поверх полноэкранных приложений.',
   'Adaptive pill':'Адаптивная свёрнутая панель',
   'While the notch is folded, its pill follows what is behind it: light over a dark background, black over a light one, so it stays easy to find. To tell, Codenotch reads a thin strip of the screen beside the pill twice a second and keeps only its average brightness.':'Когда панель свёрнута, она подстраивается под фон: светлая на тёмном, чёрная на светлом, чтобы её было легко найти. Для этого Codenotch дважды в секунду считывает узкую полоску экрана рядом с ней и сохраняет только её среднюю яркость.',
   'The notch stays open with every reading visible.':'Выемка остаётся открытой, и все данные видны.',
@@ -515,6 +521,8 @@ const ZH_STATIC = {
   'A thinner ring for the weekly limit, drawn around the main one, in the margin between the ring and the notch edge.':'一条更细的每周额度圆环，画在主环外侧，圆环和刘海边缘之间的空隙里。',
   'Show on hover':'悬停时显示',
   'A small pill at the screen edge that opens when you reach it.':'屏幕边缘一颗小胶囊，指针移过去就会展开。',
+  'Fold for full-screen apps':'全屏应用时收起',
+  'The notch folds away while a full-screen app is frontmost, and returns when you leave it. Off keeps it in place over full-screen apps.':'全屏应用在最前时，刘海会收起，离开后再回来。关闭则全屏时也留在原处。',
   'Adaptive pill':'自适应胶囊',
   'While the notch is folded, its pill follows what is behind it: light over a dark background, black over a light one, so it stays easy to find. To tell, Codenotch reads a thin strip of the screen beside the pill twice a second and keeps only its average brightness.':'刘海收起时，胶囊会随背后的内容变化：深色背景上变浅，浅色背景上变黑，方便找到。为此，Codenotch 每秒读取两次胶囊旁边一条窄窄的屏幕区域，只保留它的平均亮度。',
   'The notch stays open with every reading visible.':'刘海保持展开，所有读数都看得见。',
@@ -624,6 +632,8 @@ const ZH_HANT_STATIC = {
   'A thinner ring for the weekly limit, drawn around the main one, in the margin between the ring and the notch edge.':'一條更細的每週額度圓環，畫在主環外側，圓環和瀏海邊緣之間的空隙裡。',
   'Show on hover':'懸停時顯示',
   'A small pill at the screen edge that opens when you reach it.':'螢幕邊緣一顆小膠囊，游標移過去就會展開。',
+  'Fold for full-screen apps':'全螢幕 App 時收合',
+  'The notch folds away while a full-screen app is frontmost, and returns when you leave it. Off keeps it in place over full-screen apps.':'當全螢幕 App 在最前面時，瀏海會收合，離開後再回來。關閉則會讓它繼續蓋在全螢幕 App 上。',
   'Adaptive pill':'自適應膠囊',
   'While the notch is folded, its pill follows what is behind it: light over a dark background, black over a light one, so it stays easy to find. To tell, Codenotch reads a thin strip of the screen beside the pill twice a second and keeps only its average brightness.':'瀏海收起時，膠囊會隨背後的內容變化：深色背景上變淺，淺色背景上變黑，方便找到。為此，Codenotch 每秒讀取兩次膠囊旁邊一條窄窄的螢幕區域，只保留它的平均亮度。',
   'The notch stays open with every reading visible.':'瀏海保持展開，所有讀數都看得見。',
@@ -733,6 +743,8 @@ const JA_STATIC = {
   'A thinner ring for the weekly limit, drawn around the main one, in the margin between the ring and the notch edge.':'週間の上限を細いリングで主リングの外側、リングとノッチの端の間の余白に描きます。',
   'Show on hover':'ホバー時に表示',
   'A small pill at the screen edge that opens when you reach it.':'画面の端に小さなピル。ポインタを近づけると開きます。',
+  'Fold for full-screen apps':'フルスクリーンのアプリでは折りたたむ',
+  'The notch folds away while a full-screen app is frontmost, and returns when you leave it. Off keeps it in place over full-screen apps.':'フルスクリーンのアプリが前面にある間、ノッチは折りたたまれ、離れると戻ります。オフにすると、フルスクリーンのアプリの上でもそのまま表示されます。',
   'Adaptive pill':'ピルの色を自動調整',
   'While the notch is folded, its pill follows what is behind it: light over a dark background, black over a light one, so it stays easy to find. To tell, Codenotch reads a thin strip of the screen beside the pill twice a second and keeps only its average brightness.':'ノッチが折りたたまれている間、ピルは背後の色に合わせて変わります。暗い背景では明るく、明るい背景では黒くなるので、見つけやすくなります。そのために Codenotch は、ピルの横にある画面の細い帯を1秒に2回読み取り、平均の明るさだけを残します。',
   'The notch stays open with every reading visible.':'ノッチは開いたままで、すべての読み取りが見えます。',
@@ -829,6 +841,8 @@ const KO_STATIC = {
   'A thinner ring for the weekly limit, drawn around the main one, in the margin between the ring and the notch edge.':'기본 링과 노치 가장자리 사이의 여백에 주간 한도를 얇은 링으로 표시합니다.',
   'Show on hover':'마우스를 올리면 표시',
   'A small pill at the screen edge that opens when you reach it.':'화면 가장자리의 작은 필에 포인터를 가져가면 펼쳐집니다.',
+  'Fold for full-screen apps':'전체 화면 앱 사용 시 접기',
+  'The notch folds away while a full-screen app is frontmost, and returns when you leave it. Off keeps it in place over full-screen apps.':'전체 화면 앱이 맨 앞에 있으면 노치를 접고, 해당 앱을 벗어나면 다시 표시합니다. 끄면 전체 화면 앱 위에서도 그대로 표시합니다.',
   'Adaptive pill':'적응형 필',
   'While the notch is folded, its pill follows what is behind it: light over a dark background, black over a light one, so it stays easy to find. To tell, Codenotch reads a thin strip of the screen beside the pill twice a second and keeps only its average brightness.':'노치가 접혀 있는 동안 필은 뒤의 배경에 맞춰 바뀝니다. 어두운 배경에서는 밝게, 밝은 배경에서는 검게 바뀌어 쉽게 찾을 수 있습니다. 이를 위해 Codenotch는 필 옆의 좁은 화면 영역을 1초에 두 번 읽고 평균 밝기만 남깁니다.',
   'The notch stays open with every reading visible.':'노치를 열어 두고 모든 측정값을 표시합니다.',
@@ -940,6 +954,8 @@ const UK_STATIC = {
   'A thinner ring for the weekly limit, drawn around the main one, in the margin between the ring and the notch edge.':'Тонше кільце тижневого ліміту навколо основного, у проміжку між кільцем і краєм вирізу.',
   'Show on hover':'Показувати при наведенні',
   'A small pill at the screen edge that opens when you reach it.':'Невелика смужка біля краю екрана, що розгортається при наведенні.',
+  'Fold for full-screen apps':'Згортати для повноекранних застосунків',
+  'The notch folds away while a full-screen app is frontmost, and returns when you leave it. Off keeps it in place over full-screen apps.':'Виріз згортається, поки попереду повноекранний застосунок, і повертається, коли ви його залишите. Вимкнено — виріз лишається поверх повноекранних застосунків.',
   'Adaptive pill':'Адаптивна смужка',
   'While the notch is folded, its pill follows what is behind it: light over a dark background, black over a light one, so it stays easy to find. To tell, Codenotch reads a thin strip of the screen beside the pill twice a second and keeps only its average brightness.':'Поки виріз згорнуто, смужка підлаштовується під тло: світла на темному, чорна на світлому, щоб її було легко знайти. Для цього Codenotch двічі на секунду зчитує вузьку ділянку екрана поруч із нею і зберігає лише її середню яскравість.',
   'The notch stays open with every reading visible.':'Виріз лишається відкритим, усі показники видно.',
@@ -1193,6 +1209,8 @@ function drawSwitch(el, s){
 const hooks = remote('get_hooks_installed', 'set_hooks_installed', 'The Claude Code messages', () => renderAccounts());
 const autostart = remote('get_autostart', 'set_autostart', 'Open Codenotch at login', () => drawSwitch(document.getElementById('sw-autostart'), autostart));
 document.getElementById('sw-autostart').addEventListener('click', () => autostart.toggle());
+const foldFullScreen = remote('get_fold_for_full_screen', 'set_fold_for_full_screen', 'Fold for full-screen apps', () => drawSwitch(document.getElementById('sw-fullscreen'), foldFullScreen));
+document.getElementById('sw-fullscreen').addEventListener('click', () => foldFullScreen.toggle());
 const adaptivePill = remote('get_adaptive_pill', 'set_adaptive_pill', 'Adaptive pill', () => drawSwitch(document.getElementById('sw-adaptive'), adaptivePill));
 document.getElementById('sw-adaptive').addEventListener('click', () => adaptivePill.toggle());
 const weeklyDashed = remote('get_weekly_ring_dashed', 'set_weekly_ring_dashed', 'Dashed weekly ring', () => drawSwitch(document.getElementById('sw-weekly-dashed'), weeklyDashed));
@@ -1704,6 +1722,7 @@ function renderAll(){
   renderTheme();
   renderTransition();
   drawSwitch(document.getElementById('sw-autostart'), autostart);
+  drawSwitch(document.getElementById('sw-fullscreen'), foldFullScreen);
   drawSwitch(document.getElementById('sw-adaptive'), adaptivePill);
   drawSwitch(document.getElementById('sw-weekly-dashed'), weeklyDashed);
   if(updState) renderUpdate(updState);
@@ -1739,6 +1758,7 @@ function boot(){
       setUiLanguage(l === 'auto' && typeof resolved === 'string' ? resolved : l);
     }),
     autostart.refresh(),
+    foldFullScreen.refresh(),
     adaptivePill.refresh(),
     weeklyDashed.refresh(),
     hooks.refresh()
