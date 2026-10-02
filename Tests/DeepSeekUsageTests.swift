@@ -242,3 +242,91 @@ final class DeepSeekUsageTests: XCTestCase {
         }
     }
 }
+
+/// One wallet per currency, and the order the server lists them in says nothing
+/// about which holds the money. Reading the first is what made a funded CNY
+/// wallet sitting behind an empty USD one read as 0%.
+final class DeepSeekMultiWalletTests: XCTestCase {
+    private func summary(wallets: [(String, String)], costs: [(String, String)]) -> String {
+        let walletJSON = wallets
+            .map { #"{"currency":"\#($0.0)","balance":"\#($0.1)"}"# }
+            .joined(separator: ",")
+        let costJSON = costs
+            .map { #"{"currency":"\#($0.0)","amount":"\#($0.1)"}"# }
+            .joined(separator: ",")
+        return #"{"data":{"biz_data":{"normal_wallets":[\#(walletJSON)],"total_costs":[\#(costJSON)]}}}"#
+    }
+
+    /// The reported case: USD listed first and empty, CNY funded and used. It
+    /// read 0% because the empty wallet was chosen, and its currency is the one
+    /// `total_costs` is looked up in, so a real balance and a real cost were both
+    /// read as zero.
+    func testAFundedWalletIsReadEvenWhenAnEmptyOneIsListedFirst() throws {
+        let json = summary(wallets: [("USD", "0"), ("CNY", "10.87")],
+                           costs: [("CNY", "9.20")])
+        let reading = try DeepSeekUsage.reading(fromJSON: json)
+        XCTAssertEqual(reading.currency, "CNY")
+        XCTAssertEqual(reading.spent, 9.20, accuracy: 0.001)
+        XCTAssertEqual(reading.balance, 10.87, accuracy: 0.001)
+        XCTAssertEqual(reading.usedFraction, 9.20 / 20.07, accuracy: 0.001)
+    }
+
+    /// The reverse order, so the fix is not a CNY special case.
+    func testTheOrderTheWalletsArriveInDoesNotDecideIt() throws {
+        let json = summary(wallets: [("CNY", "10.87"), ("USD", "0")],
+                           costs: [("CNY", "9.20")])
+        XCTAssertEqual(try DeepSeekUsage.reading(fromJSON: json).currency, "CNY")
+    }
+
+    /// A wallet with a balance but no recorded cost is still funded, and must
+    /// not be passed over for one that merely has a cost line.
+    func testABalanceAloneMakesAWalletTheFundedOne() throws {
+        let json = summary(wallets: [("USD", "0"), ("EUR", "5")], costs: [])
+        let reading = try DeepSeekUsage.reading(fromJSON: json)
+        XCTAssertEqual(reading.currency, "EUR")
+        XCTAssertEqual(reading.spent, 0, accuracy: 0.001)
+        XCTAssertEqual(reading.usedFraction, 0, accuracy: 0.001)
+    }
+
+    /// Where two currencies are both real, the card carries one figure, so the
+    /// largest is the one that means something — and the choice is not
+    /// positional, which is the whole bug.
+    func testTheLargestFundedWalletWinsWhenBothAreReal() throws {
+        let json = summary(wallets: [("USD", "100"), ("CNY", "20")],
+                           costs: [("USD", "10"), ("CNY", "5")])
+        XCTAssertEqual(try DeepSeekUsage.reading(fromJSON: json).currency, "USD")
+
+        let reversed = summary(wallets: [("CNY", "20"), ("USD", "100")],
+                               costs: [("USD", "10"), ("CNY", "5")])
+        XCTAssertEqual(try DeepSeekUsage.reading(fromJSON: reversed).currency, "USD")
+    }
+
+    /// Nothing funded anywhere is zero, which is what an empty account has always
+    /// read as — not an error.
+    func testAnAccountWithNothingInAnyWalletStillReadsAsZero() throws {
+        let json = summary(wallets: [("USD", "0"), ("CNY", "0")], costs: [])
+        let reading = try DeepSeekUsage.reading(fromJSON: json)
+        XCTAssertEqual(reading.currency, "USD")
+        XCTAssertEqual(reading.usedFraction, 0, accuracy: 0.001)
+    }
+
+    /// No wallets at all is still "no wallet", as before.
+    func testNoWalletsIsStillAnError() {
+        XCTAssertThrowsError(try DeepSeekUsage.reading(
+            fromJSON: #"{"data":{"biz_data":{"normal_wallets":[],"total_costs":[]}}}"#))
+    }
+
+    /// A balance that will not parse must not become a reading that looks spent.
+    func testAnUnparseableBalanceIsSkippedRatherThanZeroed() throws {
+        let json = summary(wallets: [("USD", "not-a-number"), ("CNY", "3")], costs: [])
+        XCTAssertEqual(try DeepSeekUsage.reading(fromJSON: json).currency, "CNY")
+    }
+
+    /// A single funded wallet is unchanged — the common case must not move.
+    func testASingleFundedWalletIsUnchanged() throws {
+        let json = summary(wallets: [("CNY", "10.87")], costs: [("CNY", "9.20")])
+        let reading = try DeepSeekUsage.reading(fromJSON: json)
+        XCTAssertEqual(reading.currency, "CNY")
+        XCTAssertEqual(reading.usedFraction, 9.20 / 20.07, accuracy: 0.001)
+    }
+}
