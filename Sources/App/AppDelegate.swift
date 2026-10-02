@@ -519,6 +519,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak fleet] in fleet?.apply(deepSeekPricingSchedule: $0) }
                 .store(in: &cancellables)
 
+            // The holiday check is a network request, so it runs only for
+            // someone who has DeepSeek on and is shown its pricing. Received on
+            // the run loop so `isConnected` reads the value just published.
+            Publishers.CombineLatest3(preferences.$deepSeekPricingEnabled,
+                                      preferences.$deepSeekPricingSchedule,
+                                      preferences.$connectedProviders)
+                .receive(on: RunLoop.main)
+                .sink { [weak preferences] enabled, schedule, _ in
+                    let active = enabled && schedule.offPeakOnChineseHolidays
+                        && (preferences?.isConnected("deepseek") ?? false)
+                    ChineseHolidays.shared.setActive(active)
+                }
+                .store(in: &cancellables)
+
             preferences.$minimaxRegion
                 .dropFirst()
                 .removeDuplicates()

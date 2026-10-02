@@ -56955,6 +56955,98 @@
     },
     "Could not build the model-list URL": {
       "extractionState": "manual"
+    },
+    "Off-peak all day on Chinese public holidays": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中国法定节假日全天按空闲时段计价"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中國法定節假日全天按離峰時段計價"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中国の法定休日は終日オフピーク"
+          }
+        }
+      }
+    },
+    "Holiday dates follow the State Council's notices via holiday-cn, checked once a day.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "节假日日期依据国务院放假通知，由 holiday-cn 提供，每天检查一次。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "節假日日期依據國務院放假通知，由 holiday-cn 提供，每天檢查一次。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "休日の日付は国務院の通知に基づき holiday-cn から取得し、1 日 1 回確認します。"
+          }
+        }
+      }
+    },
+    "No dates for %lld yet, so only the rule above applies.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚无 %lld 年的节假日数据，暂时只按上面的规则计算。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚無 %lld 年的節假日資料，暫時只按上面的規則計算。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 年の休日データはまだないため、上記のルールのみを適用します。"
+          }
+        }
+      }
+    },
+    "Known years: %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有年份：%@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有年份：%@。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取得済みの年：%@。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

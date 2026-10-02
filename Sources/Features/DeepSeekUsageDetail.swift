@@ -9,6 +9,7 @@ struct DeepSeekUsageDetail: View {
     let schedule: DeepSeekPricing.Schedule
     let showsPricing: Bool
     @Environment(\.codenotchAccentColor) private var accentColor
+    @ObservedObject private var holidays = ChineseHolidays.shared
 
     private var timeZoneText: String {
         let absolute = abs(detail.timeZoneSeconds)
@@ -37,7 +38,7 @@ struct DeepSeekUsageDetail: View {
     }
 
     private var pricingText: String {
-        switch DeepSeekPricing.phase(at: now, schedule: schedule) {
+        switch DeepSeekPricing.phase(at: now, schedule: schedule, holidays: holidays.calendar) {
         case .peak:
             return L10n.t("Peak pricing · 2× off-peak")
         case .offPeak:
@@ -46,14 +47,14 @@ struct DeepSeekUsageDetail: View {
     }
 
     private var pricingColor: Color {
-        switch DeepSeekPricing.phase(at: now, schedule: schedule) {
+        switch DeepSeekPricing.phase(at: now, schedule: schedule, holidays: holidays.calendar) {
         case .peak: return Palette.watch
         case .offPeak: return accentColor
         }
     }
 
     private var nextPricingTransition: DeepSeekPricing.Transition {
-        DeepSeekPricing.nextTransition(after: now, schedule: schedule)
+        DeepSeekPricing.nextTransition(after: now, schedule: schedule, holidays: holidays.calendar)
     }
 
     private var nextPricingLabel: String {

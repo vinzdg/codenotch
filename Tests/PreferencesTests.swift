@@ -269,6 +269,18 @@ final class PreferencesMigrationTests: XCTestCase {
         XCTAssertEqual(reloaded.deepSeekPricingSchedule, .current)
     }
 
+    func testTurningOffTheHolidayRuleSurvivesARelaunch() {
+        let (fresh, name) = makeDefaults()
+        XCTAssertTrue(Preferences(defaults: fresh).deepSeekPricingSchedule.offPeakOnChineseHolidays)
+
+        var schedule = DeepSeekPricing.Schedule.current
+        schedule.offPeakOnChineseHolidays = false
+        Preferences(defaults: fresh).deepSeekPricingSchedule = schedule
+
+        let reloaded = Preferences(defaults: UserDefaults(suiteName: name)!)
+        XCTAssertFalse(reloaded.deepSeekPricingSchedule.offPeakOnChineseHolidays)
+    }
+
     /// Off by default, and it has to stay chosen once it is chosen: an extra
     /// arc in a 44pt circle changes how every reading looks, so it is not
     /// something to switch on for somebody, nor to forget they switched on.
