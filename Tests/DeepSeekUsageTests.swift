@@ -76,6 +76,113 @@ final class DeepSeekUsageTests: XCTestCase {
         ), .offPeak)
     }
 
+    /// Trimmed from holiday-cn's 2026.json: National Day, the Spring Festival,
+    /// and a make-up working day, which must not count as a day off.
+    private static let holidays2026 = #"""
+    {"year": 2026, "papers": [], "days": [
+      {"name": "春节", "date": "2026-02-15", "isOffDay": true},
+      {"name": "春节", "date": "2026-02-16", "isOffDay": true},
+      {"name": "春节", "date": "2026-02-17", "isOffDay": true},
+      {"name": "春节", "date": "2026-02-18", "isOffDay": true},
+      {"name": "春节", "date": "2026-02-19", "isOffDay": true},
+      {"name": "春节", "date": "2026-02-20", "isOffDay": true},
+      {"name": "春节", "date": "2026-02-21", "isOffDay": true},
+      {"name": "春节", "date": "2026-02-22", "isOffDay": true},
+      {"name": "春节", "date": "2026-02-23", "isOffDay": true},
+      {"name": "国庆节", "date": "2026-10-01", "isOffDay": true},
+      {"name": "国庆节", "date": "2026-10-02", "isOffDay": true},
+      {"name": "国庆节", "date": "2026-10-05", "isOffDay": true},
+      {"name": "国庆节", "date": "2026-10-06", "isOffDay": true},
+      {"name": "国庆节", "date": "2026-10-07", "isOffDay": true},
+      {"name": "国庆节", "date": "2026-10-10", "isOffDay": false}
+    ]}
+    """#
+
+    private func holidayCalendar() throws -> ChineseHolidayCalendar {
+        try XCTUnwrap(ChineseHolidayCalendar.empty.merging(holidayCNJSON: Data(Self.holidays2026.utf8)))
+    }
+
+    func testChineseHolidaysAreOffPeakOnAWeekday() throws {
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        let holidays = try holidayCalendar()
+        // Friday 2 October 2026, 10:00 in Beijing.
+        let nationalDay = try XCTUnwrap(formatter.date(from: "2026-10-02T02:00:00Z"))
+
+        XCTAssertEqual(DeepSeekPricing.phase(at: nationalDay, schedule: .current, holidays: holidays), .offPeak)
+        XCTAssertEqual(DeepSeekPricing.phase(at: nationalDay, schedule: .current), .peak)
+
+        var weekdaysOnly = DeepSeekPricing.Schedule.current
+        weekdaysOnly.offPeakOnChineseHolidays = false
+        XCTAssertEqual(DeepSeekPricing.phase(at: nationalDay, schedule: weekdaysOnly, holidays: holidays), .peak)
+
+        // Thursday 8 October is a working day again.
+        XCTAssertEqual(DeepSeekPricing.phase(
+            at: try XCTUnwrap(formatter.date(from: "2026-10-08T02:00:00Z")),
+            schedule: .current, holidays: holidays
+        ), .peak)
+    }
+
+    func testHolidayCalendarIgnoresMakeUpDaysAndUnpublishedYears() throws {
+        let holidays = try holidayCalendar()
+
+        XCTAssertEqual(holidays.years, [2026])
+        XCTAssertTrue(holidays.offDays.contains("2026-10-01"))
+        XCTAssertFalse(holidays.offDays.contains("2026-10-10"))
+        XCTAssertNil(holidays.merging(holidayCNJSON: Data(#"{"year": 2027, "papers": [], "days": []}"#.utf8)))
+        XCTAssertNil(holidays.merging(holidayCNJSON: Data("not json".utf8)))
+    }
+
+    func testNextPeakSkipsTheWholeHoliday() throws {
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        let holidays = try holidayCalendar()
+
+        let nationalDay = DeepSeekPricing.nextTransition(
+            after: try XCTUnwrap(formatter.date(from: "2026-10-02T02:00:00Z")),
+            schedule: .current, holidays: holidays
+        )
+        XCTAssertEqual(nationalDay.phase, .peak)
+        XCTAssertEqual(nationalDay.date, try XCTUnwrap(formatter.date(from: "2026-10-08T01:00:00Z")))
+
+        // Friday evening before the Spring Festival: eleven days to the next peak.
+        let springFestival = DeepSeekPricing.nextTransition(
+            after: try XCTUnwrap(formatter.date(from: "2026-02-13T10:30:00Z")),
+            schedule: .current, holidays: holidays
+        )
+        XCTAssertEqual(springFestival.phase, .peak)
+        XCTAssertEqual(springFestival.date, try XCTUnwrap(formatter.date(from: "2026-02-24T01:00:00Z")))
+    }
+
+    func testAHolidayEndsAWindowThatRunsAcrossBeijingMidnight() throws {
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        let schedule = DeepSeekPricing.Schedule(
+            peakWeekdays: [1, 2, 3, 4, 5, 6, 7],
+            windows: [.init(startMinute: 900, endMinute: 1_020)]
+        )
+
+        let transition = DeepSeekPricing.nextTransition(
+            after: try XCTUnwrap(formatter.date(from: "2026-09-30T15:30:00Z")),
+            schedule: schedule, holidays: try holidayCalendar()
+        )
+        XCTAssertEqual(transition.phase, .offPeak)
+        XCTAssertEqual(transition.date, try XCTUnwrap(formatter.date(from: "2026-09-30T16:00:00Z")))
+    }
+
+    func testAScheduleSavedBeforeTheHolidayRuleStillDecodes() throws {
+        let saved = #"{"peakWeekdays": [2, 3], "windows": [{"startMinute": 60, "endMinute": 240}]}"#
+        let schedule = try JSONDecoder().decode(DeepSeekPricing.Schedule.self, from: Data(saved.utf8))
+
+        XCTAssertEqual(schedule.peakWeekdays, [2, 3])
+        XCTAssertTrue(schedule.offPeakOnChineseHolidays)
+    }
+
+    func testTheBundledHolidayCalendarCoversTheYearItShipsWith() {
+        XCTAssertTrue(ChineseHolidays.bundled.years.contains(2026))
+        XCTAssertNotNil(Bundle.main.url(forResource: "holiday-cn-LICENSE", withExtension: "txt"))
+    }
+
     func testDisablingPricingOnlyRemovesPricingRowsFromTheCardHeight() {
         XCTAssertGreaterThan(
             NotchLayout.usageDetailHeight(1, showsPricing: true),
