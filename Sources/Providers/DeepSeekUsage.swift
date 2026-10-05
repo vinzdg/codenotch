@@ -36,13 +36,33 @@ enum DeepSeekUsage {
         return try JSONDecoder().decode(FetchPayload.self, from: data)
     }
 
+    /// Prefer the wallet with the largest funded+spent total so a zero USD
+    /// wallet listed first does not hide a funded CNY balance (#413).
+    private static func preferredWallet(in summary: Summary) -> (wallet: Wallet, spent: Double)? {
+        var best: (Wallet, Double, Double)?
+        for wallet in summary.normalWallets {
+            guard let balance = Double(wallet.balance), balance >= 0 else { continue }
+            let spent = summary.totalCosts.first(where: { $0.currency == wallet.currency })
+                .flatMap { Double($0.amount) } ?? 0
+            guard spent >= 0 else { continue }
+            let score = spent + balance
+            if let current = best {
+                if score > current.2 { best = (wallet, spent, score) }
+            } else {
+                best = (wallet, spent, score)
+            }
+        }
+        guard let chosen = best else { return nil }
+        return (chosen.0, chosen.1)
+    }
+
     static func reading(fromJSON json: String) throws -> Reading {
         guard let data = json.data(using: .utf8) else { throw ParseError.malformed }
         let envelope = try JSONDecoder().decode(Envelope.self, from: data)
         guard let summary = envelope.data?.bizData,
-              let wallet = summary.normalWallets.first else { throw ParseError.noWallet }
-        let spent = summary.totalCosts.first(where: { $0.currency == wallet.currency })
-            .flatMap { Double($0.amount) } ?? 0
+              let chosen = preferredWallet(in: summary) else { throw ParseError.noWallet }
+        let wallet = chosen.wallet
+        let spent = chosen.spent
         guard let balance = Double(wallet.balance), spent >= 0, balance >= 0 else {
             throw ParseError.malformed
         }

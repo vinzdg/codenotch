@@ -176,6 +176,16 @@ final class DeepSeekUsageTests: XCTestCase {
         XCTAssertEqual(reading.availableTokens, 3_300_000)
     }
 
+    func testPlatformSummaryPrefersFundedWalletWhenUSDIsFirstAndEmpty() throws {
+        // USD listed first with zero balance/cost used to force a 0% reading (#413).
+        let json = #"{"data":{"biz_data":{"normal_wallets":[{"currency":"USD","balance":"0"},{"currency":"CNY","balance":"10.87"}],"total_costs":[{"currency":"USD","amount":"0"},{"currency":"CNY","amount":"9.20"}],"total_available_token_estimation":"3300000"}}}"#
+        let reading = try DeepSeekUsage.reading(fromJSON: json)
+        XCTAssertEqual(reading.currency, "CNY")
+        XCTAssertEqual(reading.spent, 9.20, accuracy: 0.001)
+        XCTAssertEqual(reading.balance, 10.87, accuracy: 0.001)
+        XCTAssertEqual(reading.usedFraction, 9.20 / 20.07, accuracy: 0.001)
+    }
+
     func testAmountAndCostSeriesMergeByAPIKeyAndModel() throws {
         let summary = #"{"data":{"biz_data":{"normal_wallets":[{"currency":"CNY","balance":"1"}],"total_costs":[]}}}"#
         let amountObject: [String: Any] = ["data": ["biz_data": ["series": [[
