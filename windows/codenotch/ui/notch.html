@@ -410,7 +410,7 @@ let activity=[]; // working state of the non-Claude providers: {provider,state:'
    told so it can mirror or rotate itself to match. 'right' is the default and the pre-edge layout. */
 let notchEdge='right';
 // Show on hover — the logic is beside the handles below; declared here, since reportHot reads `folded` from the first frame
-let onHover=false, folded=false, pointerIn=false, menuOpen=false, foldTimer=null;
+let onHover=false, fullScreen=false, folded=false, pointerIn=false, menuOpen=false, foldTimer=null;
 /* How much of the window the taskbar covers, in CSS px, from Rust: top, right, bottom, left. The pill
    stays against the screen edge; the card is kept out of these. */
 let insets=[0,0,0,0];
@@ -2065,7 +2065,7 @@ function holdOrb(){ release=null; orb.classList.remove('releasing'); runGrip(); 
    never folds mid-carry, mid-drag or under the right-click menu, all of which take the pointer off the
    notch on purpose — folding under them is what #239's reviewers caught, so it is ruled out here. */
 const FOLD_GRACE=450; // NotchWindowController.foldGrace
-function foldAllowed(){ return onHover&&!pointerIn&&!dragging&&!menuOpen; }
+function foldAllowed(){ return (onHover||fullScreen)&&!pointerIn&&!dragging&&!menuOpen; }
 function setFolded(f){
   if(f===folded) return;
   folded=f;
@@ -2078,13 +2078,21 @@ function unfold(){ clearTimeout(foldTimer); clearTimeout(tuckTimer); setFolded(f
    goes home, while there is still a notch to go into; and only then does the notch fold */
 function scheduleFold(){
   clearTimeout(foldTimer); clearTimeout(tuckTimer);
-  if(!onHover){ setFolded(false); arcOut(); return; }
+  if(!onHover&&!fullScreen){ setFolded(false); arcOut(); return; }
   if(!foldAllowed()){ if(!folded) arcOut(); return; }
   const turnBack=gripOut()?TURNS_BACK:release?Math.max(0,release.start+release.dur-performance.now()):0;
   tuckTimer=setTimeout(()=>{ if(foldAllowed()) arcIn(false); },turnBack);
   foldTimer=setTimeout(()=>{ if(foldAllowed()) setFolded(true); },FOLD_GRACE+turnBack);
 }
 function applyUiFlags(f){ onHover=!!(f&&f.notch_on_hover); scheduleFold(); }
+/* A full-screen app in front folds it as Show on hover would, whatever Show says, and at once rather
+   than after the grace — the Mac's foldForFullScreen. */
+function applyFullScreen(on){
+  fullScreen=on===true;
+  if(fullScreen&&foldAllowed()){ clearTimeout(foldTimer); clearTimeout(tuckTimer); setFolded(true); } else scheduleFold();
+}
+listen('full_screen',e=>applyFullScreen(e.payload)).catch(()=>{});
+invoke('get_full_screen').then(applyFullScreen).catch(()=>{});
 // Off the notch is off the orb too: once the window is click-through the page may never see it leave
 listen('notch_pointer',e=>{
   pointerIn=e.payload===true;

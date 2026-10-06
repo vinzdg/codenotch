@@ -29,6 +29,7 @@ mod trayicon;
 mod activity;
 mod diag;
 mod carry;
+mod fullscreen;
 mod watcher;
 mod settings_window;
 mod topmost;
@@ -160,6 +161,11 @@ pub fn screens(app: &AppHandle) -> Vec<Screen> {
 
 /// The monitor the notch should sit on: the configured one while it is still attached, else primary.
 fn target_screen(app: &AppHandle) -> Option<Screen> {
+    attached_screen(app).map(fullscreen::apply)
+}
+
+/// `target_screen` with the work area Windows reports, taskbar and all, even under a full-screen app.
+fn attached_screen(app: &AppHandle) -> Option<Screen> {
     let want = {
         let st = app.state::<AppState>();
         let c = st.cfg.lock().unwrap();
@@ -300,6 +306,7 @@ pub fn notch_window_size(edge: &str) -> (f64, f64) {
 }
 
 pub fn place_notch(app: &AppHandle) {
+    *GLIDE.lock().unwrap() += 1;
     let Some(w) = app.get_webview_window("notch") else {
         return;
     };
@@ -370,6 +377,91 @@ pub fn place_notch(app: &AppHandle) {
     }
 }
 
+/// Bumped by every placement and every glide, so a glide still under way stops rather than carry
+/// the notch off the place it was just put.
+static GLIDE: Mutex<u32> = Mutex::new(0);
+/// The fold's own 360 ms, on its curve (notch.html), so a notch folding for a full-screen app lands
+/// at the edge as the fold ends.
+const GLIDE_MS: f64 = 360.0;
+
+/// CSS `cubic-bezier(.32, .72, .24, 1)` at `t`.
+fn glide_curve(t: f64) -> f64 {
+    let bezier = |a: f64, b: f64, s: f64| 3.0 * a * s * (1.0 - s) * (1.0 - s) + 3.0 * b * s * s * (1.0 - s) + s * s * s;
+    let (mut lo, mut hi) = (0.0, 1.0);
+    for _ in 0..32 {
+        let mid = (lo + hi) / 2.0;
+        if bezier(0.32, 0.24, mid) < t {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    bezier(0.72, 1.0, (lo + hi) / 2.0)
+}
+
+/// `place_notch`, but moved there over the fold's 360 ms instead of in one step: a full-screen app
+/// taking the taskbar's room, or handing it back, moves the notch by a taskbar's height, and a jump
+/// that size reads as the notch flickering between two places.
+pub(crate) fn glide_notch(app: &AppHandle) {
+    let gen = {
+        let mut g = GLIDE.lock().unwrap();
+        *g += 1;
+        *g
+    };
+    let Some(w) = app.get_webview_window("notch") else { return };
+    let (Some(mon), Ok(from), Ok(size)) = (target_screen(app), w.outer_position(), w.outer_size()) else {
+        place_notch(app);
+        return;
+    };
+    let (edge, ratio) = {
+        let st = app.state::<AppState>();
+        let c = st.cfg.lock().unwrap();
+        let edge = config::edge_or_right(&c.notch_edge);
+        let ratio = c.along(&edge);
+        (edge, ratio)
+    };
+    let to = edge_origin(&mon, &edge, size.width as i32, size.height as i32, ratio);
+    if to == (from.x, from.y) {
+        place_notch(app);
+        return;
+    }
+    let start = std::time::Instant::now();
+    loop {
+        let t = (start.elapsed().as_secs_f64() * 1000.0 / GLIDE_MS).min(1.0);
+        let k = glide_curve(t);
+        let x = from.x + ((to.0 - from.x) as f64 * k).round() as i32;
+        let y = from.y + ((to.1 - from.y) as f64 * k).round() as i32;
+        {
+            let g = GLIDE.lock().unwrap();
+            if *g != gen || DRAGGING.load(std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+        }
+        if t >= 1.0 {
+            break;
+        }
+        next_frame();
+    }
+    place_notch(app);
+}
+
+/// Waits for the screen's next frame, so each step of a glide is on screen for one.
+#[cfg(windows)]
+fn next_frame() {
+    let t = std::time::Instant::now();
+    let waited = unsafe { windows::Win32::Graphics::Dwm::DwmFlush() }.is_ok();
+    // One that came straight back would run the glide flat out
+    if !waited || t.elapsed() < std::time::Duration::from_millis(2) {
+        std::thread::sleep(std::time::Duration::from_millis(8));
+    }
+}
+
+#[cfg(not(windows))]
+fn next_frame() {
+    std::thread::sleep(std::time::Duration::from_millis(16));
+}
+
 /// How often the work area is re-read. It only changes by hand — the taskbar moved to another edge,
 /// resized, or switched to auto-hide — so a second late is not noticeable.
 const WORK_AREA_POLL_MS: u64 = 1000;
@@ -383,7 +475,8 @@ const WORK_AREA_POLL_MS: u64 = 1000;
 /// once in a session.
 fn start_work_area_watch(app: AppHandle) {
     std::thread::spawn(move || {
-        let mut last = target_screen(&app).map(|s| s.work);
+        // Not target_screen: a full-screen app changes that one, and `glide_notch` answers it
+        let mut last = attached_screen(&app).map(|s| s.work);
         let mut last_theme = resolved_theme(&app);
         loop {
             std::thread::sleep(std::time::Duration::from_millis(WORK_AREA_POLL_MS));
@@ -397,7 +490,7 @@ fn start_work_area_watch(app: AppHandle) {
                 last_theme = system;
                 apply_theme(&app);
             }
-            let now = target_screen(&app).map(|s| s.work);
+            let now = attached_screen(&app).map(|s| s.work);
             if now == last {
                 continue;
             }
@@ -1556,6 +1649,31 @@ fn set_adaptive_pill(app: AppHandle, on: bool) -> bool {
     on
 }
 
+#[tauri::command]
+fn get_fold_for_full_screen(app: AppHandle) -> bool {
+    let st = app.state::<AppState>();
+    let c = st.cfg.lock().unwrap();
+    c.fold_for_full_screen
+}
+
+#[tauri::command]
+fn set_fold_for_full_screen(app: AppHandle, on: bool) -> bool {
+    {
+        let st = app.state::<AppState>();
+        let mut c = st.cfg.lock().unwrap();
+        c.fold_for_full_screen = on;
+        config::save(&c);
+    }
+    fullscreen::tell(&app);
+    on
+}
+
+/// Whether the notch is folded for a full-screen app, for a page that asks before it was listening
+#[tauri::command]
+fn get_full_screen() -> bool {
+    fullscreen::folding()
+}
+
 /// One attached monitor, as Settings lists it.
 #[derive(serde::Serialize)]
 pub struct MonitorInfo {
@@ -1902,6 +2020,9 @@ fn main() {
             open_settings,
             get_adaptive_pill,
             set_adaptive_pill,
+            get_fold_for_full_screen,
+            set_fold_for_full_screen,
+            get_full_screen,
             settings_window::get_system_look,
             settings_window::quit_app,
             settings_window::settings_ready,
@@ -1940,6 +2061,7 @@ fn main() {
             start_pointer_watchdog(handle.clone());
             backdrop::start(handle.clone());
             start_work_area_watch(handle.clone());
+            fullscreen::start(handle.clone());
             topmost::start_watchdog(handle.clone());
             // Seen-clears-it scan
             let acker = handle.clone();
@@ -1980,7 +2102,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        cursor_in_hot, notch_window_size, provider_page, ring_window, work_insets, Screen, HOT_PAD,
+        cursor_in_hot, glide_curve, notch_window_size, provider_page, ring_window, work_insets, Screen, HOT_PAD,
         NOTCH_W, TRAY_PROVIDER_IDS,
     };
     use crate::usage::LimitWindow;
@@ -2012,6 +2134,15 @@ mod tests {
 
     /// A slide along the edge saves `along_at` and the next placement reads it back through
     /// `edge_origin`, so the two must be exact inverses or the notch jumps when it is let go.
+    #[test]
+    fn a_glide_leaves_quickly_and_settles_on_the_spot() {
+        assert!(glide_curve(0.0).abs() < 1e-6);
+        assert!((glide_curve(1.0) - 1.0).abs() < 1e-6);
+        assert!(glide_curve(0.25) > 0.5, "most of the way in the first quarter, as the fold is");
+        let steps: Vec<f64> = (0..=20).map(|i| glide_curve(i as f64 / 20.0)).collect();
+        assert!(steps.windows(2).all(|p| p[1] >= p[0]), "never back the way it came");
+    }
+
     #[test]
     fn a_slid_notch_lands_where_it_was_let_go() {
         let s = Screen { name: None, x: 0, y: 0, w: 3200, h: 2000, scale: 1.5, work: (0, 0, 3200, 1928) };

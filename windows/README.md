@@ -248,6 +248,12 @@ which, Codenotch reads a thin strip of the screen beside the pill twice a second
 and keeps only its average brightness, which is never stored or sent. With the switch off, the notch
 open, or Show set to Always show, nothing is read.
 
+**Appearance → Fold for full-screen apps**, on unless switched off, folds the notch to its pill while
+a full-screen app — a video, a game, a slideshow — is in front on its screen, whatever Show says, as
+the Mac's does. Hovering the pill still opens it, and leaving the app unfolds it again. Switch on or
+off, the notch moves to the screen's very edge meanwhile, into the room the taskbar has made for the
+app, and back when the taskbar returns.
+
 ### Icons
 
 Provider marks are the SVGs from [`@lobehub/icons-static-svg`](https://github.com/lobehub/lobe-icons)
