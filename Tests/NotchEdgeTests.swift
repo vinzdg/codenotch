@@ -378,6 +378,164 @@ final class FoldingOnEveryEdgeTests: XCTestCase {
     }
 }
 
+/// The dock style floats the notch clear of the screen edge on the left, right
+/// and bottom, and leaves it a notch on the top. Every other style, and the
+/// dock style wherever it does not float, must measure exactly as before. The
+/// floating cases skip below macOS 26, where the dock style resolves to solid.
+@MainActor
+final class DockStyleGeometryTests: XCTestCase {
+    private let floatingEdges: [NotchEdge] = [.right, .left, .bottom]
+
+    private func model(_ style: NotchSurfaceStyle, on edge: NotchEdge,
+                       cells: Int = 3) -> NotchViewModel {
+        let model = NotchViewModel()
+        model.edge = edge
+        model.surfaceStyle = style
+        model.snapshots = (0..<cells).map {
+            ProviderSnapshot(id: "p\($0)", displayName: "P", glyph: .claude,
+                             fidelity: .official, status: .ok, windows: [])
+        }
+        return model
+    }
+
+    private func depth(of size: CGSize, on edge: NotchEdge) -> CGFloat {
+        edge.isVertical ? size.width : size.height
+    }
+
+    func testTheDockStyleFloatsOffTheLeftRightAndBottomEdges() throws {
+        try XCTSkipUnless(NotchSurfaceStyle.glassAvailable, "no Liquid Glass below macOS 26, so the dock style resolves to solid and nothing floats")
+        for edge in floatingEdges {
+            let m = model(.dock, on: edge)
+            XCTAssertTrue(m.floats, "\(edge)")
+            XCTAssertEqual(m.drawnSurfaceStyle, .dock, "\(edge)")
+            XCTAssertEqual(m.edgeGap, NotchLayout.dockGap, "\(edge)")
+            XCTAssertFalse(m.showsHandles, "\(edge)")
+        }
+    }
+
+    func testTheGapMovesTheTooltipAndDeepensThePanelByExactlyItself() throws {
+        try XCTSkipUnless(NotchSurfaceStyle.glassAvailable, "no Liquid Glass below macOS 26, so the dock style resolves to solid and nothing floats")
+        for edge in floatingEdges {
+            for expanded in [true, false] {
+                let dock = model(.dock, on: edge)
+                let dark = model(.darkGlass, on: edge)
+                dock.isExpanded = expanded
+                dark.isExpanded = expanded
+                XCTAssertEqual(dock.tooltipInset, dark.tooltipInset + NotchLayout.dockGap,
+                               accuracy: 0.001, "\(edge) expanded: \(expanded)")
+                XCTAssertEqual(depth(of: dock.panelSize, on: edge),
+                               depth(of: dark.panelSize, on: edge) + NotchLayout.dockGap,
+                               accuracy: 0.001, "\(edge) expanded: \(expanded)")
+            }
+        }
+    }
+
+    func testAFloatingSlabHasNoHandles() throws {
+        try XCTSkipUnless(NotchSurfaceStyle.glassAvailable, "no Liquid Glass below macOS 26, so the dock style resolves to solid and nothing floats")
+        for edge in floatingEdges {
+            let m = model(.dock, on: edge)
+            m.isExpanded = true
+            XCTAssertTrue(m.orbHandlePoints.isEmpty, "\(edge)")
+            XCTAssertEqual(m.trailingExtent, 0, "\(edge)")
+            XCTAssertEqual(m.leadingExtent, 0, "\(edge)")
+            XCTAssertFalse(m.isOnOrbHandle(along: m.orbAlong, across: m.orbInset), "\(edge)")
+            XCTAssertFalse(m.isOnGrip(along: m.gripPoint.x, across: m.gripPoint.y), "\(edge)")
+        }
+    }
+
+    func testFoldingTheSlabKeepsTheCentreLineAndThePanelSize() throws {
+        try XCTSkipUnless(NotchSurfaceStyle.glassAvailable, "no Liquid Glass below macOS 26, so the dock style resolves to solid and nothing floats")
+        for edge in floatingEdges {
+            let m = model(.dock, on: edge)
+            m.isExpanded = true
+            let openCentre = m.notchAlongLead + m.notchLength * m.sizeScale / 2
+            let openPanel = m.panelSize
+            m.isExpanded = false
+            let foldedCentre = m.notchAlongLead + m.notchLength * m.sizeScale / 2
+            XCTAssertEqual(openCentre, foldedCentre, accuracy: 0.001, "\(edge)")
+            XCTAssertEqual(openPanel, m.panelSize, "\(edge)")
+        }
+    }
+
+    /// Open, the slab is the body without its flares; folded, the capsule is
+    /// the whole pill.
+    func testTheSlabGivesBackTheFlaresOnlyWhileOpen() throws {
+        try XCTSkipUnless(NotchSurfaceStyle.glassAvailable, "no Liquid Glass below macOS 26, so the dock style resolves to solid and nothing floats")
+        for edge in floatingEdges {
+            let m = model(.dock, on: edge)
+            m.isExpanded = true
+            XCTAssertEqual(m.slabTrim, m.flare, "\(edge)")
+            m.isExpanded = false
+            XCTAssertEqual(m.slabTrim, 0, "\(edge)")
+        }
+    }
+
+    func testOnTheTopEdgeTheDockStyleIsADarkGlassNotch() throws {
+        try XCTSkipUnless(NotchSurfaceStyle.glassAvailable, "no Liquid Glass below macOS 26, so the dock style resolves to solid and nothing floats")
+        let m = model(.dock, on: .top)
+        XCTAssertFalse(m.floats)
+        XCTAssertEqual(m.drawnSurfaceStyle, .darkGlass)
+        XCTAssertEqual(m.edgeGap, 0)
+        XCTAssertTrue(m.showsHandles)
+        m.isExpanded = true
+        XCTAssertEqual(m.slabTrim, 0)
+        XCTAssertFalse(m.orbHandlePoints.isEmpty)
+    }
+
+    func testReduceTransparencyKeepsTheDockStyleOnTheBezel() {
+        for edge in NotchEdge.allCases {
+            let m = model(.dock, on: edge)
+            m.reduceTransparency = true
+            XCTAssertFalse(m.floats, "\(edge)")
+            XCTAssertEqual(m.drawnSurfaceStyle, .solid, "\(edge)")
+            XCTAssertEqual(m.edgeGap, 0, "\(edge)")
+            XCTAssertTrue(m.showsHandles, "\(edge)")
+        }
+    }
+
+    func testTheOtherStylesNeverFloat() {
+        for style in [NotchSurfaceStyle.glass, .darkGlass, .solid] {
+            for edge in NotchEdge.allCases {
+                let m = model(style, on: edge)
+                m.isExpanded = true
+                XCTAssertFalse(m.floats, "\(style) on \(edge)")
+                XCTAssertEqual(m.edgeGap, 0, "\(style) on \(edge)")
+                XCTAssertTrue(m.showsHandles, "\(style) on \(edge)")
+                XCTAssertEqual(m.slabTrim, 0, "\(style) on \(edge)")
+            }
+        }
+    }
+
+    /// The cards follow the chosen style, so with the dock style they keep
+    /// its recipe on the top edge too, where the notch itself is Dark glass.
+    func testTheCardsKeepTheDockStyleOnEveryEdge() throws {
+        try XCTSkipUnless(NotchSurfaceStyle.glassAvailable, "no Liquid Glass below macOS 26, so the dock style resolves to solid and nothing floats")
+        for edge in NotchEdge.allCases {
+            XCTAssertEqual(model(.dock, on: edge).cardSurfaceStyle, .dock, "\(edge)")
+        }
+        XCTAssertEqual(model(.dock, on: .top).drawnSurfaceStyle, .darkGlass)
+    }
+
+    func testTheOtherStylesDrawTheirCardsAsTheirNotch() {
+        for style in [NotchSurfaceStyle.glass, .darkGlass, .solid] {
+            for edge in NotchEdge.allCases {
+                let m = model(style, on: edge)
+                XCTAssertEqual(m.cardSurfaceStyle, m.drawnSurfaceStyle, "\(style) on \(edge)")
+            }
+        }
+    }
+
+    func testReduceTransparencyPaintsTheCardsSolid() {
+        for style in NotchSurfaceStyle.allCases {
+            for edge in NotchEdge.allCases {
+                let m = model(style, on: edge)
+                m.reduceTransparency = true
+                XCTAssertEqual(m.cardSurfaceStyle, .solid, "\(style) on \(edge)")
+            }
+        }
+    }
+}
+
 /// The orb hangs past the far end of the notch, one flare-radius in from the
 /// bezel. That has to stay true when the notch turns.
 @MainActor

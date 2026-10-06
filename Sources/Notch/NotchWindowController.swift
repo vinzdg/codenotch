@@ -15,6 +15,9 @@ final class NotchWindowController {
     /// fade rather than take our word for it.
     var panelFrameForTesting: CGRect? { panel?.frame }
     var panelAlphaForTesting: CGFloat { panel?.alphaValue ?? 0 }
+    /// Whether the panel is answering AppKit's private active-appearance
+    /// question with yes — see `NotchPanel.claimsActiveAppearance`.
+    var panelClaimsActiveAppearanceForTesting: Bool { panel?.claimsActiveAppearance ?? false }
 
     /// Hooked up by the app delegate; drives the menu's "Refresh now".
     var onRefresh: (() -> Void)?
@@ -194,6 +197,9 @@ final class NotchWindowController {
     }
 
     func show() {
+        // Before the first relocate: whether the notch floats clear of the
+        // bezel, and so how deep the panel is, depends on it.
+        model.reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
         relocate()
         startWatchingCursor()
         startWatchingFullScreen()
@@ -261,30 +267,63 @@ final class NotchWindowController {
         model.$surfaceStyle
             .removeDuplicates()
             .sink { [weak self] style in
-                MainActor.assumeIsolated { self?.applyPanelAppearance(style) }
+                MainActor.assumeIsolated { self?.applyPanelStyle(style) }
             }
             .store(in: &cancellables)
 
-        // Reduce transparency resolves the glass style to the solid one, so
+        // The dock style floats the notch clear of the bezel and drops the
+        // handles' room, so the panel's size follows the style too. After
+        // Published's willSet, unlike the sink above, so sizing sees the new one.
+        model.$surfaceStyle
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.relocate() }
+            .store(in: &cancellables)
+
+        // Reduce transparency resolves the glass styles to the solid one, so
         // turning it on or off in System Settings changes what the panel's
-        // appearance has to be. Nothing else republishes that: the style the
-        // model holds has not changed.
+        // appearance has to be, and whether the dock style floats at all.
+        // Nothing else republishes that: the style the model holds has not
+        // changed.
         NSWorkspace.shared.notificationCenter.publisher(
             for: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification
         )
         .sink { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                self.applyPanelAppearance(self.model.surfaceStyle)
+                self.model.reduceTransparency =
+                    NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+                self.applyPanelStyle()
+                self.relocate()
             }
         }
         .store(in: &cancellables)
     }
 
-    private func applyPanelAppearance(_ style: NotchSurfaceStyle) {
-        panel?.appearance = style.panelAppearance(
-            reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
-        )
+    /// The single place panel-level style is applied: the appearance, and
+    /// whether the panel claims active appearance so the dock style's slab is
+    /// clear glass rather than frost. Called wherever `model.floats` can
+    /// change — the style, Reduce transparency, the edge — and when the panel
+    /// is made.
+    ///
+    /// `style` is for the style sink alone, which runs in Published's willSet
+    /// while the model still holds the old style; this then works out what
+    /// `NotchViewModel.drawnSurfaceStyle` is about to be.
+    private func applyPanelStyle(_ style: NotchSurfaceStyle? = nil) {
+        guard let panel else { return }
+        let drawn = style.map {
+            model.reduceTransparency ? .solid : $0.resolved(on: model.edge).effective
+        } ?? model.drawnSurfaceStyle
+        panel.appearance = drawn.panelAppearance(reduceTransparency: model.reduceTransparency)
+        let claims = drawn.isDock
+        guard panel.claimsActiveAppearance != claims else { return }
+        panel.claimsActiveAppearance = claims
+        // AppKit asks `_hasActiveAppearance` when it next resolves the views'
+        // state, not when the answer changes; there is no public way to tell
+        // it the answer did, so the views are marked dirty to make it ask.
+        panel.contentView?.needsDisplay = true
+        hostingView?.needsDisplay = true
     }
 
     func stop() {
@@ -342,9 +381,9 @@ final class NotchWindowController {
             panel.setFrame(frame, display: true)
         } else {
             let panel = NotchPanel(contentRect: frame)
-            panel.appearance = model.surfaceStyle.panelAppearance(
-                reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
-            )
+            // Held at once so its style is on it before SwiftUI first draws.
+            self.panel = panel
+            applyPanelStyle()
             let hosting = NotchHostingView(rootView: NotchRootView(model: model))
             panel.contextMenuProvider = { [weak self] in self?.contextMenu() }
             panel.onClick = { [weak self] point in self?.handleClick(at: point) }
@@ -384,7 +423,6 @@ final class NotchWindowController {
             panel.contentView = container
             panel.ignoresMouseEvents = true
             if !Runtime.isUnderTest { panel.orderFrontRegardless() }
-            self.panel = panel
             self.hostingView = hosting
         }
         // Use the actual panel origin: near a corner its transparent padding
@@ -817,6 +855,7 @@ final class NotchWindowController {
             model.hoveredIndex = nil
             model.holdsOffTheCutout = false
             model.edge = edge
+            applyPanelStyle()
         }
         let point = edge.isVertical
             ? CGPoint(x: frame.minX, y: frame.maxY - along)
@@ -1155,13 +1194,16 @@ final class NotchWindowController {
         NotchPlacement(edge: model.edge, panelSize: panel?.frame.size ?? model.panelSize)
     }
 
-    /// The notch itself, in panel coordinates with a top-left origin.
+    /// The notch itself, in panel coordinates with a top-left origin. From the
+    /// screen's edge even when the dock style floats it clear: the strip in
+    /// between still belongs to the notch, so throwing the pointer at the edge
+    /// keeps working.
     private var notchRect: CGRect {
         placement.rect(
             along: model.wings.first?.lead ?? model.slack,
             across: 0,
             length: model.drawnAlongExtent,
-            depth: model.notchDepth * model.sizeScale
+            depth: model.notchDepth * model.sizeScale + model.edgeGap
         )
     }
 
@@ -1187,15 +1229,18 @@ final class NotchWindowController {
     private var handleRect: CGRect {
         let side = model.orbHotZone
         // The grip only once it is out: an invisible spot beside the settings
-        // button that still takes the mouse would be worse than none.
-        let grip = gripRevealed ? [model.gripPoint] : []
+        // button that still takes the mouse would be worse than none. Never
+        // in the dock style, which draws neither handle.
+        let grip = gripRevealed && model.showsHandles ? [model.gripPoint] : []
         let boxes = (model.orbHandlePoints + grip).map { point -> CGRect in
             let centre = placement.point(along: model.handleWing.lead + point.x * model.sizeScale,
                                          across: point.y * model.sizeScale)
             return CGRect(x: centre.x - side / 2, y: centre.y - side / 2,
                           width: side, height: side)
         }
-        return boxes.dropFirst().reduce(boxes.first ?? .zero) { $0.union($1) }
+        // `.null`, not `.zero`, with no handle: a union with `.zero` would
+        // stretch the live region out to the panel's corner.
+        return boxes.dropFirst().reduce(boxes.first ?? .null) { $0.union($1) }
     }
 
     /// Whether the pointer is on the handle itself rather than merely inside
@@ -1265,8 +1310,8 @@ final class NotchWindowController {
         return placement.rect(
             along: centre - cardAlong / 2,
             // The card's own extent does not scale, and it begins where the
-            // drawn notch ends.
-            across: model.notchDrawnDepth,
+            // drawn notch ends — past the dock style's gap when it floats.
+            across: model.notchDrawnDepth + model.edgeGap,
             length: cardAlong,
             depth: NotchLayout.tailGap + NotchLayout.tailLength + cardAcross
         )
@@ -1279,7 +1324,7 @@ final class NotchWindowController {
         let centre = model.tooltipAlong(index: index, length: cardAlong)
         return placement.rect(
             along: centre - cardAlong / 2,
-            across: model.notchDrawnDepth,
+            across: model.notchDrawnDepth + model.edgeGap,
             length: cardAlong,
             depth: NotchLayout.tailGap + NotchLayout.tailLength + cardAcross
         )
@@ -1294,7 +1339,7 @@ final class NotchWindowController {
         let centre = model.cardAlong(centredOn: model.notchMiddleAlong, length: along)
         return placement.rect(
             along: centre - along / 2,
-            across: model.notchDrawnDepth,
+            across: model.notchDrawnDepth + model.edgeGap,
             length: along,
             depth: NotchLayout.tailGap + NotchLayout.tailLength + across
         )
@@ -1761,6 +1806,7 @@ final class NotchWindowController {
         guard model.edge != edge else { return }
         guard let panel else {   // before there is anything on screen to fade
             model.edge = edge
+            applyPanelStyle()
             relocate()
             return
         }
@@ -1786,6 +1832,7 @@ final class NotchWindowController {
                 // animation, and fading in underneath it would be two at once.
                 self.model.edge = edge
                 self.model.isExpanded = false
+                self.applyPanelStyle()
                 self.relocate()
                 self.updateInteractiveRects()
                 panel.alphaValue = 1
@@ -2075,6 +2122,17 @@ final class NotchWindowController {
             item.isEnabled = true
             menu.addItem(item)
         }
+
+        // The dock style draws no settings button, so this is the way to
+        // Settings from the notch itself there.
+        let settings = NSMenuItem(
+            title: L10n.t("Settings…"),
+            action: #selector(MenuActions.openSettings(_:)),
+            keyEquivalent: ","
+        )
+        settings.target = menuActions
+        settings.isEnabled = true
+        menu.addItem(settings)
         menu.addItem(.separator())
         menu.addItem(
             withTitle: L10n.t("Quit Codenotch"),
@@ -2087,7 +2145,8 @@ final class NotchWindowController {
     private lazy var menuActions = MenuActions(
         refresh: { [weak self] in self?.onRefresh?() },
         signIn: { [weak self] index in self?.signInItems[safe: index]?.action() },
-        togglePinned: { [weak self] in self?.togglePinned() }
+        togglePinned: { [weak self] in self?.togglePinned() },
+        openSettings: { [weak self] in self?.onOpenSettings?() }
     )
 }
 
@@ -2098,19 +2157,23 @@ final class MenuActions: NSObject {
     private let refresh: () -> Void
     private let signIn: (Int) -> Void
     private let pin: () -> Void
+    private let settings: () -> Void
 
     init(
         refresh: @escaping () -> Void,
         signIn: @escaping (Int) -> Void,
-        togglePinned: @escaping () -> Void
+        togglePinned: @escaping () -> Void,
+        openSettings: @escaping () -> Void
     ) {
         self.refresh = refresh
         self.signIn = signIn
         self.pin = togglePinned
+        self.settings = openSettings
     }
 
     @objc func refreshNow(_ sender: Any?) { refresh() }
     @objc func togglePinned(_ sender: Any?) { pin() }
+    @objc func openSettings(_ sender: Any?) { settings() }
 
     @objc func signIn(_ sender: Any?) {
         guard let item = sender as? NSMenuItem else { return }

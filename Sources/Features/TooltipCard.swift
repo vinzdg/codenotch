@@ -14,8 +14,10 @@ enum TooltipGlassContrast {
 
     static func dim(surfaceStyle: NotchSurfaceStyle, colorScheme: ColorScheme,
                     reduceTransparency: Bool = false) -> Color? {
-        if surfaceStyle.effective == .darkGlass {
-            return Palette.darkGlassTooltipDim
+        switch surfaceStyle.effective {
+        case .darkGlass: return Palette.darkGlassTooltipDim
+        case .dock: return Palette.dockCardDim
+        case .glass, .solid: break
         }
         return needsReadableDim(surfaceStyle: surfaceStyle, colorScheme: colorScheme,
                                 reduceTransparency: reduceTransparency)
@@ -171,7 +173,7 @@ private struct TooltipShell<Content: View>: View {
     @ViewBuilder let content: Content
 
     @Environment(\.codenotchReduceTransparency) private var reduceTransparency
-    @Environment(\.notchSurfaceStyle) private var surfaceStyle
+    @Environment(\.notchCardSurfaceStyle) private var surfaceStyle
     @Environment(\.colorScheme) private var colorScheme
 
     /// Reduce transparency means "no see-through chrome", which for this card

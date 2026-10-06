@@ -1705,6 +1705,61 @@ The dim is the one part of the style a headless render can see, so
 a panel size of its own, because the hand-me-down above would otherwise hand
 this test's dim to the folded-pill test that sorts right before it.
 
+### Dock
+
+`NotchSurfaceStyle.dock` draws the notch as the macOS Dock draws itself: on
+the left, right and bottom edges a floating slab of clear, lightly black-tinted
+Liquid Glass, corner radius 32pt continuous, 5pt clear of the screen edge;
+folded, a small floating capsule that morphs from and back into the slab. On
+the top edge the notch has to stay welded to the bezel and to a MacBook's own
+cutout, so the style resolves to Dark glass there (`resolved(on:)`). It is
+always dark (`darkAqua` on the panel), macOS 26+ only, and below 26 or under
+Reduce transparency it resolves to `solid` and the classic shape. Because a
+floating slab has nothing to anchor a settings orb or a move grip to, neither
+is drawn; Settings is reached from the notch's context menu, which gained a
+"Settings…" item for every style for that reason, and the notch is moved by
+option-dragging. A notch carried by option-drag keeps today's classic black
+shape in the hand. The radius and the gap were measured beside the real Dock,
+not quoted from the frame; the gap is not scaled by the size setting (it is a
+distance from the screen, like `bezelBleed`), the radius is.
+
+Earlier glass never looked like the Dock because the system frosts clear glass
+in any window that does not have active appearance, and a notch never takes
+focus. That was found by watching an ordinary test window frost the instant
+focus left it. Everything public failed: drawing the glass outside the clip,
+scale and mask of the notch; `NSGlassEffectView`; an ordinary key-capable
+window at normal level; `controlActiveState` and `appearsActive`; claiming
+`isKeyWindow` and `isMainWindow`, including on a non-activating panel. The one
+thing that works is answering AppKit's private selector `_hasActiveAppearance`
+with `true`. That is a private API, accepted by the user and named as such in
+`NotchPanel`'s comment and in the pull request. The panel claims it only while
+the notch floats (`claimsActiveAppearance`), so every other style looks exactly
+as it always did, and if a later macOS drops the selector it is never called
+and the slab falls back to frosted glass.
+
+The material is SwiftUI `Glass.clear` with a black tint (`Palette.dockGlassTint`,
+0.15). The AppKit tile at 0.15 was the reference beside the real Dock, and the
+same number matched best by eye. `NSGlassEffectView`'s private `_variant`
+values were looked at too and none was closer. The earlier note that a black
+tint cannot darken glass is about `.regular`; on `.clear` it does.
+
+The panel-wide claim cost two things, and each was paid for. Clear glass in the
+tooltip and the cards became truly clear, so a card laid over a terminal let
+its text through; the cards now take frosted `.regular` glass over a 0.40 black
+dim (`Palette.dockCardDim`), on every edge including the top one, which is why
+they read a style of their own (`\.notchCardSurfaceStyle`, the chosen style)
+rather than the one drawn on this edge. And the ring colours, sampled for a
+black notch, went faint over clear glass on a light desktop, so while the notch
+floats each ring gets a 0.25 black disc beneath it (`Palette.dockRingBacking`),
+as the Dock's own icons carry their own ground. Both numbers were tuned once by
+eye.
+
+A headless render leaves the glass material out, so the pixel tests check what
+is ours: the empty gap between the screen edge and the slab, the Dark glass dim
+on the top edge, the ring's disc and Reduce transparency painting solid.
+`DockStyleGeometryTests` pins the numbers, and skips the floating cases where
+there is no Liquid Glass. The material itself can only be judged by eye.
+
 ## The local model's ring
 
 ### A small context is an arc, not a dot

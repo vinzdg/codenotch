@@ -365,6 +365,149 @@ final class NotchRenderTests: XCTestCase {
             )
         }
     }
+
+    private func pixel(_ rep: NSBitmapImageRep, _ point: CGPoint) -> NSColor? {
+        rep.colorAt(x: min(rep.pixelsWide - 1, max(0, Int(point.x))),
+                    y: min(rep.pixelsHigh - 1, max(0, Int(point.y))))
+    }
+
+    /// The dock style's slab floats clear of the bezel, and nothing of ours is
+    /// laid under its glass: the strip next to the screen edge stays empty,
+    /// and so does the slab itself once the material is left out of the
+    /// render — while the rings it carries are still drawn inside it.
+    ///
+    /// Six cells, a panel size no other glass pixel test renders — see
+    /// `testTheFoldedPillIsTransparentInTheGlassStyle`.
+    func testTheDockSlabFloatsClearOfTheBezel() throws {
+        guard #available(macOS 26.0, *) else {
+            throw XCTSkip("no Liquid Glass below macOS 26, so the dock style resolves to solid")
+        }
+        for edge in [NotchEdge.right, .left, .bottom] {
+            let m = model(edge: edge, cells: 6)
+            m.surfaceStyle = .dock
+            guard let rep = render(m) else {
+                XCTFail("\(edge): no image")
+                continue
+            }
+            let place = NotchPlacement(edge: edge, panelSize: m.panelSize)
+            let middle = m.slack + m.shapeLength / 2
+            XCTAssertEqual(
+                pixel(rep, place.point(along: middle, across: 2))?.alphaComponent ?? 1, 0,
+                accuracy: 0.01,
+                "\(edge): something is painted in the gap between the bezel and the slab"
+            )
+            XCTAssertEqual(
+                pixel(rep, place.point(along: middle, across: NotchLayout.dockGap + 6))?
+                    .alphaComponent ?? 1, 0,
+                accuracy: 0.01,
+                "\(edge): something of ours is painted behind the slab's glass"
+            )
+            XCTAssertGreaterThan(colouredFraction(rep), 0,
+                                 "\(edge): the slab carries no ring")
+        }
+    }
+
+    /// On the top edge the dock style is still a notch, welded to the bezel and
+    /// drawn as Dark glass: its dim is there one point in from the screen edge.
+    ///
+    /// Seven cells, for the same reason as the test above.
+    func testTheDockStyleIsStillANotchOnTheTopEdge() throws {
+        guard #available(macOS 26.0, *) else {
+            throw XCTSkip("no Liquid Glass below macOS 26, so the dock style resolves to solid")
+        }
+        let m = model(edge: .top, cells: 7)
+        m.surfaceStyle = .dock
+        guard let rep = render(m) else { return XCTFail("no image") }
+        let place = NotchPlacement(edge: .top, panelSize: m.panelSize)
+        let colour = pixel(rep, place.point(along: m.slack + m.shapeLength / 2, across: 1))
+        XCTAssertEqual(colour?.alphaComponent ?? 0, 0.60, accuracy: 0.03,
+                       "the dark glass dim is not drawn on the top edge in the dock style")
+        XCTAssertLessThan(colour?.brightnessComponent ?? 1, 0.05,
+                          "the dark glass dim is not black on the top edge in the dock style")
+    }
+
+    /// While the notch floats, each ring sits on a dark disc of its own, and
+    /// the Liquid Glass style draws nothing there. Sampled between the glyph
+    /// and the track, where the ring's own strokes do not reach.
+    ///
+    /// The ring is found by its own ink in the render — the first painted
+    /// point down its centre line is the top of its track — so the sample
+    /// lands between glyph and track wherever the stack is drawn.
+    ///
+    /// Two cells, a panel size no other pixel test renders — see
+    /// `testTheFoldedPillIsTransparentInTheGlassStyle`.
+    func testEachRingHasADarkGroundWhileTheNotchFloats() throws {
+        guard #available(macOS 26.0, *) else {
+            throw XCTSkip("no Liquid Glass below macOS 26, so the dock style resolves to solid")
+        }
+        let backing = NSColor(Palette.dockRingBacking).alphaComponent
+        for style in [NotchSurfaceStyle.dock, .glass] {
+            let m = model(edge: .right, cells: 2)
+            m.surfaceStyle = style
+            guard let rep = render(m) else {
+                XCTFail("\(style): no image")
+                continue
+            }
+            let place = NotchPlacement(edge: .right, panelSize: m.panelSize)
+            let across = m.ringAcross * m.sizeScale + m.edgeGap
+            let diameter = NotchLayout.ringDiameter * m.sizeScale
+            let expected = m.ringAlong(index: 0, in: m.cellWing)
+            // The ring's top, as the first point on its centre line that is
+            // neither empty nor the disc.
+            let top = stride(from: expected - diameter, to: expected + diameter, by: 0.5)
+                .first { along in
+                    guard let colour = pixel(rep, place.point(along: along, across: across))
+                    else { return false }
+                    return colour.alphaComponent > 0.05 && colour.brightnessComponent > 0.1
+                }
+            guard let top else {
+                XCTFail("\(style): the first ring is not drawn")
+                continue
+            }
+            // Past the glyph's half-width, short of the track's inner edge.
+            let between = (NotchLayout.glyphSize / 2
+                           + NotchLayout.ringDiameter / 2 - NotchLayout.trackStroke) / 2
+            let point = place.point(along: top + diameter / 2 - between * m.sizeScale,
+                                    across: across)
+            let alpha = pixel(rep, point)?.alphaComponent ?? -1
+            if style == .dock {
+                XCTAssertGreaterThanOrEqual(alpha, backing - 0.03,
+                                            "the first ring has no dark ground beneath it")
+                XCTAssertLessThan(pixel(rep, point)?.brightnessComponent ?? 1, 0.1,
+                                  "the ground beneath the first ring is not dark")
+            } else {
+                XCTAssertEqual(alpha, 0, accuracy: 0.01,
+                               "something is drawn beneath a ring in the Liquid Glass style")
+            }
+        }
+    }
+
+    /// Reduce transparency wins over the dock style as it does over glass: no
+    /// slab, the notch welded to the bezel and painted solid black. Only the
+    /// environment says so here, so this pins the view's own check rather than
+    /// the model's fallback.
+    ///
+    /// Eight cells, for the same reason as the tests above.
+    func testReduceTransparencyPaintsTheDockStyleSolid() {
+        for edge in NotchEdge.allCases {
+            let m = model(edge: edge, cells: 8)
+            m.surfaceStyle = .dock
+            guard let rep = render(m, reduceTransparency: true) else {
+                XCTFail("\(edge): no image")
+                continue
+            }
+            let place = NotchPlacement(edge: edge, panelSize: m.panelSize)
+            let colour = pixel(rep, place.point(along: m.slack + m.shapeLength / 2, across: 1))
+            XCTAssertEqual(
+                colour?.alphaComponent ?? 0, 1, accuracy: 0.01,
+                "\(edge): the body is see-through with Reduce transparency on"
+            )
+            XCTAssertLessThan(
+                colour?.brightnessComponent ?? 1, 0.05,
+                "\(edge): the body is not black with Reduce transparency on"
+            )
+        }
+    }
 }
 
 /// The panel's size is worked out by `NotchGeometry` and by nobody else.
@@ -453,6 +596,58 @@ final class PanelSizingIntegrityTests: XCTestCase {
         }
         XCTAssertEqual(window.appearance?.name, .darkAqua,
                        "the dark glass style left the panel following the Mac's appearance")
+    }
+
+    /// The dock style is always dark, on the edges where it floats and on the
+    /// top edge where it is Dark glass.
+    func testTheDockStylePinsTheDarkAppearance() {
+        for edge in NotchEdge.allCases {
+            let controller = NotchWindowController()
+            controller.model.edge = edge
+            controller.model.surfaceStyle = .dock
+            controller.show()
+            defer { controller.stop() }
+
+            guard let window = controller.panelContentViewForTesting?.window else {
+                XCTFail("\(edge): no panel")
+                continue
+            }
+            XCTAssertEqual(window.appearance?.name, .darkAqua,
+                           "\(edge): the dock style left the panel following the Mac's appearance")
+        }
+    }
+
+    /// The private active-appearance claim is made only while the dock style
+    /// floats the notch, so no other style, and not the dock style's top-edge
+    /// notch, draws any differently from before.
+    func testOnlyAFloatingNotchClaimsActiveAppearance() throws {
+        guard NotchSurfaceStyle.glassAvailable,
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency else {
+            throw XCTSkip("the dock style resolves to solid here, so nothing floats")
+        }
+        func claims(_ style: NotchSurfaceStyle, on edge: NotchEdge) -> Bool {
+            let controller = NotchWindowController()
+            controller.model.edge = edge
+            controller.model.surfaceStyle = style
+            controller.show()
+            defer { controller.stop() }
+            return controller.panelClaimsActiveAppearanceForTesting
+        }
+        XCTAssertTrue(claims(.dock, on: .right), "the floating dock slab does not claim it")
+        XCTAssertFalse(claims(.dock, on: .top), "the dock style's top-edge notch claims it")
+        for style in [NotchSurfaceStyle.glass, .darkGlass, .solid] {
+            XCTAssertFalse(claims(style, on: .right), "\(style) claims it")
+        }
+
+        let controller = NotchWindowController()
+        controller.model.edge = .right
+        controller.model.surfaceStyle = .dock
+        controller.show()
+        defer { controller.stop() }
+        XCTAssertTrue(controller.panelClaimsActiveAppearanceForTesting)
+        controller.model.surfaceStyle = .glass
+        XCTAssertFalse(controller.panelClaimsActiveAppearanceForTesting,
+                       "switching away from the dock style kept the claim")
     }
 
     /// Reduce transparency means "no see-through chrome", and the window has to

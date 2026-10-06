@@ -28320,6 +28320,71 @@
         }
       }
     },
+    "A floating slab of clear glass, like the Dock. Always dark. On the top edge it stays a notch.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock のように浮かぶ透明なガラスの板。常にダークです。上端ではノッチのままです。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "像程序坞一样悬浮的透明玻璃板。始终是深色。在顶部边缘仍是刘海。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "像程式塢一樣懸浮的透明玻璃板。始終是深色。在頂部邊緣仍是瀏海。"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Парящая пластина прозрачного стекла, как Dock. Всегда тёмная. У верхнего края остаётся панелью."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine schwebende Platte aus klarem Glas, wie das Dock. Immer dunkel. Am oberen Rand bleibt sie eine Notch."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плаваюча пластина прозорого скла, як Dock. Завжди темна. Біля верхнього краю залишається вирізом."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock처럼 떠 있는 투명한 유리 판입니다. 항상 어둡게 표시합니다. 위쪽 가장자리에서는 노치로 유지됩니다."
+          }
+        },
+        "uz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock kabi suzib turuvchi shaffof shisha plastina. Doimo qorongʻi. Yuqori chetda notch boʻlib qoladi."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lempeng kaca bening yang melayang, seperti Dock. Selalu gelap. Di tepi atas tetap menjadi notch."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock gibi yüzen, şeffaf camdan bir levha. Her zaman koyu. Üst kenarda çentik olarak kalır."
+          }
+        }
+      }
+    },
     "A second ring for the week, Liquid Glass, French, and Claude Desktop read straight from its own cache.": {
       "extractionState": "manual",
       "localizations": {

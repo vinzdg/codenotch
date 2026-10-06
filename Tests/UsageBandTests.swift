@@ -153,6 +153,8 @@ final class PaletteAppearanceTests: XCTestCase {
                      .darkAqua, is: 0x808080)
         assertOpaque(TooltipGlassContrast.secondaryInk(surfaceStyle: .solid, colorScheme: .dark),
                      .darkAqua, is: 0x808080)
+        assertOpaque(TooltipGlassContrast.secondaryInk(surfaceStyle: .dock, colorScheme: .dark),
+                     .darkAqua, is: 0x808080)
         assertOpaque(TooltipGlassContrast.secondaryInk(surfaceStyle: .glass, colorScheme: .dark,
                                                         reduceTransparency: true),
                      .darkAqua, is: 0x808080)
@@ -166,6 +168,8 @@ final class PaletteAppearanceTests: XCTestCase {
         XCTAssertFalse(TooltipGlassContrast.needsReadableDim(surfaceStyle: .darkGlass,
                                                              colorScheme: .dark))
         XCTAssertFalse(TooltipGlassContrast.needsReadableDim(surfaceStyle: .solid,
+                                                             colorScheme: .dark))
+        XCTAssertFalse(TooltipGlassContrast.needsReadableDim(surfaceStyle: .dock,
                                                              colorScheme: .dark))
         XCTAssertFalse(TooltipGlassContrast.needsReadableDim(surfaceStyle: .glass,
                                                               colorScheme: .dark,
@@ -186,8 +190,44 @@ final class PaletteAppearanceTests: XCTestCase {
                                                                    colorScheme: .dark)
                 .flatMap({ resolve($0, .darkAqua) }))
         XCTAssertEqual(darkGlassDim.alphaComponent, 0.80, accuracy: 1.0 / 255)
+        if NotchSurfaceStyle.glassAvailable {
+            let dockDim = try XCTUnwrap(TooltipGlassContrast.dim(surfaceStyle: .dock,
+                                                                 colorScheme: .dark)
+                    .flatMap({ resolve($0, .darkAqua) }))
+            let cardDim = try XCTUnwrap(resolve(Palette.dockCardDim, .darkAqua))
+            XCTAssertEqual(dockDim.alphaComponent, cardDim.alphaComponent, accuracy: 1.0 / 255,
+                           "the dock's cards are backed by their own dim")
+            XCTAssertEqual(dockDim.redComponent, 0, accuracy: 1.0 / 255)
+            XCTAssertEqual(dockDim.greenComponent, 0, accuracy: 1.0 / 255)
+            XCTAssertEqual(dockDim.blueComponent, 0, accuracy: 1.0 / 255)
+        }
+        let dockCardDim = try XCTUnwrap(resolve(Palette.dockCardDim, .darkAqua))
+        XCTAssertEqual(dockCardDim.alphaComponent, 0.40, accuracy: 1.0 / 255,
+                       "the opacity chosen with a tooltip over a terminal")
         let notchDim = try XCTUnwrap(resolve(Palette.darkGlassDim, .darkAqua))
         XCTAssertEqual(notchDim.alphaComponent, 0.60, accuracy: 1.0 / 255)
+    }
+
+    /// A tint that drifts toward a hue would colour the slab rather than
+    /// darken it.
+    func testTheDockTintIsBlack() throws {
+        let tint = try XCTUnwrap(resolve(Palette.dockGlassTint, .darkAqua))
+        XCTAssertEqual(tint.redComponent, 0, accuracy: 1.0 / 255)
+        XCTAssertEqual(tint.greenComponent, 0, accuracy: 1.0 / 255)
+        XCTAssertEqual(tint.blueComponent, 0, accuracy: 1.0 / 255)
+        XCTAssertEqual(tint.alphaComponent, 0.15, accuracy: 1.0 / 255,
+                       "the opacity chosen beside the real Dock")
+    }
+
+    /// The disc only has to give the ring a ground; a hue would recolour the
+    /// ring's own ink.
+    func testTheDockRingBackingIsBlack() throws {
+        let backing = try XCTUnwrap(resolve(Palette.dockRingBacking, .darkAqua))
+        XCTAssertEqual(backing.redComponent, 0, accuracy: 1.0 / 255)
+        XCTAssertEqual(backing.greenComponent, 0, accuracy: 1.0 / 255)
+        XCTAssertEqual(backing.blueComponent, 0, accuracy: 1.0 / 255)
+        XCTAssertEqual(backing.alphaComponent, 0.25, accuracy: 1.0 / 255,
+                       "the opacity chosen with the rings over a white window")
     }
 
     // MARK: -

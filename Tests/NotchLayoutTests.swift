@@ -582,6 +582,16 @@ final class PreferencesTests: XCTestCase {
         XCTAssertEqual(Preferences(defaults: defaults).notchSurfaceStyle, .darkGlass)
     }
 
+    func testTheDockStyleSurvivesARestart() {
+        let name = "PreferencesDockTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        addTeardownBlock { defaults.removePersistentDomain(forName: name) }
+
+        Preferences(defaults: defaults).notchSurfaceStyle = .dock
+        XCTAssertEqual(Preferences(defaults: defaults).notchSurfaceStyle, .dock)
+    }
+
     func testAnUnknownSurfaceStyleFallsBackToLiquidGlass() {
         let name = "PreferencesSurfaceStyleFallbackTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
@@ -677,31 +687,74 @@ final class PreferencesTests: XCTestCase {
     }
 }
 
-/// The two glass styles differ in the `Glass` variant they ask for (`.regular`
+/// The glass styles differ in the `Glass` variant they ask for (`.regular`
 /// for `glass`, `.clear` for `darkGlass`) and the wash drawn beneath it
 /// (`glassDim`: nil for `glass`, `Palette.darkGlassDim` for `darkGlass`).
-/// Both are pinned on the enum so the views cannot drift apart.
+/// Both are pinned on the enum so the views cannot drift apart. `dock` follows
+/// `darkGlass` everywhere but its slab, and is Dark glass on the top edge.
 final class NotchSurfaceStyleTests: XCTestCase {
     func testTheStylesAreOfferedGlassFirst() {
-        XCTAssertEqual(NotchSurfaceStyle.allCases, [.glass, .darkGlass, .solid])
+        XCTAssertEqual(NotchSurfaceStyle.allCases, [.glass, .darkGlass, .solid, .dock])
     }
 
-    func testOnlyDarkGlassCarriesADimBeneathTheGlass() {
+    func testDarkGlassAndDockCarryADimBeneathTheGlass() {
         XCTAssertNil(NotchSurfaceStyle.glass.glassDim)
         XCTAssertNil(NotchSurfaceStyle.solid.glassDim)
-        guard NotchSurfaceStyle.glassAvailable else { return }
+        guard NotchSurfaceStyle.glassAvailable else {
+            XCTAssertNil(NotchSurfaceStyle.dock.glassDim)
+            return
+        }
         XCTAssertNotNil(NotchSurfaceStyle.darkGlass.glassDim)
+        XCTAssertEqual(NotchSurfaceStyle.dock.glassDim, Palette.darkGlassDim,
+                       "the dock keeps the Dark glass dim; only its cards' glass differs")
     }
 
     /// A black `tint` on adaptive `.regular` glass rendered lighter, not
     /// darker, so `darkGlass` asks for the clear variant and does its own
-    /// darkening underneath. `glass` must keep asking for plain `.regular`.
+    /// darkening underneath. `glass` must keep asking for plain `.regular`,
+    /// and so must `dock`, whose cards would otherwise be truly clear under
+    /// the floating panel's active appearance.
     func testDarkGlassAsksForClearGlassAndGlassForRegular() throws {
         guard #available(macOS 26.0, *) else {
             throw XCTSkip("Glass does not exist before macOS 26")
         }
         XCTAssertEqual(NotchSurfaceStyle.darkGlass.glass, .clear)
+        XCTAssertEqual(NotchSurfaceStyle.dock.glass, .regular,
+                       "the dock's cards are frosted; only its slab is clear")
         XCTAssertEqual(NotchSurfaceStyle.glass.glass, .regular)
+    }
+
+    func testTheDockIsGlassWhereThereIsGlass() {
+        guard NotchSurfaceStyle.glassAvailable else {
+            XCTAssertEqual(NotchSurfaceStyle.dock.effective, .solid)
+            XCTAssertFalse(NotchSurfaceStyle.dock.isGlass)
+            XCTAssertFalse(NotchSurfaceStyle.dock.isDock)
+            return
+        }
+        XCTAssertEqual(NotchSurfaceStyle.dock.effective, .dock)
+        XCTAssertTrue(NotchSurfaceStyle.dock.isGlass)
+        XCTAssertTrue(NotchSurfaceStyle.dock.isDock)
+    }
+
+    func testOnlyTheDockStyleIsADock() {
+        XCTAssertFalse(NotchSurfaceStyle.glass.isDock)
+        XCTAssertFalse(NotchSurfaceStyle.darkGlass.isDock)
+        XCTAssertFalse(NotchSurfaceStyle.solid.isDock)
+    }
+
+    /// On the top edge the notch has to stay welded to the bezel, so the dock
+    /// style draws there as Dark glass; everywhere else, and for every other
+    /// style, resolving on an edge changes nothing.
+    func testTheDockStyleIsDarkGlassOnTheTopEdgeOnly() {
+        XCTAssertEqual(NotchSurfaceStyle.dock.resolved(on: .top), .darkGlass)
+        for edge in [NotchEdge.right, .left, .bottom] {
+            XCTAssertEqual(NotchSurfaceStyle.dock.resolved(on: edge), .dock, "\(edge)")
+        }
+        for style in [NotchSurfaceStyle.glass, .darkGlass, .solid] {
+            for edge in NotchEdge.allCases {
+                XCTAssertEqual(style.resolved(on: edge), style, "\(style) on \(edge)")
+            }
+        }
     }
 
     func testSolidIsNotGlass() {
@@ -723,6 +776,10 @@ final class NotchSurfaceStyleTests: XCTestCase {
         XCTAssertEqual(
             NotchSurfaceStyle.darkGlass.panelAppearance(reduceTransparency: false)?.name, .darkAqua,
             "dark glass has to keep Palette's frame hexes whatever the Mac's appearance"
+        )
+        XCTAssertEqual(
+            NotchSurfaceStyle.dock.panelAppearance(reduceTransparency: false)?.name, .darkAqua,
+            "the dock style is always dark"
         )
         guard NotchSurfaceStyle.glassAvailable else { return }
         XCTAssertNil(NotchSurfaceStyle.glass.panelAppearance(reduceTransparency: false))

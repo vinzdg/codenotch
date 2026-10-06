@@ -55,7 +55,7 @@ final class TooltipRenderTests: XCTestCase {
             .padding(20)
             .background(Color.black)
             .environment(\.colorScheme, .dark)
-            .environment(\.notchSurfaceStyle, .solid)
+            .environment(\.notchCardSurfaceStyle, .solid)
             .environment(\.codenotchAccentColor, .blue)
             .environment(\.codenotchHeadlessGlass, true)
 
@@ -93,7 +93,7 @@ final class TooltipRenderTests: XCTestCase {
         .padding(20)
         .background(Color.black)
         .environment(\.colorScheme, .dark)
-        .environment(\.notchSurfaceStyle, .solid)
+        .environment(\.notchCardSurfaceStyle, .solid)
         .environment(\.codenotchAccentColor, .blue)
         .environment(\.codenotchHeadlessGlass, true)
 
@@ -157,7 +157,7 @@ final class TooltipRenderTests: XCTestCase {
             .padding(20)
             .background(Color.black)
             .environment(\.colorScheme, .dark)
-            .environment(\.notchSurfaceStyle, .solid)
+            .environment(\.notchCardSurfaceStyle, .solid)
             .environment(\.codenotchAccentColor, .blue)
             .environment(\.codenotchHeadlessGlass, true)
         let renderer = ImageRenderer(content: view)

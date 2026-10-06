@@ -91,4 +91,30 @@ final class NotchPanel: NSPanel {
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
+    /// Whether the panel tells AppKit it has active appearance — set only while
+    /// the dock style floats the notch (`NotchViewModel.floats`). A flag on the
+    /// one panel rather than a subclass picked at creation, because the panel
+    /// is built once and only ever re-framed, while the style and the edge
+    /// that decide this change under it.
+    var claimsActiveAppearance = false
+
+    /// **Private AppKit API.** The system gives clear glass only to a window
+    /// with active appearance and frosts it otherwise, and a notch never takes
+    /// focus, so the dock style's slab came out frosted. Claiming
+    /// `isKeyWindow`/`isMainWindow`, `controlActiveState` and `appearsActive`
+    /// all left it frosted; answering this private selector, `_hasActiveAppearance`,
+    /// is the one thing that did not. Claimed only while the dock style floats,
+    /// so every other style looks exactly as it always did: otherwise this
+    /// answers whatever `NSPanel`'s own implementation does. If a later macOS
+    /// drops the selector, AppKit never calls this and the slab falls back to
+    /// frosted glass.
+    @objc(_hasActiveAppearance) private func hasActiveAppearance() -> Bool {
+        if claimsActiveAppearance { return true }
+        let selector = NSSelectorFromString("_hasActiveAppearance")
+        guard let method = class_getInstanceMethod(NSPanel.self, selector) else { return false }
+        typealias Implementation = @convention(c) (AnyObject, Selector) -> ObjCBool
+        let inherited = unsafeBitCast(method_getImplementation(method), to: Implementation.self)
+        return inherited(self, selector).boolValue
+    }
 }

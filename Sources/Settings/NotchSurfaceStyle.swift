@@ -10,6 +10,8 @@ enum NotchSurfaceStyle: String, CaseIterable, Identifiable {
     case glass
     case darkGlass
     case solid
+    /// Last, so the picker's existing segments keep their places.
+    case dock
 
     var id: String { rawValue }
 
@@ -29,20 +31,31 @@ enum NotchSurfaceStyle: String, CaseIterable, Identifiable {
     /// something sensible on an older one instead of drawing nothing.
     var effective: NotchSurfaceStyle {
         switch self {
-        case .glass, .darkGlass: return Self.glassAvailable ? self : .solid
+        case .glass, .darkGlass, .dock: return Self.glassAvailable ? self : .solid
         case .solid: return .solid
         }
     }
 
     /// The one question the views ask: is there a `glassEffect` under this
-    /// surface at all? Both glass styles answer yes, and they differ only in
-    /// `glass` and `glassDim`, so no view has to know which of the two it is
-    /// drawing.
+    /// surface at all? Every glass style answers yes, and they differ only in
+    /// `glass` and `glassDim` (plus the dock's slab), so no view has to know
+    /// which of them it is drawing.
     var isGlass: Bool {
         switch effective {
-        case .glass, .darkGlass: return true
+        case .glass, .darkGlass, .dock: return true
         case .solid: return false
         }
+    }
+
+    /// The question every dock-only branch asks, answered after the fallback
+    /// to `solid` so an older Mac never draws half a dock.
+    var isDock: Bool { effective == .dock }
+
+    /// The style drawn on a given edge. On the top edge the notch has to stay
+    /// welded to the bezel and to a MacBook's own cutout, so the dock style
+    /// draws there as the dark glass it is closest to.
+    func resolved(on edge: NotchEdge) -> NotchSurfaceStyle {
+        self == .dock && edge == .top ? .darkGlass : self
     }
 
     /// The variant handed to every `glassEffect` the notch draws.
@@ -54,17 +67,41 @@ enum NotchSurfaceStyle: String, CaseIterable, Identifiable {
     /// whiter than plain regular glass. The SDK's own recipe for dark glass,
     /// quoted in the `Glass.clear` doc comment, is clear glass over a
     /// transparent black beneath it; that black is `glassDim`.
+    ///
+    /// `dock` takes `.regular` instead: its panel claims active appearance so
+    /// that the slab's clear glass is truly clear, and with that claim a
+    /// clear card laid over a terminal let the text behind it through. The
+    /// tooltip and cards have to be read, so they take the frosted variant
+    /// over `Palette.dockCardDim`, and only the slab (`slabGlass`) is clear.
     @available(macOS 26.0, *)
     var glass: Glass {
-        effective == .darkGlass ? .clear : .regular
+        switch effective {
+        case .darkGlass: return .clear
+        case .glass, .solid, .dock: return .regular
+        }
+    }
+
+    /// The Dock's own glass, for the floating slab alone: clear, with nothing
+    /// of ours beneath it, darkened by a tint. The note on `glass` that a tint
+    /// cannot darken is about adaptive `.regular`; on `.clear` a black tint
+    /// does, as the spike showed side by side.
+    @available(macOS 26.0, *)
+    var slabGlass: Glass {
+        .clear.tint(Palette.dockGlassTint)
     }
 
     /// The wash drawn *beneath* the glass — never fed to `tint` — and only for
-    /// `darkGlass`. `nil` for `.glass` is not "no wash yet": laying nothing of
-    /// ours under it keeps that style byte-for-byte the system's own glass,
-    /// which is the whole promise of the option.
+    /// `darkGlass` and `dock`. `nil` for `.glass` is not "no wash yet": laying
+    /// nothing of ours under it keeps that style byte-for-byte the system's own
+    /// glass, which is the whole promise of the option. `dock` keeps the Dark
+    /// glass value although its glass is `.regular`: while the notch floats
+    /// nothing but the cards reads it, and on the top edge the style has
+    /// already resolved to `darkGlass`.
     var glassDim: Color? {
-        effective == .darkGlass ? Palette.darkGlassDim : nil
+        switch effective {
+        case .darkGlass, .dock: return Palette.darkGlassDim
+        case .glass, .solid: return nil
+        }
     }
 
     var title: String {
@@ -72,6 +109,7 @@ enum NotchSurfaceStyle: String, CaseIterable, Identifiable {
         case .glass: return L10n.t("Liquid Glass")
         case .darkGlass: return L10n.t("Dark glass")
         case .solid: return L10n.t("Solid black")
+        case .dock: return L10n.t("Dock")
         }
     }
 
@@ -83,6 +121,8 @@ enum NotchSurfaceStyle: String, CaseIterable, Identifiable {
             return L10n.t("Liquid Glass tinted black. Always dark, whatever the Mac's appearance.")
         case .solid:
             return L10n.t("The original opaque black notch. Always dark, whatever the Mac's appearance.")
+        case .dock:
+            return L10n.t("A floating slab of clear glass, like the Dock. Always dark. On the top edge it stays a notch.")
         }
     }
 
@@ -96,7 +136,8 @@ enum NotchSurfaceStyle: String, CaseIterable, Identifiable {
     /// the Mac's Appearance settings; naming one would quietly overrule the
     /// user there. `darkGlass` is the deliberate opposite: it asks for a notch
     /// that is dark whatever the Mac is doing, so it pins `darkAqua` like
-    /// `solid` and keeps `Palette`'s frame-sampled hexes.
+    /// `solid` and keeps `Palette`'s frame-sampled hexes. `dock` is always dark
+    /// too, so it pins `darkAqua` for the same reason.
     ///
     /// Reduce transparency is the exception the window has to be told about:
     /// it means "no see-through chrome", which for the notch is the solid
@@ -112,9 +153,23 @@ private struct NotchSurfaceStyleKey: EnvironmentKey {
     static let defaultValue = NotchSurfaceStyle.glass
 }
 
+/// The style the tooltip and the update and reset cards are painted with. The
+/// cards are the one surface that follows the *chosen* style rather than the
+/// one drawn on this edge: with the dock style on the top edge the notch is
+/// Dark glass, but its clear glass over the 0.80 dim made the cards look
+/// unlike the same cards on every other edge, so they keep the dock recipe.
+private struct NotchCardSurfaceStyleKey: EnvironmentKey {
+    static let defaultValue = NotchSurfaceStyle.glass
+}
+
 extension EnvironmentValues {
     var notchSurfaceStyle: NotchSurfaceStyle {
         get { self[NotchSurfaceStyleKey.self] }
         set { self[NotchSurfaceStyleKey.self] = newValue }
+    }
+
+    var notchCardSurfaceStyle: NotchSurfaceStyle {
+        get { self[NotchCardSurfaceStyleKey.self] }
+        set { self[NotchCardSurfaceStyleKey.self] = newValue }
     }
 }

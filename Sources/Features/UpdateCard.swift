@@ -15,7 +15,7 @@ struct UpdateCard: View {
     var onChoice: ((UpdateChoice) -> Void)?
 
     @Environment(\.codenotchReduceTransparency) private var reduceTransparency
-    @Environment(\.notchSurfaceStyle) private var surfaceStyle
+    @Environment(\.notchCardSurfaceStyle) private var surfaceStyle
     @Environment(\.colorScheme) private var colorScheme
 
     static let cardWidth: CGFloat = NotchLayout.updateCardWidth

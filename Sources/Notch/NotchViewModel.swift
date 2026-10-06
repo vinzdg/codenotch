@@ -214,6 +214,48 @@ final class NotchViewModel: ObservableObject {
     /// Mirrors the persisted Appearance choice so the separate notch window
     /// redraws immediately when Settings changes it.
     @Published var surfaceStyle: NotchSurfaceStyle = .glass
+    /// The Mac's Reduce Transparency, mirrored by the controller. The model has
+    /// to know because under it the dock style does not float, and that
+    /// changes geometry, not only paint.
+    @Published var reduceTransparency = false
+
+    /// The style actually drawn here: the chosen one resolved for this edge,
+    /// after the fallbacks for an older Mac and for Reduce Transparency.
+    var drawnSurfaceStyle: NotchSurfaceStyle {
+        reduceTransparency ? .solid : surfaceStyle.resolved(on: edge).effective
+    }
+
+    /// The style the tooltip and cards are drawn with: the chosen one, not
+    /// resolved for this edge, so with the dock style they look the same on
+    /// the top edge as on the others. For every other style `resolved(on:)`
+    /// is the identity, so this equals `drawnSurfaceStyle` there.
+    var cardSurfaceStyle: NotchSurfaceStyle {
+        reduceTransparency ? .solid : surfaceStyle.effective
+    }
+
+    /// Whether the notch is a slab floating clear of the screen edge — the one
+    /// question every dock branch asks, so the edge, the macOS version and
+    /// Reduce Transparency are each weighed in exactly one place.
+    var floats: Bool { drawnSurfaceStyle.isDock }
+
+    /// The clear strip between the screen edge and a floating slab, in screen
+    /// points; zero for a notch welded to the bezel.
+    var edgeGap: CGFloat { floats ? NotchLayout.dockGap : 0 }
+
+    /// The settings orb and the move grip hang off a flare, and a floating
+    /// slab has none, so it goes without them: Settings stays in the context
+    /// menu and moving stays on ⌥-drag.
+    var showsHandles: Bool { !floats }
+
+    /// How much of each end the slab gives back, in design points. Open, the
+    /// slab is the body alone — the length the two flares took is not slab;
+    /// folded, the capsule is the whole resting pill.
+    var slabTrim: CGFloat { floats && isExpanded ? flare : 0 }
+
+    /// The slab's corner, in design points. The view clamps it to half the
+    /// shorter side, which is what turns the folded slab into a capsule.
+    var slabCornerRadius: CGFloat { NotchLayout.dockCornerRadius }
+
     /// Whether DeepSeek's billing phase rows are visible in its usage card.
     @Published var deepSeekPricingEnabled = true
     /// The rule used by the DeepSeek card, mirrored from Preferences so a
@@ -980,7 +1022,8 @@ final class NotchViewModel: ObservableObject {
     /// Reserve the full hit area even while only the resting arc is visible,
     /// so revealing the settings button cannot put it beyond the screen.
     var trailingExtent: CGFloat {
-        (max(0, orbAlong - shapeLength + orbHotZone / 2,
+        guard showsHandles else { return 0 }
+        return (max(0, orbAlong - shapeLength + orbHotZone / 2,
              gripAlong - shapeLength + NotchLayout.gripHotZone / 2) * sizeScale).rounded(.up)
     }
 
@@ -1012,7 +1055,8 @@ final class NotchViewModel: ObservableObject {
     /// beside the Mac's notch, where the settings button and its grip hang
     /// off the notch's leading tip.
     var leadingExtent: CGFloat {
-        (max(0, -orbAlong + orbHotZone / 2,
+        guard showsHandles else { return 0 }
+        return (max(0, -orbAlong + orbHotZone / 2,
              -gripAlong + NotchLayout.gripHotZone / 2) * sizeScale).rounded(.up)
     }
 
@@ -1072,6 +1116,7 @@ final class NotchViewModel: ObservableObject {
     /// reaching for, and — where it has parted company with it — the arc you
     /// can actually see.
     var orbHandlePoints: [CGPoint] {
+        guard showsHandles else { return [] }
         let button = CGPoint(x: orbAlong, y: orbInset)
         guard orbHugsCorner else { return [button] }
 
@@ -1107,14 +1152,16 @@ final class NotchViewModel: ObservableObject {
     /// Whether a point in stack space is on the grip — a capsule's worth of
     /// ground round it, generous as the settings button's.
     func isOnGrip(along: CGFloat, across: CGFloat) -> Bool {
-        hypot(along - gripPoint.x, across - gripPoint.y) <= NotchLayout.gripHotZone / 2
+        guard showsHandles else { return false }
+        return hypot(along - gripPoint.x, across - gripPoint.y) <= NotchLayout.gripHotZone / 2
     }
 
 
     /// Where the tooltip's tail tip sits, measured in from the bezel: just off
-    /// the inner face of a shape that the extension has made deeper.
+    /// the inner face of a shape that the extension has made deeper. A
+    /// floating slab's inner face is the gap further in.
     var tooltipInset: CGFloat {
-        notchDrawnDepth + NotchLayout.tailGap
+        notchDrawnDepth + edgeGap + NotchLayout.tailGap
     }
 
     /// How deep the notch body reaches on screen — the design-frame depth at
@@ -1318,6 +1365,7 @@ final class NotchViewModel: ObservableObject {
         }
         return screenSize.height / sizeScale
             - NotchLayout.bodyDepth(for: edge)
+            - edgeGap / sizeScale
             - NotchLayout.tailLength
             - NotchLayout.tailGap
     }
@@ -1358,7 +1406,7 @@ final class NotchViewModel: ObservableObject {
     /// buttons then opened the notch on approach and disappeared under it.
     var wakeLength: CGFloat { max(restingLength * sizeScale, wakeBand) }
     var wakeDepth: CGFloat {
-        restingDepth * sizeScale + (mergesWithCutout ? 0 : wakeBand)
+        restingDepth * sizeScale + edgeGap + (mergesWithCutout ? 0 : wakeBand)
     }
     private var wakeBand: CGFloat { NotchLayout.pillHotZone }
 
@@ -1395,7 +1443,7 @@ final class NotchViewModel: ObservableObject {
             edge: edge,
             length: cutoutSpan(cellCount: cellCount)
                 + 2 * NotchLayout.slack(for: edge, maxCardHeight: card, notchScale: sizeScale),
-            depth: NotchLayout.bodyDepth(for: edge) * sizeScale
+            depth: NotchLayout.bodyDepth(for: edge) * sizeScale + edgeGap
                 + NotchLayout.tooltipDepth(for: edge, maxCardHeight: card)
         )
     }
