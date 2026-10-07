@@ -184,6 +184,16 @@ fn parse_reset_time_with(
     if matches!(zone, "UTC" | "GMT" | "Z") {
         return Ok(local.and_utc().timestamp_millis());
     }
+    // A zone with no abbreviation (Bangkok, Sri Lanka, Nepal) is labelled by its
+    // UTC offset instead: "+07", "+0530", "+0545". An offset, unlike an
+    // abbreviation, is unambiguous, and it is the one the CLI applied.
+    if zone.starts_with(['+', '-']) {
+        let offset = numeric_zone_offset(zone).ok_or("Invalid quota reset timezone")?;
+        return match local.and_local_timezone(offset) {
+            LocalResult::Single(dt) => Ok(dt.timestamp_millis()),
+            _ => Err("Invalid quota reset time".into()),
+        };
+    }
     if !zone.bytes().all(|c| c.is_ascii_alphabetic()) {
         return Err("Invalid quota reset timezone".into());
     }
@@ -194,6 +204,24 @@ fn parse_reset_time_with(
         LocalResult::Ambiguous(_, _) => Err("Ambiguous local quota reset time".into()),
         LocalResult::None => Err("Invalid local quota reset time".into()),
     }
+}
+
+/// Reads a `±HH` or `±HHMM` zone label. No real zone is further than 14 hours
+/// from UTC, so anything beyond that is not an offset.
+fn numeric_zone_offset(zone: &str) -> Option<chrono::FixedOffset> {
+    let (sign, digits) = match zone.strip_prefix('+') {
+        Some(digits) => (1, digits),
+        None => (-1, zone.strip_prefix('-')?),
+    };
+    if !matches!(digits.len(), 2 | 4) || !digits.bytes().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let hours: i32 = digits[..2].parse().ok()?;
+    let minutes: i32 = digits[2..].parse().unwrap_or(0);
+    if hours > 14 || minutes > 59 || (hours == 14 && minutes != 0) {
+        return None;
+    }
+    chrono::FixedOffset::east_opt(sign * (hours * 3600 + minutes * 60))
 }
 
 /// Atomically writes data to `dest` by writing to a temporary file in the same directory,
@@ -620,6 +648,42 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_quota_cli_1_3_0_numeric_zone_labels() {
+        // agy 1.3.0 under ConPTY on a host in "SE Asia Standard Time", which has no abbreviation
+        let text = "Quota:\nGemini Models          Weekly Limit Remaining     51%   2026-10-08 07:23 +07\nGemini Models          Five Hour Limit Remaining  79%   2026-10-07 12:49 +07\nClaude and GPT models  Weekly Limit Remaining     98%   2026-10-11 06:00 +07\nClaude and GPT models  Five Hour Limit Remaining  100%  2026-10-07 13:36 +07\n";
+        let windows = parse_quota(text).expect("CLI 1.3.0 quota");
+        assert_eq!(windows.len(), 4);
+        assert_eq!(windows[0].id, "Gemini Models Five Hour Limit");
+        assert!((windows[0].used - 0.21).abs() < 1e-5);
+        let reset = |text| chrono::DateTime::parse_from_rfc3339(text).unwrap().timestamp_millis() as u64;
+        assert_eq!(windows[0].resets_at, Some(reset("2026-10-07T05:49:00Z")));
+        assert_eq!(windows[1].resets_at, Some(reset("2026-10-08T00:23:00Z")));
+        assert_eq!(windows[2].resets_at, Some(reset("2026-10-07T06:36:00Z")));
+        assert_eq!(windows[3].resets_at, Some(reset("2026-10-10T23:00:00Z")));
+    }
+
+    #[test]
+    fn numeric_zone_label_is_the_offset_applied() {
+        for (text, expected) in [
+            ("2026-10-10 22:31 +07", "2026-10-10T15:31:00Z"),
+            ("2026-10-10 22:31 -03", "2026-10-11T01:31:00Z"),
+            ("2026-10-10 22:31 +0530", "2026-10-10T17:01:00Z"),
+            ("2026-10-10 22:31 +0545", "2026-10-10T16:46:00Z"),
+            ("2026-10-10 22:31 -0930", "2026-10-11T08:01:00Z"),
+            ("2026-10-10 22:31 +1245", "2026-10-10T09:46:00Z"),
+            ("2026-10-10 22:31 +14", "2026-10-10T08:31:00Z"),
+            ("2026-10-10 22:31 +1400", "2026-10-10T08:31:00Z"),
+            ("2026-10-10 22:31 +0700", "2026-10-10T15:31:00Z"),
+            ("2026-10-10 22:31 +00", "2026-10-10T22:31:00Z"),
+            ("2026-10-10 22:31 -00", "2026-10-10T22:31:00Z"),
+        ] {
+            // The host timezone plays no part, whatever it is.
+            let actual = parse_reset_time_with(text, |_| panic!("numeric zone uses no local lookup")).unwrap();
+            assert_eq!(actual, chrono::DateTime::parse_from_rfc3339(expected).unwrap().timestamp_millis(), "{text}");
+        }
+    }
+
+    #[test]
     fn reset_time_preserves_explicit_utc_and_rfc3339_offsets() {
         let expected = chrono::DateTime::parse_from_rfc3339("2026-10-10T11:31:00Z")
             .unwrap().timestamp_millis();
@@ -661,8 +725,23 @@ mod tests {
         for bad in [
             "2026-10-10 9:31 AEDT",
             "2026-10-10 22:31",
-            "2026-10-10 22:31 +11",
             "2026-10-10 22:31 AEDT extra",
+            "2026-10-10 22:31 +",
+            "2026-10-10 22:31 +7",
+            "2026-10-10 22:31 +070",
+            "2026-10-10 22:31 +07:00",
+            "2026-10-10 22:31 +070000",
+            "2026-10-10 22:31 +0760",
+            "2026-10-10 22:31 +15",
+            "2026-10-10 22:31 +1401",
+            "2026-10-10 22:31 -1459",
+            "2026-10-10 22:31 +०७",
+            "2026-10-10 22:31 -99",
+            "2026-10-10 22:31 +0x",
+            "2026-10-10 22:31 ++07",
+            "2026-10-10 22:31 07",
+            "2026-10-10 22:31 UTC+7",
+            "2026-10-10 22:31 +07 extra",
             "not-a-date",
         ] {
             assert!(parse_reset_time_with(bad, |_| panic!("malformed text uses no local lookup")).is_err(), "{bad}");
