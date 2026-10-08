@@ -29,10 +29,11 @@ final class NotchFleet {
     private var snapshots: [ProviderSnapshot] = []
     private(set) var thinkingModels: [String: Date] = [:]
     /// Per source, the way the view model keeps them: the Ollama relay and
-    /// the LM Studio log each replace their own readings wholesale.
+    /// each runtime's metrics replace their own readings wholesale, and a
+    /// second runtime reporting must not erase the first one's.
     private var performances: [String: [String: LocalModelPerformance]] = [:]
-    private var localActivities: [String: LocalModelActivity] = [:]
-    private var ledger = LocalTokenLedger()
+    private var localActivities: [String: [String: LocalModelActivity]] = [:]
+    private var ledgers: [String: LocalTokenLedger] = [:]
     private var localMetricsEnabled = false
 
     func setLocalMetricsEnabled(_ enabled: Bool) {
@@ -316,17 +317,27 @@ final class NotchFleet {
         }
     }
 
-    func setLocalActivities(_ activities: [String: LocalModelActivity]) {
-        localActivities = activities
+    func setLocalActivities(_ activities: [String: LocalModelActivity],
+                            source: String = LMStudioMetrics.providerID) {
+        localActivities[source] = activities
+        let merged = mergedLocalActivities
         for model in models {
-            model.localActivities = activities
+            model.localActivities = merged
         }
     }
 
-    func setLedger(_ ledger: LocalTokenLedger) {
-        self.ledger = ledger
+    /// Cell ids carry their provider's prefix, so a plain union never lets one
+    /// runtime's model shadow another's.
+    private var mergedLocalActivities: [String: LocalModelActivity] {
+        localActivities.values.reduce(into: [:]) { merged, activities in
+            merged.merge(activities) { current, _ in current }
+        }
+    }
+
+    func setLedger(_ ledger: LocalTokenLedger, source: String = LMStudioMetrics.providerID) {
+        ledgers[source] = ledger
         for model in models {
-            model.updateLedger(ledger)
+            model.updateLedger(ledger, source: source)
         }
     }
 
@@ -487,12 +498,14 @@ final class NotchFleet {
         controller.signInItems = signInItems
         controller.model.updateSnapshots(snapshots)
         controller.model.thinkingModels = thinkingModels
-        controller.model.localActivities = localActivities
+        controller.model.localActivities = mergedLocalActivities
         controller.model.setLocalMetricsEnabled(localMetricsEnabled)
         for (source, measurements) in performances {
             controller.model.updatePerformances(measurements, source: source)
         }
-        controller.model.updateLedger(ledger)
+        for (source, ledger) in ledgers {
+            controller.model.updateLedger(ledger, source: source)
+        }
         controller.model.refreshing = refreshing
         controller.model.sessions = sessions
         controller.model.now = Date()

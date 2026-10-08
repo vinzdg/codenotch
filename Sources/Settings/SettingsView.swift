@@ -26,7 +26,7 @@ extension View {
 /// crossing-and-notification machinery it switches is Notifications' to
 /// explain.
 private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
-    case accounts, phone, deepseek, ollama, lmstudio, customEndpoints, appearance, notifications, costs, general
+    case accounts, phone, deepseek, ollama, lmstudio, omlx, customEndpoints, appearance, notifications, costs, general
 
     /// The sections the sidebar lists; Phone only once pairing is offered.
     static var visible: [SettingsSection] {
@@ -36,7 +36,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     /// Providers with a pane of their own. They are accounts too, so the
     /// sidebar nests them under Accounts rather than listing them beside
     /// Appearance and General, where they read as app-wide settings.
-    static let providerPanes: [SettingsSection] = [.deepseek, .ollama, .lmstudio, .customEndpoints]
+    static let providerPanes: [SettingsSection] = [.deepseek, .ollama, .lmstudio, .omlx, .customEndpoints]
 
     /// The sidebar's own rows: everything visible that is not nested.
     static var topLevel: [SettingsSection] {
@@ -52,6 +52,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .deepseek:      return "DeepSeek"
         case .ollama:        return "Ollama"   // a product name, the same in every language
         case .lmstudio:      return "LM Studio"
+        case .omlx:          return "oMLX"
         case .customEndpoints: return L10n.t("Custom Endpoints")
         case .appearance:    return L10n.t("Appearance")
         case .notifications: return L10n.t("Notifications")
@@ -67,7 +68,8 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .deepseek: return .deepseek
         case .ollama:   return .ollama
         case .lmstudio: return .lmstudio
-        default:        return nil
+        case .omlx:     return .omlx
+        default:       return nil
         }
     }
 
@@ -79,6 +81,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .deepseek:      return L10n.t("Peak and off-peak pricing for your DeepSeek spend.")
         case .ollama:        return L10n.t("Models running in Ollama on this Mac.")
         case .lmstudio:      return L10n.t("Models loaded in LM Studio on this Mac.")
+        case .omlx:          return L10n.t("Models loaded in oMLX on this Mac.")
         case .customEndpoints: return L10n.t("OpenAI-compatible APIs, local runtimes and custom proxies.")
         case .appearance:    return L10n.t("How the notch looks and where it sits.")
         case .notifications: return L10n.t("What Codenotch tells you, and when.")
@@ -94,6 +97,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .deepseek:      return "chart.line.uptrend.xyaxis"
         case .ollama:        return "desktopcomputer"
         case .lmstudio:      return "cpu"
+        case .omlx:          return "cpu"
         case .customEndpoints: return "network"
         case .appearance:    return "paintbrush.fill"
         case .notifications: return "bell.badge.fill"
@@ -112,6 +116,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .deepseek:      return .orange
         case .ollama:        return .teal
         case .lmstudio:      return .purple
+        case .omlx:          return .purple
         case .customEndpoints: return .indigo
         case .appearance:    return .indigo
         case .notifications: return .red
@@ -461,6 +466,7 @@ struct SettingsView: View {
     @ObservedObject var updater: Updater
     var ollamaRelay: OllamaActivityRelay? = nil
     var lmstudioMetrics: LMStudioMetrics? = nil
+    var omlxMetrics: OMLXMetrics? = nil
     var usageStore: UsageStore? = nil
     var previewResetAlert: (() -> Void)? = nil
     var previewSessionLimitAlert: (() -> Void)? = nil
@@ -723,6 +729,15 @@ struct SettingsView: View {
                 Form {
                     Section("Connection") {
                         LMStudioSettingsRow(preferences: preferences, store: usageStore, metrics: lmstudioMetrics)
+                    }
+                }
+                .formStyle(.grouped)
+            }
+        case .omlx:
+            if let usageStore {
+                Form {
+                    Section("Connection") {
+                        OMLXSettingsRow(preferences: preferences, store: usageStore, metrics: omlxMetrics)
                     }
                 }
                 .formStyle(.grouped)

@@ -169,6 +169,74 @@ final class LMStudioViewTests: XCTestCase {
         }
     }
 
+    /// A second runtime (oMLX) reporting its own activities and ledger used
+    /// to overwrite LM Studio's single slot; each source now keeps its own.
+    private func secondRuntime() throws -> ProviderSnapshot {
+        ProviderSnapshot(id: "omlx", displayName: "oMLX", glyph: .lmstudio, fidelity: .official, status: .ok,
+                         windows: [], kind: .localRuntime,
+                         localRuntime: try LMStudioUsage.parse(LMStudioFixtures.listing(instances: [
+                             ("qwen3.8-27b-mlx", "qwen/qwen3.8-27b", 65_536)
+                         ])))
+    }
+
+    func testASecondRuntimeNeverOverwritesLMStudiosLedger() throws {
+        let vm = NotchViewModel()
+        vm.now = LMStudioLogFixtures.date(2026, 9, 10, 12, 0, 0)
+        vm.updateSnapshots([try runtime(), try secondRuntime()])
+        let mlx = "omlx:model:qwen3.8-27b-mlx"
+        var lmstudioLedger = LocalTokenLedger()
+        lmstudioLedger.record(LocalPrediction(instance: "qwen3.8-27b", at: vm.now.addingTimeInterval(-60),
+                                              inputTokens: 100, outputTokens: 10), as: qwen)
+        var omlxLedger = LocalTokenLedger()
+        omlxLedger.record(LocalPrediction(instance: "qwen3.8-27b-mlx", at: vm.now.addingTimeInterval(-30),
+                                          inputTokens: 200, outputTokens: 20), as: mlx)
+
+        vm.updateLedger(lmstudioLedger, source: "lmstudio")
+        vm.updateLedger(omlxLedger, source: "omlx")
+        XCTAssertEqual(vm.snapshots.first { $0.id == qwen }?.localLedger?.tokensTodayText, "100 in · 10 out")
+        XCTAssertEqual(vm.snapshots.first { $0.id == mlx }?.localLedger?.tokensTodayText, "200 in · 20 out")
+
+        // And the other way round: LM Studio reporting again leaves oMLX's alone.
+        vm.updateLedger(LocalTokenLedger(), source: "lmstudio")
+        XCTAssertNil(vm.snapshots.first { $0.id == qwen }?.localLedger)
+        XCTAssertEqual(vm.snapshots.first { $0.id == mlx }?.localLedger?.tokensTodayText, "200 in · 20 out")
+    }
+
+    func testTheFleetKeepsEachRuntimesActivitiesAndLedgerApart() throws {
+        guard !NSScreen.screens.isEmpty else { throw XCTSkip("Requires a display") }
+        let fleet = NotchFleet(scope: .allDisplays, edge: .right)
+        let mlx = "omlx:model:qwen3.8-27b-mlx"
+        var lmstudioLedger = LocalTokenLedger()
+        lmstudioLedger.record(LocalPrediction(instance: "qwen3.8-27b", at: Date(), inputTokens: 100, outputTokens: 10), as: qwen)
+        var omlxLedger = LocalTokenLedger()
+        omlxLedger.record(LocalPrediction(instance: "qwen3.8-27b-mlx", at: Date(), inputTokens: 200, outputTokens: 20), as: mlx)
+        fleet.setSnapshots([try runtime(), try secondRuntime()])
+        fleet.onRefreshProvider = { _ in }
+        fleet.show()
+        defer { fleet.stop() }
+
+        fleet.setLocalActivities([qwen: LocalModelActivity(phase: .generating, queued: 0, since: Date())], source: "lmstudio")
+        fleet.setLedger(lmstudioLedger, source: "lmstudio")
+        fleet.setLocalActivities([mlx: LocalModelActivity(phase: .processingPrompt, queued: 1, since: Date())], source: "omlx")
+        fleet.setLedger(omlxLedger, source: "omlx")
+        for controller in fleet.controllersForTesting {
+            let model = controller.model
+            XCTAssertEqual(model.activity(for: model.snapshots.first { $0.id == qwen }!)?.sessions.first?.name, "Generating")
+            XCTAssertEqual(model.activity(for: model.snapshots.first { $0.id == mlx }!)?.queued, 1)
+            XCTAssertNotNil(model.snapshots.first { $0.id == qwen }?.localLedger, "oMLX reporting left LM Studio's ledger")
+            XCTAssertNotNil(model.snapshots.first { $0.id == mlx }?.localLedger)
+        }
+
+        // LM Studio going idle clears only its own cell.
+        fleet.setLocalActivities([:], source: "lmstudio")
+        for controller in fleet.controllersForTesting {
+            let model = controller.model
+            XCTAssertNil(model.activity(for: model.snapshots.first { $0.id == qwen }!))
+            XCTAssertNotNil(model.activity(for: model.snapshots.first { $0.id == mlx }!), "LM Studio idling left oMLX busy")
+            XCTAssertNotNil(model.snapshots.first { $0.id == mlx }?.localLedger)
+        }
+    }
+
     func testTheSettingsRowRendersOnAndOff() async throws {
         let domain = "LMStudioSettingsTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: domain)!

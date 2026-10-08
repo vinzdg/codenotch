@@ -7,7 +7,10 @@ final class NotchViewModel: ObservableObject {
     /// Per runtime, so Ollama's relay switching off clears its own readings
     /// and nobody else's.
     private var performances: [String: [String: LocalModelPerformance]] = [:]
-    private var ledger = LocalTokenLedger()
+    /// Per runtime for the same reason: each runtime's metrics replace their
+    /// own ledger wholesale, so a single slot let the last one to report
+    /// erase the others' tooltips.
+    private var ledgers: [String: LocalTokenLedger] = [:]
     private var localMetricsEnabled = false
 
     /// The Ollama relay's own id; its readings are keyed by model name.
@@ -35,8 +38,8 @@ final class NotchViewModel: ObservableObject {
 
     /// Logged tokens per cell, read against `now` as it is drawn so "today"
     /// rolls over at midnight without a new line being written.
-    func updateLedger(_ ledger: LocalTokenLedger) {
-        self.ledger = ledger
+    func updateLedger(_ ledger: LocalTokenLedger, source: String = LMStudioMetrics.providerID) {
+        ledgers[source] = ledger
         snapshots = snapshots.map(decorated)
     }
 
@@ -47,7 +50,7 @@ final class NotchViewModel: ObservableObject {
         snapshot.showsLocalPerformance = shows
         snapshot.localPerformance = shows
             ? performances[snapshot.providerID]?[Self.performanceKey(for: snapshot, model: model)] : nil
-        snapshot.localLedger = ledger.summary(for: snapshot.id, now: now)
+        snapshot.localLedger = ledgers[snapshot.providerID]?.summary(for: snapshot.id, now: now)
         snapshot.localContextFraction = snapshot.localLedger?.contextFraction(contextLength: model.contextLength)
         return snapshot
     }
@@ -60,8 +63,10 @@ final class NotchViewModel: ObservableObject {
 
     @Published var thinkingModels: [String: Date] = [:]
     /// What each local model instance is doing, keyed by cell id. Ollama's
-    /// thinking relay reports through `thinkingModels`; LM Studio's state
-    /// poll reports here, phase and queue included.
+    /// thinking relay reports through `thinkingModels`; every other runtime's
+    /// state poll reports here, phase and queue included. The fleet hands over
+    /// the union of all runtimes' maps; cell ids are namespaced per provider,
+    /// so they never collide.
     @Published var localActivities: [String: LocalModelActivity] = [:]
 
     /// Live agent sessions, keyed by the provider they belong to. They surface

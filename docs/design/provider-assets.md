@@ -66,6 +66,18 @@ rendering as partial alpha, which is how the original reads too.
 `LMStudioProviderTests.testTheGlyphAssetRendersAsAMarkNotASquare` checks the
 native render.
 
+## oMLX
+
+`Sources/Assets.xcassets/glyph-omlx.imageset/omlx.svg` is oMLX's own
+`menubar-filled.svg`, taken from
+`/Applications/oMLX.app/Contents/Resources/omlx/admin/static/` (oMLX 0.7.0,
+package licensed Apache-2.0 per its SPDX headers), retrieved 2026-10-08. It is
+a single black potrace path in a 497×497 viewBox, adapted like the LM Studio
+mark: XML declaration, DOCTYPE and `<metadata>` dropped, numeric
+`width="24"` / `height="24"`, a `<title>`, and the `<g>` and `<path>` left
+unchanged. `OMLXProviderTests.testTheGlyphAssetRendersAsAMarkNotASquare`
+checks the native render.
+
 ## Local model brands
 
 Qwen, Gemma, Meta (for Llama), DeepSeek and Mistral use monochrome vectors from

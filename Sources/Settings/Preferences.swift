@@ -56,6 +56,10 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(lmstudioEndpoint, forKey: Keys.lmstudioEndpoint) }
     }
 
+    @Published var omlxEndpoint: String {
+        didSet { defaults.set(omlxEndpoint, forKey: Keys.omlxEndpoint) }
+    }
+
     /// User-configured custom OpenAI-compatible endpoints.
     @Published var customEndpoints: [CustomEndpoint] {
         didSet {
@@ -518,6 +522,7 @@ final class Preferences: ObservableObject {
         static let phoneLinkPort = "phoneLinkPort"
 
         static let lmstudioEndpoint = "lmstudioEndpoint"
+        static let omlxEndpoint = "omlxEndpoint"
         static let introducedOllama = "introducedOllama"
         static let migratedOllamaID = "migratedOllamaLocalID"
         static let ollamaMetricsEnabled = "ollamaMetricsEnabled"
@@ -808,6 +813,10 @@ final class Preferences: ObservableObject {
             defaults.string(forKey: Keys.lmstudioEndpoint)
                 ?? LMStudioEndpoint.configuredAddress() ?? LMStudioEndpoint.defaultAddress
         ).absoluteString) ?? LMStudioEndpoint.defaultAddress
+        self.omlxEndpoint = (try? OMLXEndpoint.parse(
+            defaults.string(forKey: Keys.omlxEndpoint)
+                ?? OMLXEndpoint.configuredAddress() ?? OMLXEndpoint.defaultAddress
+        ).absoluteString) ?? OMLXEndpoint.defaultAddress
         self.mutedAlertProviders = Set(defaults.stringArray(forKey: Keys.mutedAlerts) ?? [])
         self.accountNicknames = defaults.dictionary(forKey: Keys.accountNicknames) as? [String: String] ?? [:]
         // Absent means never chosen, which is the hover behaviour the app was

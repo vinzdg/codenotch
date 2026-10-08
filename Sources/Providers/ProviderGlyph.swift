@@ -37,6 +37,7 @@ enum ProviderGlyph: String, Codable, Equatable {
     case ollama
     case ollamaLocal = "ollama-local"
     case lmstudio
+    case omlx
     case llamaCpp = "llamacpp"
     /// The QianwenAI platform's own console mark, which is a different emblem
     /// from the local Qwen model brand in `.qwen` — a ring wearing this one is
@@ -83,6 +84,7 @@ enum ProviderGlyph: String, Codable, Equatable {
         case .third:  return 1.0
         case .ollamaLocal: return 0.98
         case .lmstudio: return 0.96
+        case .omlx: return 1.0
         case .llamaCpp: return 1.0
         // The one value here measured off a render of the asset file rather
         // than of the app: this mark's ink fills 0.996 of its box, rasterised
@@ -105,7 +107,7 @@ enum ProviderGlyph: String, Codable, Equatable {
         // glyph-kimi in the asset catalogue are drawn instead.
         case .glm:    return GlyphOutline.glm
         case .devin, .qwen, .gemma, .meta, .deepseek, .mistral, .lmstudio,
-             .qianwenAI, .qoder, .amp, .apify, .llamaCpp: return []
+             .omlx, .qianwenAI, .qoder, .amp, .apify, .llamaCpp: return []
         case .grok:   return GlyphOutline.grok
         case .opencode: return GlyphOutline.opencode
         case .commandcode: return GlyphOutline.commandcode
