@@ -396,10 +396,44 @@ radius, a much thinner stroke, and a neutral colour. Working is **white** on
 purpose — the outer ring's colour already encodes how much of the limit is gone,
 so a green or amber inner arc could be misread as part of that scale. Waiting is
 the exception and takes amber, because it is the one state asking for something.
+Still the default — the breathing disc below is the opt-in alternative.
 
 Staleness dimming applies to the usage reading only. Whether Claude is working is
 known first-hand from a local file, so it stays at full strength even when the
 percentage behind it has gone stale.
+
+### The breathing disc
+
+The disc is offered as the "Working indicator" setting (`BusyIndicatorStyle`,
+Settings → Notch) next to the spinning quarter-arc. The arc stays the default
+because a visual change to every existing user's notch must be opt-in, the same
+rule `ColorTransitionStyle` follows. The brand colour, the faster breath when
+requests are queued and the absence of stale dimming come with the disc as one
+choice: they are what make it readable, and offered separately they would
+produce combinations nobody asked for.
+
+Working is then a filled disc that breathes under the glyph: it scales from 0.88
+to 1 and fades from 0.35 to 1 opacity over 1.1 s, autoreversing. It was picked
+from four prototypes viewed in the notch itself — a radar ring, a three-ring
+sonar, a radial-gradient fill and this breath.
+
+It takes the provider's brand colour (`ProviderGlyph.brandColor`), which revises
+"working is white on purpose". A soft fill at the glyph's radius is a different
+shape in a different place from the ring's stroke, and the usage scale only ever
+uses `ample` / `watch` / `critical`, so the two are not confused. Monochrome brands
+stay `textPrimary`. The disc is drawn under the glyph so the mark stays crisp.
+
+It is not dimmed when the reading goes stale. Whether an agent is working is known
+first-hand, which is the same rule the spinner followed.
+
+A local model with requests queued behind the running one breathes at 0.55 s
+instead of growing dots: a dotted stroke fought the fill. Reduce Motion leaves a
+still disc at 0.18 alpha.
+
+It is still a Core Animation layer rather than a SwiftUI `repeatForever`: that
+loop re-ran the hosting view's layout every frame and kept the app near
+4% of a core while any session was working, so the breath, like the spinner
+before it, is a layer animation the render server carries out.
 
 ### The floating notch
 

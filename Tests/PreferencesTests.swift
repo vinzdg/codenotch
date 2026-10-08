@@ -281,6 +281,17 @@ final class PreferencesMigrationTests: XCTestCase {
         XCTAssertEqual(Preferences(defaults: UserDefaults(suiteName: name)!).weeklyRing, .outside)
     }
 
+    /// The arc is what every existing install already shows, so the disc has
+    /// to be asked for, and has to stay chosen once it is.
+    func testTheWorkingIndicatorIsTheArcUntilAskedForAndThenSurvivesARelaunch() {
+        let (fresh, name) = makeDefaults()
+        XCTAssertEqual(Preferences(defaults: fresh).busyIndicatorStyle, .arc)
+
+        Preferences(defaults: fresh).busyIndicatorStyle = .breath
+
+        XCTAssertEqual(Preferences(defaults: UserDefaults(suiteName: name)!).busyIndicatorStyle, .breath)
+    }
+
     /// The size has to outlive the launch that chose it, or it reads as a
     /// setting that did not take.
     func testTheNotchSizeSurvivesARelaunch() {

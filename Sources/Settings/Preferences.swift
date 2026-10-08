@@ -323,6 +323,11 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(colorTransitionStyle.rawValue, forKey: Keys.colorTransitionStyle) }
     }
 
+    /// Spinning arc or breathing disc — see `BusyIndicatorStyle`.
+    @Published var busyIndicatorStyle: BusyIndicatorStyle {
+        didSet { defaults.set(busyIndicatorStyle.rawValue, forKey: Keys.busyIndicatorStyle) }
+    }
+
     /// The language the app itself speaks.
     ///
     /// `.system` follows the Mac. Written through `L10n.apply` so the store
@@ -552,6 +557,7 @@ final class Preferences: ObservableObject {
         static let watchLimit = "watchLimit"
         static let criticalLimit = "criticalLimit"
         static let colorTransitionStyle = "colorTransitionStyle"
+        static let busyIndicatorStyle = "busyIndicatorStyle"
         static let customEndpoints = "customEndpoints"
         static let lastSeenVersion = "lastSeenVersion"
         static let order = "providerOrder"
@@ -905,6 +911,8 @@ final class Preferences: ObservableObject {
         self.watchLimit = min(max(storedWatchLimit, 0.01), critical - 0.01)
         self.colorTransitionStyle = defaults.string(forKey: Keys.colorTransitionStyle)
             .flatMap(ColorTransitionStyle.init(rawValue:)) ?? .hardStep
+        self.busyIndicatorStyle = defaults.string(forKey: Keys.busyIndicatorStyle)
+            .flatMap(BusyIndicatorStyle.init(rawValue:)) ?? .arc
         // Absent means never chosen, which is follow-the-Mac.
         self.language = defaults.string(forKey: L10n.languageDefaultsKey)
             .flatMap(AppLanguage.init(rawValue:)) ?? .system

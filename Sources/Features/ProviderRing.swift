@@ -4,10 +4,15 @@ import SwiftUI
 /// The ring around a provider glyph: a grey track with a coloured arc that
 /// starts at 12 o'clock and sweeps clockwise by the fraction used.
 ///
-/// When that provider is doing something right now, a second, much thinner arc
-/// appears *inside* the ring, in the gap between the glyph and the track. It is
-/// deliberately a different radius, a different weight and a neutral colour, so
-/// it reads as a separate fact rather than as the usage number moving.
+/// When that provider is doing something right now, a second indicator appears
+/// *inside* the ring, in the gap between the glyph and the track. While it is
+/// working, the "Working indicator" setting (`BusyIndicatorStyle`) picks how:
+/// a thin white arc that spins there (the default), or a filled disc in the
+/// provider's brand colour breathing under the glyph (`BusyWave`). Waiting
+/// (amber) and just finished (green) are always a thin pulsing ring at that
+/// radius. Every one of them sits at a different radius and weight than the
+/// usage arc, so it reads as a separate fact rather than as the usage number
+/// moving.
 struct ProviderRing: View {
     /// Nil when the provider reports what is left but never says out of what —
     /// there is no arc to draw, and inventing one would be a lie in a shape.
@@ -40,6 +45,7 @@ struct ProviderRing: View {
     @Environment(\.colorTransitionStyle) private var colorTransitionStyle
     @Environment(\.codenotchAccentColor) private var accentColor
     @Environment(\.weeklyRingDashed) private var weeklyRingDashed
+    @Environment(\.busyIndicatorStyle) private var busyIndicatorStyle
     @State private var spin: Double = 0
 
     private var band: UsageBand {
@@ -81,7 +87,7 @@ struct ProviderRing: View {
     }
 
     /// Inside, the weekly ring and the working indicator want the same band —
-    /// 1.03pt apart, one of them spinning. Rather than shave both until neither
+    /// 1.03pt apart, one of them moving. Rather than shave both until neither
     /// is legible, the transient one wins: while a provider is working that is
     /// the more urgent fact, and the week is still a hover away. Outside there
     /// is no contest, so nothing is given up there.
@@ -89,8 +95,26 @@ struct ProviderRing: View {
         weeklyRing == .inside && activity != nil && activity?.state != .idle
     }
 
+    @ViewBuilder private var busyWave: some View {
+        if busyIndicatorStyle == .breath, let activity, activity.state == .working {
+            BusyWave(color: glyph.brandColor,
+                     outerRadius: NotchLayout.activityDiameter / 2 + NotchLayout.activityStroke / 2,
+                     animates: !reduceMotion,
+                     queued: activity.queued > 0)
+                .frame(width: NotchLayout.ringDiameter, height: NotchLayout.ringDiameter)
+        } else {
+            EmptyView()
+        }
+    }
+
     var body: some View {
         ZStack {
+            // Under the group that dims a stale reading, and so under the
+            // glyph too: whether an agent is working is known first-hand and
+            // never stale, the same reason the spinning arc sits outside that
+            // group.
+            busyWave
+
             // Dimming applies to the usage reading only. Whether Claude is
             // working right now is known first-hand and stays at full strength
             // even when the percentage behind it has gone stale.
@@ -214,12 +238,16 @@ struct ProviderRing: View {
 }
 
 /// The inner indicator: a short arc that spins while work is happening, and a
-/// full pulsing ring when something is blocked waiting on you.
+/// full pulsing ring when something is blocked waiting on you or has just
+/// finished. With the breathing disc chosen as the working indicator, working
+/// draws nothing here: `ProviderRing` draws `BusyWave` under the glyph instead,
+/// and two moving things for one fact would only compete.
 private struct ActivityArc: View {
     let summary: ActivitySummary
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.codenotchReduceTransparency) private var reduceTransparency
+    @Environment(\.busyIndicatorStyle) private var busyIndicatorStyle
     @State private var pulsing = false
 
     /// How much of the circle the moving arc covers.
@@ -232,7 +260,8 @@ private struct ActivityArc: View {
     var body: some View {
         Group {
             switch summary.state {
-            case .working: spinner
+            case .working:
+                if busyIndicatorStyle == .arc { spinner } else { EmptyView() }
             case .waiting, .success: pulse
             case .idle:    EmptyView()
             }

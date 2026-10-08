@@ -49,10 +49,12 @@ struct ActivitySummary: Equatable {
         }
     }
 
-    /// White for working, deliberately: the indicator sits inside a ring whose
-    /// colour already means "how much of your limit is gone", and a neutral
-    /// tone cannot be misread as part of that scale. Waiting gets amber because
-    /// it is the one state that wants something from you.
+    /// The ring draws working either as the neutral arc, which uses this colour
+    /// (the default), or as the brand-coloured `BusyWave` when the user chose
+    /// the breathing disc in Settings. The neutral value stays off the green /
+    /// amber / red that already means "how much of your limit is gone".
+    /// Waiting keeps amber in both because it is the one state that wants
+    /// something from you.
     var color: Color {
         switch state {
         case .working: return Palette.textPrimary

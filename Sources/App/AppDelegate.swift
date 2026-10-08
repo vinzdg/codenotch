@@ -118,10 +118,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fleet = NotchFleet(scope: preferences.notchScope, edge: preferences.notchEdge)
         self.notchFleet = fleet
 
-        // `CODENOTCH_DEMO=1` puts the design frame's three providers on screen
-        // with its numbers, for screenshots and for eyeballing the layout.
-        if ProcessInfo.processInfo.environment["CODENOTCH_DEMO"] == "1" {
+        // `CODENOTCH_DEMO=1` puts the design frame's three providers and one
+        // local model on screen with its numbers, for screenshots and for
+        // eyeballing the layout.
+        // The queued local model and the stale ring are there so the busy
+        // indicator's two edge cases can be eyeballed.
+        let isDemo = ProcessInfo.processInfo.environment["CODENOTCH_DEMO"] == "1"
+        if isDemo {
             fleet.setSnapshots(Fixtures.snapshots())
+            for (id, sessions) in Fixtures.sessions() {
+                fleet.setSessions(providerID: id, sessions: sessions)
+            }
+            fleet.setLocalActivities(Fixtures.localActivities())
         } else {
             // DeepSeek's Platform usage page is a browser-session provider:
             // login is explicit, stays in Codenotch's own WKWebView store, and
@@ -671,6 +679,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak fleet] in fleet?.apply(colorTransitionStyle: $0) }
                 .store(in: &cancellables)
 
+            preferences.$busyIndicatorStyle
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet] in fleet?.apply(busyIndicatorStyle: $0) }
+                .store(in: &cancellables)
+
             Publishers.CombineLatest(preferences.$connectedProviders, preferences.$disabledModels)
                 .receive(on: RunLoop.main)
                 .sink { [weak store, weak preferences] _, _ in
@@ -924,14 +937,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.noteWorkState(providerID: id, sessions: sessions)
         }
         self.activityCoordinator = activity
-        activity.setEnabled(preferences.connectedProviders)
-        preferences.$connectedProviders
-            .removeDuplicates()
-            .receive(on: RunLoop.main)
-            .sink { [weak activity] connected in
-                activity?.setEnabled(connected)
-            }
-            .store(in: &cancellables)
+        // Demo mode shows fixed sample data. A live monitor publishes on
+        // subscribe, so its first emission (usually no sessions at all) would
+        // overwrite the fixture sessions under the same provider id. Never
+        // enabling the coordinator also keeps Pi's supplemental sessions out,
+        // since it drops them for any provider that is not enabled.
+        if !isDemo {
+            activity.setEnabled(preferences.connectedProviders)
+            preferences.$connectedProviders
+                .removeDuplicates()
+                .receive(on: RunLoop.main)
+                .sink { [weak activity] connected in
+                    activity?.setEnabled(connected)
+                }
+                .store(in: &cancellables)
+        }
 
         let piResponseMonitor = PiResponseMonitor(
             onResponse: { [weak self] providerID in
@@ -1022,6 +1042,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fleet.apply(accentColor: preferences.accentColor)
         fleet.apply(watchLimit: preferences.watchLimit, criticalLimit: preferences.criticalLimit)
         fleet.apply(colorTransitionStyle: preferences.colorTransitionStyle)
+        fleet.apply(busyIndicatorStyle: preferences.busyIndicatorStyle)
         fleet.apply(weeklyRing: preferences.weeklyRing)
         fleet.apply(weeklyRingDashed: preferences.weeklyRingDashed)
         fleet.apply(showsNotchReadings: preferences.showsNotchReadings)

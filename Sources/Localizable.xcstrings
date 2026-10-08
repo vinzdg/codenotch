@@ -41508,6 +41508,151 @@
         }
       }
     },
+    "Working indicator": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indicador de trabalho"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Індикатор роботи"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作指示器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作指示器"
+          }
+        }
+      }
+    },
+    "Spinning arc": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arco giratório"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дуга, що обертається"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旋转弧线"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "旋轉弧線"
+          }
+        }
+      }
+    },
+    "Breathing disc": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disco pulsante"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пульсуючий диск"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "呼吸圆盘"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "呼吸圓盤"
+          }
+        }
+      }
+    },
+    "A thin white arc turns inside the ring while an agent works; queued requests become a ring of dots.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um arco branco fino gira dentro do anel enquanto um agente trabalha; pedidos na fila viram um anel de pontos."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тонка біла дуга обертається всередині кільця, поки агент працює; запити в черзі стають кільцем із крапок."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理工作时，一条细白弧线在圆环内旋转；排队的请求显示为一圈圆点。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理工作時，一條細白弧線在圓環內旋轉；排隊的請求顯示為一圈圓點。"
+          }
+        }
+      }
+    },
+    "A disc in the provider's brand colour breathes under its mark while an agent works, faster when requests are queued.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um disco na cor da marca do provedor pulsa sob o seu símbolo enquanto um agente trabalha, mais rápido quando há pedidos na fila."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Диск у фірмовому кольорі провайдера пульсує під його знаком, поки агент працює, швидше — коли є запити в черзі."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理工作时，供应商品牌色的圆盘在其标志下方呼吸；有排队请求时更快。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理工作時，供應商品牌色的圓盤在其標誌下方呼吸；有排隊請求時更快。"
+          }
+        }
+      }
+    },
     "Ample, watch and critical each stay one flat colour, jumping between them at the limits below.": {
       "extractionState": "manual",
       "localizations": {

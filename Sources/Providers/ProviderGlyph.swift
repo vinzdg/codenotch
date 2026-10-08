@@ -93,6 +93,30 @@ enum ProviderGlyph: String, Codable, Equatable {
         }
     }
 
+    /// The mark's own brand colour, used to tint the busy wave behind it.
+    ///
+    /// It comes from the brand rather than from the usage scale because the
+    /// outer ring already spends `ample` / `watch` / `critical` on how much of
+    /// the limit is used; a wave in one of those would read as a verdict on the
+    /// limit instead of "an agent is working". Monochrome brands keep the
+    /// neutral text colour until a hex is chosen for them.
+    var brandColor: Color {
+        switch self {
+        case .claude: return Color(hex: 0xD97757)
+        case .openai: return Color(hex: 0x10A37F)
+        case .third: return Color(hex: 0x20808D)
+        case .antigravity, .geminiSpark, .gemma: return Color(hex: 0x4285F4)
+        case .qwen, .qianwenAI: return Color(hex: 0x615CED)
+        case .meta: return Color(hex: 0x0866FF)
+        case .deepseek: return Color(hex: 0x4D6BFE)
+        case .mistral: return Color(hex: 0xFF7000)
+        case .apify: return Color(hex: 0xFF9012)
+        case .devin: return Color(hex: 0x2563EB)
+        case .glm: return Color(hex: 0x2E7CF6)
+        default: return Palette.textPrimary
+        }
+    }
+
     var outline: [[CGPoint]] {
         switch self {
         case .claude: return GlyphOutline.claude

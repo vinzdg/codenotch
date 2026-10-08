@@ -822,6 +822,16 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
+                Picker(L10n.t("Working indicator"), selection: $preferences.busyIndicatorStyle) {
+                    ForEach(BusyIndicatorStyle.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+
+                Text(preferences.busyIndicatorStyle.explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 Toggle(L10n.t("Show usage pace"), isOn: $preferences.showUsagePace)
                 Text(L10n.t("Compares each timed allowance with the time left until reset, showing quota in deficit or held in reserve."))
                     .font(.caption)
