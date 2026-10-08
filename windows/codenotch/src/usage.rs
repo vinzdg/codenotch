@@ -428,6 +428,34 @@ fn label_for(kind: &str) -> String {
     }
 }
 
+/// An Enterprise seat answers with `limits` empty and both named windows null; its usage is only in
+/// `spend` (upstream #359, spendWindow): the amount used against the spend limit, each in minor units.
+/// The share is used / limit rather than `spend.percent`, which is rounded to a whole percent.
+/// Skipped when disabled or the limit is zero, so no "0 of 0" is invented.
+fn spend_window(v: &serde_json::Value) -> Option<LimitWindow> {
+    let s = v.get("spend")?;
+    if s.get("enabled").and_then(|x| x.as_bool()) == Some(false) {
+        return None;
+    }
+    let minor = |k: &str| s.get(k).and_then(|m| m.get("amount_minor")).and_then(|x| x.as_f64());
+    let (used, limit) = (minor("used")?, minor("limit")?);
+    if !(limit > 0.0) {
+        return None;
+    }
+    let money = |k: &str, amount: f64| {
+        let m = s.get(k);
+        let exp = m.and_then(|m| m.get("exponent")).and_then(|x| x.as_i64()).unwrap_or(2).clamp(0, 6);
+        let cur = m.and_then(|m| m.get("currency")).and_then(|x| x.as_str()).unwrap_or("");
+        format!("{:.*} {cur}", exp as usize, amount / 10f64.powi(exp as i32)).trim_end().to_string()
+    };
+    Some(LimitWindow {
+        id: "spend".into(),
+        label: format!("Spend limit ({} / {})", money("used", used), money("limit", limit)),
+        used: (used / limit).clamp(0.0, 1.0),
+        ..Default::default()
+    })
+}
+
 fn parse_response(v: &serde_json::Value) -> Vec<LimitWindow> {
     let mut out: Vec<LimitWindow> = Vec::new();
     if let Some(arr) = v.get("limits").and_then(|x| x.as_array()) {
@@ -475,6 +503,9 @@ fn parse_response(v: &serde_json::Value) -> Vec<LimitWindow> {
             continue;
         }
         out.push(LimitWindow { id: id.into(), label, used, resets_at, ..Default::default() });
+    }
+    if let Some(w) = spend_window(v) {
+        out.push(w);
     }
     // session always comes first (upstream display order)
     out.sort_by_key(|w| if w.id == "session" { 0 } else { 1 });
@@ -753,6 +784,44 @@ mod tests {
     use super::*;
 
     const EXP: u64 = 1_000_000_000;
+
+    #[test]
+    fn enterprise_seat_reads_its_spend_limit() {
+        let v = serde_json::json!({
+            "five_hour": null, "seven_day": null, "limits": [],
+            "spend": {
+                "used": {"amount_minor": 1214, "currency": "USD", "exponent": 2},
+                "limit": {"amount_minor": 15000, "currency": "USD", "exponent": 2},
+                "percent": 8, "enabled": true
+            }
+        });
+        let ws = parse_response(&v);
+        assert_eq!(ws.len(), 1);
+        assert_eq!(ws[0].id, "spend");
+        assert_eq!(ws[0].label, "Spend limit (12.14 USD / 150.00 USD)");
+        assert!((ws[0].used - 1214.0 / 15000.0).abs() < 1e-9, "used / limit, not the rounded percent");
+        assert_eq!(ws[0].resets_at, None);
+    }
+
+    #[test]
+    fn spend_is_skipped_when_disabled_or_unlimited() {
+        let off = serde_json::json!({"spend": {"enabled": false,
+            "used": {"amount_minor": 1}, "limit": {"amount_minor": 100}}});
+        assert!(parse_response(&off).is_empty());
+        let zero = serde_json::json!({"spend": {"enabled": true,
+            "used": {"amount_minor": 0}, "limit": {"amount_minor": 0}}});
+        assert!(parse_response(&zero).is_empty());
+    }
+
+    #[test]
+    fn plan_windows_still_come_first() {
+        let v = serde_json::json!({
+            "five_hour": {"utilization": 40.0, "resets_at": "2026-10-08T20:00:00Z"},
+            "spend": {"enabled": true, "used": {"amount_minor": 1}, "limit": {"amount_minor": 100}}
+        });
+        let ids: Vec<_> = parse_response(&v).into_iter().map(|w| w.id).collect();
+        assert_eq!(ids, ["session", "spend"]);
+    }
 
     #[test]
     fn renews_only_inside_the_margin() {
