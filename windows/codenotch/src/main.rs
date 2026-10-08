@@ -1152,7 +1152,8 @@ fn ring_window<'a>(
 ) -> Option<&'a usage::LimitWindow> {
     let by_id = |id: &str| windows.iter().find(|w| w.id == id);
     match provider {
-        "claude" => by_id("session"),
+        // An Enterprise seat has no session, only its spend limit (upstream #359 headlineID)
+        "claude" => by_id("session").or_else(|| by_id("spend")),
         "codex" => by_id("primary"),
         "cursor" => by_id("included").or_else(|| by_id("api")),
         "grok" => by_id("credits").or_else(|| windows.first()),
@@ -2261,6 +2262,12 @@ mod tests {
     #[test]
     fn claude_means_the_session_even_when_the_week_is_fuller() {
         assert_eq!(pick("claude", &[win("session", 0.10), win("weekly_all", 0.60)]), Some("session"));
+    }
+
+    #[test]
+    fn an_enterprise_seat_shows_its_spend_limit() {
+        assert_eq!(pick("claude", &[win("spend", 0.08)]), Some("spend"));
+        assert_eq!(pick("claude", &[win("session", 0.10), win("spend", 0.08)]), Some("session"));
     }
 
     #[test]
