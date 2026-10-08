@@ -68,9 +68,6 @@ enum ResetCopy {
             return L10n.t("Resets in \(max(1, minutes)) min", locale: locale)
         }
 
-        let formatter = formatter(for: calendar)
-        formatter.locale = locale
-
         // A weekday only identifies a day inside the coming week. Codex's
         // monthly window resets 26 days out, and "Resets Mon 3:55 PM" read as
         // *this* Monday — six days away rather than nearly four weeks, which is
@@ -78,8 +75,9 @@ enum ResetCopy {
         if daysApart(from: now, to: resetsAt, calendar: calendar) >= 7 {
             // Day and month only, matching how the vendors write it. A time
             // that far out is noise: nobody plans around 3:55 PM in four weeks.
-            formatter.setLocalizedDateFormatFromTemplate("MMM d")
-            return L10n.t("Resets \(formatter.string(from: resetsAt))", locale: locale)
+            let stamp = formatter(template: "MMM d", calendar: calendar,
+                                  locale: locale).string(from: resetsAt)
+            return L10n.t("Resets \(stamp)", locale: locale)
         }
 
         // `j`, not `h`: a literal hour symbol in a template pins the clock to
@@ -89,8 +87,9 @@ enum ResetCopy {
         // 00:00. `j` asks the locale, which also carries the "24-Hour Time"
         // switch in System Settings. Regions that write AM/PM keep it, so
         // English is still "Thu 12:00 AM".
-        formatter.setLocalizedDateFormatFromTemplate("E j:mm")
-        return L10n.t("Resets \(formatter.string(from: resetsAt))", locale: locale)
+        let stamp = formatter(template: "E j:mm", calendar: calendar,
+                              locale: locale).string(from: resetsAt)
+        return L10n.t("Resets \(stamp)", locale: locale)
     }
 
     /// The time left before a reset, as short as the menu bar needs it: "2h 05m",
@@ -149,6 +148,30 @@ enum ResetCopy {
         formatter.calendar = calendar
         formatter.timeZone = calendar.timeZone
         formatter.locale = calendar.locale ?? L10n.locale
+        return formatter
+    }
+
+    /// A formatter for `template`, kept across calls.
+    ///
+    /// `setLocalizedDateFormatFromTemplate` rebuilds the formatter's ICU state
+    /// on every call — milliseconds a throw — and the notch's hover path asks
+    /// for the same handful of templates on every mouse event (see
+    /// `NotchWindowController.cursorMoved`), so building a fresh formatter
+    /// there cost real CPU even at idle. The key carries everything a caller
+    /// could otherwise set after the fact, so a cached formatter is never
+    /// mutated again. Per-thread because `DateFormatter` is not thread-safe.
+    static func formatter(template: String, calendar: Calendar,
+                          locale: Locale, timeZone: TimeZone? = nil) -> DateFormatter {
+        let zone = timeZone ?? calendar.timeZone
+        let key = [template, "\(calendar.identifier)", zone.identifier,
+                   locale.identifier].joined(separator: "\n")
+        let caches = Thread.current.threadDictionary
+        if let hit = caches[key] as? DateFormatter { return hit }
+        let formatter = formatter(for: calendar)
+        formatter.locale = locale
+        formatter.timeZone = zone
+        formatter.setLocalizedDateFormatFromTemplate(template)
+        caches[key] = formatter
         return formatter
     }
 

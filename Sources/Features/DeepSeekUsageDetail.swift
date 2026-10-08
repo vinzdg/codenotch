@@ -64,11 +64,9 @@ struct DeepSeekUsageDetail: View {
     }
 
     private var nextPricingTime: String {
-        let formatter = ResetCopy.formatter(for: Calendar.current)
-        formatter.locale = L10n.locale
-        formatter.timeZone = .current
-        formatter.setLocalizedDateFormatFromTemplate("E j:mm")
-        return formatter.string(from: nextPricingTransition.date)
+        ResetCopy.formatter(template: "E j:mm", calendar: Calendar.current,
+                            locale: L10n.locale, timeZone: .current)
+            .string(from: nextPricingTransition.date)
     }
 
     var body: some View {

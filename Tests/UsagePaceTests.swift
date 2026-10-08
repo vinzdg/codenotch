@@ -74,3 +74,54 @@ final class UsagePacePreferenceTests: XCTestCase {
         XCTAssertTrue(Preferences(defaults: defaults).showUsagePace)
     }
 }
+
+final class PaceMarkerTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private func window(
+        used: Double? = 0.8,
+        remaining: TimeInterval? = 2700,
+        duration: TimeInterval? = 3600
+    ) -> LimitWindow {
+        LimitWindow(id: "w", label: "Session", usedFraction: used,
+                    resetsAt: remaining.map { now.addingTimeInterval($0) }, duration: duration)
+    }
+
+    func testElapsedFractionMeasuresTheCycle() throws {
+        XCTAssertEqual(try XCTUnwrap(window().elapsedFraction(now: now)), 0.25, accuracy: 1e-9)
+    }
+
+    func testElapsedFractionNeedsAResetAndADuration() {
+        XCTAssertNil(window(remaining: nil).elapsedFraction(now: now))
+        XCTAssertNil(window(duration: nil).elapsedFraction(now: now))
+        XCTAssertNil(window(duration: 0).elapsedFraction(now: now))
+        XCTAssertNil(window(duration: .infinity).elapsedFraction(now: now))
+        XCTAssertNil(window(remaining: 0).elapsedFraction(now: now))
+        XCTAssertNil(window(remaining: -10).elapsedFraction(now: now))
+    }
+
+    func testElapsedFractionStartsAtZeroPastTheCycle() throws {
+        XCTAssertEqual(try XCTUnwrap(window(remaining: 3601).elapsedFraction(now: now)), 0, accuracy: 1e-9)
+    }
+
+    func testMarkerSitsOnElapsedInUsedMode() throws {
+        XCTAssertEqual(try XCTUnwrap(window().paceMarkerFraction(now: now, showingRemaining: false)),
+                       0.25, accuracy: 1e-9)
+    }
+
+    func testMarkerMirrorsToExpectedRemaining() throws {
+        XCTAssertEqual(try XCTUnwrap(window().paceMarkerFraction(now: now, showingRemaining: true)),
+                       0.75, accuracy: 1e-9)
+    }
+
+    func testMarkerAbsentWithoutAWindow() {
+        XCTAssertNil(window(remaining: nil).paceMarkerFraction(now: now, showingRemaining: false))
+        XCTAssertNil(window(remaining: nil).paceMarkerFraction(now: now, showingRemaining: true))
+    }
+
+    func testMarkerXStaysOnTheTrack() {
+        XCTAssertEqual(paceMarkerX(position: 0.25, trackWidth: 536, markerWidth: 2), 133, accuracy: 1e-9)
+        XCTAssertEqual(paceMarkerX(position: 0, trackWidth: 536, markerWidth: 2), 0, accuracy: 1e-9)
+        XCTAssertEqual(paceMarkerX(position: 1, trackWidth: 536, markerWidth: 2), 534, accuracy: 1e-9)
+    }
+}

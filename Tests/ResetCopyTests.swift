@@ -84,6 +84,24 @@ final class ResetCopyTests: XCTestCase {
         }
     }
 
+    /// The hover path formats the same templates on every mouse event, so the
+    /// formatter behind each template is built once and then reused — while
+    /// two templates, or two locales, must never share one.
+    func testFormattersAreReusedPerTemplateAndLocale() {
+        let calendar = Calendar(identifier: .gregorian)
+        let us = Locale(identifier: "en_US")
+        let first = ResetCopy.formatter(template: "E j:mm", calendar: calendar, locale: us)
+        let second = ResetCopy.formatter(template: "E j:mm", calendar: calendar, locale: us)
+        XCTAssertIdentical(first, second)
+        XCTAssertNotIdentical(
+            first,
+            ResetCopy.formatter(template: "MMM d", calendar: calendar, locale: us))
+        XCTAssertNotIdentical(
+            first,
+            ResetCopy.formatter(template: "E j:mm", calendar: calendar,
+                                locale: Locale(identifier: "fr_FR")))
+    }
+
     func testPastResetsReadAsResetting() {
         XCTAssertEqual(ResetCopy.text(for: now.addingTimeInterval(-5), now: now), "Resetting…")
     }
@@ -302,5 +320,38 @@ final class WindowSummaryTests: XCTestCase {
     /// Only the number shortens; the wording around it does not.
     func testALargeCountKeepsItsWording() {
         XCTAssertEqual(LimitWindow(id: "w", label: "Tokens", used: 651_061).summary, "651k used")
+    }
+
+    /// Both ends stay on the line — the card is the detailed view — but the
+    /// remaining figure leads when the notch is set that way.
+    func testRemainingLeadsWhenSet() {
+        XCTAssertEqual(window(0.12).summary(showingRemaining: true), "88% left · 12% Used")
+    }
+
+    /// Swapping the order never changes the numbers, so the halves still add
+    /// up in either mode.
+    func testTheHalvesStillSumToAHundredWhenRemainingLeads() {
+        for percent in stride(from: 0, through: 100, by: 7) {
+            let text = window(Double(percent) / 100).summary(showingRemaining: true)
+            let numbers = text.split(separator: " ").compactMap { Int($0.replacingOccurrences(of: "%", with: "")) }
+            XCTAssertEqual(numbers.count, 2, "unexpected wording: \(text)")
+            XCTAssertEqual(numbers[0] + numbers[1], 100, "\(text) does not add up")
+        }
+    }
+
+    func testAnOverspentLimitLeadsWithNothingLeft() {
+        XCTAssertEqual(window(1.04).summary(showingRemaining: true), "0% left · 104% Used")
+    }
+
+    func testFractionsOfAPercentLeadFromTheOtherEnd() {
+        XCTAssertEqual(window(0.0034).summary(showingRemaining: true), "99.7% left · 0.3% Used")
+        XCTAssertEqual(window(0.998).summary(showingRemaining: true), "0.2% left · 99.8% Used")
+        XCTAssertEqual(window(0.0004).summary(showingRemaining: true), ">99.9% left · <0.1% Used")
+    }
+
+    /// Counts keep their own wording — "3 left" already leads with what is left.
+    func testCountsAreUntouchedWhenRemainingLeads() {
+        XCTAssertEqual(LimitWindow(id: "w", label: "Requests", used: 8).summary(showingRemaining: true), "8 used")
+        XCTAssertEqual(LimitWindow(id: "w", label: "Requests", remaining: 3).summary(showingRemaining: true), "3 left")
     }
 }

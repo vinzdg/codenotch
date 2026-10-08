@@ -103,7 +103,8 @@ actor CodexLocalProvider: UsageProvider {
         )
     }
 
-    private static func fetchProfileUsage(
+    /// Shared with the remote provider: same account, same backend.
+    static func fetchProfileUsage(
         session: URLSession,
         credential: CodexCredentials.Credential
     ) async throws -> CodexTokenUsage {
@@ -129,7 +130,8 @@ actor CodexLocalProvider: UsageProvider {
 
     /// Unused rate-limit resets on this Codex account, listed by the same
     /// backend as usage.
-    private static func fetchResetCredits(
+    /// Shared with the remote provider: same account, same backend.
+    static func fetchResetCredits(
         session: URLSession,
         credential: CodexCredentials.Credential
     ) async -> UsageResetCredits? {
@@ -155,7 +157,8 @@ actor CodexLocalProvider: UsageProvider {
         }
     }
 
-    private static func retryAfter(from response: HTTPURLResponse?, now: Date) -> TimeInterval? {
+    /// Shared with the remote provider: same endpoint, same rate limit.
+    static func retryAfter(from response: HTTPURLResponse?, now: Date) -> TimeInterval? {
         guard let header = response?.value(forHTTPHeaderField: "Retry-After")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         else { return nil }

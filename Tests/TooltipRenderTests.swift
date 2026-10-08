@@ -177,6 +177,45 @@ final class TooltipRenderTests: XCTestCase {
         XCTAssertLessThanOrEqual(width * 0.85, NotchLayout.cardTextWidth)
     }
 
+    /// The deficit compares spent against elapsed — a question about what was
+    /// spent, whichever end the meters draw from — so it reads the same in
+    /// both modes, and the swapped line still fits the card.
+    func testDeficitSurvivesTheRemainingMode() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let window = LimitWindow(id: "weekly", label: "Weekly limit", usedFraction: 1,
+                                 resetsAt: now.addingTimeInterval(604800), duration: 604800)
+        let pace = try XCTUnwrap(window.usagePace(now: now))
+        XCTAssertEqual(pace.summary, "100% deficit")
+        XCTAssertEqual("\(window.summary) · \(pace.summary)",
+                       "100% Used · 0% left · 100% deficit")
+        let remaining = "\(window.summary(showingRemaining: true)) · \(pace.summary)"
+        XCTAssertEqual(remaining, "0% left · 100% Used · 100% deficit")
+        let font = NSFont.systemFont(ofSize: Design.fontSize(capPixels: 18))
+        let width = (remaining as NSString).size(withAttributes: [.font: font]).width
+        XCTAssertLessThanOrEqual(width * 0.85, NotchLayout.cardTextWidth)
+    }
+
+    /// The ring draws from either end without complaint — a smoke test, the
+    /// way the card renders are: the sweep maths itself is pinned in
+    /// `MeteredFractionTests`.
+    func testRingRendersFromTheRemainingEnd() throws {
+        let view = HStack(spacing: 20) {
+            ProviderRing(usedFraction: 0.25, glyph: .claude)
+            ProviderRing(usedFraction: 0.25, glyph: .claude, showsRemaining: true)
+            ProviderRing(usedFraction: 1.28, glyph: .claude, showsRemaining: true)
+        }
+        .padding(20)
+        .background(Color.black)
+        .environment(\.colorScheme, .dark)
+        .environment(\.notchSurfaceStyle, .solid)
+        .environment(\.codenotchAccentColor, .blue)
+        .environment(\.codenotchHeadlessGlass, true)
+        let renderer = ImageRenderer(content: view)
+        let image = try XCTUnwrap(renderer.nsImage)
+        XCTAssertGreaterThan(image.size.width, 0)
+        XCTAssertGreaterThan(image.size.height, 0)
+    }
+
     func testTheCardLaysOutEverySessionState() throws {
         let snapshot = ProviderSnapshot(
             id: "claude", displayName: "Claude", glyph: .claude,
@@ -333,5 +372,126 @@ final class TooltipRenderTests: XCTestCase {
             XCTAssertFalse(path.contains(wasOnCentre),
                            "\(direction): the outline left a tail behind where the tail no longer is")
         }
+    }
+}
+
+/// The pace tick on the card's bars: a white mark where the fill *should* be,
+/// a quarter along in used mode for a window a quarter through its cycle,
+/// mirrored to three-quarters when the bar reads remaining — and drawn only
+/// while the deficit option is on.
+@MainActor
+final class PaceMarkerRenderTests: XCTestCase {
+    private let scale: CGFloat = 2
+
+    private func snapshot(now: Date) -> ProviderSnapshot {
+        ProviderSnapshot(
+            id: "pace", displayName: "Pace", glyph: .amp, fidelity: .official,
+            status: .ok,
+            windows: [LimitWindow(id: "w", label: "Session", usedFraction: 0.8,
+                                  resetsAt: now.addingTimeInterval(2700), duration: 3600)],
+            headlineID: "w", plan: nil
+        )
+    }
+
+    private func render(snapshot: ProviderSnapshot, now: Date) throws -> NSBitmapImageRep {
+        let view = TooltipCard(snapshot: snapshot, now: now, direction: .down)
+            .padding(20)
+            .background(Color.black)
+            .environment(\.colorScheme, .dark)
+            .environment(\.notchSurfaceStyle, .solid)
+            .environment(\.codenotchAccentColor, .blue)
+            .environment(\.colorTransitionStyle, .hardStep)
+            .environment(\.codenotchHeadlessGlass, true)
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = scale
+        return NSBitmapImageRep(cgImage: try XCTUnwrap(renderer.cgImage))
+    }
+
+    /// Device pixels from the card's own metrics, so the probe follows the
+    /// layout rather than pinning a number the frame owns.
+    private func markerColumn(fraction: CGFloat) -> Int {
+        let track = NotchLayout.cardWidth - 2 * NotchLayout.cardPadding
+        return Int(((20 + NotchLayout.cardPadding + track * fraction) * scale).rounded())
+    }
+
+    private func isMarkerWhite(_ color: NSColor) -> Bool {
+        color.alphaComponent > 0.5
+            && color.redComponent > 0.9 && color.greenComponent > 0.9 && color.blueComponent > 0.9
+    }
+
+    /// The critical band's fixed orange — 0.8 used sits above the critical
+    /// limit whatever the accent is.
+    private func isCriticalOrange(_ color: NSColor) -> Bool {
+        color.alphaComponent > 0.5
+            && color.redComponent > 0.85
+            && color.greenComponent > 0.15 && color.greenComponent < 0.45
+            && color.blueComponent < 0.2
+    }
+
+    /// The bare track: white at 17.6% over the black card.
+    private func isBarTrack(_ color: NSColor) -> Bool {
+        guard color.alphaComponent > 0.5 else { return false }
+        let channels = [color.redComponent, color.greenComponent, color.blueComponent]
+        return channels.allSatisfy { $0 > 0.08 && $0 < 0.32 }
+            && channels.max()! - channels.min()! < 0.06
+    }
+
+    /// A white pixel with the expected bar colour 12pt either side — title and
+    /// percentage text are white too, but nothing orange or track-grey sits
+    /// beside them, so only the tick matches.
+    private func markerPresent(in pixels: NSBitmapImageRep, column: Int,
+                               neighbor: (NSColor) -> Bool) -> Bool {
+        let reach = Int((12 * scale).rounded())
+        for y in 0..<pixels.pixelsHigh {
+            for x in (column - 1)...(column + 1) {
+                guard let center = pixels.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                      let left = pixels.colorAt(x: x - reach, y: y)?.usingColorSpace(.sRGB),
+                      let right = pixels.colorAt(x: x + reach, y: y)?.usingColorSpace(.sRGB)
+                else { continue }
+                if isMarkerWhite(center) && neighbor(left) && neighbor(right) { return true }
+            }
+        }
+        return false
+    }
+
+    func testPaceMarkerMarksExpectedBurnInBothModes() throws {
+        let paceKey = Preferences.showUsagePaceKey
+        let remainingKey = Preferences.showsRemainingInNotchKey
+        let savedPace = UserDefaults.standard.object(forKey: paceKey)
+        let savedRemaining = UserDefaults.standard.object(forKey: remainingKey)
+        defer {
+            if let savedPace { UserDefaults.standard.set(savedPace, forKey: paceKey) }
+            else { UserDefaults.standard.removeObject(forKey: paceKey) }
+            if let savedRemaining { UserDefaults.standard.set(savedRemaining, forKey: remainingKey) }
+            else { UserDefaults.standard.removeObject(forKey: remainingKey) }
+        }
+        UserDefaults.standard.set(true, forKey: paceKey)
+
+        let now = Date()
+        let card = snapshot(now: now)
+
+        // A quarter through the cycle: the tick sits a quarter along the bar,
+        // on the orange fill.
+        UserDefaults.standard.set(false, forKey: remainingKey)
+        let used = try render(snapshot: card, now: now)
+        XCTAssertTrue(markerPresent(in: used, column: markerColumn(fraction: 0.25),
+                                    neighbor: isCriticalOrange),
+                      "used mode: no pace tick a quarter along the bar")
+
+        // The same moment reads as three-quarters expected left — the tick
+        // mirrors with the bar, onto the bare track past the short fill.
+        UserDefaults.standard.set(true, forKey: remainingKey)
+        let remaining = try render(snapshot: card, now: now)
+        XCTAssertTrue(markerPresent(in: remaining, column: markerColumn(fraction: 0.75),
+                                    neighbor: isBarTrack),
+                      "remaining mode: no pace tick three-quarters along the bar")
+
+        // The tick belongs to the deficit option: off, the bar carries none.
+        UserDefaults.standard.set(false, forKey: paceKey)
+        UserDefaults.standard.set(false, forKey: remainingKey)
+        let off = try render(snapshot: card, now: now)
+        XCTAssertFalse(markerPresent(in: off, column: markerColumn(fraction: 0.25),
+                                     neighbor: isCriticalOrange),
+                       "pace off: the bar carries a tick it should not")
     }
 }

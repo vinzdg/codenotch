@@ -65,7 +65,11 @@ final class UsageLimitWatcher {
 
         // 1. Session limit (headline window)
         if let headline = snapshot.headline, let fraction = snapshot.usedFraction {
-            let isExhausted = fraction >= 1.0 || snapshot.block != nil
+            // A block the spent week attached is the weekly alert's news, not
+            // the session's: counting it here would fire a session card
+            // claiming the session itself spent while it still shows room.
+            let blockedBeyondWeekly = snapshot.block.map { !$0.isWeeklyExhaustion } ?? false
+            let isExhausted = fraction >= 1.0 || blockedBeyondWeekly
 
             let dateRolledOver = rolledOver(from: state.session.resetsAt, to: headline.resetsAt)
 

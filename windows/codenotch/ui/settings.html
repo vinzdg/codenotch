@@ -171,6 +171,8 @@
           <div class="item" id="row-weekly-dashed" hidden><span>Dashed weekly ring</span><button class="switch" id="sw-weekly-dashed" role="switch" aria-checked="false" aria-label="Dashed weekly ring"></button></div>
           <div class="item"><span>Edge</span><span class="seg" id="seg-edge"><button data-v="left">Left</button><button data-v="right">Right</button><button data-v="top">Top</button><button data-v="bottom">Bottom</button></span></div>
           <div class="item cap" id="cap-edge" data-dynamic></div>
+          <div class="item"><span>Show remaining instead of used</span><button class="switch" id="sw-remaining" role="switch" aria-checked="false" aria-label="Show remaining instead of used"></button></div>
+          <div class="item cap">The figure under each ring reads what is left — 87% instead of 13% used, the same number the card prints beside it. The rings themselves still fill by what is spent.</div>
           <div class="item" id="row-screen" hidden><span>Screen</span>
             <select id="screen" aria-label="Screen"></select>
           </div>
@@ -1229,6 +1231,8 @@ document.getElementById('btn-reset-preview').addEventListener('click', async e =
 try { window.__TAURI__.event.listen('reset_alert_preview_error', e => strip('Preview card failed: ' + errText(e.payload))); } catch(e) { /* invoke failure uses the strip */ }
 const adaptivePill = remote('get_adaptive_pill', 'set_adaptive_pill', 'Adaptive pill', () => drawSwitch(document.getElementById('sw-adaptive'), adaptivePill));
 document.getElementById('sw-adaptive').addEventListener('click', () => adaptivePill.toggle());
+const showRemaining = remote('get_notch_shows_remaining', 'set_notch_shows_remaining', 'Show remaining instead of used', () => drawSwitch(document.getElementById('sw-remaining'), showRemaining));
+document.getElementById('sw-remaining').addEventListener('click', () => showRemaining.toggle());
 const weeklyDashed = remote('get_weekly_ring_dashed', 'set_weekly_ring_dashed', 'Dashed weekly ring', () => drawSwitch(document.getElementById('sw-weekly-dashed'), weeklyDashed));
 document.getElementById('sw-weekly-dashed').addEventListener('click', () => weeklyDashed.toggle());
 
@@ -1779,6 +1783,7 @@ function boot(){
     resetSound.refresh(),
     adaptivePill.refresh(),
     weeklyDashed.refresh(),
+    showRemaining.refresh(),
     hooks.refresh()
   ];
   try { window.__TAURI__.event.listen('glyphs', e => { if(e.payload){ glyphs = e.payload; renderAccounts(); } }); } catch(e) { /* the letters stay */ }

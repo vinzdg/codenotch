@@ -65,4 +65,43 @@ enum ProviderOrder {
     static func remember(_ visible: [String], keeping remembered: [String]) -> [String] {
         visible + remembered.filter { !visible.contains($0) }
     }
+
+    /// Auto-order: most remaining first, by the window that leads each cell.
+    ///
+    /// The headline is whatever the derivations left leading — the weekly
+    /// window where that is switched on, the 5-hour (or primary) one
+    /// otherwise — so "more weekly up" and "more 5-hour up" are the same rule
+    /// read off different leads. Tiers, then remaining within them:
+    ///
+    /// - usable first, most remaining at the top;
+    /// - shut with room next: a high main number that cannot be spent because
+    ///   the other window is empty sinks below everything usable, but stays
+    ///   above what is fully empty;
+    /// - fully empty after that — the headline itself spent;
+    /// - unmeasurable last: no reading yet, or a runtime with no quota.
+    ///
+    /// Stable by arrival order, which is the manual order: ties, and the
+    /// unmeasurable trailing group, keep the arrangement dragging made.
+    static func byRemainingUsage(_ snapshots: [ProviderSnapshot]) -> [ProviderSnapshot] {
+        snapshots.enumerated()
+            .sorted {
+                let (rankA, leftA) = orderKey(for: $0.element)
+                let (rankB, leftB) = orderKey(for: $1.element)
+                if rankA != rankB { return rankA < rankB }
+                if leftA != leftB { return leftA > leftB }
+                return $0.offset < $1.offset
+            }
+            .map(\.element)
+    }
+
+    /// (tier, headline-remaining): 0 usable, 1 shut with room, 2 fully
+    /// empty, 3 nothing measurable. The other window is the weekly one where
+    /// the provider has one apart from its headline.
+    private static func orderKey(for snapshot: ProviderSnapshot) -> (tier: Int, remaining: Double) {
+        guard let used = snapshot.headline?.usedFraction else { return (3, 0) }
+        let remaining = 1 - used
+        if used >= 1 { return (2, remaining) }
+        if let other = snapshot.weeklyWindow?.usedFraction, other >= 1 { return (1, remaining) }
+        return (0, remaining)
+    }
 }

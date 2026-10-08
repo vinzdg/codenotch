@@ -63,6 +63,15 @@ final class UsageStore: ObservableObject {
         refreshNow()
     }
 
+    func registerRemoteProviders(_ remote: [UsageProvider]) {
+        providers.removeAll { RemoteHost.isRemote(providerID: $0.id) }
+        providers.append(contentsOf: remote)
+        for provider in remote {
+            publish(Self.placeholder(provider))
+        }
+        refreshNow()
+    }
+
     /// Provider ids plus any model cells currently on screen.
     var knownIDs: [String] {
         Array(Set(providers.map(\.id) + snapshots.map(\.id) + localModelSummaries.map(\.id)))
@@ -374,14 +383,18 @@ final class UsageStore: ObservableObject {
     private func tick() {
         let now = pollingNow()
         let waited = lastAttempt.map { now.timeIntervalSince($0) } ?? .greatestFiniteMagnitude
+        let rolledOver = Self.hasWindowRolledOver(in: snapshots, since: lastAttempt, at: now)
         guard Self.shouldRefresh(
             isBusy: isBusy(),
             sinceLastAttempt: waited,
             idleInterval: idleRefreshInterval,
             busyInterval: busyRefreshInterval,
-            resetDue: Self.hasWindowRolledOver(in: snapshots, since: lastAttempt, at: now)
+            resetDue: rolledOver
         ) else { return }
-        refreshNow()
+        // A manual-only provider still refreshes the moment a window rolls
+        // over: its numbers are guaranteed to have moved, and a reset is rare
+        // enough that the cost is nothing like the idle tick's.
+        refreshNow(freshness: freshnessWanted, includeIdleSkipped: rolledOver)
     }
 
     /// True when a window's `resetsAt` fell between the last attempt and now.
@@ -444,7 +457,10 @@ final class UsageStore: ObservableObject {
     /// it cannot be wrong about a number that is not changing.
     private var freshnessWanted: UsageFreshness { isBusy() ? .live : .standard }
 
-    func refreshNow(freshness: UsageFreshness) {
+    /// - Parameter includeIdleSkipped: false leaves manual-only providers out:
+    ///   their fetch is expensive enough to spend only on a look, a rollover,
+    ///   or a click — not on every idle tick.
+    func refreshNow(freshness: UsageFreshness, includeIdleSkipped: Bool = true) {
         guard !isRefreshing else {
             Log.usage.notice("refresh skipped: one already in flight")
             return
@@ -452,7 +468,7 @@ final class UsageStore: ObservableObject {
         isRefreshing = true
         lastAttempt = pollingNow()
         refreshTask = Task { [weak self] in
-            await self?.refresh(freshness: freshness)
+            await self?.refresh(freshness: freshness, includeIdleSkipped: includeIdleSkipped)
             self?.finish()
         }
         armDeadline()
@@ -560,10 +576,12 @@ final class UsageStore: ObservableObject {
         await refresh(freshness: freshnessWanted)
     }
 
-    func refresh(freshness: UsageFreshness) async {
+    func refresh(freshness: UsageFreshness, includeIdleSkipped: Bool = true) async {
         // The provider tasks below do not inherit this task's cancellation.
         guard !Task.isCancelled else { return }
-        let tasks = orderedProviders.filter { !disconnected.contains($0.id) }.map {
+        let tasks = orderedProviders.filter {
+            !disconnected.contains($0.id) && (includeIdleSkipped || !$0.skipsIdleRefresh)
+        }.map {
             beginRefresh($0, freshness: freshness)
         }
         for task in tasks { await task.value }
@@ -647,7 +665,7 @@ final class UsageStore: ObservableObject {
     private func publish(_ snapshot: ProviderSnapshot) {
         guard !disconnected.contains(snapshot.id) else { return }
         var current = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.id, $0) })
-        current[snapshot.id] = named(snapshot)
+        current[snapshot.id] = named(snapshot).blockingSpentWeek()
         snapshots = orderedProviders.compactMap { disconnected.contains($0.id) ? nil : current[$0.id] }
     }
 

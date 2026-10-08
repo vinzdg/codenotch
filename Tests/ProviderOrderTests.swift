@@ -110,4 +110,79 @@ final class ProviderOrderTests: XCTestCase {
         XCTAssertEqual(after.filter { $0 != "glm" }, ["codex", "claude", "cursor"])
         XCTAssertEqual(after.last, "glm")
     }
+
+    // MARK: - Auto-order by remaining usage
+
+    private func cell(_ id: String, session: Double?, weekly: Double? = nil,
+                      weeklyHeadline: Bool = false) -> ProviderSnapshot {
+        var windows: [LimitWindow] = []
+        if let session {
+            windows.append(LimitWindow(id: "session", label: "Session", usedFraction: session))
+        }
+        if let weekly {
+            windows.append(LimitWindow(id: "weekly_all", label: "Weekly", usedFraction: weekly))
+        }
+        // The swapped shape is what WeeklyHeadline.apply leaves: the ids
+        // exchange, so the other window is found beside the lead either way.
+        return ProviderSnapshot(id: id, displayName: id, glyph: .claude,
+                                fidelity: .official, status: .ok, windows: windows,
+                                headlineID: weeklyHeadline ? "weekly_all" : "session",
+                                weeklyID: weeklyHeadline ? "session" : "weekly_all")
+    }
+
+    private func ordered(_ snapshots: [ProviderSnapshot]) -> [String] {
+        ProviderOrder.byRemainingUsage(snapshots).map(\.id)
+    }
+
+    func testUsableCellsSortByHeadlineRemaining() {
+        XCTAssertEqual(ordered([cell("a", session: 0.7), cell("b", session: 0.2), cell("c", session: 0.5)]),
+                       ["b", "c", "a"])
+    }
+
+    func testWeeklyHeadlineCellsSortByWeeklyRemaining() {
+        // The lead is whatever the derivations left leading: with the week
+        // first, "more weekly up" is the same rule.
+        XCTAssertEqual(ordered([cell("a", session: 0.1, weekly: 0.8, weeklyHeadline: true),
+                                cell("b", session: 0.9, weekly: 0.2, weeklyHeadline: true)]),
+                       ["b", "a"])
+    }
+
+    func testShutWithRoomSinksBelowUsableButAboveEmpty() {
+        let usable = cell("usable", session: 0.9, weekly: 0.9)
+        let shut = cell("shut", session: 0.0, weekly: 1.0)
+        let empty = cell("empty", session: 1.0, weekly: 0.0)
+        XCTAssertEqual(ordered([shut, empty, usable]), ["usable", "shut", "empty"])
+    }
+
+    func testSessionShutSinksWeeklyHeadlineBelowUsable() {
+        // The mirror case: the weekly number is high but the 5-hour is
+        // empty, so the account cannot be used right now.
+        let usable = cell("usable", session: 0.9, weekly: 0.9, weeklyHeadline: true)
+        let shut = cell("shut", session: 1.0, weekly: 0.1, weeklyHeadline: true)
+        XCTAssertEqual(ordered([shut, usable]), ["usable", "shut"])
+    }
+
+    func testFullyEmptySortsByHowDeep() {
+        // Both at or past the limit; the deficit sinks furthest.
+        XCTAssertEqual(ordered([cell("over", session: 1.5), cell("spent", session: 1.0)]),
+                       ["spent", "over"])
+    }
+
+    func testUnmeasurableCellsSinkToTheEndInManualOrder() {
+        // No reading yet, or a runtime with no quota: nothing to rank by,
+        // so they trail in the arrangement dragging made.
+        let unknown = ProviderSnapshot(id: "unknown", displayName: "u", glyph: .claude,
+                                       fidelity: .official, status: .ok, windows: [],
+                                       headlineID: "session")
+        let runtime = ProviderSnapshot(id: "runtime", displayName: "r", glyph: .ollama,
+                                       fidelity: .official, status: .ok, windows: [],
+                                       headlineID: "session")
+        XCTAssertEqual(ordered([unknown, cell("spent", session: 1.0), runtime]),
+                       ["spent", "unknown", "runtime"])
+    }
+
+    func testTiesKeepManualOrder() {
+        XCTAssertEqual(ordered([cell("a", session: 0.5), cell("b", session: 0.5)]),
+                       ["a", "b"])
+    }
 }

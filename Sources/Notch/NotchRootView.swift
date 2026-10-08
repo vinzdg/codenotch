@@ -452,7 +452,9 @@ struct NotchRootView: View {
                 isRefreshing: model.isRefreshing(snapshot),
                 weeklyRing: model.weeklyRing,
                 showsWeeklyReading: model.weeklyReading,
-                showsReading: model.showsCellReading
+                showsReading: model.showsCellReading,
+                showsRemaining: model.showsRemainingInNotch,
+                shutRingsWhenSpent: model.shutRingsWhenSpent
             )
                 // Pinned to what the cell claims along the stack, or the drawn
                 // rings stop lining up with the centres `ringCenter` hands to
@@ -504,6 +506,7 @@ struct NotchRootView: View {
         if model.readsAcrossTheCutout, let snapshot = model.snapshots.first {
             ProviderReading(snapshot: snapshot, weeklyRing: model.weeklyRing,
                             showsWeeklyReading: model.weeklyReading,
+                            showsRemaining: model.showsRemainingInNotch,
                             across: run.upperBound - run.lowerBound,
                             acrossAlignment: wing.onTheLeft ? .trailing : .leading)
                 .fixedSize(horizontal: false, vertical: true)
