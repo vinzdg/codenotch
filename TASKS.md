@@ -1242,9 +1242,10 @@ it and then notice when the answer changes.
       actually requires it before shipping a paid build.
 - [ ] App icon — the dmg currently shows the generic application icon.
 - [ ] `MARKETING_VERSION` is still `0.1.0`.
-- [ ] The archive keeps a `perplexity` entry from a provider that no longer
+- [x] The archive keeps a `perplexity` entry from a provider that no longer
       exists. Harmless (snapshots are built from `providers`, so it is ignored)
-      but it never gets collected.
+      but it never gets collected. Pruned on load and save in `UsageArchive` so
+      cold starts and stored cache only preserve active provider states.
 
 ## Renaming to Codenotch
 
