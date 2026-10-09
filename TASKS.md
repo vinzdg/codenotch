@@ -71,7 +71,7 @@ Design spec in [`docs/specs/2026-08-28-usage-notch-design.md`](docs/specs/2026-0
 - [x] **Cursor** via the same route, pinned by `CursorUsageTests`
 - [x] Cursor's glyph, flattened from its own SVG rather than traced from the
       design frame — exact at any size. See "Flattening an SVG" below
-- [ ] `ManualProvider` — user-declared limits, app-side counter
+- [x] `ManualProvider` — user-declared limits, app-side counter
 - [x] Refresh on a timer and on wake — 60s while a session is running, 5 min when
       nothing is. Usage cannot move while nothing is using it, so polling hard
       through a quiet afternoon only spends rate-limit budget
@@ -572,7 +572,7 @@ and the tooltip header is dated.
       contributes one per `~/.claude-<slug>` — so anything the stored order has
       never seen is appended rather than dropped, and an id whose directory is
       gone keeps its place instead of being pruned
-- [ ] Plan ceilings, auto-hide
+- [x] Plan ceilings, auto-hide
 
 ### Accounts in settings
 
@@ -807,7 +807,7 @@ hundredths of a point wide; that is a fact about arcs, not a bug.
 
 ## M6 — Polish
 - [ ] Threshold notifications (80% / 100%), per-provider mute
-- [ ] Auto-hide: never / on fullscreen / on overlap
+- [x] Auto-hide: never / on fullscreen / on overlap
 - [ ] Multi-display follow + unplug handling
 - [ ] Reduced-motion / reduced-transparency — reduced transparency is now the system's on the glass surface; see "The glass surface"
 - [ ] App icon, final name, README screenshots
@@ -1242,9 +1242,10 @@ it and then notice when the answer changes.
       actually requires it before shipping a paid build.
 - [ ] App icon — the dmg currently shows the generic application icon.
 - [ ] `MARKETING_VERSION` is still `0.1.0`.
-- [ ] The archive keeps a `perplexity` entry from a provider that no longer
+- [x] The archive keeps a `perplexity` entry from a provider that no longer
       exists. Harmless (snapshots are built from `providers`, so it is ignored)
-      but it never gets collected.
+      but it never gets collected. Pruned on load and save in `UsageArchive` so
+      cold starts and stored cache only preserve active provider states.
 
 ## Renaming to Codenotch
 
@@ -1702,7 +1703,7 @@ this test's dim to the folded-pill test that sorts right before it.
 - [ ] Final app name (`Codenotch` is a placeholder)
 - [x] ~~Which service is the third glyph in the mockup?~~ Perplexity — its mark,
       traced off the frame, matches. Wired up as `ProviderGlyph.third`.
-- [ ] Plan ceilings: configured by hand, or inferred from observed peak usage?
+- [x] Plan ceilings: hybrid approach — auto-inferred from observed peak usage with manual override in Settings.
 - [ ] Are web-session adapters (ChatGPT et al.) in scope for v1, accepting the fragility?
       Claude now answers this for itself: the OAuth endpoint is in, so the same
       question is live for OpenAI and Perplexity.

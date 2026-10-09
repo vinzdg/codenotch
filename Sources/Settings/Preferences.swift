@@ -83,9 +83,28 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(notchVisibility.rawValue, forKey: Keys.visibility) }
     }
 
+    /// When the notch folds away automatically.
+    @Published var autoHideMode: AutoHideMode {
+        didSet {
+            defaults.set(autoHideMode.rawValue, forKey: Keys.autoHideMode)
+            defaults.set(autoHideMode != .never, forKey: Keys.foldsForFullScreen)
+            if foldsForFullScreen != (autoHideMode != .never) {
+                foldsForFullScreen = (autoHideMode != .never)
+            }
+        }
+    }
+
     /// Whether a frontmost full-screen app folds the notch away.
+    /// Synchronized with `autoHideMode` for backward compatibility.
     @Published var foldsForFullScreen: Bool {
-        didSet { defaults.set(foldsForFullScreen, forKey: Keys.foldsForFullScreen) }
+        didSet {
+            defaults.set(foldsForFullScreen, forKey: Keys.foldsForFullScreen)
+            if autoHideMode == .never && foldsForFullScreen {
+                autoHideMode = .onFullscreen
+            } else if autoHideMode != .never && !foldsForFullScreen {
+                autoHideMode = .never
+            }
+        }
     }
 
     /// Which screen edge the notch is welded to.
@@ -342,10 +361,99 @@ final class Preferences: ObservableObject {
         didSet {
             if let budget = geminiAPIMonthlyTokenBudget, budget > 0 {
                 defaults.set(budget, forKey: Keys.geminiAPIMonthlyTokenBudget)
+                manualPlanCeilings["gemini-api"] = budget
             } else {
                 defaults.removeObject(forKey: Keys.geminiAPIMonthlyTokenBudget)
+                manualPlanCeilings.removeValue(forKey: "gemini-api")
             }
         }
+    }
+
+    /// Global plan ceiling determination mode.
+    @Published var planCeilingMode: PlanCeilingMode {
+        didSet { defaults.set(planCeilingMode.rawValue, forKey: Keys.planCeilingMode) }
+    }
+
+    /// Warning threshold percentage for plan ceiling alerts (default 80%).
+    @Published var ceilingWarningThreshold: Int {
+        didSet { defaults.set(ceilingWarningThreshold, forKey: Keys.ceilingWarningThreshold) }
+    }
+
+    /// Per-provider manual plan ceilings.
+    @Published var manualPlanCeilings: [String: Int] {
+        didSet {
+            if let data = try? JSONEncoder().encode(manualPlanCeilings) {
+                defaults.set(data, forKey: Keys.manualPlanCeilings)
+            }
+        }
+    }
+
+    /// Per-provider observed peak usage counts.
+    @Published var observedPeakUsage: [String: Int] {
+        didSet {
+            if let data = try? JSONEncoder().encode(observedPeakUsage) {
+                defaults.set(data, forKey: Keys.observedPeakUsage)
+            }
+        }
+    }
+
+    /// Records observed usage to update peak usage when higher.
+    func recordPeakUsage(providerID: String, used: Int) {
+        guard used > 0 else { return }
+        let current = observedPeakUsage[providerID] ?? 0
+        if used > current {
+            observedPeakUsage[providerID] = used
+        }
+    }
+
+    /// Sets or clears a manual ceiling for a provider.
+    func setManualCeiling(_ ceiling: Int?, for providerID: String) {
+        if let ceiling, ceiling > 0 {
+            manualPlanCeilings[providerID] = ceiling
+        } else {
+            manualPlanCeilings.removeValue(forKey: providerID)
+        }
+        if providerID == "gemini-api" {
+            geminiAPIMonthlyTokenBudget = ceiling
+        }
+    }
+
+    /// Calculates the effective ceiling and whether it is inferred.
+    func effectiveCeiling(for providerID: String) -> (ceiling: Int?, isInferred: Bool) {
+        let manual = manualPlanCeilings[providerID] ?? (providerID == "gemini-api" ? geminiAPIMonthlyTokenBudget : nil)
+        let peak = observedPeakUsage[providerID] ?? 0
+        let inferred = peak > 0 ? PlanCeiling.infer(from: peak) : nil
+
+        switch planCeilingMode {
+        case .manual:
+            return (manual, false)
+        case .inferred:
+            return (inferred, true)
+        case .hybrid:
+            if let manual, manual > 0 {
+                return (manual, false)
+            } else if let inferred, inferred > 0 {
+                return (inferred, true)
+            } else {
+                return (nil, false)
+            }
+        }
+    }
+
+    /// User-declared request/event limit for the manual provider.
+    @Published var manualProviderLimit: Int? {
+        didSet {
+            if let limit = manualProviderLimit, limit > 0 {
+                defaults.set(limit, forKey: Keys.manualProviderLimit)
+            } else {
+                defaults.removeObject(forKey: Keys.manualProviderLimit)
+            }
+        }
+    }
+
+    /// Reset window schedule identifier for the manual provider.
+    @Published var manualProviderSchedule: String {
+        didSet { defaults.set(manualProviderSchedule, forKey: Keys.manualProviderSchedule) }
     }
 
     /// Which MiniMax console the Coding Plan is read from.
@@ -395,6 +503,7 @@ final class Preferences: ObservableObject {
         static let mutedAlerts = "mutedAlertProviders"
         static let hasLaunched = "hasLaunchedBefore"
         static let visibility = "notchVisibility"
+        static let autoHideMode = "autoHideMode"
         static let foldsForFullScreen = "foldsForFullScreen"
         static let presence = "appPresence"
         static let edge = "notchEdge"
@@ -427,12 +536,18 @@ final class Preferences: ObservableObject {
         static let limitReachedSoundName = "limitReachedSoundName"
         /// A new key, so there is nothing under the old app name to migrate.
         static let geminiAPIMonthlyTokenBudget = "geminiAPIMonthlyTokenBudget"
+        static let manualProviderLimit = "manualProviderLimit"
+        static let manualProviderSchedule = "manualProviderSchedule"
         static let minimaxRegion = "minimaxRegion"
         static let antigravityHeadlineLimit = "antigravityHeadlineLimit"
         static let antigravityHeadlineModel = "antigravityHeadlineModel"
         static let deepSeekPricingEnabled = "deepSeekPricingEnabled"
         static let deepSeekPricingSchedule = "deepSeekPricingSchedule"
         static let showCodexExtraLimits = "showCodexExtraLimits"
+        static let planCeilingMode = "planCeilingMode"
+        static let ceilingWarningThreshold = "ceilingWarningThreshold"
+        static let manualPlanCeilings = "manualPlanCeilings"
+        static let observedPeakUsage = "observedPeakUsage"
     }
 
     /// The budget read straight from disk, off the main actor.
@@ -445,8 +560,75 @@ final class Preferences: ObservableObject {
     ) -> Int? {
         guard let budget = defaults.object(forKey: Keys.geminiAPIMonthlyTokenBudget) as? Int,
               budget > 0
-        else { return nil }
+        else {
+            // Also check manualPlanCeilings in case it was stored there
+            let dict = storedManualPlanCeilings(defaults: defaults)
+            if let budget = dict["gemini-api"], budget > 0 { return budget }
+            return nil
+        }
         return budget
+    }
+
+    nonisolated static func storedPlanCeilingMode(defaults: UserDefaults = .standard) -> PlanCeilingMode {
+        guard let raw = defaults.string(forKey: Keys.planCeilingMode),
+              let mode = PlanCeilingMode(rawValue: raw)
+        else { return .hybrid }
+        return mode
+    }
+
+    nonisolated static func storedCeilingWarningThreshold(defaults: UserDefaults = .standard) -> Int {
+        let threshold = defaults.integer(forKey: Keys.ceilingWarningThreshold)
+        return threshold > 0 ? threshold : 80
+    }
+
+    nonisolated static func storedManualPlanCeilings(defaults: UserDefaults = .standard) -> [String: Int] {
+        guard let data = defaults.data(forKey: Keys.manualPlanCeilings),
+              let dict = try? JSONDecoder().decode([String: Int].self, from: data)
+        else { return [:] }
+        return dict
+    }
+
+    nonisolated static func storedObservedPeakUsage(defaults: UserDefaults = .standard) -> [String: Int] {
+        guard let data = defaults.data(forKey: Keys.observedPeakUsage),
+              let dict = try? JSONDecoder().decode([String: Int].self, from: data)
+        else { return [:] }
+        return dict
+    }
+
+    nonisolated static func storedEffectiveCeiling(for providerID: String, defaults: UserDefaults = .standard) -> Int? {
+        let mode = storedPlanCeilingMode(defaults: defaults)
+        let manualDict = storedManualPlanCeilings(defaults: defaults)
+        let manual = manualDict[providerID] ?? (providerID == "gemini-api" ? storedGeminiAPIMonthlyTokenBudget(defaults: defaults) : nil)
+        let peaks = storedObservedPeakUsage(defaults: defaults)
+        let peak = peaks[providerID] ?? 0
+        let inferred = peak > 0 ? PlanCeiling.infer(from: peak) : nil
+
+        switch mode {
+        case .manual:
+            return manual
+        case .inferred:
+            return inferred
+        case .hybrid:
+            return (manual != nil && manual! > 0) ? manual : inferred
+        }
+    }
+
+    nonisolated static func storedManualProviderLimit(
+        defaults: UserDefaults = .standard
+    ) -> Int? {
+        guard let limit = defaults.object(forKey: Keys.manualProviderLimit) as? Int,
+              limit > 0
+        else { return nil }
+        return limit
+    }
+
+    nonisolated static func storedManualProviderSchedule(
+        defaults: UserDefaults = .standard
+    ) -> ManualResetSchedule {
+        guard let raw = defaults.string(forKey: Keys.manualProviderSchedule),
+              let schedule = ManualResetSchedule.from(identifier: raw)
+        else { return .interval(3 * 3600) }
+        return schedule
     }
     
     nonisolated static func storedAntigravityHeadlineLimit(
@@ -615,9 +797,13 @@ final class Preferences: ObservableObject {
         // like it failed to start.
         self.notchVisibility = defaults.string(forKey: Keys.visibility)
             .flatMap(NotchVisibility.init(rawValue:)) ?? .onHover
-        // Absent means the fold that has shipped since full-screen detection
-        // exists — the setting silences it, it does not introduce it.
-        self.foldsForFullScreen = defaults.object(forKey: Keys.foldsForFullScreen) as? Bool ?? true
+        // Auto-hide mode: defaults to .onFullscreen, preserving any legacy foldsForFullScreen choice.
+        let storedAutoHide = defaults.string(forKey: Keys.autoHideMode)
+            .flatMap(AutoHideMode.init(rawValue:))
+        let legacyFolds = defaults.object(forKey: Keys.foldsForFullScreen) as? Bool
+        let resolvedAutoHide = storedAutoHide ?? (legacyFolds.map { $0 ? .onFullscreen : .never } ?? .onFullscreen)
+        self.autoHideMode = resolvedAutoHide
+        self.foldsForFullScreen = resolvedAutoHide != .never
         // Absent means never chosen. The Dock is the default because it is the
         // findable one — a new user who cannot see the app anywhere has no way
         // to learn it is running.
@@ -704,6 +890,12 @@ final class Preferences: ObservableObject {
         self.limitReachedSoundName = defaults.string(forKey: Keys.limitReachedSoundName)
             ?? SessionChime.defaultBlocked
         self.geminiAPIMonthlyTokenBudget = Self.storedGeminiAPIMonthlyTokenBudget(defaults: defaults)
+        self.planCeilingMode = Self.storedPlanCeilingMode(defaults: defaults)
+        self.ceilingWarningThreshold = Self.storedCeilingWarningThreshold(defaults: defaults)
+        self.manualPlanCeilings = Self.storedManualPlanCeilings(defaults: defaults)
+        self.observedPeakUsage = Self.storedObservedPeakUsage(defaults: defaults)
+        self.manualProviderLimit = Self.storedManualProviderLimit(defaults: defaults)
+        self.manualProviderSchedule = defaults.string(forKey: Keys.manualProviderSchedule) ?? "3h"
         self.minimaxRegion = Self.storedMinimaxRegion(defaults: defaults)
         // Read from the system rather than from our own store: the user can turn
         // this off in System Settings, and a remembered `true` would then be a lie.

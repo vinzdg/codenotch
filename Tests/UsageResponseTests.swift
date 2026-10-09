@@ -256,6 +256,66 @@ final class UsageArchiveTests: XCTestCase {
         XCTAssertTrue(UsageArchive(defaults: makeDefaults()).load().isEmpty)
     }
 
+    func testLegacyPerplexityEntryIsPrunedOnLoad() throws {
+        let defaults = makeDefaults()
+        let taken = Date(timeIntervalSince1970: 1_787_900_000)
+        let perplexity = ProviderSnapshot(
+            id: "perplexity", displayName: "Perplexity", glyph: .third,
+            fidelity: .official, status: .ok,
+            windows: [LimitWindow(id: "queries", label: "Queries", used: 2)]
+        )
+        struct LegacyEntry: Codable {
+            let id: String
+            let displayName: String
+            let glyph: ProviderGlyph
+            let fidelity: Fidelity
+            let windows: [LimitWindow]
+            let fetchedAt: Date
+            let headlineID: String?
+            let weeklyID: String?
+            let tokenUsage: CodexTokenUsage?
+            let usageDetail: ProviderUsageDetail?
+        }
+        let legacy = [
+            LegacyEntry(id: "claude", displayName: "Claude", glyph: .claude,
+                        fidelity: .official, windows: reading.windows, fetchedAt: taken,
+                        headlineID: nil, weeklyID: nil, tokenUsage: nil, usageDetail: nil),
+            LegacyEntry(id: "perplexity", displayName: "Perplexity", glyph: .third,
+                        fidelity: .official, windows: perplexity.windows, fetchedAt: taken,
+                        headlineID: nil, weeklyID: nil, tokenUsage: nil, usageDetail: nil)
+        ]
+        let data = try JSONEncoder().encode(legacy)
+        defaults.set(data, forKey: "lastGoodReadings")
+
+        let loaded = UsageArchive(defaults: defaults).load()
+        XCTAssertNil(loaded["perplexity"], "Obsolete perplexity readings must be pruned on load")
+        XCTAssertNotNil(loaded["claude"], "Active provider readings must survive")
+
+        // The stored cache in defaults must also be cleaned up immediately
+        let savedData = try XCTUnwrap(defaults.data(forKey: "lastGoodReadings"))
+        let rawEntries = try JSONDecoder().decode([LegacyEntry].self, from: savedData)
+        XCTAssertFalse(rawEntries.contains { $0.id == "perplexity" },
+                       "Stored cache in UserDefaults must not retain obsolete perplexity entry")
+        XCTAssertEqual(rawEntries.map(\.id), ["claude"])
+    }
+
+    func testPerplexityEntryIsNotSavedToArchive() throws {
+        let defaults = makeDefaults()
+        let taken = Date(timeIntervalSince1970: 1_787_900_000)
+        let perplexity = ProviderSnapshot(
+            id: "perplexity", displayName: "Perplexity", glyph: .third,
+            fidelity: .official, status: .ok,
+            windows: [LimitWindow(id: "queries", label: "Queries", used: 2)]
+        )
+        UsageArchive(defaults: defaults).save([
+            "perplexity": (perplexity, taken),
+            "claude": (reading, taken)
+        ])
+
+        let loaded = UsageArchive(defaults: defaults).load()
+        XCTAssertNil(loaded["perplexity"])
+        XCTAssertNotNil(loaded["claude"])
+    }
 }
 
 /// `Retry-After: 0` is the endpoint's actual answer, and obeying it literally is

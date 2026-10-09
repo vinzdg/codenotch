@@ -74,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var claudeProviders: [ClaudeOAuthProvider] = []
     /// MiniMax Platform sign-in sheet. Not a UsageProvider — that is MiniMaxProvider.
     private var miniMaxWeb: WebSessionProvider?
+    private var manualProvider: ManualProvider?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set here, not in the Info.plist: this call is applied at launch and
@@ -148,8 +149,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                    // re-reads the budget on every fetch, so a ceiling typed
                    // into Settings applies without a restart.
                    GeminiAPIProvider(budget: {
-                       Preferences.storedGeminiAPIMonthlyTokenBudget()
+                       Preferences.storedEffectiveCeiling(for: "gemini-api")
                    })]
+                + {
+                    let manual = ManualProvider(
+                        limitProvider: { Preferences.storedManualProviderLimit() },
+                        scheduleProvider: { Preferences.storedManualProviderSchedule() }
+                    )
+                    self.manualProvider = manual
+                    return [manual as UsageProvider]
+                }()
                 + webProviders
             preferences.reconcile(discoveredIDs: allProviders.map(\.id))
             let store = UsageStore(
@@ -161,6 +170,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // order for a frame and then visibly shuffles.
                 order: preferences.providerOrder
             )
+            self.manualProvider?.onChanged = { [weak store] in
+                Task { @MainActor in
+                    _ = store?.refresh(providerID: "manual")
+                }
+            }
             deepSeek.onAuthenticated = { [weak store] in
                 store?.providerAuthenticationChanged(providerID: "deepseek")
             }
@@ -388,9 +402,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak fleet] in fleet?.apply($0) }
                 .store(in: &cancellables)
 
-            preferences.$foldsForFullScreen
+            preferences.$autoHideMode
                 .receive(on: RunLoop.main)
-                .sink { [weak fleet] in fleet?.apply(foldsForFullScreen: $0) }
+                .sink { [weak fleet] in fleet?.apply(autoHideMode: $0) }
                 .store(in: &cancellables)
 
             preferences.$deepSeekPricingEnabled
@@ -554,11 +568,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak store] _ in store?.refresh(providerID: "gemini-api") }
                 .store(in: &cancellables)
 
+            preferences.$planCeilingMode
+                .dropFirst()
+                .receive(on: RunLoop.main)
+                .sink { [weak store] _ in store?.refresh(providerID: "gemini-api") }
+                .store(in: &cancellables)
+
             // Limit crossings become notifications here rather than inside
             // the store: the store fetches, the notifier decides what is
             // worth interrupting someone for, and neither needs to know the
             // other.
             let notifier = ThresholdNotifier(
+                warningThreshold: { [weak preferences] in preferences?.ceilingWarningThreshold ?? 80 },
                 isMuted: { [weak preferences] in preferences?.isMutedAlerts(for: $0) ?? false },
                 deliver: { ThresholdAlerts.deliver($0) }
             )
@@ -600,12 +621,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             store.$snapshots
                 .combineLatest(preferences.$claudeDailyPaceRing)
                 .receive(on: RunLoop.main)
-                .sink { [weak statusItem] snapshots, paced in
+                .sink { [weak statusItem, weak preferences] snapshots, paced in
                     let snapshots = DailyPace.apply(to: snapshots, enabled: paced)
                     statusItem?.snapshots = snapshots
                     notifier.observe(snapshots)
                     resetWatcher.observe(snapshots)
                     limitWatcher.observe(snapshots)
+                    for snapshot in snapshots {
+                        if let used = snapshot.headline?.used, used > 0 {
+                            preferences?.recordPeakUsage(providerID: snapshot.id, used: used)
+                        }
+                    }
                 }
                 .store(in: &cancellables)
             store.start()
@@ -755,7 +781,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fleet.apply(accentColor: preferences.accentColor)
         fleet.apply(weeklyRing: preferences.weeklyRing)
         fleet.apply(showsMoveHandle: preferences.showsMoveHandle)
-        fleet.apply(foldsForFullScreen: preferences.foldsForFullScreen)
+        fleet.apply(autoHideMode: preferences.autoHideMode)
         fleet.apply(surfaceStyle: preferences.notchSurfaceStyle)
         fleet.apply(deepSeekPricingEnabled: preferences.deepSeekPricingEnabled)
         fleet.apply(deepSeekPricingSchedule: preferences.deepSeekPricingSchedule)

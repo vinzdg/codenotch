@@ -71,12 +71,15 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Watch roots: the CLI's ~/.claude/projects plus the desktop app's (Cowork) session mirrors
+/// Watch roots: every account's projects directory plus the desktop app's (Cowork) session mirrors
 /// (each desktop session has its own .claude/projects under %APPDATA%\Claude\local-agent-mode-sessions)
 pub fn roots() -> Vec<PathBuf> {
     let mut v = Vec::new();
-    if let Some(h) = dirs::home_dir() {
-        v.push(h.join(".claude").join("projects"));
+    // Every account, not only ~/.claude: a session run with CLAUDE_CONFIG_DIR pointed at
+    // ~/.claude-<slug> writes its transcript there, and an account nobody watches looks idle --
+    // which also drops the usage poll to its slow interval while that session is live.
+    for dir in crate::usage::profile_dirs() {
+        v.push(dir.join("projects"));
     }
     if let Some(c) = dirs::config_dir() {
         v.push(c.join("Claude").join("local-agent-mode-sessions"));
@@ -102,22 +105,18 @@ pub fn roots() -> Vec<PathBuf> {
     v
 }
 
-/// Accept only real session transcripts: inside a .claude tree, excluding audit logs and sub-agents
+/// Accept only real session transcripts: inside a .claude or .claude-<slug> tree, excluding audit logs and sub-agents
 pub fn is_session_jsonl(p: &Path) -> bool {
-    if !p.extension().map(|e| e == "jsonl").unwrap_or(false) {
-        return false;
-    }
-    let name = p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-    if name == "audit.jsonl" {
+    let s = p.to_string_lossy();
+    if !s.ends_with(".jsonl") {
         return false;
     }
     let mut in_claude = false;
-    for c in p.components() {
-        let s = c.as_os_str().to_string_lossy();
-        if s == "subagents" {
+    for part in s.split(|c| c == '/' || c == '\\') {
+        if part == "audit.jsonl" || part == "subagents" {
             return false;
         }
-        if s == ".claude" {
+        if part == ".claude" || (part.starts_with(".claude-") && part.len() > ".claude-".len()) {
             in_claude = true;
         }
     }
@@ -498,5 +497,28 @@ fn push(app: &AppHandle, e: &str, t: &Trk) {
     };
     if changed {
         crate::broadcast(app);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_session_jsonl() {
+        // Standard .claude path
+        assert!(is_session_jsonl(Path::new(r"C:\Users\user\.claude\projects\p1\session.jsonl")));
+        assert!(is_session_jsonl(Path::new("/home/user/.claude/projects/p1/session.jsonl")));
+
+        // Secondary accounts (.claude-<slug>)
+        assert!(is_session_jsonl(Path::new(r"C:\Users\user\.claude-work\projects\p1\session.jsonl")));
+        assert!(is_session_jsonl(Path::new("/home/user/.claude-client-a/projects/p1/session.jsonl")));
+
+        // Rejections
+        assert!(!is_session_jsonl(Path::new(r"C:\Users\user\.claude-\projects\p1\session.jsonl")));
+        assert!(!is_session_jsonl(Path::new(r"C:\Users\user\.claude-work\projects\p1\subagents\sub.jsonl")));
+        assert!(!is_session_jsonl(Path::new(r"C:\Users\user\.claude-work\projects\p1\audit.jsonl")));
+        assert!(!is_session_jsonl(Path::new(r"C:\Users\user\.claude-work\projects\p1\session.txt")));
+        assert!(!is_session_jsonl(Path::new(r"C:\Users\user\.other\projects\p1\session.jsonl")));
     }
 }
