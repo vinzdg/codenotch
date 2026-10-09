@@ -39,6 +39,13 @@ struct ClaudeSessionRecord {
         entrypoint == "claude-desktop" || entrypoint == "claude-desktop-3p"
     }
 
+    /// Whether a program started this session rather than a person: the Agent
+    /// SDK (`sdk-ts`, `sdk-py`), or the CLI's own non-interactive mode
+    /// (`sdk-cli`), which is what `claude -p` registers as.
+    var isFromSDK: Bool {
+        entrypoint?.hasPrefix("sdk-") == true
+    }
+
     /// Decoded leniently on purpose: the file is written by another program on
     /// its own release schedule, and an unknown field must never cost us a
     /// session we could have shown.
