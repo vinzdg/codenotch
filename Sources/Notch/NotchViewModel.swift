@@ -254,8 +254,8 @@ final class NotchViewModel: ObservableObject {
     @Published var cutout: CutoutProximity?
 
     /// Where a ring's centre falls along the panel, on a given copy of the bar.
-    func ringAlong(index: Int, in wing: Wing) -> CGFloat {
-        wing.lead + ringCenter(index: index) * sizeScale
+    func ringAlong(index: Int, in wing: Wing, spacing: CGFloat? = nil) -> CGFloat {
+        wing.lead + ringCenter(index: index, spacing: spacing) * sizeScale
     }
 
     /// And how far along a copy a point in the panel is, in the notch's own
@@ -479,7 +479,17 @@ final class NotchViewModel: ObservableObject {
     /// the machine looks like. The pair reads as the hardware's own notch with
     /// the app either side of it rather than as something stuck to one edge of
     /// it, and it costs seeing each reading twice.
+    #if DEBUG
+    // Counts make repeated layout evaluation testable without timing assertions.
+    // They are absent from Release builds and never cache model values.
+    private(set) var wingEvaluationCount = 0
+    private(set) var cardHeightEvaluationCount = 0
+    #endif
+
     var wings: [Wing] {
+        #if DEBUG
+        wingEvaluationCount += 1
+        #endif
         let drawn = notchLength * sizeScale
         guard let cutout else {
             return [Wing(id: 0, lead: slack + (shapeLength * sizeScale - drawn) / 2,
@@ -700,7 +710,9 @@ final class NotchViewModel: ObservableObject {
 
     /// The copy that carries the readings. Rings, hover bands, tooltips and
     /// handles all belong to it; the other is the container and nothing else.
-    var cellWing: Wing {
+    var cellWing: Wing { cellWing(in: wings) }
+
+    func cellWing(in wings: [Wing]) -> Wing {
         wings.first { $0.carriesCells }
             ?? Wing(id: 0, lead: slack, onTheLeft: false, carriesCells: true,
                     length: notchLength * sizeScale, depth: notchDepth)
@@ -720,7 +732,9 @@ final class NotchViewModel: ObservableObject {
 
     /// Where the folded notch starts along the panel, whatever state it is in
     /// right now — the hit region that wakes it has to know where it will be.
-    var restingAlongLead: CGFloat {
+    var restingAlongLead: CGFloat { restingAlongLead(in: cutout == nil ? [] : wings) }
+
+    func restingAlongLead(in wings: [Wing]) -> CGFloat {
         guard cutout == nil else {
             return wings.first { $0.length > 0 }?.lead ?? slack
         }
@@ -729,7 +743,9 @@ final class NotchViewModel: ObservableObject {
 
     /// How far the drawn notch reaches along the panel, from the first copy's
     /// start to the last one's end. The pair and the hole between them.
-    var drawnAlongExtent: CGFloat {
+    var drawnAlongExtent: CGFloat { drawnAlongExtent(in: wings) }
+
+    func drawnAlongExtent(in wings: [Wing]) -> CGFloat {
         let shown = wings.filter { $0.length > 0 }
         guard let first = shown.first, let last = shown.last else {
             return notchLength * sizeScale
@@ -1094,9 +1110,9 @@ final class NotchViewModel: ObservableObject {
     /// pair. The handle is a round thing in two places, and the bounding box of
     /// the two takes in a great deal of ground that is near neither — which is
     /// why the button used to appear well before the pointer reached the arc.
-    func isOnOrbHandle(along: CGFloat, across: CGFloat) -> Bool {
+    func isOnOrbHandle(along: CGFloat, across: CGFloat, points: [CGPoint]? = nil) -> Bool {
         let radius = orbHotZone / 2
-        return orbHandlePoints.contains {
+        return (points ?? orbHandlePoints).contains {
             hypot(along - $0.x, across - $0.y) <= radius
         }
     }
@@ -1106,8 +1122,9 @@ final class NotchViewModel: ObservableObject {
 
     /// Whether a point in stack space is on the grip — a capsule's worth of
     /// ground round it, generous as the settings button's.
-    func isOnGrip(along: CGFloat, across: CGFloat) -> Bool {
-        hypot(along - gripPoint.x, across - gripPoint.y) <= NotchLayout.gripHotZone / 2
+    func isOnGrip(along: CGFloat, across: CGFloat, point: CGPoint? = nil) -> Bool {
+        let point = point ?? gripPoint
+        return hypot(along - point.x, across - point.y) <= NotchLayout.gripHotZone / 2
     }
 
 
@@ -1136,9 +1153,9 @@ final class NotchViewModel: ObservableObject {
 
     /// Distance along the stack to cell `index`'s ring centre, widening
     /// included so the readings stay in the middle of the bar.
-    func ringCenter(index: Int) -> CGFloat {
+    func ringCenter(index: Int, spacing: CGFloat? = nil) -> CGFloat {
         NotchLayout.ringCenter(index: index, edge: edge, flare: leadAllowance,
-                               spacing: cellSpacing)
+                               spacing: spacing ?? cellSpacing)
     }
 
     var cellSpacing: CGFloat { cellSpacing(cellCount: snapshots.count) }
@@ -1269,7 +1286,10 @@ final class NotchViewModel: ObservableObject {
     }
 
     private func contentCardHeight(sessionCap: Int) -> CGFloat {
-        snapshots.map { snapshot in
+        #if DEBUG
+        cardHeightEvaluationCount += 1
+        #endif
+        return snapshots.map { snapshot in
             NotchLayout.cardHeight(windowCount: snapshot.windows.count,
                 groupCount: Set(snapshot.windows.compactMap(\.group)).count,
                 moneyWindowCount: snapshot.windows.filter { $0.money != nil }.count,

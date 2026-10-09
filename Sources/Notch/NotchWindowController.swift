@@ -1155,149 +1155,18 @@ final class NotchWindowController {
         NotchPlacement(edge: model.edge, panelSize: panel?.frame.size ?? model.panelSize)
     }
 
-    /// The notch itself, in panel coordinates with a top-left origin.
-    private var notchRect: CGRect {
-        placement.rect(
-            along: model.wings.first?.lead ?? model.slack,
-            across: 0,
-            length: model.drawnAlongExtent,
-            depth: model.notchDepth * model.sizeScale
-        )
+    private var cursorGeometry: CursorGeometry {
+        CursorGeometry(model: model, placement: placement)
     }
 
-    /// What wakes the folded notch. Larger than the pill it surrounds, and
-    /// exactly the hardware notch when it is joined to one — see
-    /// `NotchViewModel.wakeLength` for both halves of that.
-    private var pillRect: CGRect {
-        // Joined, that is both copies and the hole between them: the hardware's
-        // own notch is part of the target, which is the whole point of the
-        // notch being drawn as part of it.
-        let joined = model.mergesWithCutout
-        let length = joined ? model.drawnAlongExtent : model.wakeLength
-        let lead = joined
-            ? (model.wings.first?.lead ?? model.slack)
-            : model.restingAlongLead
-                + (model.restingLength * model.sizeScale - model.wakeLength) / 2
-        return placement.rect(along: lead, across: 0, length: length, depth: model.wakeDepth)
-    }
+    private var notchRect: CGRect { cursorGeometry.notchRect }
+    private var liveRect: CGRect { cursorGeometry.liveRect(gripRevealed: gripRevealed) }
+    private func isOverHandle(_ local: CGPoint) -> Bool { cursorGeometry.isOverHandle(local) }
+    private func isOverGrip(_ local: CGPoint) -> Bool { cursorGeometry.isOverGrip(local) }
+    private func tooltipRect(index: Int) -> CGRect? { cursorGeometry.tooltipRect(index: index) }
 
-    /// The handle's bounding box, for deciding whether the panel takes events
-    /// at all. Whether a point is actually *on* the handle is a finer question
-    /// than a box can answer — see `isOverHandle`.
-    private var handleRect: CGRect {
-        let side = model.orbHotZone
-        // The grip only once it is out: an invisible spot beside the settings
-        // button that still takes the mouse would be worse than none.
-        let grip = gripRevealed ? [model.gripPoint] : []
-        let boxes = (model.orbHandlePoints + grip).map { point -> CGRect in
-            let centre = placement.point(along: model.handleWing.lead + point.x * model.sizeScale,
-                                         across: point.y * model.sizeScale)
-            return CGRect(x: centre.x - side / 2, y: centre.y - side / 2,
-                          width: side, height: side)
-        }
-        return boxes.dropFirst().reduce(boxes.first ?? .zero) { $0.union($1) }
-    }
-
-    /// Whether the pointer is on the handle itself rather than merely inside
-    /// the box that contains it.
-    private func isOverHandle(_ local: CGPoint) -> Bool {
-        // Back into the notch's own measurements, which is what `isOnOrbHandle`
-        // is written in — the orb scales with the notch, so its hit test has to
-        // be asked in the same space the shape was drawn in.
-        model.isOnOrbHandle(
-            along: (placement.along(of: local) - model.handleWing.lead) / model.sizeScale,
-            across: placement.across(of: local) / model.sizeScale
-        )
-    }
-
-    /// Whether the grip is out: it comes with the settings button, and stays
-    /// while the pointer is on it.
     private var gripRevealed: Bool {
         model.isExpanded && (model.isHoveringSettings || model.isHoveringMove)
-    }
-
-    /// Whether the pointer is on the grip, asked in the same notch-own
-    /// measurements `isOverHandle` uses.
-    private func isOverGrip(_ local: CGPoint) -> Bool {
-        model.isOnGrip(
-            along: (placement.along(of: local) - model.handleWing.lead) / model.sizeScale,
-            across: placement.across(of: local) / model.sizeScale
-        )
-    }
-
-    /// The only region that takes the mouse. Everything else in the panel is a
-    /// hole — which matters far more folded than open, since the point of
-    /// folding away is to stop being in the way.
-    private var liveRect: CGRect {
-        guard model.isExpanded else { return pillRect }
-        // The orb hangs below the shape, so the live region is both together.
-        return notchRect.union(handleRect)
-    }
-
-    /// The card, its tail, and the gap between the tail and the notch — so
-    /// sliding the pointer off the notch and onto the card never leaves it.
-    private func tooltipRect(index: Int) -> CGRect? {
-        guard model.snapshots.indices.contains(index) else { return nil }
-        let snapshot = model.snapshots[index]
-        let cardHeight = NotchLayout.cardHeight(
-            windowCount: snapshot.windows.count,
-            groupCount: snapshot.windowGroupCount,
-            moneyWindowCount: snapshot.windows.filter { $0.money != nil }.count,
-            usageDetailGroupCount: snapshot.usageDetail?.visibleGroups.count ?? 0,
-            sessionCount: snapshot.localModel == nil ? (model.activity(for: snapshot.id)?.sessions.count ?? 0) : 0,
-            sessionCap: model.sessionCap,
-            statusMessage: snapshot.statusMessage,
-            blockMessage: snapshot.block?.summary(now: model.now),
-            hasTokenUsage: snapshot.tokenUsage != nil,
-            hasPlan: snapshot.plan != nil,
-            hasResetCredits: snapshot.hasAvailableResetCredits,
-            localModelName: snapshot.localModel?.name,
-            showsLocalPerformance: snapshot.showsLocalPerformance,
-                localLedgerRows: snapshot.localLedgerRowCount,
-            compactRowCount: snapshot.compactRowCount,
-            showsDeepSeekPricing: model.deepSeekPricingEnabled
-        )
-        // Across the stack the region is the card, its tail, and the gap the
-        // pointer has to cross. Along it, the card's own extent.
-        let cardAcross = model.edge.isVertical ? NotchLayout.cardWidth : cardHeight
-        let cardAlong = model.edge.isVertical ? cardHeight : NotchLayout.cardWidth
-        let centre = model.tooltipAlong(index: index, length: cardAlong)
-        return placement.rect(
-            along: centre - cardAlong / 2,
-            // The card's own extent does not scale, and it begins where the
-            // drawn notch ends.
-            across: model.notchDrawnDepth,
-            length: cardAlong,
-            depth: NotchLayout.tailGap + NotchLayout.tailLength + cardAcross
-        )
-    }
-
-    private func resetCardRect(event: UsageResetEvent) -> CGRect? {
-        let index = model.resetAlertIndex(for: event) ?? 0
-        let cardAcross = model.edge.isVertical ? NotchLayout.cardWidth : UsageResetCard.cardHeight
-        let cardAlong = model.edge.isVertical ? UsageResetCard.cardHeight : NotchLayout.cardWidth
-        let centre = model.tooltipAlong(index: index, length: cardAlong)
-        return placement.rect(
-            along: centre - cardAlong / 2,
-            across: model.notchDrawnDepth,
-            length: cardAlong,
-            depth: NotchLayout.tailGap + NotchLayout.tailLength + cardAcross
-        )
-    }
-
-    /// Where the update card is, on the notch's middle — see `UpdateCard`.
-    private var updateCardRect: CGRect? {
-        guard model.isExpanded, model.updatePrompt != nil else { return nil }
-        let size = UpdateCard.size(for: model.edge.tooltipDirection)
-        let across = model.edge.isVertical ? size.width : size.height
-        let along = model.edge.isVertical ? size.height : size.width
-        let centre = model.cardAlong(centredOn: model.notchMiddleAlong, length: along)
-        return placement.rect(
-            along: centre - along / 2,
-            across: model.notchDrawnDepth,
-            length: along,
-            depth: NotchLayout.tailGap + NotchLayout.tailLength + across
-        )
     }
 
     /// **An update offered, or installing**: the notch opens for it and stays
@@ -1316,13 +1185,14 @@ final class NotchWindowController {
         if updatePrompt == nil { cursorMoved() }
     }
 
-    private func updateInteractiveRects() {
-        var rects = [liveRect]
-        if let card = updateCardRect { rects.append(card) }
-        if model.isExpanded, let event = model.activeResetAlert, let card = resetCardRect(event: event) {
+    private func updateInteractiveRects(using evaluation: CursorGeometry? = nil) {
+        let geometry = evaluation ?? cursorGeometry
+        var rects = [geometry.liveRect(gripRevealed: gripRevealed)]
+        if let card = geometry.updateCardRect { rects.append(card) }
+        if model.isExpanded, let event = model.activeResetAlert, let card = geometry.resetCardRect(event: event) {
             rects.append(card)
         }
-        if model.isExpanded, let index = model.hoveredIndex, let card = tooltipRect(index: index) {
+        if model.isExpanded, let index = model.hoveredIndex, let card = geometry.tooltipRect(index: index) {
             rects.append(card)
         }
         hostingView?.interactiveRects = rects
@@ -1412,30 +1282,41 @@ final class NotchWindowController {
     // drive the event fold through handleActiveSpaceOrAppChange.
     func cursorMoved() {
         guard let panel, !isOptionDragging else { return }
-        let local = localCursor(in: panel.frame)
+        cursorMoved(at: localCursor(in: panel.frame))
+    }
+
+    /// Panel-local input also lets tests exercise the real callback without
+    /// moving the system pointer or posting mouse events.
+    func cursorMoved(at local: CGPoint) {
+        guard panel != nil, !isOptionDragging else { return }
+        var geometry = cursorGeometry
+        let wasExpanded = model.isExpanded
         let overTooltip = model.hoveredIndex
-            .flatMap(tooltipRect(index:))
+            .flatMap(geometry.tooltipRect(index:))
             .map { model.isExpanded && $0.contains(local) } ?? false
         // The fold setting gates this check as surely as the one in
         // handleActiveSpaceOrAppChange: left ungated, the hover fold out-votes
         // "Always show" under a full-screen app while the other path keeps
         // restoring it — the notch ends up folding on every poll.
-        setExpanded(liveRect.contains(local) || overTooltip,
+        setExpanded(geometry.liveRect(gripRevealed: gripRevealed).contains(local) || overTooltip,
                     ignoreAlwaysOn: foldsForFullScreen && isFullScreenActive())
+        // Opening calls onLook, which may change content, scale or placement
+        // synchronously. Never carry the folded evaluation across that call.
+        if !wasExpanded { geometry = cursorGeometry }
 
         var target: Int?
-        if model.isExpanded, notchRect.contains(local) {
-            target = cellIndex(along: placement.along(of: local))
+        if model.isExpanded, geometry.notchRect.contains(local) {
+            target = geometry.cellIndex(along: geometry.placement.along(of: local))
         } else if model.isExpanded, let current = model.hoveredIndex,
-                  let card = tooltipRect(index: current),
+                  let card = geometry.tooltipRect(index: current),
                   card.contains(local) {
             target = current
         }
 
-        var overHandle = model.isExpanded && isOverHandle(local)
+        var overHandle = model.isExpanded && geometry.isOverHandle(local)
         // Out already, or coming out with the settings button now.
         let gripOut = gripRevealed || overHandle
-        var overMove = model.isExpanded && gripOut && !overHandle && isOverGrip(local)
+        var overMove = model.isExpanded && gripOut && !overHandle && geometry.isOverGrip(local)
         // Just set down by its dots: on them until the pointer moves — see
         // `finishDrag`.
         if let rest = restingOnGrip {
@@ -1464,6 +1345,8 @@ final class NotchWindowController {
                 withAnimation(.spring(response: 0.18, dampingFraction: 0.85)) {
                     model.hoveredIndex = target
                 }
+                // The hovered-index subscriber also calls onLook synchronously.
+                geometry = cursorGeometry
             }
         } else if model.hoveredIndex != nil, clearHoverWork == nil {
             let work = DispatchWorkItem { [weak self] in
@@ -1477,7 +1360,7 @@ final class NotchWindowController {
             DispatchQueue.main.asyncAfter(deadline: .now() + hoverGrace, execute: work)
         }
 
-        updateInteractiveRects()
+        updateInteractiveRects(using: geometry)
     }
 
     /// Opens on contact, folds shut after a pause — unless it has been pinned
@@ -1994,14 +1877,7 @@ final class NotchWindowController {
     /// The copy that carries the readings, and only that one: the mirror is the
     /// container with nothing in it, so there is nothing on it to point at.
     func cellIndex(along: CGFloat) -> Int? {
-        let wing = model.cellWing
-        guard model.alongWithin(along, of: wing) != nil else { return nil }
-        let pitch = model.cellPitch * model.sizeScale
-        for index in model.snapshots.indices {
-            let centre = model.ringAlong(index: index, in: wing)
-            if abs(along - centre) <= pitch / 2 { return index }
-        }
-        return nil
+        cursorGeometry.cellIndex(along: along)
     }
 
     // MARK: - Odds and ends
