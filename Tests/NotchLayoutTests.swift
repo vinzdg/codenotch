@@ -1056,6 +1056,105 @@ final class NotchFleetScopeTests: XCTestCase {
     }
 }
 
+@MainActor
+private final class SyntheticNSScreen: NSScreen {
+    private let number: Int
+
+    init(number: Int) {
+        self.number = number
+        super.init()
+    }
+
+    override var frame: CGRect {
+        CGRect(x: CGFloat(number) * 1600, y: 0, width: 1440, height: 900)
+    }
+
+    override var visibleFrame: CGRect { frame }
+
+    override var deviceDescription: [NSDeviceDescriptionKey: Any] {
+        [NSDeviceDescriptionKey("NSScreenNumber"): NSNumber(value: number)]
+    }
+}
+
+@MainActor
+final class NotchFleetRebindingTests: XCTestCase {
+    private func screen(_ number: Int) -> SyntheticNSScreen {
+        SyntheticNSScreen(number: number)
+    }
+
+    func testRetainedControllerRebindsToReplacementScreenWithSameKey() {
+        let fleet = NotchFleet(scope: .allDisplays, edge: .right)
+        defer { fleet.stop() }
+
+        let originalScreen = screen(901)
+        let key = NotchFleet.key(for: originalScreen)
+        fleet.reconcileForTesting(screens: [originalScreen])
+        let controller = try! XCTUnwrap(fleet.controllersByDisplayKeyForTesting[key])
+        controller.model.edge = .bottom
+        controller.model.alongOffset = 37
+
+        let replacementScreen = screen(901)
+        fleet.reconcileForTesting(screens: [replacementScreen])
+
+        XCTAssertTrue(fleet.controllersByDisplayKeyForTesting[key] === controller)
+        XCTAssertTrue(controller.assignedScreen === replacementScreen)
+        XCTAssertTrue(controller.currentScreen(in: [replacementScreen]) === replacementScreen)
+        XCTAssertEqual(controller.model.edge, .bottom)
+        XCTAssertEqual(controller.model.alongOffset, 37)
+        XCTAssertEqual(controller.panelFrameForTesting?.minY ?? -1,
+                       replacementScreen.frame.minY, accuracy: 1)
+    }
+
+    func testShrinkingAndRestoringTopologyLeavesOneCorrectControllerPerScreenAndIsIdempotent() {
+        let fleet = NotchFleet(scope: .allDisplays, edge: .right)
+        defer { fleet.stop() }
+        fleet.apply(.alwaysShow)
+
+        let original = [screen(911), screen(912), screen(913)]
+        fleet.reconcileForTesting(screens: original)
+        let originalControllers = fleet.controllersByDisplayKeyForTesting
+        let removedKey = NotchFleet.key(for: original[1])
+        for controller in originalControllers.values {
+            XCTAssertTrue(controller.model.isAlwaysOn)
+            XCTAssertTrue(controller.model.isExpanded)
+        }
+
+        let shrunken = [screen(911), screen(913)]
+        fleet.reconcileForTesting(screens: shrunken)
+
+        XCTAssertEqual(Set(fleet.controllersByDisplayKeyForTesting.keys), Set(shrunken.map(NotchFleet.key)))
+        XCTAssertNil(fleet.controllersByDisplayKeyForTesting[removedKey])
+        XCTAssertTrue(fleet.controllersByDisplayKeyForTesting[NotchFleet.key(for: shrunken[0])] === originalControllers[NotchFleet.key(for: original[0])])
+        XCTAssertTrue(fleet.controllersByDisplayKeyForTesting[NotchFleet.key(for: shrunken[1])] === originalControllers[NotchFleet.key(for: original[2])])
+        XCTAssertTrue(fleet.controllersByDisplayKeyForTesting[NotchFleet.key(for: shrunken[0])]?.model.isAlwaysOn == true)
+        XCTAssertTrue(fleet.controllersByDisplayKeyForTesting[NotchFleet.key(for: shrunken[1])]?.model.isAlwaysOn == true)
+
+        let restored = [screen(911), screen(912), screen(913)]
+        fleet.reconcileForTesting(screens: restored)
+        let finalControllers = fleet.controllersByDisplayKeyForTesting
+
+        XCTAssertEqual(finalControllers.count, restored.count)
+        XCTAssertEqual(Set(finalControllers.keys), Set(restored.map(NotchFleet.key)))
+        for currentScreen in restored {
+            let controller = try! XCTUnwrap(finalControllers[NotchFleet.key(for: currentScreen)])
+            XCTAssertTrue(controller.assignedScreen === currentScreen)
+            XCTAssertTrue(controller.currentScreen(in: restored) === currentScreen)
+            XCTAssertTrue(controller.model.isAlwaysOn)
+            XCTAssertTrue(controller.model.isExpanded)
+        }
+        XCTAssertFalse(finalControllers[removedKey] === originalControllers[removedKey])
+
+        fleet.reconcileForTesting(screens: restored)
+
+        XCTAssertEqual(fleet.controllersByDisplayKeyForTesting.count, restored.count)
+        for currentScreen in restored {
+            let key = NotchFleet.key(for: currentScreen)
+            XCTAssertTrue(fleet.controllersByDisplayKeyForTesting[key] === finalControllers[key])
+            XCTAssertTrue(fleet.controllersByDisplayKeyForTesting[key]?.assignedScreen === currentScreen)
+        }
+    }
+}
+
 /// Renaming the app renames its defaults domain, so every setting moves to a
 /// new empty one unless it is carried across.
 final class RenameMigrationTests: XCTestCase {

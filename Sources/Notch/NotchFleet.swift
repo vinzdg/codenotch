@@ -114,6 +114,7 @@ final class NotchFleet {
     /// What the fleet settled on, for tests that need to see panels come and
     /// go rather than take our word for it.
     var controllersForTesting: [NotchWindowController] { Array(controllers.values) }
+    var controllersByDisplayKeyForTesting: [NSNumber: NotchWindowController] { controllers }
 
     init(scope: NotchScreenScope, edge: NotchEdge) {
         self.scope = scope
@@ -407,6 +408,10 @@ final class NotchFleet {
         reconcile(screens: NSScreen.screens)
     }
 
+    func reconcileForTesting(screens: [NSScreen]) {
+        reconcile(screens: screens)
+    }
+
     private func reconcile(screens: [NSScreen]) {
         let desired: [NSScreen]
         switch scope {
@@ -433,11 +438,21 @@ final class NotchFleet {
         // instead of tearing a panel down and building another.
         if scope == .mainDisplay, controllers.count == 1,
            let screen = desired.first, let controller = controllers.values.first {
+            controller.displayPreference = displayPreference
             controller.assignedScreen = screen
-            controller.relocate()
+            controller.relocate(on: screen)
             return
         }
         let plan = Self.planReconciliation(current: Set(controllers.keys), desired: keys)
+        let additions = Set(plan.add)
+        let removals = Set(plan.remove)
+        for (screen, id) in zip(desired, keys)
+        where !additions.contains(id) && !removals.contains(id) {
+            guard let controller = controllers[id] else { continue }
+            controller.displayPreference = displayPreference
+            controller.assignedScreen = screen
+            controller.relocate(on: screen)
+        }
         for id in plan.remove {
             controllers[id]?.retire()
             controllers[id] = nil

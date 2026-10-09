@@ -315,15 +315,23 @@ final class NotchWindowController {
     /// been assigned, which is the single-controller case `.mainDisplay`
     /// scope leaves it in.
     func currentScreen() -> NSScreen? {
+        currentScreen(in: NSScreen.screens)
+    }
+
+    func currentScreen(in screens: [NSScreen]) -> NSScreen? {
         if let assigned = assignedScreen,
-           NSScreen.screens.contains(where: { $0 === assigned }) {
+           screens.contains(where: { $0 === assigned }) {
             return assigned
         }
-        return NotchGeometry.preferredScreen(from: NSScreen.screens, preference: displayPreference)
+        return NotchGeometry.preferredScreen(from: screens, preference: displayPreference)
     }
 
     func relocate(cellCount: Int? = nil) {
         guard let screen = currentScreen() else { return }
+        relocate(on: screen, cellCount: cellCount)
+    }
+
+    func relocate(on screen: NSScreen, cellCount: Int? = nil) {
         model.adopt(screen: screen)
         let size = model.panelSize(cellCount: cellCount ?? model.snapshots.count)
         let frame = NotchGeometry.panelFrame(
