@@ -31,6 +31,18 @@ enum ProcessLiveness {
         return errno == EPERM
     }
 
+    /// Whether the process is stopped: suspended with ctrl-Z, or by any other
+    /// SIGSTOP. It is still alive and comes back with `fg`, but until then it
+    /// cannot be doing anything.
+    static func isStopped(pid: Int32) -> Bool {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0, size > 0
+        else { return false }
+        return Int32(info.kp_proc.p_stat) == SSTOP
+    }
+
     static func startTime(pid: Int32) -> Date? {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride
