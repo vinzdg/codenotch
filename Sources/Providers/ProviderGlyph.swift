@@ -25,6 +25,10 @@ enum ProviderGlyph: String, Codable, Equatable {
     case deepseek
     case mistral
     case grok
+    /// Grok Bot's blob face, for the provider that reads the desktop bot's
+    /// own weekly cache — a ring wearing this one is the bot's allowance,
+    /// not the CLI's Grok Build.
+    case grokbot
     case opencode
     case commandcode
     case copilot
@@ -68,6 +72,8 @@ enum ProviderGlyph: String, Codable, Equatable {
         case .geminiSpark: return 1.0
         case .glm:    return 0.95
         case .grok:   return 1.0
+        // The blob's ink already fills most of its box, so no evening out.
+        case .grokbot: return 1.0
         case .opencode: return 0.95
         case .commandcode: return 0.96
         case .copilot: return 0.96
@@ -105,7 +111,7 @@ enum ProviderGlyph: String, Codable, Equatable {
         // glyph-kimi in the asset catalogue are drawn instead.
         case .glm:    return GlyphOutline.glm
         case .devin, .qwen, .gemma, .meta, .deepseek, .mistral, .lmstudio,
-             .qianwenAI, .qoder, .amp, .apify, .llamaCpp: return []
+             .qianwenAI, .qoder, .amp, .apify, .llamaCpp, .grokbot: return []
         case .grok:   return GlyphOutline.grok
         case .opencode: return GlyphOutline.opencode
         case .commandcode: return GlyphOutline.commandcode
