@@ -384,7 +384,7 @@ Cursor both feed it, through one display model.
       inputs, summary precedence, label widths, elapsed copy
 - [ ] Notify on `waiting` (deliberately not built — colour and pulse only, per the
       design call. The hook is `ActivitySummary.waitingSessions`)
-- [ ] Click a session to focus its terminal window
+- [x] Click a session to focus its terminal window (`SessionFocus`)
 
 ### Why it is inside the ring
 
@@ -680,7 +680,7 @@ corner's arc.
       point inside the open notch maps to a cell, so once rings became buttons
       there was no click target left to unpin with
 - [ ] Remember the pinned state across launches
-- [ ] Auto-fold when a full-screen app is frontmost
+- [x] Auto-fold when a full-screen app is frontmost (`FullScreenDetector`)
 
 The panel never resizes for the fold: animating a window frame is jerky, and the
 reserved space is transparent anyway. Both states share a centre line, so folding
@@ -806,10 +806,10 @@ rather than probing one point. A point 1pt below the top sits in a flare only
 hundredths of a point wide; that is a fact about arcs, not a bug.
 
 ## M6 — Polish
-- [ ] Threshold notifications (80% / 100%), per-provider mute
+- [x] Threshold notifications (80% / 100%), per-provider mute (`ThresholdNotifier`)
 - [ ] Auto-hide: never / on fullscreen / on overlap
-- [ ] Multi-display follow + unplug handling
-- [ ] Reduced-motion / reduced-transparency — reduced transparency is now the system's on the glass surface; see "The glass surface"
+- [x] Multi-display follow + unplug handling (`NotchFleet`)
+- [x] Reduced-motion / reduced-transparency — `NotchMotion` respects reduce-motion, and reduced transparency is handled across settings and notch surfaces
 - [ ] App icon, final name, README screenshots
 
 ## Managing accounts from Settings
@@ -880,10 +880,8 @@ credential, which is the same control under an honest name.
 - [x] On a fresh install it comes first and Settings follows when it is
       dismissed. Two windows arriving together is one to dismiss before you can
       read either.
-- [ ] **Write 1.0.0's copy.** `ReleaseNotes.all` carries a placeholder entry
-      drawn from the unreleased work. `testTheCurrentVersionHasANote` fails the
-      build if `MARKETING_VERSION` is bumped without an entry, so the ritual is
-      caught rather than remembered.
+- [x] **Write release notes copy up to 1.11.0.** `ReleaseNotes.all` carries full
+      entries up through 1.11.0, verified by `testTheCurrentVersionHasANote`.
 
 Two things worth keeping in mind:
 
@@ -1237,9 +1235,8 @@ it and then notice when the answer changes.
 
 ### Before charging for it
 
-- [ ] **`deploymentTarget` is macOS 26.0.** Nothing else on this list matters as
-      much: it excludes every Mac not on the newest OS. Worth checking what
-      actually requires it before shipping a paid build.
+- [x] **`deploymentTarget` lowered to macOS 15.0.** Sequoia support enabled,
+      gating macOS 26 Liquid Glass behind availability checks.
 - [ ] App icon — the dmg currently shows the generic application icon.
 - [ ] `MARKETING_VERSION` is still `0.1.0`.
 - [ ] The archive keeps a `perplexity` entry from a provider that no longer
