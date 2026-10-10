@@ -3,6 +3,7 @@
 //! Endpoint: GET {console}/api/monitor/usage/quota/limit — the monitor Z.ai's own plan
 //! page reads. Authenticated with a raw API key — no "Bearer" scheme — borrowed from
 //! whichever coding tool already holds one. Sources, in order:
+//!   0. the GLM_API_KEY environment variable (always the z.ai console)
 //!   1. a manual key file next to the config: glm.json {"api_key":"...","base_url":"https://api.z.ai"}
 //!   1b. Claude Code: ~/.claude/settings.json env.ANTHROPIC_AUTH_TOKEN, claimed only when
 //!      env.ANTHROPIC_BASE_URL points at a Z.ai console
@@ -122,6 +123,11 @@ fn non_empty(v: Option<&serde_json::Value>) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+fn env_key() -> Option<Credential> {
+    let token = std::env::var("GLM_API_KEY").ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())?;
+    Some(Credential { token, base: "https://api.z.ai".into(), source: "GLM_API_KEY".into() })
+}
+
 /// glm.json {"api_key":"...","base_url":"https://api.z.ai"} — the one key the user writes by hand
 fn manual_key() -> Option<Credential> {
     let root = read_json(&key_file())?;
@@ -222,7 +228,8 @@ fn opencode_key() -> Option<Credential> {
 }
 
 fn load_credential() -> Option<Credential> {
-    manual_key()
+    env_key()
+        .or_else(manual_key)
         .or_else(claude_code_key)
         .or_else(zcode_plan_key)
         .or_else(zcode_oauth)
@@ -231,7 +238,7 @@ fn load_credential() -> Option<Credential> {
 
 /// Is any GLM key source present on this machine? If not, no cell is shown.
 pub fn present() -> bool {
-    let mut any = key_file().is_file();
+    let mut any = env_key().is_some() || key_file().is_file();
     if let Some(home) = dirs::home_dir() {
         any = any || claude_code_key().is_some();
         any = any || home.join(".zcode").join("v2").join("config.json").is_file();
