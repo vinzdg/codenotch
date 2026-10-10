@@ -104,6 +104,89 @@ final class ClaudeOAuthProviderTests: XCTestCase {
                        "the provider stopped asking after the first failure")
     }
 
+    func testEndpointReusesWithinEveryFreshnessFloor() async throws {
+        for freshness: UsageFreshness in [.standard, .live, .fromSource] {
+            StubEndpoint.reset([.init(status: 200, body: Self.usagePayload)])
+            let provider = makeProvider(source: CredentialSource(readable: true),
+                                        endpointIntervals: (300, 120))
+            for _ in 0..<10 {
+                let snapshot = try await provider.fetchSnapshot(freshness: freshness)
+                XCTAssertEqual(snapshot.usedFraction, 0.42)
+            }
+            XCTAssertEqual(StubEndpoint.requestCount, 1)
+            let url = try XCTUnwrap(StubEndpoint.requestURLs.first)
+            XCTAssertEqual(url.path, "/api/oauth/usage")
+            XCTAssertNil(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        }
+    }
+
+    func testLiveEndpointFloorCanBeShorterThanStandard() async throws {
+        StubEndpoint.reset(Array(repeating: .init(status: 200, body: Self.usagePayload), count: 2))
+        let provider = makeProvider(source: CredentialSource(readable: true), endpointIntervals: (300, 0))
+        _ = try await provider.fetchSnapshot()
+        _ = try await provider.fetchSnapshot()
+        XCTAssertEqual(StubEndpoint.requestCount, 1)
+        _ = try await provider.fetchSnapshot(freshness: .live)
+        XCTAssertEqual(StubEndpoint.requestCount, 2)
+    }
+
+    func testExpiredEndpointWindowIsNotReused() async throws {
+        let expired = Data(#"{"limits":[{"kind":"session","percent":80,"resets_at":"2000-01-01T00:00:00Z"}]}"#.utf8)
+        StubEndpoint.reset([.init(status: 200, body: expired), .init(status: 200, body: Self.usagePayload)])
+        let provider = makeProvider(source: CredentialSource(readable: true), endpointIntervals: (300, 120))
+        _ = try await provider.fetchSnapshot()
+        let next = try await provider.fetchSnapshot()
+        XCTAssertEqual(next.usedFraction, 0.42)
+        XCTAssertEqual(StubEndpoint.requestCount, 2)
+    }
+
+    func testAskingForPermissionReadsCredentialsButDoesNotBypassEndpointFloor() async throws {
+        StubEndpoint.reset([.init(status: 200, body: Self.usagePayload)])
+        let source = CredentialSource(readable: true)
+        let provider = makeProvider(source: source, endpointIntervals: (300, 120))
+        _ = try await provider.fetchSnapshot()
+        provider.forgetCachedCredential()
+        _ = try await provider.fetchSnapshot(freshness: .fromSource)
+        XCTAssertEqual(source.reads, 2)
+        XCTAssertEqual(StubEndpoint.requestCount, 1)
+    }
+
+    func testChangedTokenDoesNotReusePreviousAccountReading() async throws {
+        StubEndpoint.reset(Array(repeating: .init(status: 200, body: Self.usagePayload), count: 2))
+        let source = CredentialSource(readable: true)
+        let provider = makeProvider(source: source, endpointIntervals: (300, 120))
+        _ = try await provider.fetchSnapshot()
+        source.setToken("new-token")
+        _ = await provider.reloadTokenExpiry()
+        _ = try await provider.fetchSnapshot()
+        XCTAssertEqual(StubEndpoint.requestCount, 2)
+    }
+
+    func testEndpointCacheIsPerProvider() async throws {
+        StubEndpoint.reset(Array(repeating: .init(status: 200, body: Self.usagePayload), count: 2))
+        let first = makeProvider(source: CredentialSource(readable: true), endpointIntervals: (300, 120))
+        let second = makeProvider(source: CredentialSource(readable: true), endpointIntervals: (300, 120))
+        _ = try await first.fetchSnapshot()
+        _ = try await second.fetchSnapshot()
+        _ = try await first.fetchSnapshot()
+        _ = try await second.fetchSnapshot()
+        XCTAssertEqual(StubEndpoint.requestCount, 2)
+    }
+
+    func testBackoffWinsOverCachedEndpointReading() async throws {
+        StubEndpoint.reset([.init(status: 200, body: Self.usagePayload), .init(status: 429)])
+        let provider = makeProvider(source: CredentialSource(readable: true), endpointIntervals: (300, 0))
+        _ = try await provider.fetchSnapshot()
+        for freshness: UsageFreshness in [.live, .standard] {
+            do {
+                _ = try await provider.fetchSnapshot(freshness: freshness)
+                XCTFail("the endpoint penalty must take precedence over reuse")
+            } catch UsageProviderError.rateLimited { }
+        }
+        XCTAssertEqual(StubEndpoint.requestCount, 2)
+    }
+
+
     // MARK: - Helpers
 
     func testOAuthResetCreditsReachTheSnapshotAndDisappearAfterUse() async throws {
@@ -190,7 +273,8 @@ final class ClaudeOAuthProviderTests: XCTestCase {
                               desktopCache: ClaudeDesktopUsageCache? = nil,
                               desktopFreshness: TimeInterval = 30 * 60,
                               liveDesktopFreshness: TimeInterval = 2 * 60,
-                              desktopRescanInterval: TimeInterval = 5 * 60) -> ClaudeOAuthProvider {
+                              desktopRescanInterval: TimeInterval = 5 * 60,
+                              endpointIntervals: (standard: TimeInterval, live: TimeInterval) = (0, 0)) -> ClaudeOAuthProvider {
         // A private defaults suite per test: the archive persists the 429 back-off
         // deadline, and a leaked one would silently skip fetches in the next test.
         let name = "ClaudeOAuthProviderTests.\(UUID().uuidString)"
@@ -217,7 +301,9 @@ final class ClaudeOAuthProviderTests: XCTestCase {
                                    desktopCache: desktopCache,
                                    desktopFreshness: desktopFreshness,
                                    liveDesktopFreshness: liveDesktopFreshness,
-                                   desktopRescanInterval: desktopRescanInterval)
+                                   desktopRescanInterval: desktopRescanInterval,
+                                   minEndpointInterval: endpointIntervals.standard,
+                                   liveMinEndpointInterval: endpointIntervals.live)
     }
 
     /// #178: a signed-in account whose answer names no limit gets a message,
@@ -769,6 +855,11 @@ private final class CredentialSource: @unchecked Sendable {
     private let lock = NSLock()
     private var readable: Bool
     private var readCount = 0
+    private var token = "token"
+
+    func setToken(_ token: String) {
+        lock.lock(); self.token = token; lock.unlock()
+    }
 
     init(readable: Bool) { self.readable = readable }
 
@@ -785,12 +876,13 @@ private final class CredentialSource: @unchecked Sendable {
         lock.lock()
         readCount += 1
         let allowed = readable
+        let token = self.token
         lock.unlock()
 
         // The shape a dark-wake or not-found read takes by the time it leaves
         // `ClaudeCredentials.read()`.
         guard allowed else { throw UsageProviderError.needsAuth }
-        return ClaudeCredentials(accessToken: "token",
+        return ClaudeCredentials(accessToken: token,
                                  expiresAt: .distantFuture,
                                  subscriptionType: "max")
     }
@@ -808,9 +900,15 @@ private final class StubEndpoint: URLProtocol {
     private static let lock = NSLock()
     private static var queued: [Answer] = []
     private static var served = 0
+    private static var urls: [URL] = []
+
+    static var requestURLs: [URL] {
+        lock.lock(); defer { lock.unlock() }
+        return urls
+    }
 
     static func reset(_ answers: [Answer]) {
-        lock.lock(); queued = answers; served = 0; lock.unlock()
+        lock.lock(); queued = answers; served = 0; urls = []; lock.unlock()
     }
 
     static var requestCount: Int {
@@ -824,9 +922,10 @@ private final class StubEndpoint: URLProtocol {
         return URLSession(configuration: configuration)
     }
 
-    private static func next() -> Answer {
+    private static func next(for request: URLRequest) -> Answer {
         lock.lock(); defer { lock.unlock() }
         served += 1
+        if let url = request.url { urls.append(url) }
         // Running dry is a test bug, and a 500 says so more clearly than a crash
         // inside URLSession's callback would.
         return queued.isEmpty ? Answer(status: 500) : queued.removeFirst()
@@ -836,7 +935,7 @@ private final class StubEndpoint: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        let answer = Self.next()
+        let answer = Self.next(for: request)
         let response = HTTPURLResponse(url: request.url!,
                                        statusCode: answer.status,
                                        httpVersion: "HTTP/1.1",

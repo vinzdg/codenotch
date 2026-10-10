@@ -31,7 +31,7 @@ actor ClaudeOAuthProvider: UsageProvider {
     /// This profile's token, behind its own cache — see `ClaudeKeychain`.
     nonisolated private let keychain: ClaudeKeychain
 
-    private let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage?cedar_ember=1")!
+    private let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
     private let session: URLSession
     /// Held between refreshes so the keychain is read once per token, not once
     /// per minute — a keychain read can put a prompt in front of the user.
@@ -50,6 +50,10 @@ actor ClaudeOAuthProvider: UsageProvider {
     /// How many 429s in a row. The endpoint answers `Retry-After: 0`, which is
     /// no guidance at all, so the wait doubles each time instead.
     private var consecutiveRateLimits = 0
+    private var lastEndpoint: (snapshot: ProviderSnapshot, at: Date, token: String)?
+    private var endpointFetch: Task<ProviderSnapshot, Error>?
+    private let minEndpointInterval: TimeInterval
+    private let liveMinEndpointInterval: TimeInterval
 
     private let archive: UsageArchive
     /// How this profile's token is obtained. Injected for the same reason
@@ -141,7 +145,9 @@ actor ClaudeOAuthProvider: UsageProvider {
          desktopCache: ClaudeDesktopUsageCache? = ClaudeDesktopUsageCache(),
          desktopFreshness: TimeInterval = 30 * 60,
          liveDesktopFreshness: TimeInterval = 2 * 60,
-         desktopRescanInterval: TimeInterval = 5 * 60) {
+         desktopRescanInterval: TimeInterval = 5 * 60,
+         minEndpointInterval: TimeInterval = 5 * 60,
+         liveMinEndpointInterval: TimeInterval = 2 * 60) {
         self.cli = cli
         self.cliRefreshInterval = cliRefreshInterval
         self.liveCLIRefreshInterval = liveCLIRefreshInterval
@@ -149,6 +155,8 @@ actor ClaudeOAuthProvider: UsageProvider {
         self.desktopFreshness = desktopFreshness
         self.liveDesktopFreshness = liveDesktopFreshness
         self.desktopRescanInterval = desktopRescanInterval
+        self.minEndpointInterval = minEndpointInterval
+        self.liveMinEndpointInterval = liveMinEndpointInterval
         self.profile = profile
         self.id = profile.id
         self.displayName = displayName ?? profile.displayName
@@ -187,13 +195,12 @@ actor ClaudeOAuthProvider: UsageProvider {
         try await fetchSnapshot(freshness: .standard)
     }
 
-    /// Freshness reaches the two allowances below, and nothing else. The
-    /// endpoint keeps its own back-off untouched: this is about not *serving* a
-    /// reading that was already old, never about asking Anthropic more often
-    /// than the 429 it hands back says we may.
+    /// Local sources keep their own freshness allowances; the endpoint's floor
+    /// applies even when a caller explicitly asks for the source.
     func fetchSnapshot(freshness: UsageFreshness) async throws -> ProviderSnapshot {
         let desktopAllowance: TimeInterval
         let cliAllowance: TimeInterval
+        let endpointAllowance = freshness == .standard ? minEndpointInterval : liveMinEndpointInterval
         switch freshness {
         case .standard:
             desktopAllowance = desktopFreshness
@@ -202,12 +209,7 @@ actor ClaudeOAuthProvider: UsageProvider {
             desktopAllowance = min(liveDesktopFreshness, desktopFreshness)
             cliAllowance = min(liveCLIRefreshInterval, cliRefreshInterval)
         case .fromSource:
-            // Zero, which no reading can be inside: whatever is held is skipped,
-            // however new. A cache written two seconds ago *is* the account's
-            // number, so this spends a request to be told what it already knew —
-            // deliberately, because somebody asked for the source itself. The
-            // spacing that keeps that affordable is the caller's; see
-            // `UsageStore.refreshBecauseSomeoneIsLooking`.
+            // Skip local readings, but never bypass the endpoint's rate floor.
             desktopAllowance = 0
             cliAllowance = 0
         }
@@ -223,7 +225,7 @@ actor ClaudeOAuthProvider: UsageProvider {
         // or CLI reading would satisfy the refresh and the question would
         // never be put.
         if keychain.isAskingAgain {
-            return try await fetchFromKeychain()
+            return try await fetchFromKeychain(reusableFor: endpointAllowance)
         }
         // Ahead of both the CLI and the back-off check. This is the cheapest
         // source and the only one that can never interrupt anyone: it reads a
@@ -269,7 +271,7 @@ actor ClaudeOAuthProvider: UsageProvider {
             return snapshot(windows: windows, plan: lastCLIPlan, resetCredits: resets)
         }
         do {
-            var result = try await fetchFromKeychain()
+            var result = try await fetchFromKeychain(reusableFor: endpointAllowance)
             if result.resetCredits == nil { result.resetCredits = resets }
             return result
         } catch {
@@ -298,15 +300,28 @@ actor ClaudeOAuthProvider: UsageProvider {
     /// stubs must be reached whatever that Mac's logins are.
     private static let loginCount: Int = Runtime.isUnderTest ? 1 : ClaudeProfile.discover().count
 
-    private func fetchFromKeychain() async throws -> ProviderSnapshot {
+    private func fetchFromKeychain(reusableFor reuseInterval: TimeInterval) async throws -> ProviderSnapshot {
         if Self.shouldHoldOff(until: retryNoEarlierThan, slack: backoffSlack),
            let retryNoEarlierThan {
             let remaining = retryNoEarlierThan.timeIntervalSinceNow
             Log.usage.debug("skipping fetch, backing off for \(remaining, format: .fixed(precision: 0))s")
             throw UsageProviderError.rateLimited(retryAfter: remaining)
         }
+        // An explicit permission request must reach the keychain even if usage is cached.
+        if keychain.isAskingAgain { credentials = nil }
+        let token = try currentToken()
+        let now = Date()
+        if let last = lastEndpoint, last.token == token,
+           now.timeIntervalSince(last.at) < reuseInterval,
+           !Self.hasExpiredWindow(last.snapshot.windows, at: now) {
+            return last.snapshot
+        }
+        if let endpointFetch { return try await endpointFetch.value }
+        let task = Task { try await self.fetch(retryingOnUnauthorized: true) }
+        endpointFetch = task
+        defer { endpointFetch = nil }
         do {
-            let snapshot = try await fetch(retryingOnUnauthorized: true)
+            let snapshot = try await task.value
             retryNoEarlierThan = nil
             consecutiveRateLimits = 0
             archive.saveBackoffUntil(nil, providerID: id)
@@ -320,9 +335,11 @@ actor ClaudeOAuthProvider: UsageProvider {
             // itself on every failed tick, so its own window never expired and
             // the keychain was never read again.
             credentials = nil
+            lastEndpoint = nil
             throw UsageProviderError.needsAuth
         } catch UsageProviderError.credentialExpired {
             credentials = nil
+            lastEndpoint = nil
             throw UsageProviderError.credentialExpired
         } catch let error as UsageProviderError {
             if case .rateLimited(let retryAfter) = error {
@@ -423,6 +440,7 @@ actor ClaudeOAuthProvider: UsageProvider {
         }
     }
 
+
     /// What `claude "/usage"` last said, or nil to mean "use the token path".
     ///
     /// Deliberately cannot throw. Every way the CLI can fail — not installed,
@@ -478,7 +496,7 @@ actor ClaudeOAuthProvider: UsageProvider {
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.timeoutInterval = 15
 
-        Log.usage.debug("GET /api/oauth/usage")
+        Log.usage.debug("\(self.id, privacy: .public): GET /api/oauth/usage")
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         Log.usage.debug("usage endpoint answered \(status)")
@@ -518,8 +536,10 @@ actor ClaudeOAuthProvider: UsageProvider {
                 L10n.t("Claude answered, but listed no usage limits for this account. Some Enterprise and team plans don't report them.")
             )
         }
-        return snapshot(windows: windows, plan: credentials?.subscriptionType,
-                        resetCredits: payload.cedarEmber?.credits(at: Date()))
+        let result = snapshot(windows: windows, plan: credentials?.subscriptionType,
+                              resetCredits: payload.cedarEmber?.credits(at: Date()))
+        lastEndpoint = (result, Date(), token)
+        return result
     }
 
     private func currentToken() throws -> String {
@@ -551,12 +571,12 @@ actor ClaudeOAuthProvider: UsageProvider {
     /// The server's own hint is honoured only as a *floor-raiser*: it answers
     /// `Retry-After: 0`, and obeying that literally means retrying immediately,
     /// which is what keeps you rate limited. So the wait starts at a minute and
-    /// doubles for each 429 in a row, capped so it always recovers on its own.
+    /// doubles for each 429 in a row. Only our schedule is capped, never the server's hint.
     static func backoff(forAttempt attempt: Int, retryAfter: TimeInterval?) -> TimeInterval {
         let floor: TimeInterval = 60
         let ceiling: TimeInterval = 15 * 60
-        let doubled = floor * pow(2, Double(min(attempt, 4)))
-        return min(ceiling, max(doubled, retryAfter ?? 0))
+        let doubled = min(ceiling, floor * pow(2, Double(min(attempt, 4))))
+        return max(doubled, retryAfter ?? 0)
     }
 
     /// `Retry-After` is either a number of seconds or an HTTP date.

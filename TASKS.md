@@ -523,13 +523,28 @@ The first attempt at a back-off did nothing, because the endpoint answers
 `Retry-After: 0` and that was obeyed literally: "wait zero seconds" meant the
 poll kept firing straight back into the limit it was sustaining. The server's
 hint is now only allowed to *raise* the floor — the wait starts at 60s, doubles
-per consecutive 429, and caps at 15 minutes so it always recovers unattended.
+per consecutive 429, and caps its own schedule at 15 minutes. The server's
+Retry-After is never capped: a 3000-second hint means waiting at least 3000 seconds.
 
 The back-off also had to outlive the process. Every relaunch started clean and
 fired a request immediately, so a development loop of `make run` walked into the
 limit each time and kept it alive — the app was the thing sustaining its own
 punishment. `UsageArchive` now persists the deadline, and a relaunch during a
 penalty waits rather than spending an attempt.
+Windows persists separate profile deadlines in `usage-backoffs.json` next to
+`usage.json`; older snapshots conservatively restore the aggregate deadline for
+all profiles when the separate file is unavailable. Expired penalties are ignored.
+Both platforms parse Retry-After as seconds or an HTTP-date.
+
+Routine Claude OAuth reads use the plain endpoint, never `cedar_ember`. macOS
+reuses each profile's successful endpoint reading for five minutes at `.standard`
+and two minutes at `.live` or `.fromSource`, unless a window has expired or the
+token has changed. Interactive credential permission still reads the keychain,
+but an unchanged token does not bypass reuse. Back-off is checked before reuse.
+Windows spaces every account's attempts by five minutes, including failed and
+manual requests, with one early attempt for a newly crossed reset boundary.
+Its 60-second active loop stays in place for credential renewal, which does not
+cancel an endpoint penalty. Both platforms log endpoint attempts by profile.
 
 A 429 renders as staleness rather than an error: the last good reading is still
 roughly true and there is nothing the user can do about it.
@@ -1784,9 +1799,9 @@ Two events ask outside the schedule, and neither is a timer:
 Even bounded at two minutes, a percentage is still a figure that was *read*
 rather than a live wire — and somebody comparing Codenotch against a vendor's
 own dashboard figure by figure wants the wire. `UsageFreshness.fromSource` is
-that: zero allowance on both of Claude's held sources, so whatever is held is
-skipped however new it is. A cache written two seconds ago *is* the account's
-number, so this knowingly spends a request to be told what it already knew.
+that: zero allowance on Claude's Desktop and CLI sources, so those held readings
+are skipped however new they are. The OAuth endpoint still protects each profile:
+`.fromSource` obeys its two-minute reuse floor and any active rate-limit penalty.
 
 It is a setting (`Preferences.asksProviderOnLook`, **General › Readings**) and
 off by default, because it is not strictly better. A provider that rate-limits
@@ -1796,7 +1811,7 @@ the schedule decides: the closure reaches `refreshBecauseSomeoneIsLooking` and
 nothing else, and the spacing is unchanged at 15s — the setting changes what an
 answer may be served from, never how often one is asked for. **Refresh now**, a
 ring clicked, the settings row's refresh and a phone's refresh ask for it
-unconditionally: each of those is a human's own click, rate-limited by the human.
+unconditionally; Claude's endpoint reuse floor and back-off still apply.
 
 Two things had to be right for it not to make freshness *worse*:
 
