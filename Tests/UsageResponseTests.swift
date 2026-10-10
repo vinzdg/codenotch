@@ -417,6 +417,11 @@ final class BackoffTests: XCTestCase {
     func testAGenerousHintWins() {
         XCTAssertEqual(ClaudeOAuthProvider.backoff(forAttempt: 0, retryAfter: 600), 600)
     }
+
+    func testALongHintIsNotCapped() {
+        XCTAssertEqual(ClaudeOAuthProvider.backoff(forAttempt: 0, retryAfter: 3000), 3000)
+        XCTAssertEqual(ClaudeOAuthProvider.backoff(forAttempt: 99, retryAfter: 3000), 3000)
+    }
 }
 
 /// The back-off has to outlive the process, or a development loop of `make run`

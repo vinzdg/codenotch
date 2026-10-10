@@ -34,12 +34,13 @@ Settings → Usage is open, so cached grants remain visible with their original
 observation age until they expire or a newer response supersedes them. The
 30-minute freshness limit still applies to usage windows.
 
-The OAuth request uses `GET /api/oauth/usage?cedar_ember=1`. In the live check
-it returned `eligible: false`, `ineligible_reason: "surface"`, and no grants,
-even though the same account's Desktop page reported one. Treat that result
-as unavailable data, not zero remaining resets. Dated Desktop reset data can
-therefore accompany usage windows from either the CLI or OAuth fallback.
-If OAuth starts returning grants, the same decoder already handles them.
+Routine OAuth reads use plain `GET /api/oauth/usage`, without `cedar_ember`.
+The earlier live reset-query check returned `eligible: false` and
+`ineligible_reason: "surface"`, with no grants even though Desktop reported one.
+Reset counts therefore come from the matching Desktop cache and can accompany
+CLI or OAuth usage windows. Unavailable reset data is not zero remaining resets.
+The decoder still tolerates an optional OAuth `cedar_ember` block if one appears;
+there is no separate network request for grants.
 
 The displayed count is the sum of positive `resets_left` values for eligible,
 unpaused grants within their start/end dates. The expiry line uses the

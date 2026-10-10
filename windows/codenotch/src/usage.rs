@@ -30,6 +30,8 @@ use tauri::{AppHandle, Emitter, Manager};
 const ENDPOINT: &str = "https://api.anthropic.com/api/oauth/usage";
 const POLL_ACTIVE_SECS: u64 = 60;
 const POLL_IDLE_SECS: u64 = 300;
+/// Per-account floor, including tray refreshes and failed attempts.
+const MIN_FETCH_SECS: u64 = 300;
 const BACKOFF_BASE_SECS: u64 = 60;
 const BACKOFF_CAP_SECS: u64 = 900;
 /// Renew when this close to expiry. Must stay under Claude Code's own five minutes: its start-up renews the token
@@ -174,6 +176,26 @@ pub fn load_persisted() -> UsageSnapshot {
 fn persist(s: &UsageSnapshot) {
     if let Ok(t) = serde_json::to_string_pretty(s) {
         let _ = std::fs::write(store_path(), t);
+    }
+}
+
+fn backoffs_path() -> PathBuf {
+    store_path().with_file_name("usage-backoffs.json")
+}
+
+fn load_backoffs() -> Option<HashMap<String, u64>> {
+    std::fs::read_to_string(backoffs_path()).ok().and_then(|text| serde_json::from_str(&text).ok())
+}
+
+fn persist_backoffs(accounts: &HashMap<String, Account>) {
+    let deadlines: HashMap<&str, u64> = accounts.iter()
+        .filter(|(_, account)| account.backoff_until > now_ms())
+        .map(|(profile, account)| (profile.as_str(), account.backoff_until))
+        .collect();
+    if let Ok(text) = serde_json::to_string_pretty(&deadlines) {
+        if let Err(error) = std::fs::write(backoffs_path(), text) {
+            crate::applog(&format!("claude: could not persist back-off deadlines: {error}"));
+        }
     }
 }
 
@@ -487,6 +509,15 @@ enum FetchErr {
     Other(String),
 }
 
+fn parse_retry_after(header: &str) -> Option<u64> {
+    let header = header.trim();
+    header.parse::<u64>().ok().or_else(|| {
+        chrono::DateTime::parse_from_rfc2822(header).ok().map(|date| {
+            date.timestamp().saturating_sub(chrono::Utc::now().timestamp()).max(0) as u64
+        })
+    })
+}
+
 fn fetch_once(token: &str) -> Result<Vec<LimitWindow>, FetchErr> {
     let resp = ureq::get(ENDPOINT)
         .set("Authorization", &format!("Bearer {token}"))
@@ -506,7 +537,7 @@ fn fetch_once(token: &str) -> Result<Vec<LimitWindow>, FetchErr> {
         Err(ureq::Error::Status(429, r)) => {
             let ra = r
                 .header("retry-after")
-                .and_then(|s| s.parse::<u64>().ok())
+                .and_then(parse_retry_after)
                 .unwrap_or(0);
             Err(FetchErr::RateLimited(ra))
         }
@@ -544,6 +575,7 @@ struct Account {
     status: String,
     note: String,
     fetched_at: u64,
+    last_fetch: u64,
 }
 
 fn key(p: &Profile) -> String {
@@ -579,6 +611,41 @@ fn split_persisted(snap: &UsageSnapshot, order: &[Profile]) -> HashMap<String, V
         }
     }
     out
+}
+
+fn restore_accounts(
+    snap: &UsageSnapshot,
+    order: &[Profile],
+    backoffs: Option<&HashMap<String, u64>>,
+    now: u64,
+) -> HashMap<String, Account> {
+    let mut windows = split_persisted(snap, order);
+    order.iter().map(|profile| {
+        let profile_key = key(profile);
+        // Old versions saved only the aggregate; use it conservatively until a per-profile file exists.
+        let deadline = backoffs.map(|saved| saved.get(&profile_key).copied().unwrap_or(0))
+            .unwrap_or(snap.backoff_until);
+        let account = Account {
+            windows: windows.remove(&profile_key).unwrap_or_default(),
+            fetched_at: snap.fetched_at,
+            status: snap.status.clone(),
+            note: snap.note.clone(),
+            backoff_until: if deadline > now { deadline } else { 0 },
+            ..Default::default()
+        };
+        (profile_key, account)
+    }).collect()
+}
+
+fn should_fetch(last_fetch: u64, now: u64, windows: &[LimitWindow]) -> bool {
+    last_fetch == 0 || now.saturating_sub(last_fetch) >= MIN_FETCH_SECS * 1000
+        || windows.iter().any(|window| matches!(window.resets_at, Some(reset) if reset > last_fetch && reset <= now))
+}
+
+fn fetch_account(acc: &mut Account, token: &str, who: &str) -> Result<Vec<LimitWindow>, FetchErr> {
+    acc.last_fetch = now_ms();
+    crate::applog(&format!("claude[{who}]: GET /api/oauth/usage"));
+    fetch_once(token)
 }
 
 /// One reading out of every account's, in profile order. The status is the best news any account has:
@@ -622,15 +689,16 @@ fn aggregate(order: &[Profile], accounts: &HashMap<String, Account>) -> UsageSna
 /// One account's turn: renew if the token is aging, then read it, exactly as the single-account loop did.
 fn poll_account(p: &Profile, acc: &mut Account, group: Option<&str>) {
     let who = p.name();
-    // Ahead of the back-off: renewing never touches the usage endpoint, and a fresh token deserves a fresh try
+    // Renewal stays responsive, but token rotation cannot cancel the endpoint's penalty.
     if let Some(cred) = read_credentials(&p.dir) {
-        if acc.renewer.maybe_renew(&cred, &p.dir, &who) == Some(true) {
-            acc.consecutive_429 = 0;
-            acc.backoff_until = 0;
-        }
+        acc.renewer.maybe_renew(&cred, &p.dir, &who);
     }
     // No requests inside this account's back-off window
     if acc.backoff_until > now_ms() {
+        return;
+    }
+    acc.backoff_until = 0;
+    if !should_fetch(acc.last_fetch, now_ms(), &acc.windows) {
         return;
     }
     match read_credentials(&p.dir) {
@@ -646,9 +714,9 @@ fn poll_account(p: &Profile, acc: &mut Account, group: Option<&str>) {
         Some(cred) => {
             let token = cred.token;
             // On 401 re-read the credential and retry once (Claude Code may have just refreshed it)
-            let result = match fetch_once(&token) {
+            let result = match fetch_account(acc, &token, &who) {
                 Err(FetchErr::NeedsAuth) => match read_credentials(&p.dir) {
-                    Some(c2) if c2.token != token => fetch_once(&c2.token),
+                    Some(c2) if c2.token != token && !c2.expired(now_ms()) => fetch_account(acc, &c2.token, &who),
                     _ => Err(FetchErr::NeedsAuth),
                 },
                 other => other,
@@ -676,7 +744,7 @@ fn poll_account(p: &Profile, acc: &mut Account, group: Option<&str>) {
                     // rate limit. Age decides, as it does on the Mac (`UsageStore` keeps the previous
                     // status until `staleAfter`), and the note says why it is not moving.
                     acc.note = format!("Rate limited, retrying in {wait}s");
-                    acc.backoff_until = now_ms() + wait * 1000;
+                    acc.backoff_until = now_ms().saturating_add(wait.saturating_mul(1000));
                 }
                 Err(FetchErr::Other(msg)) => {
                     // No reading at all is an error worth showing; a reading we could not refresh is
@@ -700,10 +768,8 @@ pub fn start(app: AppHandle) {
             let _ = app.emit("usage", &snap);
             snap
         };
-        let mut accounts: HashMap<String, Account> = HashMap::new();
-        for (k, windows) in split_persisted(&persisted, &profiles()) {
-            accounts.entry(k).or_default().windows = windows;
-        }
+        let backoffs = load_backoffs();
+        let mut accounts = restore_accounts(&persisted, &profiles(), backoffs.as_ref(), now_ms());
         loop {
             // A sign-in the user started owns the credential until it finishes. Polling through it
             // reads a file being rewritten and reports a signed-out account mid-login.
@@ -724,10 +790,11 @@ pub fn start(app: AppHandle) {
                 poll_account(p, acc, group.as_deref());
             }
             accounts.retain(|k, _| order.iter().any(|p| key(p) == *k));
+            persist_backoffs(&accounts);
             let snap = aggregate(&order, &accounts);
             let backoff_until = snap.backoff_until;
             set_and_broadcast(&app, |u| *u = snap);
-            // 60 s while a session is active, 300 s otherwise (upstream throttling discipline)
+            // Keep renewal checks responsive; the per-account floor gates endpoint requests.
             let active = {
                 let st = app.state::<AppState>();
                 let store = st.store.lock().unwrap();
@@ -753,6 +820,65 @@ mod tests {
     use super::*;
 
     const EXP: u64 = 1_000_000_000;
+
+    #[test]
+    fn fetch_floor_applies_to_every_attempt() {
+        assert!(should_fetch(0, EXP, &[]));
+        assert!(!should_fetch(EXP, EXP + 60_000, &[]));
+        assert!(!should_fetch(EXP, EXP + MIN_FETCH_SECS * 1000 - 1, &[]));
+        assert!(should_fetch(EXP, EXP + MIN_FETCH_SECS * 1000, &[]));
+        assert!(!should_fetch(EXP, EXP - 1, &[]));
+    }
+
+    #[test]
+    fn a_rollover_bypasses_the_floor_only_once() {
+        let reset = EXP + 60_000;
+        let windows = vec![LimitWindow { resets_at: Some(reset), ..win("session") }];
+        assert!(!should_fetch(EXP, reset - 1, &windows));
+        assert!(should_fetch(EXP, reset, &windows));
+        assert!(!should_fetch(reset, reset + 1, &windows));
+        assert!(!should_fetch(reset + 1, reset + 60_000, &windows));
+    }
+
+    #[test]
+    fn retry_after_accepts_seconds_and_http_dates() {
+        assert_eq!(parse_retry_after(" 3600 "), Some(3600));
+        assert_eq!(parse_retry_after("0"), Some(0));
+        assert_eq!(parse_retry_after("Wed, 21 Oct 2015 07:28:00 GMT"), Some(0));
+        assert_eq!(parse_retry_after("invalid"), None);
+        assert_eq!(parse_retry_after(""), None);
+        let future = chrono::Utc::now() + chrono::Duration::seconds(3600);
+        let header = future.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
+        let seconds = parse_retry_after(&format!(" {header} ")).unwrap();
+        assert!((3598..=3600).contains(&seconds));
+    }
+
+    #[test]
+    fn each_profile_restores_its_own_future_deadline() {
+        let order = vec![prof(None), prof(Some("work"))];
+        let snap = UsageSnapshot { backoff_until: EXP + 100, ..Default::default() };
+        let saved = HashMap::from([(key(&order[0]), EXP + 100), (key(&order[1]), EXP + 1000)]);
+        let restored = restore_accounts(&snap, &order, Some(&saved), EXP);
+        assert_eq!(restored[&key(&order[0])].backoff_until, EXP + 100);
+        assert_eq!(restored[&key(&order[1])].backoff_until, EXP + 1000);
+        let expired = restore_accounts(&snap, &order, Some(&saved), EXP + 101);
+        assert_eq!(expired[&key(&order[0])].backoff_until, 0);
+        assert_eq!(expired[&key(&order[1])].backoff_until, EXP + 1000);
+    }
+
+    #[test]
+    fn legacy_deadline_is_restored_conservatively() {
+        let order = vec![prof(None), prof(Some("work"))];
+        let snap = UsageSnapshot { backoff_until: EXP + 100, ..Default::default() };
+        let restored = restore_accounts(&snap, &order, None, EXP);
+        assert!(restored.values().all(|account| account.backoff_until == EXP + 100));
+        let expired = restore_accounts(&snap, &order, None, EXP + 100);
+        assert!(expired.values().all(|account| account.backoff_until == 0));
+        let empty = HashMap::new();
+        let restored = restore_accounts(&snap, &order, Some(&empty), EXP);
+        assert!(restored.values().all(|account| account.backoff_until == 0));
+    }
+
 
     #[test]
     fn renews_only_inside_the_margin() {
@@ -781,7 +907,7 @@ mod tests {
     }
 
     #[test]
-    fn retry_after_never_exceeds_the_cap() {
+    fn retry_after_can_exceed_our_schedule_cap() {
         assert_eq!(backoff_secs(0, 3600), 3600);
         assert_eq!(backoff_secs(0, 0), BACKOFF_BASE_SECS);
         assert_eq!(backoff_secs(1, 300), 300);
