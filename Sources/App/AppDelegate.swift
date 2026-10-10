@@ -174,7 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 + [CursorLocalProvider()]
                 + codexProfiles.map { CodexLocalProvider(profile: $0) }
                 + antigravityProfiles.map { AntigravityProvider(profile: $0) }
-                + [GLMProvider(), MiniMaxProvider(web: miniMaxWeb), GrokLocalProvider(), DevinLocalProvider(), OpenCodeProvider()]
+                + [GLMProvider(), MiniMaxProvider(web: miniMaxWeb), GrokLocalProvider(), GrokBotProvider(), DevinLocalProvider(), OpenCodeProvider()]
                 + commandCodeProfiles.map { CommandCodeProvider(profile: $0) }
                 + [GitHubCopilotProvider(), KimiProvider(), KiroProvider(), AmpProvider(),
                    ApifyProvider(), KiloProvider(),

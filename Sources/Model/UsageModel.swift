@@ -479,6 +479,7 @@ struct ProviderSnapshot: Identifiable, Equatable {
             let slug = ClaudeProfile.slug(fromProviderID: id) ?? ""
             return L10n.t("Sign in to Claude Code in ~/.claude-\(slug) to read your usage", locale: locale)
         case "cursor":     return L10n.t("Sign in to Cursor in the editor", locale: locale)
+        case "grokbot":    return L10n.t("Sign in to Grok Bot in the app", locale: locale)
         case "codex":      return L10n.t("Sign in to Codex to read your usage", locale: locale)
         case "deepseek":   return L10n.t("Sign in to DeepSeek Platform to read your usage", locale: locale)
         case "qoder": return L10n.t("Sign in to Qoder to read your credit usage", locale: locale)
