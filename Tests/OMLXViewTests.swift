@@ -49,7 +49,7 @@ final class OMLXViewTests: XCTestCase {
         XCTAssertNil(vm.snapshots[0].localPerformance)
         XCTAssertEqual(vm.snapshots.first { $0.id == qwen }?.localPerformance, speed)
         XCTAssertEqual(vm.snapshots.first { $0.id == qwen }?.headlineText,
-                       "\(42.8.formatted(.number.precision(.fractionLength(0...1)))) tok/s")
+                       "43 tok/s")
     }
 
     func testTheRingIsTheContextAndTheTooltipGetsTheLedger() throws {

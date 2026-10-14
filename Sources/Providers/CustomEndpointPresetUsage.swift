@@ -37,6 +37,17 @@ struct LlamaCppMetricsReading: Equatable {
         if rate > 0 && rate < 0.1 { return "<0.1 tok/s" }
         return "\(rate.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)))) tok/s"
     }
+
+    /// Under the ring: whole tokens, the same shape as `LocalModelPerformance.headlineText`,
+    /// so the label scales less than the one-decimal `speedText` the tooltip row keeps.
+    var headlineText: String {
+        guard let rate = generationTokensPerSecond else { return "— tok/s" }
+        if rate > 0 && rate < 1 { return "<1 tok/s" }
+        let rounded = rate.rounded()
+        guard rounded >= 1000 else { return "\(Int(rounded)) tok/s" }
+        let value = rounded.formatted(.number.notation(.compactName).precision(.significantDigits(1...2)))
+        return "\(value) t/s"
+    }
 }
 
 enum CustomEndpointFileImportError: LocalizedError, Equatable {

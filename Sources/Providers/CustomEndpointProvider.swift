@@ -642,7 +642,7 @@ actor CustomEndpointProvider: UsageProvider {
             case .llamaCpp(let metrics):
                 window = LimitWindow(
                     id: "llamacpp-speed", label: L10n.t("Average generation speed"),
-                    usedText: metrics.speedText, detail: metrics.speedText, prefersUsedText: true
+                    usedText: metrics.headlineText, detail: metrics.speedText, prefersUsedText: true
                 )
                 let tokens = metrics.totalTokens
                 let text = tokens > 0 && tokens < 1_000

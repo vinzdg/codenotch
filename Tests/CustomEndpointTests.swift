@@ -373,8 +373,21 @@ final class CustomEndpointTests: XCTestCase {
                                            activeRequests: 0, queuedRequests: 0)
         XCTAssertEqual(CustomEndpointPresetUsage.parsePreset(.llamaCpp, data: data), .llamaCpp(reading))
         XCTAssertEqual(reading.speedText, "0 tok/s")
+        XCTAssertEqual(reading.headlineText, "0 tok/s")
         XCTAssertNil(CustomEndpointPresetUsage.parsePreset(.llamaCpp,
             data: Data("llamacpp:predicted_tokens_seconds 8.5".utf8)), "gauges alone must not detect a complete usage source")
+    }
+
+    func testLlamaCppHeadlineRoundsToWholeTokens() {
+        func headline(_ rate: Double?) -> String {
+            LlamaCppMetricsReading(totalTokens: 1, generationTokensPerSecond: rate,
+                                   activeRequests: nil, queuedRequests: nil).headlineText
+        }
+        XCTAssertEqual(headline(nil), "— tok/s")
+        XCTAssertEqual(headline(0.4), "<1 tok/s")
+        XCTAssertEqual(headline(17.5), "18 tok/s")
+        XCTAssertEqual(headline(2400),
+            "\(2400.0.formatted(.number.notation(.compactName).precision(.significantDigits(1...2)))) t/s")
     }
 
     @MainActor
@@ -394,7 +407,8 @@ final class CustomEndpointTests: XCTestCase {
         let provider = CustomEndpointProvider(endpoint: endpoint, network: network, endpointLoader: { _ in endpoint })
         let snapshot = try await provider.fetchSnapshot()
         XCTAssertEqual(snapshot.headlineID, "llamacpp-speed")
-        XCTAssertEqual(snapshot.headlineText, "\(42.5.formatted()) tok/s")
+        XCTAssertEqual(snapshot.headlineText, "42 tok/s")
+        XCTAssertEqual(snapshot.windows[0].detail, "\(42.5.formatted()) tok/s", "the tooltip row keeps the tenth")
         XCTAssertEqual(snapshot.windows.map(\.label), [L10n.t("Average generation speed"), L10n.t("Active requests"),
             L10n.t("Queued requests"), L10n.t("Tokens Since Server Start")])
         XCTAssertEqual(snapshot.windows[1].detail, "1")
