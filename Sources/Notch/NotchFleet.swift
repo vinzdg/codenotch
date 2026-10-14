@@ -323,10 +323,24 @@ final class NotchFleet {
     // MARK: - Readings
 
     func setSnapshots(_ snapshots: [ProviderSnapshot]) {
+        // A pure reorder (same rings, new order) glides: without the
+        // animation the rings jump to their new places, which is what
+        // enabling a sort looked like. Value changes ride unanimated, so a
+        // poll that moves a number does not also move every ring.
+        let oldIDs = self.snapshots.map(\.id)
+        let newIDs = snapshots.map(\.id)
+        let isReorder = oldIDs.count == newIDs.count
+            && !oldIDs.isEmpty && Set(oldIDs) == Set(newIDs) && oldIDs != newIDs
         self.snapshots = snapshots
         let now = Date()
         for model in models {
-            model.updateSnapshots(snapshots)
+            if isReorder {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    model.updateSnapshots(snapshots)
+                }
+            } else {
+                model.updateSnapshots(snapshots)
+            }
             model.now = now
         }
     }

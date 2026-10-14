@@ -318,16 +318,15 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(shutRingsWhenSpent, forKey: Keys.shutRingsWhenSpent) }
     }
 
-    /// Whether the notch sorts rings by what is left instead of the manual
-    /// order: most remaining first, by the window that leads each ring. A
-    /// high number that cannot be spent yet sinks below usable accounts but
-    /// stays above empty ones; the Accounts list keeps the manual order,
-    /// which breaks ties.
+    /// In what order the notch draws its rings: the manual arrangement
+    /// dragging built, most remaining first, or quota expiring soonest
+    /// first. See `RingOrder` for why it is one choice rather than two
+    /// switches.
     ///
-    /// Off by default: the manual arrangement is what dragging built, and
-    /// re-sorting unasked would strand it.
-    @Published var autoOrderByRemaining: Bool {
-        didSet { defaults.set(autoOrderByRemaining, forKey: Keys.autoOrderByRemaining) }
+    /// Manual by default: the manual arrangement is what dragging built,
+    /// and re-sorting unasked would strand it.
+    @Published var ringOrder: RingOrder {
+        didSet { defaults.set(ringOrder.rawValue, forKey: Keys.ringOrder) }
     }
 
     /// Whether accounts with nothing left to spend leave the notch: the
@@ -617,6 +616,8 @@ final class Preferences: ObservableObject {
         static let weeklyReading = "weeklyReading"
         static let shutRingsWhenSpent = "shutRingsWhenSpent"
         static let autoOrderByRemaining = "autoOrderByRemaining"
+        static let autoOrderByDeficit = "autoOrderByDeficit"
+        static let ringOrder = "ringOrder"
         static let hideDepletedAccounts = "hideDepletedAccounts"
         static let claudeDailyPaceRing = "claudeDailyPaceRing"
         static let weeklyHeadline = "weeklyHeadline"
@@ -990,7 +991,11 @@ final class Preferences: ObservableObject {
         // choice for whoever budgets from the other end.
         self.showsRemainingInNotch = defaults.bool(forKey: Self.showsRemainingInNotchKey)
         self.shutRingsWhenSpent = defaults.object(forKey: Keys.shutRingsWhenSpent) as? Bool ?? true
-        self.autoOrderByRemaining = defaults.bool(forKey: Keys.autoOrderByRemaining)
+        self.ringOrder = defaults.string(forKey: Keys.ringOrder).flatMap(RingOrder.init(rawValue:))
+            // Migrated once from the two switches, which could both be on —
+            // the deficit sort won then too, so it wins the migration.
+            ?? (defaults.bool(forKey: Keys.autoOrderByDeficit) ? .deficit
+                : defaults.bool(forKey: Keys.autoOrderByRemaining) ? .remaining : .manual)
         self.hideDepletedAccounts = defaults.bool(forKey: Keys.hideDepletedAccounts)
 
         self.weeklyRing = defaults.string(forKey: Keys.weeklyRing)

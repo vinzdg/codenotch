@@ -173,7 +173,7 @@ final class TooltipRenderTests: XCTestCase {
                                  resetsAt: now.addingTimeInterval(604800), duration: 604800)
         let pace = try XCTUnwrap(window.usagePace(now: now))
         let summary = "\(window.summary) · \(pace.summary)"
-        XCTAssertEqual(summary, "100% Used · 0% left · 100% deficit")
+        XCTAssertEqual(summary, "100% Used · 0% left · 100% over pace")
         let font = NSFont.systemFont(ofSize: Design.fontSize(capPixels: 18))
         let width = (summary as NSString).size(withAttributes: [.font: font]).width
         XCTAssertLessThanOrEqual(width * 0.85, NotchLayout.cardTextWidth)
@@ -244,11 +244,11 @@ final class TooltipRenderTests: XCTestCase {
         let window = LimitWindow(id: "weekly", label: "Weekly limit", usedFraction: 1,
                                  resetsAt: now.addingTimeInterval(604800), duration: 604800)
         let pace = try XCTUnwrap(window.usagePace(now: now))
-        XCTAssertEqual(pace.summary, "100% deficit")
+        XCTAssertEqual(pace.summary, "100% over pace")
         XCTAssertEqual("\(window.summary) · \(pace.summary)",
-                       "100% Used · 0% left · 100% deficit")
+                       "100% Used · 0% left · 100% over pace")
         let remaining = "\(window.summary(showingRemaining: true)) · \(pace.summary)"
-        XCTAssertEqual(remaining, "0% left · 100% Used · 100% deficit")
+        XCTAssertEqual(remaining, "0% left · 100% Used · 100% over pace")
         let font = NSFont.systemFont(ofSize: Design.fontSize(capPixels: 18))
         let width = (remaining as NSString).size(withAttributes: [.font: font]).width
         XCTAssertLessThanOrEqual(width * 0.85, NotchLayout.cardTextWidth)

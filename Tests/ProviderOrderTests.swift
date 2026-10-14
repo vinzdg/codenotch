@@ -185,4 +185,97 @@ final class ProviderOrderTests: XCTestCase {
         XCTAssertEqual(ordered([cell("a", session: 0.5), cell("b", session: 0.5)]),
                        ["a", "b"])
     }
+
+    // MARK: - Auto-order by burn deficit
+
+    private let deficitNow = Date(timeIntervalSince1970: 1_800_000_000)
+    private let week: TimeInterval = 7 * 86400
+
+    /// A cell with a clock: used fraction of a weekly window with `hoursLeft`
+    /// of the week remaining. The burn deficit is remaining minus time left.
+    private func timedCell(_ id: String, used: Double, hoursLeft: Double,
+                           headlineID: String = "weekly_all") -> ProviderSnapshot {
+        let window = LimitWindow(id: "weekly_all", label: "Weekly", usedFraction: used,
+                                 resetsAt: deficitNow.addingTimeInterval(hoursLeft * 3600),
+                                 duration: week)
+        return ProviderSnapshot(id: id, displayName: id, glyph: .claude,
+                                fidelity: .official, status: .ok, windows: [window],
+                                headlineID: headlineID, weeklyID: "weekly_all")
+    }
+
+    private func deficitOrdered(_ snapshots: [ProviderSnapshot]) -> [String] {
+        ProviderOrder.byBurnDeficit(snapshots, now: deficitNow).map(\.id)
+    }
+
+    /// The case this exists for: 70% left expiring in 23h (~56 to burn)
+    /// outranks 100% left with 6 days (~14 to burn), where most-remaining
+    /// would put the fresh 100% first and let the expiring 70% die.
+    func testExpiringQuotaOutranksFreshQuota() {
+        let expiring = timedCell("expiring", used: 0.3, hoursLeft: 23)
+        let fresh = timedCell("fresh", used: 0.0, hoursLeft: 6 * 24)
+        XCTAssertEqual(deficitOrdered([fresh, expiring]), ["expiring", "fresh"])
+        // Most-remaining disagrees: pin the difference the toggle exists for.
+        XCTAssertEqual(ordered([fresh, expiring]), ["fresh", "expiring"])
+    }
+
+    func testMostToBurnFirst() {
+        let high = timedCell("high", used: 0.2, hoursLeft: 12)
+        let low = timedCell("low", used: 0.2, hoursLeft: 5 * 24)
+        XCTAssertEqual(deficitOrdered([low, high]), ["high", "low"])
+    }
+
+    func testOverPaceSinksBelowToBurn() {
+        // Over pace (negative burn, will run out early) has nothing to
+        // waste, so it trails behind-pace rings within usable.
+        let waste = timedCell("waste", used: 0.3, hoursLeft: 23)
+        let over = timedCell("over", used: 0.95, hoursLeft: 5 * 24)
+        XCTAssertEqual(deficitOrdered([over, waste]), ["waste", "over"])
+    }
+
+    func testTimelessUsableSortsByRemainingBelowTimed() {
+        // No clock, no deficit: still usable, but nothing expiring, so it
+        // trails timed rings and orders by what is left among itself.
+        let timed = timedCell("timed", used: 0.9, hoursLeft: 23)
+        let timelessFull = cell("full", session: 0.0)
+        let timelessHalf = cell("half", session: 0.5)
+        XCTAssertEqual(deficitOrdered([timelessFull, timed, timelessHalf]),
+                       ["timed", "full", "half"])
+    }
+
+    func testWeeklyUrgencyCountsBeyondTheHeadline() {
+        // The max across windows, not the headline: a comfortable session
+        // beside an expiring week is still urgent.
+        let session = LimitWindow(id: "session", label: "Session", usedFraction: 0.1,
+                                  resetsAt: deficitNow.addingTimeInterval(4 * 3600), duration: 5 * 3600)
+        let weekly = LimitWindow(id: "weekly_all", label: "Weekly", usedFraction: 0.3,
+                                 resetsAt: deficitNow.addingTimeInterval(23 * 3600), duration: week)
+        let urgent = ProviderSnapshot(id: "urgent", displayName: "urgent", glyph: .claude,
+                                      fidelity: .official, status: .ok,
+                                      windows: [session, weekly],
+                                      headlineID: "session", weeklyID: "weekly_all")
+        let calm = timedCell("calm", used: 0.1, hoursLeft: 6 * 24)
+        XCTAssertEqual(deficitOrdered([calm, urgent]), ["urgent", "calm"])
+    }
+
+    func testDeficitTiersMirrorRemainingTiers() {
+        let usable = timedCell("usable", used: 0.5, hoursLeft: 23)
+        let shut = ProviderSnapshot(
+            id: "shut", displayName: "shut", glyph: .claude,
+            fidelity: .official, status: .ok,
+            windows: [LimitWindow(id: "session", label: "Session", usedFraction: 0.0),
+                      LimitWindow(id: "weekly_all", label: "Weekly", usedFraction: 1.0)],
+            headlineID: "session", weeklyID: "weekly_all")
+        let empty = timedCell("empty", used: 1.0, hoursLeft: 23)
+        let unknown = ProviderSnapshot(id: "unknown", displayName: "u", glyph: .claude,
+                                       fidelity: .official, status: .ok, windows: [],
+                                       headlineID: "session")
+        XCTAssertEqual(deficitOrdered([unknown, empty, shut, usable]),
+                       ["usable", "shut", "empty", "unknown"])
+    }
+
+    func testDeficitTiesKeepManualOrder() {
+        XCTAssertEqual(deficitOrdered([timedCell("a", used: 0.5, hoursLeft: 48),
+                                       timedCell("b", used: 0.5, hoursLeft: 48)]),
+                       ["a", "b"])
+    }
 }

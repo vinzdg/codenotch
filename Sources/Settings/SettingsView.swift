@@ -766,8 +766,11 @@ struct SettingsView: View {
             // so dragging it was arranging something that is not on screen.
             Section(L10n.t("Connected")) {
                 if needsSetup { setupNote }
-                Toggle(L10n.t("Auto-order based on remaining usage"), isOn: $preferences.autoOrderByRemaining)
-                Text(L10n.t("The notch sorts rings by what is left of the window that leads each ring, most first. A high number that cannot be spent yet sinks below usable accounts but stays above empty ones. This list keeps your manual order, which breaks ties."))
+                Picker(L10n.t("Order rings"), selection: $preferences.ringOrder) {
+                    ForEach(RingOrder.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                Text(preferences.ringOrder.explanation)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -789,9 +792,7 @@ struct SettingsView: View {
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else if !connected.isEmpty {
-                    Text(preferences.autoOrderByRemaining
-                         ? L10n.t("Auto-order is on: the notch sorts these by remaining usage. Dragging still sets the order ties break in.")
-                         : L10n.t("The notch draws these in this order. Drag one by its handle to move it."))
+                    Text(listOrderFooter)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -864,7 +865,7 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 Toggle(L10n.t("Show usage pace"), isOn: $preferences.showUsagePace)
-                Text(L10n.t("Compares each timed allowance with the time left until reset, showing quota in deficit or held in reserve."))
+                Text(L10n.t("Compares each timed allowance with the time left until reset: over pace when burning too fast, to burn when quota will expire unused. The to-burn figure is the burn deficit the notch can sort by."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1565,6 +1566,17 @@ struct SettingsView: View {
         guard !connected.contains(where: { $0.localModel != nil }) else { return false }
         let usageAccounts = accounts.filter { $0.kind == .usage }
         return !usageAccounts.isEmpty && usageAccounts.allSatisfy { $0.account == nil }
+    }
+
+    /// What the list footer says about ordering: the picker above names the
+    /// sort, so this only says what dragging still does under it.
+    private var listOrderFooter: String {
+        switch preferences.ringOrder {
+        case .manual:
+            return L10n.t("The notch draws these in this order. Drag one by its handle to move it.")
+        case .remaining, .deficit:
+            return L10n.t("Auto-order is on: dragging still sets the order ties break in.")
+        }
     }
 
     /// Names the tools rather than saying "tools already signed in on this

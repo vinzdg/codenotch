@@ -326,15 +326,16 @@ final class PreferencesMigrationTests: XCTestCase {
         XCTAssertFalse(Preferences(defaults: UserDefaults(suiteName: name)!).shutRingsWhenSpent)
     }
 
-    /// Off by default — the manual arrangement is what dragging built — and
-    /// once somebody flips it, it has to stay flipped across a relaunch.
+    /// Manual by default — the manual arrangement is what dragging built —
+    /// and once somebody picks a sort, it has to stay picked across a
+    /// relaunch.
     func testAutoOrderStaysManualUntilAskedForAndThenSurvivesARelaunch() {
         let (fresh, name) = makeDefaults()
-        XCTAssertFalse(Preferences(defaults: fresh).autoOrderByRemaining)
+        XCTAssertEqual(Preferences(defaults: fresh).ringOrder, .manual)
 
-        Preferences(defaults: fresh).autoOrderByRemaining = true
+        Preferences(defaults: fresh).ringOrder = .remaining
 
-        XCTAssertTrue(Preferences(defaults: UserDefaults(suiteName: name)!).autoOrderByRemaining)
+        XCTAssertEqual(Preferences(defaults: UserDefaults(suiteName: name)!).ringOrder, .remaining)
     }
 
     /// Off by default — rings disappearing unasked would strand the manual

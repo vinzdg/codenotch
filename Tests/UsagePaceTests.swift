@@ -17,12 +17,12 @@ final class UsagePaceTests: XCTestCase {
     func testCalculatesDeficitAndReserve() throws {
         let deficit = try XCTUnwrap(pace(used: 0.98, remaining: 86400))
         XCTAssertEqual(deficit.percentagePoints, 12.285714, accuracy: 0.00001)
-        XCTAssertEqual(deficit.summary, "12.3% deficit")
+        XCTAssertEqual(deficit.summary, "12.3% over pace")
         XCTAssertTrue(deficit.isDeficit)
 
         let reserved = try XCTUnwrap(pace(used: 0.27))
         XCTAssertEqual(reserved.percentagePoints, -23, accuracy: 0.00001)
-        XCTAssertEqual(reserved.summary, "23% reserved")
+        XCTAssertEqual(reserved.summary, "23% to burn")
         XCTAssertFalse(reserved.isDeficit)
     }
 
@@ -46,9 +46,9 @@ final class UsagePaceTests: XCTestCase {
     }
 
     func testFormattingKeepsTheSignAtSubTenthPrecision() throws {
-        XCTAssertEqual(try XCTUnwrap(pace(used: 0.5004)).summary, "<0.1% deficit")
-        XCTAssertEqual(try XCTUnwrap(pace(used: 0.4996)).summary, "<0.1% reserved")
-        XCTAssertEqual(try XCTUnwrap(pace()).summary, "0% reserved")
+        XCTAssertEqual(try XCTUnwrap(pace(used: 0.5004)).summary, "<0.1% over pace")
+        XCTAssertEqual(try XCTUnwrap(pace(used: 0.4996)).summary, "<0.1% to burn")
+        XCTAssertEqual(try XCTUnwrap(pace()).summary, "On pace")
     }
 
     func testDurationCodingRemainsBackwardCompatible() throws {
@@ -110,6 +110,82 @@ final class UsagePacePreferenceTests: XCTestCase {
         XCTAssertFalse(Preferences(defaults: defaults).showUsagePace)
         Preferences(defaults: defaults).showUsagePace = true
         XCTAssertTrue(Preferences(defaults: defaults).showUsagePace)
+    }
+
+    func testDeficitSortDefaultsOffAndSurvivesARelaunch() throws {
+        let name = "DeficitSortPreferenceTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        XCTAssertEqual(Preferences(defaults: defaults).ringOrder, .manual)
+        Preferences(defaults: defaults).ringOrder = .deficit
+        XCTAssertEqual(Preferences(defaults: defaults).ringOrder, .deficit)
+    }
+
+    func testRingOrderMigratesFromTheLegacySwitches() throws {
+        let name = "RingOrderMigrationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        // Both on: deficit won then, so it wins the migration.
+        defaults.set(true, forKey: "autoOrderByRemaining")
+        defaults.set(true, forKey: "autoOrderByDeficit")
+        XCTAssertEqual(Preferences(defaults: defaults).ringOrder, .deficit)
+
+        let remainingName = "RingOrderMigrationRemaining.\(UUID().uuidString)"
+        let remainingDefaults = try XCTUnwrap(UserDefaults(suiteName: remainingName))
+        defer { remainingDefaults.removePersistentDomain(forName: remainingName) }
+        remainingDefaults.set(true, forKey: "autoOrderByRemaining")
+        XCTAssertEqual(Preferences(defaults: remainingDefaults).ringOrder, .remaining)
+    }
+}
+
+final class BurnDeficitTests: XCTestCase {
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+    private let week: TimeInterval = 7 * 86400
+
+    private func window(used: Double, hoursLeft: Double) -> LimitWindow {
+        LimitWindow(id: "w", label: "Weekly", usedFraction: used,
+                    resetsAt: now.addingTimeInterval(hoursLeft * 3600), duration: week)
+    }
+
+    func testBurnIsRemainingMinusTimeLeft() throws {
+        // 70% left with 23h of a week left: ~56 to burn.
+        let urgent = try XCTUnwrap(window(used: 0.3, hoursLeft: 23).burnDeficitPoints(now: now))
+        XCTAssertEqual(urgent, 56.3095, accuracy: 0.01)
+        // 100% left with 6 days: ~14 to burn.
+        let fresh = try XCTUnwrap(window(used: 0.0, hoursLeft: 6 * 24).burnDeficitPoints(now: now))
+        XCTAssertEqual(fresh, 14.2857, accuracy: 0.0001)
+        XCTAssertGreaterThan(urgent, fresh)
+    }
+
+    func testBurnSummaryNamesTheDirection() throws {
+        XCTAssertEqual(try XCTUnwrap(window(used: 0.3, hoursLeft: 23).usagePace(now: now)).burnSummary,
+                       "56.3% to burn")
+        XCTAssertEqual(try XCTUnwrap(window(used: 0.98, hoursLeft: 24).usagePace(now: now)).burnSummary,
+                       "12.3% ahead of pace")
+    }
+
+    func testMaxBurnTakesTheMostUrgentWindow() throws {
+        let session = LimitWindow(id: "session", label: "Session", usedFraction: 0.1,
+                                  resetsAt: now.addingTimeInterval(4 * 3600), duration: 5 * 3600)
+        let weekly = LimitWindow(id: "weekly_all", label: "Weekly", usedFraction: 0.3,
+                                 resetsAt: now.addingTimeInterval(23 * 3600), duration: week)
+        let snapshot = ProviderSnapshot(id: "p", displayName: "p", glyph: .claude,
+                                        fidelity: .official, status: .ok,
+                                        windows: [session, weekly],
+                                        headlineID: "session", weeklyID: "weekly_all")
+        let max = try XCTUnwrap(snapshot.maxBurnDeficit(now: now))
+        XCTAssertEqual(max, 56.3095, accuracy: 0.01)
+        XCTAssertEqual(snapshot.burnDeficitSummary(now: now), "56.3% to burn")
+    }
+
+    func testNoClockMeansNoBurn() {
+        XCTAssertNil(LimitWindow(id: "w", label: "Weekly", usedFraction: 0.3).burnDeficitPoints(now: now))
+        let snapshot = ProviderSnapshot(id: "p", displayName: "p", glyph: .claude,
+                                        fidelity: .official, status: .ok,
+                                        windows: [LimitWindow(id: "w", label: "W", usedFraction: 0.3)],
+                                        headlineID: "w")
+        XCTAssertNil(snapshot.maxBurnDeficit(now: now))
+        XCTAssertNil(snapshot.burnDeficitSummary(now: now))
     }
 }
 

@@ -861,20 +861,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // publishers at most, and the snapshots plus the four display
             // choices are five.
             let displayOptions = preferences.$claudeDailyPaceRing.combineLatest(
-                preferences.$weeklyHeadline, preferences.$autoOrderByRemaining,
+                preferences.$weeklyHeadline, preferences.$ringOrder,
                 preferences.$hideDepletedAccounts)
             store.$notchSnapshots
                 .combineLatest(displayOptions)
                 .receive(on: RunLoop.main)
                 .sink { [weak fleet] snapshots, options in
-                    let (paced, weekly, autoOrder, hideDepleted) = options
+                    let (paced, weekly, order, hideDepleted) = options
                     // Before the derivations: the daily pace ring is advisory,
                     // not a spending gate, and judging off it would hide an
                     // account that overspent today's share while the session
                     // still has room.
                     let usable = hideDepleted ? snapshots.filter { !$0.isDepleted } : snapshots
                     var drawn = Self.drawn(usable, weekly: weekly, paced: paced)
-                    if autoOrder { drawn = ProviderOrder.byRemainingUsage(drawn) }
+                    switch order {
+                    case .deficit:   drawn = ProviderOrder.byBurnDeficit(drawn, now: Date())
+                    case .remaining: drawn = ProviderOrder.byRemainingUsage(drawn)
+                    case .manual:    break
+                    }
                     fleet?.setSnapshots(drawn)
                 }
                 .store(in: &cancellables)

@@ -487,8 +487,11 @@ private struct LimitWindowRow: View {
         guard showsUsagePace, let pace = window.usagePace(now: now) else {
             return Text("")
         }
+        // Either direction is worth a colour: over pace will run out early,
+        // to burn will expire unused. On pace stays quiet.
+        let needsAttention = pace.percentagePoints != 0
         return Text(" · \(pace.summary)")
-            .foregroundColor(pace.isDeficit ? .orange : secondaryInk)
+            .foregroundColor(needsAttention ? .orange : secondaryInk)
     }
 
     /// Blank rather than invented: some providers never say when the window rolls.

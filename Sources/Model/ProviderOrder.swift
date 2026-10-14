@@ -104,4 +104,65 @@ enum ProviderOrder {
         if let other = snapshot.weeklyWindow?.usedFraction, other >= 1 { return (1, remaining) }
         return (0, remaining)
     }
+
+    /// Auto-order by burn deficit: most quota expiring soonest first.
+    ///
+    /// The deficit is remaining quota minus remaining time, in points —
+    /// 70% left with 23h of a week left is ~56 points to burn, while 100%
+    /// with 6 days left is ~14. Sorting most-to-burn first puts the
+    /// use-it-or-lose-it ring at the front, where most-remaining would put
+    /// the fresh 100% first and let the expiring 70% die.
+    ///
+    /// The urgency is the max across every timed window, not the headline:
+    /// a weekly allowance expiring in 23h is urgent even where the 5-hour
+    /// beside it is comfortable. Tiers mirror `byRemainingUsage` so spent
+    /// and unmeasurable rings still sink — only the order within usable
+    /// changes, from most-left to most-expiring:
+    ///
+    /// - timed usable first, most to burn at the top (over-pace, negative
+    ///   burn, sinks to the bottom of this tier — nothing to waste there);
+    /// - timeless usable next, most remaining first (no clock, no deficit);
+    /// - shut with room next, then fully empty, then unmeasurable last.
+    ///
+    /// Stable by arrival order, which is the manual order: ties, and the
+    /// unmeasurable trailing group, keep the arrangement dragging made.
+    static func byBurnDeficit(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        snapshots.enumerated()
+            .sorted {
+                let (rankA, burnA, leftA) = deficitOrderKey(for: $0.element, now: now)
+                let (rankB, burnB, leftB) = deficitOrderKey(for: $1.element, now: now)
+                if rankA != rankB { return rankA < rankB }
+                // Measurable tiers sort by burn first; timeless and empty
+                // tiers carry nil burn and fall through to remaining.
+                if burnA != burnB {
+                    switch (burnA, burnB) {
+                    case let (a?, b?): return a > b
+                    // A measured deficit — even a negative one — outranks
+                    // no clock at all within the same tier.
+                    case (_?, nil): return true
+                    case (nil, _?): return false
+                    case (nil, nil): break
+                    }
+                }
+                if leftA != leftB { return leftA > leftB }
+                return $0.offset < $1.offset
+            }
+            .map(\.element)
+    }
+
+    /// (tier, burn, headline-remaining): 0 timed usable, 1 timeless usable,
+    /// 2 shut with room, 3 fully empty, 4 nothing measurable.
+    private static func deficitOrderKey(for snapshot: ProviderSnapshot, now: Date) -> (tier: Int, burn: Double?, remaining: Double) {
+        guard let used = snapshot.headline?.usedFraction else { return (4, nil, 0) }
+        let remaining = 1 - used
+        if used >= 1 { return (3, snapshot.maxBurnDeficit(now: now), remaining) }
+        if let other = snapshot.weeklyWindow?.usedFraction, other >= 1 {
+            return (2, snapshot.maxBurnDeficit(now: now), remaining)
+        }
+        // Usable: timed sorts by burn, timeless by what is left.
+        if let burn = snapshot.maxBurnDeficit(now: now) {
+            return (0, burn, remaining)
+        }
+        return (1, nil, remaining)
+    }
 }
