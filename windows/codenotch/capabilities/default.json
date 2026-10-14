@@ -4,7 +4,10 @@
   "windows": [
     "notch",
     "settings",
-    "reset-alert"
+    "reset-alert",
+    "taskbar",
+    "taskbar-details",
+    "taskbar-hover"
   ],
   "permissions": [
     "core:default",

@@ -9,6 +9,46 @@ hover card with per-window bars), rebuilt for Windows in Rust + Tauri 2 / WebVie
 No code is copied from the Swift app; the providers are reimplemented from their
 documented behaviour and the wire formats.
 
+## Claude accounts
+
+Settings → Accounts can add, name, reconnect and pause Claude accounts. Each account
+uses the official Claude Code CLI sign-in in its own `~/.claude-<slug>` directory;
+the standalone CLI must be installed. Existing profiles in that layout are detected.
+Pausing monitoring retains the tool's sign-in. Authentication, cached readings and
+retry deadlines stay separate, including after rate limiting or reconnection.
+
+## Taskbar display
+
+Settings → Appearance → Taskbar can place compact usage indicators in free space
+on the left side of the primary taskbar or before the system tray. This is opt-in;
+Original notch restores the screen-edge display. Hover shows account limits and
+reset times, left-click requests a refresh of that account, and right-click opens
+Settings. The width control adjusts the space used by the indicators.
+
+Claude and Codex display the weekly percentage. Available 5-hour and weekly quotas
+have independent arcs; a weekly-only Codex plan has one outer arc, even when the
+provider calls that bucket `primary`. Claude Enterprise accounts publishing only a
+spend limit display that limit. Activity is assigned only to an identified
+account; unknown ownership never animates a different account's indicator.
+
+Size, theme, warning thresholds, colour transition, remaining/used display and weekly-ring position/style
+reuse the existing appearance settings. The weekly option controls an additional
+ring; an account with only a weekly quota keeps its one primary ring. Floating-notch
+visibility, adaptive pill, edge and screen controls are disabled in taskbar mode.
+Changes apply while the app runs. Large indicators are bounded by the taskbar height
+and available width. Use Outside to keep the weekly arc around the 5-hour arc.
+Remaining mode reverses meter fill and numbers; warning colours still reflect used
+quota. Claude indicators hide stale or expired quota arcs; details retain dated
+historical readings and the last reported reset. Clicks respect the existing
+five-minute attempt floor, reset-boundary exception and each account's backoff.
+
+The strip uses an owned native child window and DirectComposition. It does not
+inject code, subclass Explorer or alter its controls. UI Automation finds free
+space; full screen apps, hidden taskbars or missing space hide the strip. Separate
+WebView windows show the details without clipping them to the taskbar. The strip
+is recreated after Explorer restarts. This relies on Explorer's internal layout;
+custom shells, vertical taskbars and secondary taskbars are not supported.
+
 ## What it shows
 
 | Cell | Source | How it reads it |
@@ -89,7 +129,8 @@ other. The Windows app must be running to observe and show a reset.
 
 When Claude is signed out, its card offers **Sign in**, which opens the standalone
 Claude Code CLI's browser login (`claude auth login --claudeai`). It is offered on
-the default `~/.claude` account only, since that is the one the CLI signs in.
+the default `~/.claude` account only. Settings → Accounts also provides sign-in for
+named profiles, passing each profile's directory to the official CLI.
 Finish in the browser; if it
 displays a code, paste it in the opened terminal, not in Codenotch. The card
 refreshes after the CLI exits without restarting the widget. The native CLI must

@@ -24,7 +24,22 @@ pub struct TraySlot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeProfileConfig {
+    pub id: String,
+    pub name: String,
+    #[serde(default = "yes")]
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default)]
+    pub claude_profiles: Vec<ClaudeProfileConfig>,
+    /// off | left | right; an owned child window on the primary Windows taskbar.
+    #[serde(default = "default_taskbar_mode")]
+    pub taskbar_mode: String,
+    #[serde(default = "default_taskbar_width")]
+    pub taskbar_width: u32,
     #[serde(default = "default_port")]
     pub port: u16,
     /// "auto" | "zh" | "zh-Hant" | "en" | "ja" | "ko" | "pt-BR" | "ru" | "uk"
@@ -143,6 +158,9 @@ pub struct Config {
     #[serde(default)]
     pub notch_shows_remaining: bool,
 }
+
+fn default_taskbar_mode() -> String { "off".into() }
+fn default_taskbar_width() -> u32 { 280 }
 
 fn default_notch_y() -> f64 {
     0.5
@@ -288,6 +306,9 @@ fn default_lang() -> String {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            claude_profiles: Vec::new(),
+            taskbar_mode: default_taskbar_mode(),
+            taskbar_width: default_taskbar_width(),
             port: default_port(),
             lang: default_lang(),
             bar_x: None,
@@ -448,13 +469,16 @@ fn migrate_copilot_notch(cfg: &mut Config, raw: &Option<String>) {
 }
 
 pub fn save(cfg: &Config) {
+    let _ = save_checked(cfg);
+}
+
+pub fn save_checked(cfg: &Config) -> Result<(), String> {
     let path = config_path();
     if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
+        std::fs::create_dir_all(dir).map_err(|_| "Unable to create the settings folder".to_string())?;
     }
-    if let Ok(txt) = serde_json::to_string_pretty(cfg) {
-        let _ = std::fs::write(path, txt);
-    }
+    let txt = serde_json::to_string_pretty(cfg).map_err(|_| "Unable to serialize settings".to_string())?;
+    std::fs::write(path, txt).map_err(|_| "Unable to save settings".to_string())
 }
 
 #[cfg(test)]

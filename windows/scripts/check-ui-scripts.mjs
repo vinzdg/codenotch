@@ -12,6 +12,11 @@ import vm from 'node:vm';
 const ui = join(dirname(fileURLToPath(import.meta.url)), '..', 'codenotch', 'ui');
 let failed = false;
 
+for (const name of readdirSync(ui).filter(f => f.endsWith('.js'))) {
+  try { new vm.Script(readFileSync(join(ui, name), 'utf8'), {filename:name}); }
+  catch (error) { failed = true; console.error(name + ': ' + error.message); }
+}
+
 for (const name of readdirSync(ui).filter(f => f.endsWith('.html'))) {
   const html = readFileSync(join(ui, name), 'utf8');
   const blocks = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)];

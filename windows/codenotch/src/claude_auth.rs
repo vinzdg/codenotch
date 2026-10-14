@@ -5,6 +5,7 @@ use std::{process::{Child, Command}, sync::{atomic::{AtomicBool, Ordering}, Mute
 
 static BUSY: AtomicBool = AtomicBool::new(false);
 static MESSAGE: Mutex<String> = Mutex::new(String::new());
+static PROFILE_ID: Mutex<Option<String>> = Mutex::new(None);
 
 /// The lock guards one short line of status text. A panic while it is held would
 /// poison it and take the whole card down with `unwrap`, which is a steep price
@@ -14,10 +15,14 @@ fn message() -> std::sync::MutexGuard<'static, String> {
 }
 
 #[derive(Serialize)]
-pub struct AuthState { pub busy: bool, pub message: String }
+pub struct AuthState { pub busy: bool, pub message: String, pub profile_id: Option<String> }
 
 pub fn state() -> AuthState {
-    AuthState { busy: BUSY.load(Ordering::Acquire), message: message().clone() }
+    // Do not hold the message mutex while acquiring the profile mutex: usage
+    // acknowledgement holds the profile while clearing the corresponding line.
+    let status_message = message().clone();
+    let profile_id = PROFILE_ID.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    AuthState { busy: BUSY.load(Ordering::Acquire), message: status_message, profile_id }
 }
 
 /// Shared with background renewal so the two native clients cannot rotate the
@@ -30,8 +35,11 @@ impl Drop for AuthGuard {
     fn drop(&mut self) { BUSY.store(false, Ordering::Release); }
 }
 
-pub fn usage_succeeded() {
-    if !BUSY.load(Ordering::Acquire) { message().clear(); }
+pub fn usage_succeeded(profile_id: &str) {
+    // A new login writes its profile before its message. Holding this lock
+    // prevents an older successful read from erasing that newly-written message.
+    let current_profile = PROFILE_ID.lock().unwrap_or_else(|e| e.into_inner());
+    if !BUSY.load(Ordering::Acquire) && current_profile.as_deref() == Some(profile_id) { message().clear(); }
 }
 
 // No interpolated shell input: even paths containing apostrophes arrive in env.
@@ -71,7 +79,7 @@ fn terminal_emulator() -> Option<std::path::PathBuf> {
 }
 
 #[cfg(not(windows))]
-fn login_command(cli: &std::path::Path) -> Result<Command, String> {
+fn login_command(cli: &std::path::Path, profile_dir: &std::path::Path) -> Result<Command, String> {
     let term = terminal_emulator().ok_or("No terminal emulator found. Run `claude auth login` yourself.")?;
     let mut cmd = Command::new(term);
     cmd.args(["-e", "sh", "-c", LOGIN_SH]).env("CODENOTCH_CLAUDE_CLI", cli);
@@ -83,11 +91,12 @@ fn login_command(cli: &std::path::Path) -> Result<Command, String> {
             cmd.env_remove(&key);
         }
     }
+    cmd.env("CLAUDE_CONFIG_DIR", profile_dir);
     Ok(cmd)
 }
 
 #[cfg(windows)]
-fn login_command(cli: &std::path::Path) -> Result<Command, String> {
+fn login_command(cli: &std::path::Path, profile_dir: &std::path::Path) -> Result<Command, String> {
     let root = std::env::var_os("SystemRoot").ok_or("Windows directory unavailable.")?;
     let mut cmd = Command::new(std::path::PathBuf::from(root).join("System32/WindowsPowerShell/v1.0/powershell.exe"));
     cmd.args(["-NoLogo", "-NoProfile", "-Command", LOGIN_SCRIPT]).env("CODENOTCH_CLAUDE_CLI", cli);
@@ -105,6 +114,7 @@ fn login_command(cli: &std::path::Path) -> Result<Command, String> {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0000_0010); // visible console only after a user's click
     }
+    cmd.env("CLAUDE_CONFIG_DIR", profile_dir);
     Ok(cmd)
 }
 
@@ -135,18 +145,25 @@ fn wait_child(child: &mut Child, timeout: Duration) -> bool {
 }
 
 pub fn start_login() -> Result<(), String> {
+    let home = dirs::home_dir().ok_or("Home directory unavailable")?;
+    start_profile_login(&home.join(".claude"), "default")
+}
+
+pub fn start_profile_login(profile_dir: &std::path::Path, profile_id: &str) -> Result<(), String> {
     let cli = crate::usage::find_cli().ok_or("Claude Code CLI not found. Install the standalone CLI first.")?;
     let guard = try_acquire().ok_or("Claude sign-in or renewal is already running.")?;
-    let mut cmd = login_command(&cli)?;
+    let mut cmd = login_command(&cli, profile_dir)?;
     let mut child = cmd.spawn().map_err(|_| "Unable to open Claude sign-in window.")?;
+    *PROFILE_ID.lock().unwrap_or_else(|e| e.into_inner()) = Some(profile_id.to_string());
     *message() = "Complete sign-in in the browser or terminal window.".into();
+    let profile_id = profile_id.to_string();
     std::thread::spawn(move || {
         let ok = wait_child(&mut child, Duration::from_secs(15 * 60));
         *message() = if ok { "Sign-in complete. Refreshing usage..." } else {
             "Sign-in cancelled, failed or timed out. Try again."
         }.into();
         drop(guard);
-        crate::usage::request_refresh();
+        if ok { crate::usage::request_account_refresh(&profile_id); }
     });
     Ok(())
 }
@@ -162,12 +179,21 @@ mod tests {
         drop(guard);
         assert!(!state().busy);
         assert!(try_acquire().is_some());
+        *PROFILE_ID.lock().unwrap_or_else(|e| e.into_inner()) = Some("work".into());
+        *message() = "Sign-in complete. Refreshing usage...".into();
+        usage_succeeded("default");
+        assert!(!state().message.is_empty(), "an unrelated account cannot acknowledge this account's sign-in");
+        usage_succeeded("work");
+        assert!(state().message.is_empty());
+        *PROFILE_ID.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
     #[test]
     #[cfg(windows)]
     fn paths_are_data_not_shell_source() {
         let path = std::path::Path::new(r"C:\fixture with spaces\O'Brien\claude.cmd");
-        let cmd = login_command(path).unwrap();
+        let profile = std::path::Path::new(r"C:\Users\fixture\.claude-work");
+        let cmd = login_command(path, profile).unwrap();
+        assert!(cmd.get_envs().any(|(k,v)| k == "CLAUDE_CONFIG_DIR" && v == Some(profile.as_os_str())));
         assert!(cmd.get_args().all(|arg| !arg.to_string_lossy().contains("O'Brien")));
         assert!(cmd.get_envs().any(|(k,v)| k == "CODENOTCH_CLAUDE_CLI" && v == Some(path.as_os_str())));
     }

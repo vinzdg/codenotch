@@ -326,6 +326,7 @@ fn ingest(app: &AppHandle, tracks: &mut HashMap<PathBuf, Trk>, path: &Path) {
     if session.is_empty() {
         return;
     }
+    crate::taskbar_activity::record_session_profile(path, &session);
     let mut cwd = v
         .get("cwd")
         .and_then(|x| x.as_str())

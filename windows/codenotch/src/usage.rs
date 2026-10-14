@@ -24,6 +24,7 @@ use crate::AppState;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -43,20 +44,60 @@ const RENEW_RETRY_CAP_MS: u64 = 60 * 60 * 1000;
 const RENEW_TIMEOUT_SECS: u64 = 30;
 const EXPIRED_NOTE: &str = "Credential expired — run claude once in a terminal to renew it";
 
-static REFRESH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+#[derive(Default)]
+struct RefreshRequest {
+    all: bool,
+    accounts: Vec<String>,
+}
+
+impl RefreshRequest {
+    fn all() -> Self { Self { all: true, accounts: Vec::new() } }
+
+    fn merge(&mut self, other: Self) {
+        if self.all || other.all {
+            *self = Self::all();
+        } else {
+            for id in other.accounts {
+                if !self.accounts.contains(&id) { self.accounts.push(id); }
+            }
+        }
+    }
+
+    fn includes(&self, p: &Profile) -> bool {
+        self.all || self.accounts.iter().any(|id| id == p.slug.as_deref().unwrap_or("default"))
+    }
+
+    fn is_empty(&self) -> bool { !self.all && self.accounts.is_empty() }
+}
+
+static REFRESH: Mutex<RefreshRequest> = Mutex::new(RefreshRequest { all: false, accounts: Vec::new() });
+
+fn take_refresh() -> RefreshRequest {
+    std::mem::take(&mut *REFRESH.lock().unwrap_or_else(|e| e.into_inner()))
+}
 
 /// Immediate refresh from the tray or a command
 pub fn request_refresh() {
-    REFRESH.store(true, std::sync::atomic::Ordering::Relaxed);
+    REFRESH.lock().unwrap_or_else(|e| e.into_inner()).merge(RefreshRequest::all());
 }
 
-/// Sleep in slices so request_refresh can interrupt it
-fn sleep_interruptible(total_secs: u64) {
-    for _ in 0..total_secs {
-        if REFRESH.swap(false, std::sync::atomic::Ordering::Relaxed) {
-            return;
+/// Queue only this profile; the poller's existing account state still owns its retry deadline.
+pub fn request_account_refresh(id: &str) {
+    REFRESH.lock().unwrap_or_else(|e| e.into_inner())
+        .merge(RefreshRequest { all: false, accounts: vec![id.to_string()] });
+}
+
+/// A targeted click wakes the poller without moving the next regular refresh of all accounts.
+fn sleep_interruptible(deadline: u64, mut automatic: RefreshRequest) -> RefreshRequest {
+    loop {
+        let pending = take_refresh();
+        let now = now_ms();
+        if now >= deadline {
+            automatic.merge(pending);
+            return automatic;
         }
-        std::thread::sleep(Duration::from_secs(1));
+        if !pending.is_empty() { return pending; }
+        std::thread::sleep(Duration::from_millis((deadline - now).min(1000)));
     }
 }
 
@@ -75,11 +116,12 @@ const CRED_NAMES: [&str; 2] = [".credentials.json", "credentials.json"];
 struct Profile {
     dir: PathBuf,
     slug: Option<String>,
+    label: Option<String>,
 }
 
 impl Profile {
     fn name(&self) -> String {
-        self.slug.clone().unwrap_or_else(|| "default".into())
+        self.label.clone().unwrap_or_else(|| self.slug.clone().unwrap_or_else(|| "default".into()))
     }
 
     /// The heading the card files this account's windows under. The plan is what tells two accounts
@@ -92,35 +134,13 @@ impl Profile {
     }
 }
 
-fn has_credential(dir: &Path) -> bool {
-    CRED_NAMES.iter().any(|n| dir.join(n).is_file())
-}
-
-/// Every account on the machine: the default first, then ~/.claude-<slug> in name order. A secondary
-/// directory counts only once it holds a credential, so a half-made one never shows up on the card as
-/// an account waiting to be signed in.
+/// Enabled accounts: the default, discovered signed-in folders, and explicitly registered
+/// profiles awaiting their first login. Pending accounts remain available in Settings.
 fn profiles() -> Vec<Profile> {
-    let Some(home) = dirs::home_dir() else {
-        return Vec::new();
-    };
-    let mut out = vec![Profile { dir: home.join(".claude"), slug: None }];
-    let mut extra: Vec<Profile> = Vec::new();
-    if let Ok(rd) = std::fs::read_dir(&home) {
-        for e in rd.flatten() {
-            let name = e.file_name().to_string_lossy().to_string();
-            let Some(slug) = name.strip_prefix(".claude-") else {
-                continue;
-            };
-            let dir = e.path();
-            if slug.is_empty() || !dir.is_dir() || !has_credential(&dir) {
-                continue;
-            }
-            extra.push(Profile { dir, slug: Some(slug.to_string()) });
-        }
-    }
-    extra.sort_by(|a, b| a.slug.cmp(&b.slug));
-    out.append(&mut extra);
-    out
+    crate::claude_accounts::profiles(&crate::config::load()).into_iter()
+        .filter(|p| p.enabled)
+        .map(|p| Profile { dir: p.dir, slug: if p.id == "default" { None } else { Some(p.id) },
+            label: if p.name == "Claude" { None } else { Some(p.name) } }).collect()
 }
 
 /// Every account directory, for anything that watches a profile's files (the session watcher)
@@ -149,7 +169,27 @@ pub struct LimitWindow {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ClaudeAccountUsage {
+    pub id: String,
+    pub name: String,
+    pub status: String,
+    pub note: String,
+    pub fetched_at: u64,
+    #[serde(default)]
+    pub backoff_until: u64,
+    #[serde(default)]
+    pub consecutive_429: u32,
+    #[serde(default)]
+    pub last_rate_limit_at: u64,
+    #[serde(default)]
+    pub last_attempt_at: u64,
+    pub windows: Vec<LimitWindow>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UsageSnapshot {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub accounts: Vec<ClaudeAccountUsage>,
     /// ok | stale | needsAuth | backoff | error
     pub status: String,
     pub windows: Vec<LimitWindow>,
@@ -607,6 +647,7 @@ struct Account {
     note: String,
     fetched_at: u64,
     last_fetch: u64,
+    last_rate_limit_at: u64,
 }
 
 fn key(p: &Profile) -> String {
@@ -644,31 +685,32 @@ fn split_persisted(snap: &UsageSnapshot, order: &[Profile]) -> HashMap<String, V
     out
 }
 
-fn restore_accounts(
-    snap: &UsageSnapshot,
-    order: &[Profile],
-    backoffs: Option<&HashMap<String, u64>>,
-    now: u64,
-) -> HashMap<String, Account> {
+fn restore_accounts(snap: &UsageSnapshot, order: &[Profile], backoffs: Option<&HashMap<String, u64>>, now: u64) -> HashMap<String, Account> {
     let mut windows = split_persisted(snap, order);
-    order.iter().map(|profile| {
-        let profile_key = key(profile);
-        // Old versions saved only the aggregate; use it conservatively until a per-profile file exists.
-        let deadline = backoffs.map(|saved| saved.get(&profile_key).copied().unwrap_or(0))
-            .unwrap_or(snap.backoff_until);
+    order.iter().map(|p| {
+        let profile_key = key(p);
+        let id = p.slug.as_deref().unwrap_or("default");
+        let saved = snap.accounts.iter().find(|account| account.id == id);
+        let legacy = backoffs.map(|saved| saved.get(&profile_key).copied().unwrap_or(0)).unwrap_or(snap.backoff_until);
+        // A crash between the two writes must not discard the longer server deadline.
+        let deadline = saved.map(|account| account.backoff_until).unwrap_or(0).max(legacy);
+        let fetched_at = saved.map(|account| account.fetched_at).unwrap_or(snap.fetched_at);
         let account = Account {
-            windows: windows.remove(&profile_key).unwrap_or_default(),
-            fetched_at: snap.fetched_at,
-            status: snap.status.clone(),
-            note: snap.note.clone(),
+            windows: windows.remove(&profile_key).unwrap_or_else(|| saved.map(|account| decorate(account.windows.clone(), p, None)).unwrap_or_default()),
+            fetched_at,
+            status: saved.map(|account| account.status.clone()).unwrap_or_else(|| snap.status.clone()),
+            note: saved.map(|account| account.note.clone()).unwrap_or_else(|| snap.note.clone()),
             backoff_until: if deadline > now { deadline } else { 0 },
+            last_fetch: saved.map(|account| account.last_attempt_at).unwrap_or(0).max(fetched_at),
+            consecutive_429: saved.map(|account| account.consecutive_429).unwrap_or(0),
+            last_rate_limit_at: saved.map(|account| account.last_rate_limit_at).unwrap_or(0),
             ..Default::default()
         };
         (profile_key, account)
     }).collect()
 }
 
-fn should_fetch(last_fetch: u64, now: u64, windows: &[LimitWindow]) -> bool {
+pub(crate) fn should_fetch(last_fetch: u64, now: u64, windows: &[LimitWindow]) -> bool {
     last_fetch == 0 || now.saturating_sub(last_fetch) >= MIN_FETCH_SECS * 1000
         || windows.iter().any(|window| matches!(window.resets_at, Some(reset) if reset > last_fetch && reset <= now))
 }
@@ -697,6 +739,17 @@ fn aggregate(order: &[Profile], accounts: &HashMap<String, Account>) -> UsageSna
             continue;
         };
         snap.windows.extend(a.windows.iter().cloned());
+        snap.accounts.push(ClaudeAccountUsage {
+            id: p.slug.clone().unwrap_or_else(|| "default".into()), name: p.name(),
+            status: a.status.clone(), note: a.note.clone(), fetched_at: a.fetched_at,
+            backoff_until: a.backoff_until,
+            consecutive_429: a.consecutive_429, last_rate_limit_at: a.last_rate_limit_at, last_attempt_at: a.last_fetch,
+            windows: a.windows.iter().cloned().map(|mut w| {
+                if let Some(slug) = &p.slug { w.id = w.id.strip_suffix(&format!("@{slug}")).unwrap_or(&w.id).to_string(); }
+                w.group = None; w
+            }).collect(),
+        });
+
         snap.fetched_at = snap.fetched_at.max(a.fetched_at);
         if !a.status.is_empty() && rank(a.status.as_str()) < best {
             best = rank(a.status.as_str());
@@ -711,7 +764,7 @@ fn aggregate(order: &[Profile], accounts: &HashMap<String, Account>) -> UsageSna
         }
     }
     if snap.status.is_empty() {
-        snap.status = "needsAuth".into();
+        snap.status = if order.is_empty() { "absent" } else { "needsAuth" }.into();
     }
     snap.note = notes.join(" · ");
     snap
@@ -754,7 +807,7 @@ fn poll_account(p: &Profile, acc: &mut Account, group: Option<&str>) {
             };
             match result {
                 Ok(windows) => {
-                    crate::claude_auth::usage_succeeded();
+                    crate::claude_auth::usage_succeeded(p.slug.as_deref().unwrap_or("default"));
                     acc.consecutive_429 = 0;
                     acc.status = "ok".into();
                     acc.windows = decorate(windows, p, group);
@@ -767,7 +820,8 @@ fn poll_account(p: &Profile, acc: &mut Account, group: Option<&str>) {
                     acc.note = "Credential rejected (switched accounts?)".into();
                 }
                 Err(FetchErr::RateLimited(ra)) => {
-                    acc.consecutive_429 += 1;
+                    if acc.windows.is_empty() { acc.status = "backoff".into(); }
+                    acc.consecutive_429 = acc.consecutive_429.saturating_add(1);
                     let wait = backoff_secs(acc.consecutive_429 - 1, ra);
                     // The status is left alone: a refused refresh says nothing about the reading we are
                     // holding, which is exactly as old as it was a moment ago. Marking it stale here
@@ -775,7 +829,8 @@ fn poll_account(p: &Profile, acc: &mut Account, group: Option<&str>) {
                     // rate limit. Age decides, as it does on the Mac (`UsageStore` keeps the previous
                     // status until `staleAfter`), and the note says why it is not moving.
                     acc.note = format!("Rate limited, retrying in {wait}s");
-                    acc.backoff_until = now_ms().saturating_add(wait.saturating_mul(1000));
+                    acc.last_rate_limit_at = now_ms();
+                    acc.backoff_until = acc.last_rate_limit_at.saturating_add(wait.saturating_mul(1000));
                 }
                 Err(FetchErr::Other(msg)) => {
                     // No reading at all is an error worth showing; a reading we could not refresh is
@@ -790,6 +845,32 @@ fn poll_account(p: &Profile, acc: &mut Account, group: Option<&str>) {
     }
 }
 
+fn poll_selected_accounts(order: &[Profile], accounts: &mut HashMap<String, Account>, requested: &RefreshRequest) {
+    let multi = order.len() > 1;
+    for p in order.iter().filter(|p| requested.includes(p)) {
+        let group = if multi {
+            Some(p.group(read_credentials(&p.dir).and_then(|c| c.plan).as_deref()))
+        } else {
+            None
+        };
+        let acc = accounts.entry(key(p)).or_default();
+        poll_account(p, acc, group.as_deref());
+    }
+}
+
+/// Regular polling and each account's retry are separate clocks. A throttled
+/// profile must not turn the other profiles' five-minute cadence into 30 seconds.
+fn next_scheduled_refresh(next_regular: u64, order: &[Profile], accounts: &HashMap<String, Account>) -> (u64, RefreshRequest) {
+    let retry = order.iter().filter_map(|p| accounts.get(&key(p)))
+        .map(|a| a.backoff_until).filter(|deadline| *deadline > 0).min();
+    let Some(retry) = retry.filter(|deadline| *deadline < next_regular) else {
+        return (next_regular, RefreshRequest::all());
+    };
+    let ids = order.iter().filter(|p| accounts.get(&key(p)).is_some_and(|a| a.backoff_until == retry))
+        .map(|p| p.slug.clone().unwrap_or_else(|| "default".into())).collect();
+    (retry, RefreshRequest { all: false, accounts: ids })
+}
+
 pub fn start(app: AppHandle) {
     std::thread::spawn(move || {
         // Broadcast the persisted old reading at startup (stale beats blank)
@@ -801,31 +882,26 @@ pub fn start(app: AppHandle) {
         };
         let backoffs = load_backoffs();
         let mut accounts = restore_accounts(&persisted, &profiles(), backoffs.as_ref(), now_ms());
+        let mut requested = RefreshRequest::all();
+        let mut next_regular = now_ms();
         loop {
             // A sign-in the user started owns the credential until it finishes. Polling through it
             // reads a file being rewritten and reports a signed-out account mid-login.
             if crate::claude_auth::state().busy {
-                sleep_interruptible(2);
+                // Leave requests queued while authentication owns the credentials.
+                std::thread::sleep(Duration::from_secs(1));
                 continue;
             }
+            requested.merge(take_refresh());
+            if now_ms() >= next_regular { requested.merge(RefreshRequest::all()); }
             // Re-read the list each tick: an account signed into or removed while this runs needs no restart
             let order = profiles();
-            let multi = order.len() > 1;
-            for p in &order {
-                let group = if multi {
-                    Some(p.group(read_credentials(&p.dir).and_then(|c| c.plan).as_deref()))
-                } else {
-                    None
-                };
-                let acc = accounts.entry(key(p)).or_default();
-                poll_account(p, acc, group.as_deref());
-            }
+            poll_selected_accounts(&order, &mut accounts, &requested);
             accounts.retain(|k, _| order.iter().any(|p| key(p) == *k));
             persist_backoffs(&accounts);
             let snap = aggregate(&order, &accounts);
-            let backoff_until = snap.backoff_until;
             set_and_broadcast(&app, |u| *u = snap);
-            // Keep renewal checks responsive; the per-account floor gates endpoint requests.
+            // Preserve upstream renewal cadence; should_fetch owns the endpoint floor.
             let active = {
                 let st = app.state::<AppState>();
                 let store = st.store.lock().unwrap();
@@ -833,15 +909,11 @@ pub fn start(app: AppHandle) {
                 !s.sessions.is_empty()
             };
             let base = if active { POLL_ACTIVE_SECS } else { POLL_IDLE_SECS };
-            // A back-off deadline sooner than the next tick is what we wake for, as the single-account
-            // loop did when it slept the window out in slices
-            let now = now_ms();
-            let secs = if backoff_until > now {
-                ((backoff_until - now) / 1000).clamp(1, base.min(30))
-            } else {
-                base
-            };
-            sleep_interruptible(secs);
+            if requested.all {
+                next_regular = now_ms().saturating_add(base * 1000);
+            }
+            let (deadline, automatic) = next_scheduled_refresh(next_regular, &order, &accounts);
+            requested = sleep_interruptible(deadline, automatic);
         }
     });
 }
@@ -1014,11 +1086,80 @@ mod tests {
                 None => "/home/u/.claude".to_string(),
             }),
             slug: slug.map(String::from),
+            label: None,
         }
     }
 
     fn win(id: &str) -> LimitWindow {
         LimitWindow { id: id.into(), label: "Current session".into(), used: 0.5, ..Default::default() }
+    }
+
+    #[test]
+    fn a_targeted_refresh_keeps_other_accounts_reading_and_backoff_untouched() {
+        let mut order = vec![prof(None), prof(Some("work"))];
+        for (index, p) in order.iter_mut().enumerate() {
+            p.dir = std::env::temp_dir().join(format!("codenotch-no-credentials-{}-{index}", std::process::id()));
+            assert!(!p.dir.exists(), "fixture must not contain a real credential");
+        }
+        let mut accounts = HashMap::new();
+        accounts.insert(key(&order[0]), Account { windows: vec![win("session")], status: "ok".into(),
+            fetched_at: 10, backoff_until: 123, consecutive_429: 3, ..Default::default() });
+        let requested = RefreshRequest { all: false, accounts: vec!["work".into()] };
+        poll_selected_accounts(&order, &mut accounts, &requested);
+        assert_eq!(accounts[&key(&order[1])].status, "needsAuth");
+        let untouched = &accounts[&key(&order[0])];
+        assert_eq!(untouched.status, "ok");
+        assert_eq!(untouched.fetched_at, 10);
+        assert_eq!(untouched.windows[0].used, 0.5);
+        assert_eq!(untouched.backoff_until, 123);
+        assert_eq!(untouched.consecutive_429, 3);
+        assert_eq!(aggregate(&order, &accounts).accounts.len(), 2);
+    }
+
+    #[test]
+    fn refresh_requests_coalesce_accounts_and_a_full_refresh_still_covers_every_profile() {
+        let mut request = RefreshRequest { all: false, accounts: vec!["work".into()] };
+        request.merge(RefreshRequest { all: false, accounts: vec!["work".into(), "other".into()] });
+        assert_eq!(request.accounts, vec!["work", "other"]);
+        assert!(!request.includes(&prof(None)));
+        assert!(request.includes(&prof(Some("work"))));
+        request.merge(RefreshRequest::all());
+        assert!(request.includes(&prof(None)));
+        assert!(request.includes(&prof(Some("unlisted"))));
+        assert!(request.accounts.is_empty(), "full refresh subsumes queued account clicks");
+    }
+
+    #[test]
+    fn restarting_and_targeted_refresh_preserve_a_live_server_deadline_and_history() {
+        let order = vec![prof(None), prof(Some("work"))];
+        let deadline = now_ms().saturating_add(480_000);
+        let persisted = UsageSnapshot { accounts: vec![ClaudeAccountUsage { id: "work".into(),
+            status: "stale".into(), backoff_until: deadline, consecutive_429: 4, last_rate_limit_at: deadline - 480_000,
+            note: "Rate limited, retrying in 480s".into(), ..Default::default() }], ..Default::default() };
+        let mut accounts = restore_accounts(&persisted, &order, None, now_ms());
+        poll_selected_accounts(&order, &mut accounts, &RefreshRequest { all: false, accounts: vec!["work".into()] });
+        let account = &accounts[&key(&order[1])];
+        assert_eq!(account.backoff_until, deadline, "a click or reload cannot extend or bypass Retry-After");
+        assert_eq!(account.consecutive_429, 4);
+        assert_eq!(account.last_rate_limit_at, deadline - 480_000);
+        assert_eq!(account.note, "Rate limited, retrying in 480s");
+        assert_eq!(aggregate(&order, &accounts).accounts[1].backoff_until, deadline);
+    }
+
+    #[test]
+    fn restarting_preserves_the_official_floor_after_a_failed_account_attempt() {
+        let order = vec![prof(None), prof(Some("work"))];
+        let persisted = UsageSnapshot { accounts: vec![ClaudeAccountUsage {
+            id: "work".into(), fetched_at: EXP - 600_000, last_attempt_at: EXP,
+            status: "ok".into(), ..Default::default()
+        }], ..Default::default() };
+        let restored = restore_accounts(&persisted, &order, Some(&HashMap::new()), EXP + 60_000);
+        let work = &restored[&key(&order[1])];
+        assert_eq!(work.last_fetch, EXP);
+        assert!(!should_fetch(work.last_fetch, EXP + 60_000, &work.windows));
+        assert!(should_fetch(work.last_fetch, EXP + 300_000, &work.windows));
+        assert!(should_fetch(restored[&key(&order[0])].last_fetch, EXP + 60_000, &[]));
+        assert_eq!(aggregate(&order, &restored).accounts[1].last_attempt_at, EXP);
     }
 
     #[test]

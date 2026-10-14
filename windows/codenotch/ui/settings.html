@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>Codenotch Settings</title>
+<link rel="stylesheet" href="accounts-taskbar.css">
 <style>
   /* The Mac's Settings (Sources/Settings/SettingsView.swift) over Windows 11's Mica: a sidebar card
      darker than the pane, grouped sections with captions as rows, and Windows' own control cues —
@@ -122,6 +123,7 @@
   .link{border:0;background:none;padding:0;color:var(--accent);cursor:pointer;font-size:12px}
   .link:hover{text-decoration:underline}
 
+  .notch-only{border:0;margin:0;padding:0;min-width:0}.notch-only:disabled{opacity:.45}
   #toast{position:fixed;right:18px;bottom:14px;background:var(--side);border:1px solid var(--line);border-radius:8px;
     padding:5px 10px;font-size:12px;color:var(--text2);opacity:0;transition:opacity .3s;pointer-events:none}
   #toast.show{opacity:1}
@@ -147,6 +149,14 @@
     <div id="body">
 
       <section class="pane" id="pane-accounts" role="tabpanel" aria-labelledby="tab-accounts" hidden>
+        <div class="sec" id="claude-profiles-title" data-dynamic>Claude accounts</div>
+        <div class="group" id="claude-profiles" data-dynamic></div>
+        <form class="group profile-add" id="claude-add-form">
+          <label for="claude-account-name" id="claude-name-label">New account name</label>
+          <div class="profile-add-line"><input id="claude-account-name" maxlength="40" required autocomplete="off" placeholder="Example: Work"><button class="btn" id="claude-add-button" type="submit">Add account</button></div>
+          <p id="claude-login-help">Each account uses the official Claude CLI sign-in in a separate folder.</p>
+        </form>
+        <p id="claude-profile-message" class="profile-message" role="status" aria-live="polite" data-dynamic></p>
         <div class="sec">Connected</div>
         <div class="group" id="acc-on" data-dynamic></div>
         <div id="acc-off-wrap" hidden>
@@ -156,14 +166,24 @@
       </section>
 
       <section class="pane" id="pane-appearance" role="tabpanel" aria-labelledby="tab-appearance" hidden>
-        <div class="sec">Notch</div>
+        <div class="sec" id="taskbar-title" data-dynamic>Taskbar</div>
         <div class="group">
+          <div class="item"><label id="taskbar-position-label" for="taskbar-position">Display</label><select id="taskbar-position"><option value="off">Original notch</option><option value="left">Left side</option><option value="right">Before system tray</option></select></div>
+          <div class="item slider"><label id="taskbar-width-label" for="taskbar-width">Width</label><span class="value" id="taskbar-width-value" data-dynamic>280 px</span><input id="taskbar-width" class="range" type="range" min="144" max="520" step="8"></div>
+          <div class="item cap" id="taskbar-help" data-dynamic>Use free space on the primary taskbar. Hover for account limits; click to refresh that account.</div>
+          <div class="item cap" id="taskbar-status" role="status" data-dynamic hidden></div>
+        </div>
+        <div class="sec" id="appearance-indicators-title" data-dynamic>Notch</div>
+        <div class="group">
+          <div class="item cap" id="taskbar-appearance-note" data-dynamic hidden></div>
+          <fieldset class="notch-only" data-notch-only>
           <div class="item"><span>Show</span><span class="seg" id="seg-show"><button data-v="show">Always show</button><button data-v="hover">Show on hover</button><button data-v="hide">Hide</button></span></div>
           <div class="item cap" id="cap-show" data-dynamic></div>
           <div class="item"><span>Fold for full-screen apps</span><button class="switch" id="sw-fullscreen" role="switch" aria-checked="false" aria-label="Fold for full-screen apps"></button></div>
           <div class="item cap">The notch folds away while a full-screen app is frontmost, and returns when you leave it. Off keeps it in place over full-screen apps.</div>
           <div class="item"><span>Adaptive pill</span><button class="switch" id="sw-adaptive" role="switch" aria-checked="false" aria-label="Adaptive pill"></button></div>
           <div class="item cap">While the notch is folded, its pill follows what is behind it: light over a dark background, black over a light one, so it stays easy to find. To tell, Codenotch reads a thin strip of the screen beside the pill twice a second and keeps only its average brightness.</div>
+          </fieldset>
           <div class="item"><span>Size</span><span class="seg" id="seg-size"><button data-v="0.8">Small</button><button data-v="1">Medium</button><button data-v="1.25">Large</button></span></div>
           <div class="item cap" id="cap-size" data-dynamic></div>
           <div class="item"><span>Theme</span><span class="seg" id="seg-theme"><button data-v="system">System</button><button data-v="light">Light</button><button data-v="dark">Dark</button></span></div>
@@ -171,15 +191,17 @@
           <div class="item"><span>Weekly ring</span><span class="seg" id="seg-weekly"><button data-v="off">Off</button><button data-v="inside">Inside</button><button data-v="outside">Outside</button></span></div>
           <div class="item cap" id="cap-weekly" data-dynamic></div>
           <div class="item" id="row-weekly-dashed" hidden><span>Dashed weekly ring</span><button class="switch" id="sw-weekly-dashed" role="switch" aria-checked="false" aria-label="Dashed weekly ring"></button></div>
-          <div class="item"><span>Edge</span><span class="seg" id="seg-edge"><button data-v="left">Left</button><button data-v="right">Right</button><button data-v="top">Top</button><button data-v="bottom">Bottom</button></span></div>
-          <div class="item cap" id="cap-edge" data-dynamic></div>
           <div class="item"><span>Show remaining instead of used</span><button class="switch" id="sw-remaining" role="switch" aria-checked="false" aria-label="Show remaining instead of used"></button></div>
           <div class="item cap">The figure under each ring reads what is left — 87% instead of 13% used, the same number the card prints beside it. The rings themselves still fill by what is spent.</div>
+          <fieldset class="notch-only" data-notch-only>
+          <div class="item"><span>Edge</span><span class="seg" id="seg-edge"><button data-v="left">Left</button><button data-v="right">Right</button><button data-v="top">Top</button><button data-v="bottom">Bottom</button></span></div>
+          <div class="item cap" id="cap-edge" data-dynamic></div>
           <div class="item" id="row-screen" hidden><span>Screen</span>
             <select id="screen" aria-label="Screen"></select>
           </div>
           <div class="item cap" id="cap-screen" data-dynamic hidden></div>
           <div class="item"><span class="hint">Hold the dots beside the settings button, or hold Alt, and drag the notch round the screen's edges. Each edge remembers where you left it. Recentre puts it back in the middle of the edge it is on, or on the main screen's right-hand edge if the screen it was on has been unplugged.</span><button class="btn" id="btn-recentre">Recentre</button></div>
+          </fieldset>
         </div>
         <div class="sec">Usage Limits</div>
         <div class="group">
@@ -1009,6 +1031,8 @@ const UK_STATIC = {
   'English':'English',
   'Русский':'Русский'
 };
+PT_BR_STATIC['Indicators']='Indicadores';
+PT_BR_STATIC['Size, theme, colours and rings also apply to the taskbar. Floating display, edge and screen belong to the original notch. Size fits the taskbar height and available space.']='Tamanho, tema, cores e anéis também se aplicam à barra. Exibição flutuante, borda e tela pertencem ao formato original. O tamanho se ajusta à altura e ao espaço livre da barra.';
 const STATIC_TEXT = { 'pt-BR': PT_BR_STATIC, ru: RU_STATIC, zh: ZH_STATIC, 'zh-Hant': ZH_HANT_STATIC, ja: JA_STATIC, ko: KO_STATIC, uk: UK_STATIC };
 const RESET_COPY = {
   'pt-BR':['Notificações de reset','Mostrar um cartão quando o Claude, Codex, Cursor ou outro provedor ativo renovar uma janela após pelo menos 10% de uso. O cartão também aparece com a notch oculta.','Som de notificação','Prévia do cartão de reset','Ver prévia','Notificações'],
@@ -1345,6 +1369,19 @@ accountsPane.addEventListener('change', e => {
     .then(v => { agPrefs = v; renderAccounts(); toast(); })
     .catch(err => { renderAccounts(); strip('set_antigravity_prefs failed: ' + errText(err)); });
 });
+
+let taskbarAppearanceMode = 'off';
+function applyTaskbarAppearance(mode){
+  taskbarAppearanceMode = mode;
+  const active = mode === 'left' || mode === 'right';
+  document.querySelectorAll('[data-notch-only]').forEach(fieldset => { fieldset.disabled = active; });
+  document.getElementById('appearance-indicators-title').textContent = active
+    ? ui('Indicators','Indicators') : ui('Notch','Notch');
+  const note = document.getElementById('taskbar-appearance-note');
+  note.hidden = !active;
+  const copy = 'Size, theme, colours and rings also apply to the taskbar. Floating display, edge and screen belong to the original notch. Size fits the taskbar height and available space.';
+  note.textContent = ui(copy,copy);
+}
 
 /* ---- Appearance: Show, and App icon -------------------------------------
    Two choices, one command. Hiding both would leave nothing to click, so Rust keeps the tray icon
@@ -1751,6 +1788,7 @@ Promise.resolve(updateListener).catch(() => {}).then(() =>
 
 /* ---- start ---------------------------------------------------------------- */
 function renderAll(){
+  applyTaskbarAppearance(taskbarAppearanceMode);
   renderAccounts();
   renderFlags();
   renderSize();
@@ -1825,5 +1863,6 @@ window.addEventListener('focus', () => {
 });
 boot();
 </script>
+<script src="accounts-taskbar.js"></script>
 </body>
 </html>

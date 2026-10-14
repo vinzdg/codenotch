@@ -14,6 +14,14 @@ mod tray;
 mod traymenu;
 mod usage;
 mod claude_auth;
+mod claude_accounts;
+mod taskbar;
+mod taskbar_activity;
+mod taskbar_model;
+#[cfg(windows)]
+mod taskbar_native;
+#[cfg(windows)]
+mod taskbar_render;
 mod codex;
 mod reset_watch;
 mod reset_alert;
@@ -585,9 +593,8 @@ fn get_claude_auth() -> claude_auth::AuthState { claude_auth::state() }
 pub(crate) fn refresh_provider(app: &AppHandle, provider: &str) -> bool {
     match provider {
         "claude" => {
-            if app.state::<AppState>().usage.lock().unwrap().backoff_until > now_ms() {
-                return false;
-            }
+            // Each profile enforces its own retry deadline. One throttled account
+            // must not block a manual refresh of every other account.
             usage::request_refresh();
         }
         "codex" => codex::request_refresh(),
@@ -1967,6 +1974,20 @@ fn main() {
             get_usage,
             claude_sign_in,
             get_claude_auth,
+            claude_accounts::get_claude_accounts,
+            claude_accounts::add_claude_account,
+            claude_accounts::update_claude_account,
+            claude_accounts::connect_claude_account,
+            taskbar::get_taskbar_options,
+            taskbar::set_taskbar_options,
+            taskbar::get_taskbar_items,
+            taskbar::open_taskbar_details,
+            taskbar::taskbar_ready,
+            taskbar::show_taskbar_hover,
+            taskbar::hide_taskbar_hover,
+            taskbar::hold_taskbar_hover,
+            taskbar::report_taskbar_hover_size,
+            taskbar_activity::refresh_taskbar_item,
             updater::get_update_state,
             updater::check_for_update,
             updater::install_update,
@@ -2085,6 +2106,7 @@ fn main() {
             start_work_area_watch(handle.clone());
             fullscreen::start(handle.clone());
             topmost::start_watchdog(handle.clone());
+            taskbar::start(&handle);
             // Seen-clears-it scan
             let acker = handle.clone();
             std::thread::spawn(move || {

@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Codenotch</title>
+<style>
+:root{color-scheme:dark;--bg:#131416;--fg:#f1f2f4;--muted:#a2a6af;--line:#ffffff0e;--track:#ffffff20;--good:#00ff88;--warn:#f2ff00;--bad:#ff3f00;--gauge:clamp(28px,calc(100vh - 2px),44px)}
+*{box-sizing:border-box}html,body{margin:0;background:transparent!important}body{color:var(--fg);font:12px 'Segoe UI',system-ui,sans-serif}button{font:inherit;color:inherit;cursor:pointer}button:focus-visible{outline:2px solid #86b7ff;outline-offset:-2px}button:disabled{cursor:wait}
+#strip{height:100vh;display:flex;align-items:center;gap:10px;padding:0 3px;overflow-x:auto;scrollbar-width:none;background:transparent;border:0;outline:0}#strip::-webkit-scrollbar{display:none}
+/* A nonzero alpha gives the native transparent child a hit surface across the button. */
+.chip{display:flex;align-items:center;gap:6px;height:100%;padding:0 3px;border:0;border-radius:999px;background:#ffffff01;flex-shrink:0;touch-action:manipulation;pointer-events:auto}
+.chip *{pointer-events:none}
+.gauge{position:relative;display:grid;place-items:center;width:var(--gauge);height:var(--gauge);flex-shrink:0}.gauge>svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}.quota-track{fill:none;stroke:var(--track);stroke-width:2.6}.quota-progress{fill:none;stroke-width:2.6;stroke-linecap:round;transform:rotate(-90deg);transform-origin:28px 28px;transition:stroke-dasharray .35s ease,stroke .25s ease}.inner-track{stroke-width:2.3;opacity:.7}.inner-progress{stroke-width:2.3}.provider-mark{display:block;width:42%;height:42%;object-fit:contain;opacity:.9;transition:opacity .2s}.provider-mark[src=""]{visibility:hidden}.chip:hover .provider-mark{opacity:1}.chip:hover .quota-track{stroke:var(--muted);opacity:.35}.pct{min-width:25px;font-size:12px;line-height:1;font-weight:650;font-variant-numeric:tabular-nums;letter-spacing:-.2px}.quota-dim{opacity:.5}.activity-arc{fill:none;stroke:var(--fg);stroke-width:1.8;stroke-linecap:round;stroke-dasharray:24 96;transform:rotate(-90deg);transform-origin:28px 28px;opacity:0}.chip[data-work=busy] .activity-arc{opacity:.95;animation:spin 1.25s steps(16) infinite}.chip[data-work=waiting] .activity-arc{opacity:1;stroke:var(--warn);stroke-dasharray:3 5;animation:breathe 1.7s steps(8) infinite}.chip[data-refreshing=true] .gauge{animation:refresh-pulse .7s ease-in-out infinite}
+@keyframes spin{to{transform:rotate(270deg)}}@keyframes breathe{50%{opacity:.3}}@keyframes refresh-pulse{50%{opacity:.5}}
+#details{display:none;height:100vh;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:14px;scrollbar-width:thin}body.details #strip{display:none}body.details #details{display:block}header{display:flex;align-items:center;gap:9px;padding:17px 17px 12px;position:sticky;top:0;background:var(--bg);z-index:1}.header-logo{width:20px;height:20px;object-fit:contain}.header-logo[src=""]{display:none}h1{margin:0;flex:1;font-size:13px;font-weight:650;letter-spacing:-.1px}header button{border:0;background:transparent;padding:3px 5px;border-radius:5px;color:var(--muted);font-size:18px;line-height:1}header button:hover{color:var(--fg);background:var(--line)}#hint{margin:0;padding:0 17px 10px;color:var(--muted);font-size:11px;line-height:1.5}body.hover #hint:empty{display:none}.card{padding:0 17px 14px;margin:0}.card+.card{border-top:1px solid var(--line);padding-top:13px}.card-title{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;font-weight:600;margin-bottom:12px}.badge{font-size:10px;color:var(--muted);font-weight:400}.limit+.limit{margin-top:15px}.limit-label{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;font-weight:600}.limit-label strong{font-variant-numeric:tabular-nums;font-size:12px}.bar{height:4px;margin-top:7px;border-radius:4px;background:var(--track);overflow:hidden}.bar span{display:block;height:100%;border-radius:4px}.limit-meta{margin-top:5px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:3px 8px;font-size:10px;color:var(--muted);line-height:1.5}.reset{font-size:10px;color:var(--muted);font-weight:400}.note{font-size:10px;line-height:1.5;color:var(--muted);overflow-wrap:anywhere;margin:12px 0 0}.read-at{font-size:10px;color:var(--muted);margin-top:12px}.empty{margin:0;padding:0 17px 16px;color:var(--muted);font-size:11px}#error{font-size:11px;color:var(--bad);padding:0 17px;margin:0;line-height:1.5}#error:empty{display:none}footer{padding:0 17px 13px}footer button{padding:0;border:0;background:transparent;color:var(--muted);font-size:10px}footer button:hover{color:var(--fg)}body.hover .card-title{display:none}body.hover .card+.card{border:0;padding-top:0}
+[data-theme=light]{color-scheme:light;--bg:#fafafa;--fg:#202124;--muted:#626773;--line:#00000010;--track:#0000001c;--good:#00a356;--warn:#b08800;--bad:#ff3f00}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]){color-scheme:light;--bg:#fafafa;--fg:#202124;--muted:#626773;--line:#00000010;--track:#0000001c;--good:#00a356;--warn:#b08800;--bad:#ff3f00}}
+@media(prefers-reduced-motion:reduce){.chip[data-work] .activity-arc,.chip[data-refreshing] .gauge{animation:none}.quota-progress,.provider-mark{transition:none}}
+body.hover #details{height:auto;max-height:100vh}
+</style>
+</head>
+<body>
+<div id="strip" aria-label="Account usage"></div>
+<main id="details">
+ <header><img id="header-logo" class="header-logo" src="" alt=""><h1>Account usage</h1><button id="refresh" aria-label="Refresh" title="Refresh">↻</button><button id="close" aria-label="Close" title="Close">×</button></header>
+ <p id="hint"></p><div id="cards"></div><p id="error" role="status" aria-live="polite"></p>
+ <footer><button id="settings">Accounts and display</button></footer>
+</main>
+<script>
+const isHover=window.__CODENOTCH_TASKBAR_HOVER__===true;
+const isDetails=isHover||window.__CODENOTCH_TASKBAR_DETAILS__===true;
+let selectedId=window.__CODENOTCH_TASKBAR_ITEM_ID__||null;
+document.body.classList.toggle('details',isDetails);document.body.classList.toggle('hover',isHover);
+const invoke=(cmd,args)=>window.__TAURI__.core.invoke(cmd,args);
+let showRemaining=false;
+let colorTransition='hard_step';
+let lang='en',items=[],glyphs={},claudeAuth={},watch=50,critical=70,hoverTimer=null,hoveredId=null,loadBusy=false,loadAgain=false,lastHoverSize='',blockedRefresh=null;
+const refreshing=new Set();
+const tr=(en,pt)=>lang==='pt-BR'?pt:en;
+// BEGIN TESTABLE TASKBAR SELECTORS
+function escapeHtml(text){return String(text??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function percent(window){return window&&window.count==null&&Number.isFinite(window.used)?Math.round(Math.max(0,Math.min(1,window.used))*100):null;}
+function codexWindowKind(window){
+ if(!window||!['primary','secondary'].includes(window.id))return null;
+ // Field names identify core buckets, not their duration. A weekly-only plan can
+ // publish its weekly quota as primary; the provider labels come from duration.
+ const minutes=Number.isFinite(window.windowDurationMins)?window.windowDurationMins:Number.isFinite(window.window_minutes)?window.window_minutes:Number.isFinite(window.limit_window_seconds)?window.limit_window_seconds/60:null;
+ if(minutes!=null)return minutes===300?'five_hour':minutes===10080?'weekly':null;
+ const label=String(window.label||'').trim().toLowerCase();
+ if(/^(?:(?:5\s*h(?:ours?)?|300\s*m(?:in(?:utes?)?)?)(?:\s+limit)?|limite de 5 horas)$/.test(label))return 'five_hour';
+ if(/^(?:weekly(?:\s+limit)?|(?:7\s*d(?:ays?)?|168\s*h(?:ours?)?)(?:\s+limit)?|limite semanal)$/.test(label))return 'weekly';
+ return null;
+}
+function headline(item){
+ const windows=item.snapshot.windows||[],byId=id=>windows.find(w=>w.id===id)||null;
+ if(item.provider==='claude')return byId('session')||byId('five_hour')||byId('spend');
+ if(item.provider==='codex')return windows.find(window=>codexWindowKind(window)==='five_hour')||null;
+ const ids={cursor:'included',glm:'session',opencode:'rolling',grok:'credits',copilot:'premium_interactions'};
+ return byId(item.headline_id||ids[item.provider])||(item.provider==='cursor'?byId('api'):null);
+}
+function weekly(item){
+ const windows=item.snapshot.windows||[],byId=id=>windows.find(w=>w.id===id)||null;
+ if(item.provider==='claude')return byId('seven_day')||byId('weekly_all')||byId('weekly');
+ if(item.provider==='codex')return windows.find(window=>codexWindowKind(window)==='weekly')||null;
+ if(item.provider==='glm'||item.provider==='opencode')return byId('weekly');
+ return null;
+}
+function livePercent(item,window,now=Date.now()){
+ if(item.provider==='claude'&&(item.snapshot.status!=='ok'||!item.snapshot.fetched_at||now-item.snapshot.fetched_at>15*60*1000||window?.resets_at!=null&&window.resets_at<=now))return null;
+ return percent(window);
+}
+function meterPercent(value){return typeof showRemaining!=='undefined'&&showRemaining?100-value:value;}
+function displayPercent(item){
+ const primary=headline(item),window=item.provider==='claude'||item.provider==='codex'?weekly(item)||(primary?.id==='spend'?primary:null):primary;
+ const value=livePercent(item,window);return value==null?null:meterPercent(value);
+}
+function activityState(item){return item.work_state==='busy'||item.work_state==='waiting'?item.work_state:'idle';}
+function isStale(snapshot){return snapshot.status!=='ok'||!snapshot.fetched_at||Date.now()-snapshot.fetched_at>15*60*1000;}
+function readingAge(snapshot,now=Date.now()){
+ if(!Number.isFinite(snapshot.fetched_at)||snapshot.fetched_at<=0)return tr('No successful reading','Sem leitura confirmada');
+ const seconds=Math.max(0,Math.floor((now-snapshot.fetched_at)/1000));
+ const age=seconds<60?tr('less than a minute','menos de um minuto'):seconds<3600?Math.floor(seconds/60)+' min':seconds<86400?Math.floor(seconds/3600)+' h':Math.floor(seconds/86400)+' d';
+ return tr('Updated '+age+' ago','Atualizado há '+age);
+}
+function color(pct){
+ if(pct==null)return 'var(--muted)';
+ if(typeof colorTransition==='undefined'||colorTransition!=='ramp')return pct>=critical?'var(--bad)':pct>=watch?'var(--warn)':'var(--good)';
+ const light=typeof document!=='undefined'&&document.documentElement.dataset.theme==='light';
+ const ample=light?[0,163,86]:[0,255,136],yellow=light?[176,136,0]:[242,255,0],red=[255,63,0];
+ const used=Math.max(0,Math.min(100,pct)),threshold=Math.max(1,Math.min(99,watch));
+ const [a,b,t]=used<threshold?[ample,yellow,used/threshold]:[yellow,red,(used-threshold)/(100-threshold)];
+ return 'rgb('+a.map((v,i)=>Math.round(v+(b[i]-v)*t)).join(',')+')';
+}
+function retrySeconds(snapshot,now=Date.now()){return Number.isFinite(snapshot.backoff_until)&&snapshot.backoff_until>0?Math.max(0,Math.ceil((snapshot.backoff_until-now)/1000)):null;}
+function retryCountdown(seconds){return seconds<60?seconds+'s':Math.floor(seconds/60)+'m '+String(seconds%60).padStart(2,'0')+'s';}
+function retryTime(snapshot,now=Date.now()){
+ if(retrySeconds(snapshot,now)==null)return '';
+ const date=new Date(snapshot.backoff_until);if(!Number.isFinite(date.getTime()))return '';
+ const options={hour:'2-digit',minute:'2-digit',hour12:false};
+ if(date.toDateString()!==new Date(now).toDateString()){options.day='2-digit';options.month='2-digit';}
+ return new Intl.DateTimeFormat(lang,options).format(date);
+}
+function statusText(snapshot,now=Date.now()){
+ const seconds=retrySeconds(snapshot,now);
+ if(seconds>0)return tr('Retry in ','Nova tentativa em ')+retryCountdown(seconds);
+ if(snapshot.status==='backoff'||/^Rate limited\b/i.test(snapshot.note||''))return tr('Waiting for the next usage check','Aguardando a próxima consulta');
+ if(snapshot.status==='needsAuth')return tr('Sign in required','Entre na conta');
+ if(snapshot.status==='error')return tr('Update failed','Falha na atualização');
+ return isStale(snapshot)?tr('Saved reading','Leitura anterior'):tr('Updated','Atualizado');
+}
+function usageNote(snapshot,now=Date.now()){
+ if(retrySeconds(snapshot,now)>0)return tr('Usage checks are temporarily rate limited. Next attempt at ','Limite temporário de consultas. Próxima tentativa às ')+retryTime(snapshot,now)+'.';
+ if(/^Rate limited\b/i.test(snapshot.note||''))return tr('Usage checks were rate limited. Waiting for the next automatic attempt.','Consulta limitada. Aguardando a próxima tentativa automática.');
+ return snapshot.note||'';
+}
+function refreshBlockedText(item,auth,now=Date.now()){
+ if(item?.provider==='claude'&&auth?.busy)return tr('Claude authentication is in progress. Wait to refresh.','Autenticação do Claude em andamento. Aguarde para atualizar.');
+ if(item&&retrySeconds(item.snapshot,now)>0)return tr('Usage checks are temporarily rate limited. The next attempt time is shown above.','A consulta está temporariamente limitada. Veja acima a próxima tentativa.');
+ if(item?.snapshot.status==='needsAuth')return tr('Sign in again in Settings.','Entre novamente nas configurações.');
+ if(item?.provider==='claude')return tr('Usage checks respect the five-minute minimum between attempts. Wait for the next eligible check.','As consultas respeitam o intervalo mínimo de cinco minutos entre tentativas. Aguarde a próxima consulta permitida.');
+ return tr('No refresh was queued. Waiting for the next automatic attempt.','A consulta não foi iniciada. Aguardando a próxima tentativa automática.');
+}
+function weeklyWindow(window){if(['primary','secondary'].includes(window.id))return codexWindowKind(window)==='weekly';return /weekly|seven_day/.test(window.id||'')||/week|seman/i.test(window.label||'');}
+function resetText(window,now=Date.now()){
+ if(!window||!Number.isFinite(window.resets_at)||window.resets_at<=0)return '';
+ const date=new Date(window.resets_at);if(!Number.isFinite(date.getTime()))return '';
+ const time=new Intl.DateTimeFormat(lang,{hour:'2-digit',minute:'2-digit',hour12:false}).format(date);
+ if(weeklyWindow(window))return new Intl.DateTimeFormat(lang,{weekday:'short',day:'2-digit',month:'2-digit'}).format(date)+' · '+time;
+ const today=new Date(now);
+ return (date.toDateString()===today.toDateString()?'':new Intl.DateTimeFormat(lang,{day:'2-digit',month:'2-digit'}).format(date)+' · ')+time;
+}
+function windowLabel(window,item){
+ const id=window.id||'';
+ if(item.provider==='codex'&&['primary','secondary'].includes(id)){
+  const kind=codexWindowKind(window);
+  return kind==='five_hour'?tr('5-hour limit','Limite de 5 horas'):kind==='weekly'?tr('Weekly limit','Limite semanal'):window.label||id;
+ }
+ if(id==='session'||id==='five_hour')return tr('5-hour limit','Limite de 5 horas');
+ if(id==='primary'&&/5/.test(window.label||''))return tr('5-hour limit','Limite de 5 horas');
+ if(['seven_day','weekly_all','weekly'].includes(id))return tr('Weekly limit','Limite semanal');
+ if(/sonnet/i.test(id))return tr('Weekly · Sonnet','Semanal · Sonnet');
+ if(/opus/i.test(id))return tr('Weekly · Opus','Semanal · Opus');
+ return window.label||id;
+}
+// END TESTABLE TASKBAR SELECTORS
+function glyphUrl(provider){
+ const glyph=glyphs[provider];if(!glyph)return '';
+ if(glyph.kind==='svg'&&glyph.svg){
+  const ink=getComputedStyle(document.documentElement).getPropertyValue('--fg').trim()||'#f1f2f4';
+  return 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(glyph.svg.replace(/currentColor/g,ink));
+ }
+ return typeof glyph.url==='string'&&glyph.url.startsWith('data:image/')?glyph.url:'';
+}
+function ringMarkup(){return '<span class="gauge"><svg viewBox="0 0 56 56" aria-hidden="true"><circle class="quota-track outer-track" cx="28" cy="28" r="25"/><circle class="quota-progress outer-progress" cx="28" cy="28" r="25"/><circle class="quota-track inner-track" cx="28" cy="28" r="20.5"/><circle class="quota-progress inner-progress" cx="28" cy="28" r="20.5"/><circle class="activity-arc" cx="28" cy="28" r="15.2"/></svg><img class="provider-mark" src="" alt=""></span><span class="pct"></span>';}
+function paintArc(element,pct,radius){
+ const circumference=2*Math.PI*radius;
+ const fill=pct==null?null:meterPercent(pct);
+ element.style.strokeDasharray=(fill==null?0:fill/100*circumference)+' '+circumference;
+ element.style.stroke=color(pct);element.style.opacity=fill==null||fill===0?'0':'1';
+}
+function reportHoverSize(){
+ if(!isHover||!selectedId||!items.some(item=>item.id===selectedId))return;
+ // In hover mode #details has natural height. scrollHeight keeps the complete
+ // content measurement even when the monitor currently clips the visible card.
+ const contentHeight=document.getElementById('details').scrollHeight,dpr=devicePixelRatio;
+ if(!Number.isFinite(contentHeight)||contentHeight<=0||!Number.isFinite(dpr)||dpr<=0)return;
+ const height=Math.ceil(contentHeight+2),key=selectedId+'|'+height+'|'+dpr;
+ if(key===lastHoverSize)return;lastHoverSize=key;
+ invoke('report_taskbar_hover_size',{id:selectedId,height,dpr}).catch(()=>{if(lastHoverSize===key)lastHoverSize='';});
+}
+function renderStrip(){
+ const strip=document.getElementById('strip'),key=items.map(i=>i.id).join('|');
+ if(strip.dataset.key!==key){
+  strip.replaceChildren();
+  for(const item of items){const button=document.createElement('button');button.className='chip';button.dataset.id=item.id;button.innerHTML=ringMarkup();strip.appendChild(button);}
+  strip.dataset.key=key;
+ }
+ for(const button of strip.children){
+  const item=items.find(i=>i.id===button.dataset.id);if(!item)continue;
+  const session=livePercent(item,headline(item)),week=livePercent(item,weekly(item)),shown=displayPercent(item),dual=item.provider==='claude'||item.provider==='codex';
+  const outer=dual?week:session;
+  paintArc(button.querySelector('.outer-progress'),outer,25);
+  paintArc(button.querySelector('.inner-progress'),dual?session:null,20.5);
+  button.querySelector('.outer-track').style.opacity=outer==null?'0':'1';
+  button.querySelector('.inner-track').style.opacity=dual&&session!=null?'.7':'0';
+  button.querySelector('.pct').textContent=shown==null?'—':shown+'%';
+  button.querySelector('.pct').style.color='var(--fg)';
+  button.querySelectorAll('.quota-track,.quota-progress,.pct,.provider-mark').forEach(e=>e.classList.toggle('quota-dim',isStale(item.snapshot)));
+  const mark=button.querySelector('.provider-mark'),url=glyphUrl(item.provider);if(mark.getAttribute('src')!==url)mark.setAttribute('src',url);
+  button.dataset.work=activityState(item);button.dataset.refreshing=String(refreshing.has(item.id));
+  button.setAttribute('aria-label',item.name+' · '+tr('weekly','semanal')+' '+(shown==null?tr('unavailable','indisponível'):shown+'%')+' · '+statusText(item.snapshot));
+ }
+}
+function renderDetails(){
+ const visible=isHover?items.filter(i=>i.id===selectedId):items;
+ const chosen=visible[0],title=isHover&&chosen?chosen.name:tr('Account usage','Uso das contas');
+ document.querySelector('h1').textContent=title;
+ const headerMark=document.getElementById('header-logo'),url=chosen?glyphUrl(chosen.provider):'';if(headerMark.getAttribute('src')!==url)headerMark.setAttribute('src',url);
+ document.getElementById('refresh').setAttribute('aria-label',tr('Refresh usage','Atualizar limites'));
+ document.getElementById('close').setAttribute('aria-label',tr('Close','Fechar'));
+ document.getElementById('settings').textContent=tr('Accounts and display','Contas e exibição');
+ document.getElementById('hint').textContent=isHover&&chosen?(retrySeconds(chosen.snapshot)>0?statusText(chosen.snapshot):activityState(chosen)==='busy'?tr('Working','Trabalhando'):activityState(chosen)==='waiting'?tr('Waiting for your answer','Aguardando sua resposta'):statusText(chosen.snapshot)):(showRemaining?tr('Percent remaining · independent limits per account','Percentual restante · limites independentes por conta'):tr('Percent used · independent limits per account','Percentual utilizado · limites independentes por conta'));
+ const html=visible.map(item=>{
+  const limits=(item.snapshot.windows||[]).map(window=>{
+   const pct=percent(window),reset=resetText(window),shown=pct==null?null:meterPercent(pct),value=window.count!=null?'~'+window.count:shown==null?'—':shown+'%';
+   const resetPrefix=item.provider==='claude'&&livePercent(item,window)==null?tr('Last reported reset: ','Última renovação informada: '):tr('Resets ','Renova ');
+   return '<div class="limit"><div class="limit-label"><span>'+escapeHtml(windowLabel(window,item))+'</span><strong style="color:'+color(pct)+'">'+escapeHtml(value)+'</strong></div>'
+    +(shown==null?'':'<div class="bar"><span style="width:'+shown+'%;background:'+color(pct)+'"></span></div>')
+    +'<div class="limit-meta"><span>'+(pct==null?'':escapeHtml(showRemaining?(100-pct)+'% '+tr('remaining','restante')+' · '+pct+'% '+tr('used','usado'):pct+'% '+tr('used','usado')+' · '+(100-pct)+'% '+tr('remaining','restante')))+'</span><span class="reset">'+escapeHtml(reset?resetPrefix+reset:tr('Reset time unavailable','Renovação não informada'))+'</span></div></div>';
+  }).join('');
+  const note=usageNote(item.snapshot);
+  return '<article class="card"><div class="card-title"><span>'+escapeHtml(item.name)+'</span><span class="badge">'+escapeHtml(statusText(item.snapshot))+'</span></div>'+(limits||'<p class="note">'+escapeHtml(tr('No recent reading for this account.','Sem leitura recente para esta conta.'))+'</p>')
+   +(note?'<p class="note">'+escapeHtml(note)+'</p>':'')
+   +'<div class="read-at">'+escapeHtml(readingAge(item.snapshot)+(item.snapshot.fetched_at?' · '+new Date(item.snapshot.fetched_at).toLocaleString(lang,{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):''))+'</div></article>';
+ }).join('');
+ const cards=document.getElementById('cards');if(cards.innerHTML!==html)cards.innerHTML=html||'<p class="empty">'+escapeHtml(tr('Add an account in Settings.','Adicione uma conta nas configurações.'))+'</p>';
+ reportHoverSize();
+}
+function render(){
+ if(blockedRefresh){
+  const item=items.find(item=>item.id===blockedRefresh.id);
+  if(!item||item.snapshot.fetched_at>blockedRefresh.fetchedAt){blockedRefresh=null;document.getElementById('error').textContent='';}
+  else document.getElementById('error').textContent=refreshBlockedText(item,claudeAuth);
+ }
+ if(isDetails)renderDetails();else renderStrip();
+}
+async function load(){
+ if(loadBusy){loadAgain=true;return;}loadBusy=true;
+ try{
+  const authRead=blockedRefresh?.id.startsWith('claude@')?invoke('get_claude_auth').catch(()=>null):Promise.resolve(null);
+  const [next,auth]=await Promise.all([invoke('get_taskbar_items'),authRead]);
+  items=Array.isArray(next)?next:[];if(auth)claudeAuth=auth;render();
+ }
+ catch(error){document.getElementById('error').textContent=tr('Could not load account usage.','Não foi possível carregar os limites.');}
+ finally{loadBusy=false;if(loadAgain){loadAgain=false;load();}}
+}
+async function refreshItem(id){
+ if(refreshing.has(id))return;blockedRefresh=null;document.getElementById('error').textContent='';refreshing.add(id);render();
+ try{
+  const accepted=await invoke('refresh_taskbar_item',{id});
+  blockedRefresh=accepted?null:{id,fetchedAt:items.find(item=>item.id===id)?.snapshot.fetched_at||0};
+  document.getElementById('error').textContent='';await load();
+ }
+ catch(error){document.getElementById('error').textContent=tr('Could not refresh this account.','Não foi possível atualizar esta conta.');}
+ finally{setTimeout(()=>{refreshing.delete(id);render();},650);}
+}
+function onStripClick(event){const button=event.target.closest('.chip');if(button)refreshItem(button.dataset.id);}
+function onStripOver(event){
+ const button=event.target.closest('.chip');if(!button||event.relatedTarget&&button.contains(event.relatedTarget))return;
+ clearTimeout(hoverTimer);hoveredId=button.dataset.id;
+ hoverTimer=setTimeout(()=>{if(hoveredId!==button.dataset.id)return;const rect=button.getBoundingClientRect();invoke('show_taskbar_hover',{id:button.dataset.id,anchorX:rect.left*devicePixelRatio,anchorWidth:rect.width*devicePixelRatio}).catch(()=>{});},140);
+}
+function onStripOut(event){
+ const button=event.target.closest('.chip');if(!button||event.relatedTarget&&button.contains(event.relatedTarget))return;
+ hoveredId=null;clearTimeout(hoverTimer);invoke('hide_taskbar_hover').catch(()=>{});
+}
+const strip=document.getElementById('strip');
+strip.addEventListener('click',onStripClick);strip.addEventListener('pointerover',onStripOver);strip.addEventListener('pointerout',onStripOut);
+strip.addEventListener('focusin',onStripOver);strip.addEventListener('focusout',onStripOut);
+strip.addEventListener('wheel',event=>{event.preventDefault();event.currentTarget.scrollLeft+=event.deltaY||event.deltaX;clearTimeout(hoverTimer);hoveredId=null;invoke('hide_taskbar_hover').catch(()=>{});},{passive:false});
+strip.addEventListener('contextmenu',event=>{event.preventDefault();invoke('open_settings').catch(()=>{});});
+if(isHover){document.body.addEventListener('pointerenter',()=>invoke('hold_taskbar_hover',{held:true}).catch(()=>{}));document.body.addEventListener('pointerleave',()=>invoke('hold_taskbar_hover',{held:false}).catch(()=>{}));}
+if(isHover&&typeof ResizeObserver!=='undefined'){
+ const observer=new ResizeObserver(reportHoverSize);
+ for(const element of [document.getElementById('details'),document.getElementById('cards'),document.getElementById('hint'),document.getElementById('error'),document.querySelector('header'),document.querySelector('footer')])observer.observe(element);
+}
+document.getElementById('settings').addEventListener('click',()=>{if(isHover)closeDetails();invoke('open_settings').catch(()=>{});});
+function closeDetails(){if(isHover){return invoke('hold_taskbar_hover',{held:false}).then(()=>invoke('hide_taskbar_hover')).catch(()=>{});}else window.__TAURI__.window.getCurrentWindow().close();}
+document.getElementById('close').addEventListener('click',closeDetails);
+document.getElementById('refresh').addEventListener('click',()=>{for(const item of isHover?items.filter(i=>i.id===selectedId):items)refreshItem(item.id);});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&isDetails)closeDetails();});
+Promise.allSettled([
+ invoke('get_lang_resolved').then(value=>{lang=value||lang;document.documentElement.lang=lang;}),
+ invoke('get_theme_resolved').then(value=>document.documentElement.dataset.theme=value),
+ invoke('get_watch_limit').then(value=>{if(Number.isFinite(value))watch=value*100;}),
+ invoke('get_critical_limit').then(value=>{if(Number.isFinite(value))critical=value*100;}),
+ invoke('get_notch_shows_remaining').then(value=>{showRemaining=value===true;}),
+ invoke('get_color_transition').then(value=>{colorTransition=value==='ramp'?'ramp':'hard_step';}),
+ invoke('get_glyphs').then(value=>glyphs=value||{})
+]).then(load).then(()=>invoke('taskbar_ready')).catch(()=>{});
+for(const [event,apply] of [['notch_shows_remaining',value=>showRemaining=value===true],['theme_resolved',value=>document.documentElement.dataset.theme=value],['watch_limit',value=>watch=value*100],['critical_limit',value=>critical=value*100],['glyphs',value=>glyphs=value||{}],['color_transition',value=>colorTransition=value==='ramp'?'ramp':'hard_step']]){try{window.__TAURI__.event.listen(event,message=>{apply(message.payload);render();});}catch(error){}}
+try{window.__TAURI__.event.listen('taskbar_hover_item',message=>{selectedId=message.payload;lastHoverSize='';blockedRefresh=null;document.getElementById('error').textContent='';render();load();});}catch(error){}
+for(const event of ['usage','codex','activity','state','claude_accounts_changed','taskbar_options']){try{window.__TAURI__.event.listen(event,load);}catch(error){}}
+setInterval(load,2500);
+</script>
+</body>
+</html>

@@ -1127,6 +1127,12 @@ function slotFor(id){
 // would have had on their own, so headlineOf and weeklyOf need no rule about accounts. `base` is the
 // provider the cell belongs to (glyph, activity, slot choice); `id` is what makes the cell unique.
 function claudeCells(){
+  if(Array.isArray(usage.accounts) && usage.accounts.length){
+    return usage.accounts.map(a=>({id:a.id==='default'?'claude':'claude@'+a.id,base:'claude',
+      name:a.name==='default'?'Claude':a.name,glyph:'C',snap:{status:a.status,note:a.note,
+        fetched_at:a.fetched_at,windows:a.windows,backoff_until:a.backoff_until||0}}));
+  }
+  if(usage.status==='absent') return [];
   const ws=Array.isArray(usage.windows)?usage.windows:[];
   const accounts=[];
   for(const w of ws){

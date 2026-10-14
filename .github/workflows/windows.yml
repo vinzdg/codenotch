@@ -45,6 +45,8 @@ jobs:
 
       - name: Test Claude quota freshness
         run: node scripts/test-claude-quota-freshness.cjs
+      - name: Test account and taskbar controls
+        run: node --test test-accounts-taskbar.cjs
 
       - name: Test Korean card localization
         run: node --test scripts/test-ko-i18n.cjs
