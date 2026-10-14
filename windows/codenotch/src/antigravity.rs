@@ -197,20 +197,114 @@ fn discover() -> Option<Endpoint> {
 }
 #[cfg(not(windows))]
 fn discover() -> Option<Endpoint> {
-    let table = run_hidden("ps", &["-Ao", "pid,command"]);
-    let line = table.lines().find(|l| l.contains("language_server") && l.contains("--csrf_token"))?;
-    let pid: u32 = line.trim().split_whitespace().next()?.parse().ok()?;
-    let csrf = flag_value(line, "--csrf_token")?;
+    discover_from_proc().or_else(|| {
+        let table = run_hidden("ps", &["-Ao", "pid,command"]);
+        let line = table
+            .lines()
+            .find(|l| l.contains("language_server") && l.contains("--csrf_token"))?;
+        let pid: u32 = line.trim().split_whitespace().next()?.parse().ok()?;
+        let csrf = flag_value(line, "--csrf_token")?;
+        let ports = listening_ports_unix(pid);
+        if ports.is_empty() {
+            return None;
+        }
+        Some(Endpoint { ports, csrf })
+    })
+}
+
+#[cfg(not(windows))]
+fn discover_from_proc() -> Option<Endpoint> {
+    for entry in std::fs::read_dir("/proc").ok()?.flatten() {
+        let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
+            continue;
+        };
+        let Ok(cmdline) = std::fs::read(entry.path().join("cmdline")) else {
+            continue;
+        };
+        if cmdline.is_empty() {
+            continue;
+        }
+        let cmd = cmdline
+            .split(|&b| b == 0)
+            .filter(|chunk| !chunk.is_empty())
+            .map(|chunk| String::from_utf8_lossy(chunk))
+            .collect::<Vec<_>>()
+            .join(" ");
+        if !cmd.contains("language_server") || !cmd.contains("--csrf_token") {
+            continue;
+        }
+        let Some(csrf) = flag_value(&cmd, "--csrf_token") else {
+            continue;
+        };
+        let ports = listening_ports_unix(pid);
+        if ports.is_empty() {
+            continue;
+        }
+        return Some(Endpoint { ports, csrf });
+    }
+    None
+}
+
+#[cfg(not(windows))]
+fn listening_ports_unix(pid: u32) -> Vec<u16> {
     let out = run_hidden("lsof", &["-nP", "-a", "-p", &pid.to_string(), "-iTCP", "-sTCP:LISTEN"]);
-    let ports: Vec<u16> = out
+    let mut ports: Vec<u16> = out
         .lines()
         .filter_map(|l| l.split_whitespace().rev().find(|w| w.contains(':')))
         .filter_map(|a| a.rsplit(':').next()?.parse().ok())
         .collect();
-    if ports.is_empty() {
-        return None;
+    if !ports.is_empty() {
+        ports.sort_unstable();
+        ports.dedup();
+        return ports;
     }
-    Some(Endpoint { ports, csrf })
+    listening_ports_proc_net(pid)
+}
+
+#[cfg(not(windows))]
+fn listening_ports_proc_net(pid: u32) -> Vec<u16> {
+    let mut inodes = std::collections::HashSet::new();
+    let fd_dir = format!("/proc/{pid}/fd");
+    let Ok(entries) = std::fs::read_dir(&fd_dir) else {
+        return Vec::new();
+    };
+    for entry in entries.flatten() {
+        let Ok(link) = std::fs::read_link(entry.path()) else {
+            continue;
+        };
+        let s = link.to_string_lossy();
+        if let Some(rest) = s.strip_prefix("socket:[") {
+            if let Some(num) = rest.strip_suffix(']') {
+                inodes.insert(num.to_string());
+            }
+        }
+    }
+    if inodes.is_empty() {
+        return Vec::new();
+    }
+    let Ok(tcp) = std::fs::read_to_string("/proc/net/tcp") else {
+        return Vec::new();
+    };
+    let mut ports = Vec::new();
+    for line in tcp.lines().skip(1) {
+        let cols: Vec<_> = line.split_whitespace().collect();
+        if cols.len() < 10 {
+            continue;
+        }
+        if cols[3] != "0A" {
+            continue;
+        }
+        if !inodes.contains(cols[9]) {
+            continue;
+        }
+        let port_hex = cols[1].split(':').nth(1).unwrap_or("");
+        if let Ok(port) = u16::from_str_radix(port_hex, 16) {
+            ports.push(port);
+        }
+    }
+    ports.sort_unstable();
+    ports.dedup();
+    ports
 }
 
 fn flag_value(line: &str, flag: &str) -> Option<String> {
@@ -377,7 +471,14 @@ fn read_credential_raw() -> Option<Vec<u8>> {
 }
 #[cfg(not(windows))]
 fn read_credential_raw() -> Option<Vec<u8>> {
-    None
+    use keyring::Entry;
+    let entry = Entry::new("gemini", "antigravity").ok()?;
+    let secret = entry.get_password().ok()?;
+    if secret.is_empty() {
+        None
+    } else {
+        Some(secret.into_bytes())
+    }
 }
 
 /// Raw JSON, or base64 with a `go-keyring-base64:` prefix (UTF-16 storage is accepted too)

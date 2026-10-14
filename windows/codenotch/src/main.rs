@@ -6,6 +6,8 @@ mod config;
 mod doctor;
 mod focus;
 mod hooks_install;
+#[cfg(unix)]
+mod x11_util;
 mod i18n;
 mod notchmenu;
 mod server;
@@ -42,7 +44,7 @@ use tauri::{AppHandle, Emitter, Manager};
 /// and its tail on the left. `fitZoom` in ui/notch.html divides by the same width.
 pub const NOTCH_W: f64 = 360.0;
 /// Hand-bumped build tag, written to run.log at startup so a log can always be matched to the exe that wrote it.
-pub const BUILD: &str = "r33";
+pub const BUILD: &str = "r42";
 /// The notch window's long side: the upright window's height, and both sides of the flat one.
 ///
 /// Five cells make a 447 px pill; its fillets add 38.7 px at each end and the settings orb reaches
@@ -323,7 +325,8 @@ pub fn place_notch(app: &AppHandle) {
         let edge = {
             let st = app.state::<AppState>();
             let c = st.cfg.lock().unwrap();
-            config::edge_or_right(&c.notch_edge)
+            let edge = config::edge_or_right(&c.notch_edge).to_string();
+            edge
         };
         let (width, height) = notch_window_size(&edge);
         // Never taller or wider than the screen: Large on a small, highly scaled display can ask for more
@@ -335,10 +338,14 @@ pub fn place_notch(app: &AppHandle) {
         zoom_notch(&w, ms, size);
         // Position from the window's measured physical size — deriving it from the scale factor
         // pushed the window past the right edge at 125 % / 150 % (the ring's right side was clipped).
-        let (ww, wh) = w
-            .outer_size()
-            .map(|s| (s.width as i32, s.height as i32))
-            .unwrap_or((target.width as i32, target.height as i32));
+        let measured = w.outer_size().map(|s| (s.width as i32, s.height as i32)).unwrap_or((0, 0));
+        // A zero size shifts a top or left edge by half the real window (run.log pos=3281
+        // with size 0x0, while the window then sat at 3021).
+        let (ww, wh) = if measured.0 > 0 && measured.1 > 0 {
+            measured
+        } else {
+            (target.width as i32, target.height as i32)
+        };
         let ratio = {
             let st = app.state::<AppState>();
             let c = st.cfg.lock().unwrap();
@@ -365,7 +372,11 @@ pub fn place_notch(app: &AppHandle) {
         // overwritten (#240) — place_notch runs after every drag as well as at startup, and a
         // truncating write wiped the rest of the session's diagnostic trail on every drag.
         applog(&format!(
-            "notch placed build={BUILD}: edge={edge} pos=({x},{y}) size=({ww}x{wh}) inner={:?} win_scale={scale} mon_scale={ms} notch_size={size} monitor={:?}=({},{} {}x{}) work={:?} card_insets_css={insets:?}",
+            "notch placed build={BUILD}: edge={edge} pos=({},{}) size=({}x{}) inner={:?} win_scale={scale} mon_scale={ms} notch_size={size} monitor={:?}=({},{} {}x{}) work={:?} card_insets_css={insets:?}",
+            placed.0,
+            placed.1,
+            placed.2,
+            placed.3,
             w.inner_size().map(|s| (s.width, s.height)).unwrap_or((0, 0)),
             mon.name,
             mon.x,
@@ -534,7 +545,11 @@ fn left_button_down() -> bool {
     use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
     unsafe { (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0 }
 }
-#[cfg(not(windows))]
+#[cfg(all(not(windows), unix))]
+fn left_button_down() -> bool {
+    crate::x11_util::primary_button_down()
+}
+#[cfg(all(not(windows), not(unix)))]
 fn left_button_down() -> bool {
     false
 }
@@ -738,7 +753,9 @@ static EXPANDED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::
 
 #[tauri::command]
 fn set_hot(rects: Vec<[f64; 4]>, expanded: bool, probe: Option<[f64; 4]>) {
-    *HOT.lock().unwrap() = rects;
+    *HOT.lock().unwrap() = rects.clone();
+    #[cfg(unix)]
+    crate::x11_util::sync_input_shape(&rects, DRAGGING.load(std::sync::atomic::Ordering::SeqCst));
     backdrop::set_probe(probe);
     EXPANDED.store(expanded, std::sync::atomic::Ordering::Relaxed);
     if expanded {
@@ -856,18 +873,15 @@ fn cursor_in_hot(rects: &[[f64; 4]], lx: f64, ly: f64, window: Option<(f64, f64)
     if rects.is_empty() {
         return false;
     }
+    // The pill sits flush on the window edge; lx == width is still on the notch (see run.log
+    // cursor_rel=(360,307) with a 360 px-wide window on Linux).
     let in_window = window
-        .map(|(w, h)| lx >= 0.0 && ly >= 0.0 && lx < w && ly < h)
+        .map(|(w, h)| lx >= -HOT_PAD && ly >= -HOT_PAD && lx <= w && ly <= h)
         .unwrap_or(true);
     if !in_window {
         return false;
     }
-    if rects.iter().any(|r| {
-        lx >= r[0] - HOT_PAD
-            && ly >= r[1] - HOT_PAD
-            && lx < r[0] + r[2] + HOT_PAD
-            && ly < r[1] + r[3] + HOT_PAD
-    }) {
+    if rects.iter().any(|r| point_in_rect(lx, ly, r)) {
         return true;
     }
     // The gap between hot rectangles (pill and card) counts as inside: use the bounding box of all of them
@@ -876,9 +890,34 @@ fn cursor_in_hot(rects: &[[f64; 4]], lx: f64, ly: f64, window: Option<(f64, f64)
         let y0 = rects.iter().map(|r| r[1]).fold(f64::MAX, f64::min);
         let x1 = rects.iter().map(|r| r[0] + r[2]).fold(f64::MIN, f64::max);
         let y1 = rects.iter().map(|r| r[1] + r[3]).fold(f64::MIN, f64::max);
-        return lx >= x0 && ly >= y0 && lx < x1 && ly < y1;
+        if lx >= x0 - HOT_PAD && ly >= y0 - HOT_PAD && lx <= x1 + HOT_PAD && ly <= y1 + HOT_PAD {
+            return true;
+        }
+    }
+    // Hover card open: layout lags a frame; pad the bbox so the watchdog does not fold mid-read.
+    if EXPANDED.load(std::sync::atomic::Ordering::Relaxed) && in_window && !rects.is_empty() {
+        const CARD_SLOP_X: f64 = 96.0;
+        const CARD_SLOP_Y: f64 = 48.0;
+        let x0 = rects.iter().map(|r| r[0]).fold(f64::MAX, f64::min);
+        let y0 = rects.iter().map(|r| r[1]).fold(f64::MAX, f64::min);
+        let x1 = rects.iter().map(|r| r[0] + r[2]).fold(f64::MIN, f64::max);
+        let y1 = rects.iter().map(|r| r[1] + r[3]).fold(f64::MIN, f64::max);
+        if lx >= x0 - CARD_SLOP_X
+            && ly >= y0 - HOT_PAD
+            && lx <= x1 + HOT_PAD
+            && ly <= y1 + CARD_SLOP_Y
+        {
+            return true;
+        }
     }
     false
+}
+
+fn point_in_rect(lx: f64, ly: f64, r: &[f64; 4]) -> bool {
+    lx >= r[0] - HOT_PAD
+        && ly >= r[1] - HOT_PAD
+        && lx <= r[0] + r[2] + HOT_PAD
+        && ly <= r[1] + r[3] + HOT_PAD
 }
 
 /// Was 150 ms, when this only decided whether the card stayed up. It now also gates whether a click
@@ -905,33 +944,106 @@ fn start_pointer_watchdog(app: AppHandle) {
         let mut miss = 0u8;
         // Last value pushed: this changes only when the cursor crosses an edge
         let mut click_through: Option<bool> = None;
+        let mut hot_miss = 0u8;
         loop {
             std::thread::sleep(std::time::Duration::from_millis(WATCHDOG_MS));
             let Some(w) = app.get_webview_window("notch") else { continue };
-            let (Ok(pos), Ok(cur)) = (w.outer_position(), app.cursor_position()) else { continue };
+            // Linux hit-testing with the root pointer locked the notch shut: the sample sat at
+            // (25,181) while the pill was at y=0, click-through stayed on, and the page never
+            // saw the hover (run.log r41). The input shape is in window coordinates, on the
+            // notch window only, so the pill receives the pointer and the rest does not.
+            #[cfg(unix)]
+            {
+                let rects = HOT.lock().unwrap().clone();
+                let dragging = DRAGGING.load(std::sync::atomic::Ordering::SeqCst);
+                if !dragging {
+                    let _ = w.set_ignore_cursor_events(false);
+                }
+                crate::x11_util::sync_input_shape(&rects, dragging);
+                continue;
+            }
+            // A drag follows the pointer off the pill. Turning click-through back on mid-drag
+            // drops the button release, so the loop waits until the carry ends.
+            if DRAGGING.load(std::sync::atomic::Ordering::SeqCst) {
+                click_through = None;
+                continue;
+            }
+            let Ok(pos) = w.outer_position() else { continue };
+            // On Linux under XWayland, `cursor_position()` disagrees with `outer_position`.
+            // XQueryPointer is in the same root space as the window, so the pill and the
+            // transparent rest of the window can be told apart.
+            let (cur_x, cur_y) = {
+                #[cfg(unix)]
+                {
+                    let Some((x, y)) = crate::x11_util::pointer_root_position() else { continue };
+                    (x, y)
+                }
+                #[cfg(not(unix))]
+                {
+                    let Ok(cur) = app.cursor_position() else { continue };
+                    (cur.x, cur.y)
+                }
+            };
             let rects = HOT.lock().unwrap().clone();
             // Cursor position relative to the window's top-left, in physical pixels; the hot rectangles are physical too, so no scale conversion
-            let lx = cur.x - pos.x as f64;
-            let ly = cur.y - pos.y as f64;
-            let size = w.outer_size().ok().map(|s| (s.width as f64, s.height as f64));
-            let inside = cursor_in_hot(&rects, lx, ly, size);
+            // Same pixel space as the page's hot rects (pill right edge == window width in run.log).
+            // Do not scale by DPR or inner_size: on Linux inner_size is shorter than the viewport,
+            // and that clip marked a cursor on the lower pill as outside.
+            let lx = cur_x - pos.x as f64;
+            let ly = cur_y - pos.y as f64;
+            let mut hot_window = w.outer_size().ok().and_then(|s| {
+                if s.width > 0 && s.height > 0 {
+                    Some((s.width as f64, s.height as f64))
+                } else {
+                    None
+                }
+            });
+            if hot_window.is_none() {
+                let edge = app
+                    .try_state::<AppState>()
+                    .map(|st| config::edge_or_right(&st.cfg.lock().unwrap().notch_edge).to_string())
+                    .unwrap_or_else(|| "right".into());
+                hot_window = Some(notch_window_size(&edge));
+            }
+            // During DPR/zoom bursts the page can briefly send no rects; do not fold or pass clicks through then.
+            if rects.is_empty() {
+                continue;
+            }
+            let inside = cursor_in_hot(&rects, lx, ly, hot_window);
+            let on_hover = app
+                .try_state::<AppState>()
+                .map(|st| st.cfg.lock().unwrap().notch_on_hover)
+                .unwrap_or(false);
+            // Only delay a fold after the cursor was actually on the notch. Treating the first
+            // outside samples as inside flashed the pill open and shut it again (r36 log).
+            let was_open = click_through == Some(false);
+            let treat_inside = if inside {
+                hot_miss = 0;
+                true
+            } else if on_hover && was_open {
+                hot_miss = hot_miss.saturating_add(1);
+                hot_miss < 4
+            } else {
+                hot_miss = 0;
+                false
+            };
 
-            if click_through != Some(!inside) {
-                set_click_through(&app, !inside);
-                click_through = Some(!inside);
+            if click_through != Some(!treat_inside) {
+                set_click_through(&app, !treat_inside);
+                click_through = Some(!treat_inside);
                 // Show on hover opens on this and folds a moment after it goes false. The page cannot
                 // tell on its own: once click-through is back on, it is sent nothing at all.
-                let _ = app.emit_to("notch", "notch_pointer", inside);
+                let _ = app.emit_to("notch", "notch_pointer", treat_inside);
                 applog(&format!(
-                    "click-through {} at cursor_rel=({lx:.0},{ly:.0}) rects={rects:?}",
-                    if inside { "off (cursor on the notch)" } else { "on (cursor elsewhere)" }
+                    "click-through {} at cursor_rel=({lx:.0},{ly:.0}) inside_raw={inside} rects={rects:?}",
+                    if treat_inside { "off (cursor on the notch)" } else { "on (cursor elsewhere)" }
                 ));
             }
 
             static LOGGED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
             if LOGGED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 12 {
                 applog(&format!(
-                    "watchdog: cursor_rel=({lx:.0},{ly:.0}) inside={inside} rects={rects:?} winpos=({},{})",
+                    "watchdog: cursor_hot=({lx:.0},{ly:.0}) inside={inside} treat={treat_inside} rects={rects:?} winpos=({},{})",
                     pos.x, pos.y
                 ));
             }
@@ -1824,8 +1936,31 @@ fn ack_scan(app: &AppHandle) -> bool {
     })
 }
 #[cfg(not(windows))]
-fn ack_scan(_app: &AppHandle) -> bool {
-    false
+fn ack_scan(app: &AppHandle) -> bool {
+    let need = {
+        let st = app.state::<AppState>();
+        let store = st.store.lock().unwrap();
+        store.has_done()
+    };
+    if !need {
+        return false;
+    }
+    let fg = focus::fg_pid();
+    if fg == 0 {
+        return false;
+    }
+    let maps = focus::proc_maps();
+    let fg_name = maps.name.get(&fg).cloned().unwrap_or_default();
+    let fg_is_claude_desktop = fg_name.contains("claude") && !fg_name.contains("codenotch");
+    let st = app.state::<AppState>();
+    let mut store = st.store.lock().unwrap();
+    store.ack_done(|s| {
+        if s.ppid == 0 {
+            fg_is_claude_desktop
+        } else {
+            focus::pid_hits_chain(fg, &focus::chain_of(s.ppid, &maps.ppid), &maps)
+        }
+    })
 }
 
 // ---------------- main ----------------
@@ -1988,6 +2123,7 @@ fn main() {
             get_activity,
             open_data_dir,
             carry::begin_carry,
+            carry::end_carry,
             carry::get_carry,
             carry::carry_shown,
             carry::carry_landed,
@@ -2057,7 +2193,11 @@ fn main() {
             // after paints the wrong one for a frame, which is a black flash under a light choice
             apply_theme(&handle);
             if let Some(w) = handle.get_webview_window("notch") {
+                let _ = w.set_title("Codenotch notch");
                 let _ = w.show();
+                // GTK WebView zoom is driven from report_dpr; CSS fitZoom on top desyncs hot rects.
+                #[cfg(unix)]
+                let _ = w.eval("window.__CN_LAYOUT__={rustZoomOnly:true}");
             }
             tray::setup(&handle)?;
             notchmenu::setup(&handle);
@@ -2128,6 +2268,41 @@ mod tests {
         NOTCH_W, TRAY_PROVIDER_IDS,
     };
     use crate::usage::LimitWindow;
+
+    #[test]
+    fn cursor_on_the_window_edge_counts_as_hot() {
+        let rects = [[290.0, 190.0, 70.0, 270.0]];
+        assert!(cursor_in_hot(&rects, 360.0, 307.0, Some((360.0, 650.0))));
+    }
+
+    #[test]
+    fn cursor_below_orb_still_counts_inside_bounding_box() {
+        let rects = [
+            [290.0, 190.0, 70.0, 270.0],
+            [292.0, 469.0, 57.0, 57.0],
+        ];
+        assert!(cursor_in_hot(&rects, 320.0, 533.0, Some((360.0, 650.0))));
+    }
+
+    #[test]
+    fn cursor_logged_beside_the_lower_pill_stays_hot() {
+        let rects = [
+            [290.0, 190.0, 70.0, 270.0],
+            [0.0, 0.0, 290.0, 0.0],
+            [293.0, 469.0, 57.0, 57.0],
+        ];
+        assert!(cursor_in_hot(&rects, 235.0, 533.0, None));
+    }
+
+    #[test]
+    fn cursor_on_open_card_counts_as_hot() {
+        let rects = [
+            [40.0, 200.0, 280.0, 360.0],
+            [290.0, 190.0, 70.0, 270.0],
+            [292.0, 469.0, 57.0, 57.0],
+        ];
+        assert!(cursor_in_hot(&rects, 235.0, 533.0, Some((360.0, 650.0))));
+    }
 
     /// A provider added without a page of its own used to fall through to Claude's
     #[test]

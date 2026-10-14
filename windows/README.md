@@ -191,8 +191,22 @@ npx @tauri-apps/cli@2 build --config tauri.bundle.conf.json
 
 ### Linux
 
-The same crate builds and runs on Linux; the Win32 pieces already sat behind `cfg(windows)`,
-and the rest of the port is portable Rust. Prerequisites on a Debian or Ubuntu machine:
+Download from the latest release (fixed names, same idea as `Codenotch-Setup.exe`):
+
+- [`Codenotch_amd64.deb`](https://github.com/vinzdg/codenotch/releases/latest/download/Codenotch_amd64.deb)
+- [`Codenotch.x86_64.rpm`](https://github.com/vinzdg/codenotch/releases/latest/download/Codenotch.x86_64.rpm)
+- [`Codenotch.AppImage`](https://github.com/vinzdg/codenotch/releases/latest/download/Codenotch.AppImage)
+
+Packages install `codenotch-hook` beside the app so **Install hooks** works. The `.desktop`
+entry sets `GDK_BACKEND=x11` for Wayland sessions. Automatic updates use the signed AppImage
+feed in `latest.json` when signing is configured; otherwise Settings offers **Download
+installer** (AppImage).
+
+The [Linux Package workflow](https://github.com/vinzdg/codenotch/actions/workflows/linux-package.yml)
+rebuilds these from every change under `windows/`.
+
+The same crate builds and runs on Linux; the Win32 pieces sit behind `cfg(windows)`.
+Prerequisites on a Debian or Ubuntu machine:
 
 ```sh
 sudo apt install build-essential pkg-config libssl-dev libwebkit2gtk-4.1-dev \
@@ -202,32 +216,37 @@ cargo build --release -p codenotch
 ./scripts/run-linux.sh doctor   # self-diagnosis, same as on Windows
 ```
 
+To build `.deb` and AppImage the way CI does:
+
+```sh
+./scripts/package-linux.sh
+# → target/release/bundle/deb/*.deb, target/release/bundle/appimage/*.AppImage
+```
+
 `scripts/run-linux.sh` exists because of two things the desktop does not do by itself.
 **Wayland does not let a client place its own windows**, and the notch has to sit on a
 screen edge, so it runs as an X11 client under XWayland. And a shell started from a
 **snap** — Ubuntu's VS Code, for one — exports that snap's library paths, which make a
 binary built against the system glibc die with
 `symbol lookup error: … undefined symbol: __libc_pthread_init`. The script unsets those
-and sets `GDK_BACKEND=x11`; launched from the desktop rather than such a shell, the
-binary runs on its own.
+and sets `GDK_BACKEND=x11`; packaged installs set the same on the desktop entry.
 
 The tray needs GNOME's *AppIndicator Support* extension, as every Tauri tray does there.
 The data folder follows the XDG directories (`~/.config/codenotch`), and providers are
 found at their Linux paths: `~/.claude`, `~/.codex`, `~/.grok`,
 `~/.config/Cursor/User/globalStorage/state.vscdb`.
 
-What does not work yet, and degrades quietly rather than misbehaving:
+Optional tools:
 
-| Feature | Why |
+| Feature | Notes |
 |---|---|
-| Dragging the pill along its edge | Follows the mouse through `GetAsyncKeyState`; needs an X11 pointer query. |
-| Seen-clears-it, and jumping back to the terminal | `focus.rs` reads the foreground window and the process tree through Toolhelp; `/proc` plus a window-manager call would replace it. |
-| Antigravity | Its credential is read from the Windows Credential Manager; libsecret is the equivalent. |
-| App icons taken from an installed `.exe` | The built-in provider SVGs cover every provider, so little is lost. |
+| Jump back to the terminal / Claude desktop | Uses `wmctrl` when it is on `PATH`. |
+| App icons taken from an installed `.exe` | N/A on Linux; built-in provider SVGs are used. |
 
-Everything else — all providers, the hover card, the settings window, the tray menu, hooks,
-start at sign-in (an XDG autostart entry rather than a registry value) — behaves as it does
-on Windows.
+Everything else — providers (including Antigravity via `agy`, libsecret, and the local
+bridge), dragging the pill along its edge (X11 pointer), seen-clears-it (`/proc` + X11
+foreground), the hover card, settings, tray menu, hooks, and start at sign-in (XDG
+autostart) — matches the Windows port on Linux.
 
 Tray menu: the readings themselves — a line per provider with its headline figure, and under it
 one line per limit window — then **Refresh all**, **Settings…** and **Quit Codenotch**. Clicking a

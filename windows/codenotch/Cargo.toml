@@ -34,6 +34,10 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 ring = "0.17"
 base64 = "0.22"
 
+[target.'cfg(unix)'.dependencies]
+keyring = { version = "3", default-features = false, features = ["linux-native", "sync-secret-service"] }
+x11rb = { version = "0.13", features = ["allow-unsafe-code", "shape"] }
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
   "Win32_Foundation",

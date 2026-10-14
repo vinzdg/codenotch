@@ -115,8 +115,47 @@ pub fn focus_terminal(claude_pid: u32) -> bool {
 }
 
 #[cfg(not(windows))]
-pub fn focus_terminal(_claude_pid: u32) -> bool {
+pub fn focus_terminal(claude_pid: u32) -> bool {
+    if claude_pid == 0 {
+        return false;
+    }
+    let maps = proc_maps();
+    let chain = chain_of(claude_pid, &maps.ppid);
+    if crate::x11_util::client_windows().into_iter().any(|w| {
+        pid_hits_chain(w.pid, &chain, &maps) && crate::x11_util::activate_window(w.id)
+    }) {
+        return true;
+    }
+    let out = run_quiet("wmctrl", &["-l", "-p"]);
+    for line in out.lines() {
+        let mut parts = line.split_whitespace();
+        let id = parts.next().unwrap_or("");
+        let pid: u32 = parts.nth(2).and_then(|p| p.parse().ok()).unwrap_or(0);
+        if pid == 0 || id.is_empty() {
+            continue;
+        }
+        if pid_hits_chain(pid, &chain, &maps) {
+            let _ = std::process::Command::new("wmctrl")
+                .args(["-i", "-a", id])
+                .stdin(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .status();
+            return true;
+        }
+    }
     false
+}
+
+#[cfg(not(windows))]
+fn run_quiet(program: &str, args: &[&str]) -> String {
+    std::process::Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default()
 }
 
 // ---------------- Process and foreground helpers shared by seen-clears-it and the desktop jump-back ----------------
@@ -270,5 +309,105 @@ pub fn focus_claude_desktop() -> bool {
 
 #[cfg(not(windows))]
 pub fn focus_claude_desktop() -> bool {
+    if crate::x11_util::client_windows().into_iter().any(|w| {
+        let blob = format!("{} {}", w.title, w.class_name).to_lowercase();
+        blob.contains("claude") && !blob.contains("codenotch") && crate::x11_util::activate_window(w.id)
+    }) {
+        return true;
+    }
+    let out = run_quiet("wmctrl", &["-l", "-p"]);
+    for line in out.lines() {
+        let lower = line.to_lowercase();
+        if !lower.contains("claude") || lower.contains("codenotch") {
+            continue;
+        }
+        let id = line.split_whitespace().next().unwrap_or("");
+        if id.is_empty() {
+            continue;
+        }
+        let _ = std::process::Command::new("wmctrl")
+            .args(["-i", "-a", id])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .status();
+        return true;
+    }
     false
+}
+
+// ---------------- Linux / Unix process and foreground helpers ----------------
+
+#[cfg(not(windows))]
+pub struct ProcMaps {
+    pub ppid: std::collections::HashMap<u32, u32>,
+    pub name: std::collections::HashMap<u32, String>,
+}
+
+#[cfg(not(windows))]
+pub fn proc_maps() -> ProcMaps {
+    let mut m = ProcMaps {
+        ppid: Default::default(),
+        name: Default::default(),
+    };
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return m;
+    };
+    for entry in entries.flatten() {
+        let pid: u32 = match entry.file_name().to_string_lossy().parse() {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        let stat = std::fs::read_to_string(entry.path().join("stat")).unwrap_or_default();
+        let ppid = stat
+            .split_whitespace()
+            .nth(3)
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(0);
+        m.ppid.insert(pid, ppid);
+        let comm = std::fs::read_to_string(entry.path().join("comm"))
+            .unwrap_or_default()
+            .trim()
+            .to_lowercase();
+        m.name.insert(pid, comm);
+    }
+    m
+}
+
+#[cfg(not(windows))]
+pub fn fg_pid() -> u32 {
+    #[cfg(unix)]
+    {
+        return crate::x11_util::foreground_pid();
+    }
+    #[cfg(not(unix))]
+    {
+        0
+    }
+}
+
+#[cfg(not(windows))]
+pub fn chain_of(pid: u32, ppid: &std::collections::HashMap<u32, u32>) -> Vec<u32> {
+    let mut chain = vec![pid];
+    let mut cur = pid;
+    for _ in 0..8 {
+        match ppid.get(&cur) {
+            Some(&p) if p != 0 && !chain.contains(&p) => {
+                chain.push(p);
+                cur = p;
+            }
+            _ => break,
+        }
+    }
+    chain
+}
+
+#[cfg(not(windows))]
+pub fn pid_hits_chain(pid: u32, chain: &[u32], maps: &ProcMaps) -> bool {
+    chain.contains(&pid)
+        || maps
+            .ppid
+            .get(&pid)
+            .map(|p| chain.contains(p))
+            .unwrap_or(false)
 }

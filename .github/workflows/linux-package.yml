@@ -1,0 +1,248 @@
+name: Linux Package
+
+# Same split as Windows Package: compile/test in windows.yml, installable
+# artifacts here for people without a Rust/GTK toolchain.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'windows/**'
+      - '.github/workflows/linux-package.yml'
+  pull_request:
+    paths:
+      - 'windows/**'
+      - '.github/workflows/linux-package.yml'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  package-deb-appimage:
+    if: github.repository == 'vinzdg/codenotch' || github.event_name == 'workflow_dispatch'
+    name: deb and AppImage
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+
+      - name: Install GTK and WebKit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: windows
+          key: linux-package
+
+      - name: Build the hook
+        run: cargo build --release --locked -p codenotch-hook --target-dir target/hook
+
+      - name: Can this build be signed?
+        id: signing
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          have=false
+          if [ -n "${KEY:-}" ]; then have=true; fi
+          echo "signed=$have" >> "$GITHUB_OUTPUT"
+          if [ "$have" = false ]; then
+            echo '::warning::TAURI_SIGNING_PRIVATE_KEY is not set — building packages with no update feed.'
+          fi
+
+      - name: Build deb and AppImage
+        working-directory: windows/codenotch
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          SIGNED: ${{ steps.signing.outputs.signed }}
+        run: |
+          set -euo pipefail
+          args=(--config tauri.linux.conf.json --config tauri.linux.bundle.conf.json)
+          if [ "$SIGNED" = true ]; then
+            args+=(--config '{"plugins":{"updater":{"endpoints":["https://github.com/vinzdg/codenotch/releases/latest/download/latest.json"]}},"bundle":{"createUpdaterArtifacts":true}}')
+          else
+            args+=(--config '{"plugins":{"updater":{"endpoints":["https://github.com/vinzdg/codenotch/releases/latest/download/latest.json"]}}}')
+          fi
+          npx --yes @tauri-apps/cli@2.11.4 build "${args[@]}" -- --locked
+
+      - name: Name the packages
+        run: |
+          set -euo pipefail
+          deb=$(find target/release/bundle/deb -name '*.deb' | head -1)
+          appimage=$(find target/release/bundle/appimage -name '*.AppImage' | head -1)
+          test -n "$deb"
+          test -n "$appimage"
+          cp "$deb" Codenotch_amd64.deb
+          cp "$appimage" Codenotch.AppImage
+          chmod +x Codenotch.AppImage
+
+      - name: Smoke test (doctor)
+        run: |
+          set -euo pipefail
+          sudo dpkg -i Codenotch_amd64.deb || sudo apt-get install -f -y
+          out=$(env GDK_BACKEND=x11 codenotch doctor 2>&1 || true)
+          echo "$out"
+          echo "$out" | grep -q 'Codenotch doctor'
+          env GDK_BACKEND=x11 ./Codenotch.AppImage doctor 2>&1 | grep -q 'Codenotch doctor'
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Codenotch-Linux-deb-${{ github.sha }}
+          path: |
+            windows/Codenotch_amd64.deb
+            windows/Codenotch.AppImage
+          if-no-files-found: error
+
+      - name: Explain how to open it
+        run: |
+          {
+            echo "### Codenotch for Linux — deb and AppImage"
+            echo
+            echo "Download the artifacts below. On GNOME, enable **AppIndicator Support** for the tray icon."
+            echo "Wayland sessions need XWayland; packages set \`GDK_BACKEND=x11\` on the desktop entry."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build the update feed (AppImage)
+        if: steps.signing.outputs.signed == 'true'
+        run: |
+          set -euo pipefail
+          zip=$(find target/release/bundle/appimage -name '*.AppImage.tar.gz' 2>/dev/null | head -1)
+          if [ -z "$zip" ]; then
+            zip=$(find target/release/bundle/appimage -name '*.AppImage*.zip' 2>/dev/null | head -1)
+          fi
+          test -n "$zip"
+          cp "$zip" Codenotch.AppImage.tar.gz
+          sig="${zip}.sig"
+          signature=""
+          if [ -f "$sig" ]; then signature=$(tr -d '\n' < "$sig"); fi
+          version=$(python3 -c "import json; print(json.load(open('codenotch/tauri.conf.json'))['version'])")
+          python3 <<PY
+          import json, datetime
+          feed = {
+            "version": "$version",
+            "pub_date": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "platforms": {
+              "linux-x86_64": {
+                "signature": """$signature""",
+                "url": f"https://github.com/vinzdg/codenotch/releases/download/v$version/Codenotch.AppImage.tar.gz"
+              }
+            }
+          }
+          with open("latest-linux.json", "w", encoding="utf-8") as f:
+            json.dump(feed, f, indent=2)
+          PY
+          cat latest-linux.json
+
+      - uses: actions/upload-artifact@v7
+        if: steps.signing.outputs.signed == 'true'
+        with:
+          name: Codenotch-linux-update-feed-${{ github.sha }}
+          path: |
+            windows/latest-linux.json
+            windows/Codenotch.AppImage.tar.gz
+          if-no-files-found: error
+
+      - name: Attach deb and AppImage to release
+        if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        working-directory: windows
+        run: |
+          gh release upload "$TAG" Codenotch_amd64.deb Codenotch.AppImage --clobber
+          if [ -f Codenotch.AppImage.tar.gz ]; then
+            gh release upload "$TAG" Codenotch.AppImage.tar.gz --clobber
+          fi
+
+      - name: Merge linux into latest.json
+        if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v') && steps.signing.outputs.signed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        working-directory: windows
+        run: |
+          set -euo pipefail
+          if [ ! -f latest-linux.json ]; then exit 0; fi
+          gh release download "$TAG" -p latest.json -D merge-tmp || echo '{}' > merge-tmp/latest.json
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+          base = json.loads(Path("merge-tmp/latest.json").read_text(encoding="utf-8") or "{}")
+          linux = json.loads(Path("latest-linux.json").read_text(encoding="utf-8"))
+          base.setdefault("platforms", {}).update(linux.get("platforms", {}))
+          if "version" not in base:
+              base["version"] = linux["version"]
+          if "pub_date" not in base:
+              base["pub_date"] = linux["pub_date"]
+          Path("latest.json").write_text(json.dumps(base, indent=2) + "\n", encoding="utf-8")
+          PY
+          sig=$(python3 -c "import json; print(json.load(open('latest.json'))['platforms'].get('linux-x86_64',{}).get('signature',''))")
+          if [ -z "$sig" ]; then
+            echo '::warning::No linux updater signature; skipping latest.json upload'
+            exit 0
+          fi
+          gh release upload "$TAG" latest.json --clobber
+
+  package-rpm:
+    if: github.repository == 'vinzdg/codenotch' || github.event_name == 'workflow_dispatch'
+    name: rpm
+    permissions:
+      contents: write
+    runs-on: fedora-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+
+      - name: Install build deps
+        run: |
+          sudo dnf install -y gcc gcc-c++ openssl-devel \
+            webkit2gtk4.1-devel gtk3-devel libappindicator-gtk3-devel librsvg2-devel
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: windows
+          key: linux-package-rpm
+
+      - name: Build the hook
+        run: cargo build --release --locked -p codenotch-hook --target-dir target/hook
+
+      - name: Build rpm only
+        working-directory: windows/codenotch
+        run: |
+          npx --yes @tauri-apps/cli@2.11.4 build \
+            --config tauri.linux.conf.json \
+            --config tauri.linux.bundle.conf.json \
+            --config '{"bundle":{"targets":["rpm"]}}' \
+            -- --locked
+
+      - name: Name the rpm
+        run: |
+          rpm=$(find target/release/bundle/rpm -name '*.rpm' | head -1)
+          test -n "$rpm"
+          cp "$rpm" Codenotch.x86_64.rpm
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Codenotch-Linux-rpm-${{ github.sha }}
+          path: windows/Codenotch.x86_64.rpm
+          if-no-files-found: error
+
+      - name: Attach rpm to release
+        if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        working-directory: windows
+        run: gh release upload "$TAG" Codenotch.x86_64.rpm --clobber

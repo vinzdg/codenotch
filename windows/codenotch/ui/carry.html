@@ -471,6 +471,13 @@ function start(init){
 listen('carry_init', e => start(e.payload)).catch(() => {});
 listen('carry_target', e => { if(st && !settling) target = e.payload; }).catch(() => {});
 listen('carry_release', () => { if(st){ releasedAt = Date.now(); letGo(); } }).catch(() => {});
+function releaseCarry(e){
+  if(e && e.button != null && e.button !== 0) return;
+  invoke('end_carry').catch(() => {});
+}
+window.addEventListener('mouseup', releaseCarry);
+window.addEventListener('pointerup', releaseCarry);
+window.addEventListener('pointercancel', () => invoke('end_carry').catch(() => {}));
 invoke('get_carry').then(v => { if(v && (!st || st.seq !== v.seq)) start(v); }).catch(() => {});
 </script>
 </body>

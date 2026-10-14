@@ -1492,17 +1492,24 @@ function jslog(m){invoke('log_js',{msg:String(m)}).catch(()=>{});}
 function callq(cmd,args){ // invoke with visible failure: any command error is reported on screen (a silent .catch used to swallow them)
   return invoke(cmd,args).catch(e=>{notice(cmd+' failed: '+(e&&e.message||e));throw e;});
 }
-// Hot rectangles are reported in physical pixels (multiplied by this page's real DPR), so the Rust side does no conversion — WebView2's DPR and the window scale can disagree
-function rectOf(el){const r=el.getBoundingClientRect(),k=window.devicePixelRatio||1;return [r.left*k,r.top*k,r.width*k,r.height*k];}
+// Hot rectangles are reported in physical pixels (unzoomed layout × DPR), same space as placeCard's
+// `box()` — getBoundingClientRect is CSS-zoomed when fitZoom runs; leaving that in desyncs the watchdog.
+function cssZoom(){return parseFloat(document.documentElement.style.zoom)||1;}
+function rectOf(el){
+  const z=cssZoom(), r=el.getBoundingClientRect(), k=window.devicePixelRatio||1;
+  return [r.left/z*k,r.top/z*k,r.width/z*k,r.height/z*k];
+}
 /* The tail and the gap between its tip and the pill: crossing it is still being on the notch, so it is
    hot too, or a click there would go through to whatever is behind. */
 function tailReach(){
-  const t=tail.getBoundingClientRect(), p=pill.getBoundingClientRect(), k=window.devicePixelRatio||1;
-  let {left,top,right,bottom}=t;
-  if(notchEdge==='left') left=Math.min(left,p.right);
-  else if(notchEdge==='top') top=Math.min(top,p.bottom);
-  else if(notchEdge==='bottom') bottom=Math.max(bottom,p.top);
-  else right=Math.max(right,p.left);
+  const z=cssZoom(), k=window.devicePixelRatio||1;
+  const t=tail.getBoundingClientRect(), p=pill.getBoundingClientRect();
+  let left=t.left/z,top=t.top/z,right=t.right/z,bottom=t.bottom/z;
+  const pL=p.left/z,pR=p.right/z,pT=p.top/z,pB=p.bottom/z;
+  if(notchEdge==='left') left=Math.min(left,pR);
+  else if(notchEdge==='top') top=Math.min(top,pB);
+  else if(notchEdge==='bottom') bottom=Math.max(bottom,pT);
+  else right=Math.max(right,pL);
   return [left*k,top*k,(right-left)*k,(bottom-top)*k];
 }
 /* Rust gates click-through on these, so they are reported whenever the pill or card moves, not only
@@ -1510,7 +1517,7 @@ function tailReach(){
 function reportHot(){
   if(folded){ callq('set_hot',{rects:[wakeRect()],expanded:false,probe:probeRect()}).catch(()=>{}); return; }
   const open=card.classList.contains('show');
-  const rects=open?[rectOf(pill),tailReach(),rectOf(card)]:[rectOf(pill)];
+  const rects=open?[rectOf(pill),tailReach(),rectOf(card)]:[rectOf(pill),tailReach()];
   if(placeHandles()){ rects.push(rectOf(orb)); if(gripOut()||handleCarry) rects.push(gripRect()); }
   callq('set_hot',{rects,expanded:open}).catch(()=>{});
 }
@@ -1519,9 +1526,9 @@ function reportHot(){
    place that opens it should not be (NotchViewModel.wakeLength and wakeDepth). */
 const WAKE_BAND=34;
 function wakeRect(){
-  const r=document.getElementById('rest').getBoundingClientRect(), k=window.devicePixelRatio||1;
-  const b=WAKE_BAND*(parseFloat(document.documentElement.style.zoom)||1); // rects come back zoomed
-  let x=r.left,y=r.top,w=r.width,h=r.height;
+  const z=cssZoom(), r=document.getElementById('rest').getBoundingClientRect(), k=window.devicePixelRatio||1;
+  const b=WAKE_BAND;
+  let x=r.left/z,y=r.top/z,w=r.width/z,h=r.height/z;
   if(notchEdge==='left') w+=b; else if(notchEdge==='top') h+=b; else if(notchEdge==='bottom'){ y-=b; h+=b; } else { x-=b; w+=b; }
   return [x*k,y*k,w*k,h*k];
 }
@@ -1529,12 +1536,12 @@ function wakeRect(){
    from the edge, where nothing is drawn while folded. */
 const PROBE_GAP=4, PROBE_DEPTH=12;
 function probeRect(){
-  const r=document.getElementById('rest').getBoundingClientRect(), k=window.devicePixelRatio||1;
-  const z=parseFloat(document.documentElement.style.zoom)||1, g=PROBE_GAP*z, d=PROBE_DEPTH*z;
-  let x=r.left-g-d,y=r.top,w=d,h=r.height;
-  if(notchEdge==='left') x=r.right+g;
-  else if(notchEdge==='top'){ x=r.left; y=r.bottom+g; w=r.width; h=d; }
-  else if(notchEdge==='bottom'){ x=r.left; y=r.top-g-d; w=r.width; h=d; }
+  const z=cssZoom(), r=document.getElementById('rest').getBoundingClientRect(), k=window.devicePixelRatio||1;
+  const g=PROBE_GAP, d=PROBE_DEPTH;
+  let x=r.left/z-g-d,y=r.top/z,w=d,h=r.height/z;
+  if(notchEdge==='left') x=r.right/z+g;
+  else if(notchEdge==='top'){ x=r.left/z; y=r.bottom/z+g; w=r.width/z; h=d; }
+  else if(notchEdge==='bottom'){ x=r.left/z; y=r.top/z-g-d; w=r.width/z; h=d; }
   return [x*k,y*k,w*k,h*k];
 }
 function armWatchdog(){
@@ -1550,6 +1557,10 @@ function armWatchdog(){
 const DESIGN_W_UPRIGHT=360, DESIGN_W_FLAT=650;
 function designWidth(){ return edgeIsVertical()?DESIGN_W_UPRIGHT:DESIGN_W_FLAT; }
 function fitZoom(){
+  if(window.__CN_LAYOUT__?.rustZoomOnly){
+    document.documentElement.style.zoom='';
+    return 1;
+  }
   const z=innerWidth/designWidth();
   document.documentElement.style.zoom=(Math.abs(z-1)>0.02)?String(z):'';
   return z;
@@ -1585,38 +1596,49 @@ listen('notch_reveal',()=>{
 /* Collapse test: no trust in element-level mouseenter/mouseleave/e.target at all —
    pure geometry: is the cursor (clientX/Y) inside pill rect ∪ card rect ∪ their bounding box?
    Leaving the window: document mouseout (relatedTarget=null) plus the Rust watchdog (system cursor) as a second line. */
-function inRect(x,y,r,pad){return x>=r.left-pad&&y>=r.top-pad&&x<r.right+pad&&y<r.bottom+pad;}
+function inRect(x,y,r,pad){return x>=r.left-pad&&y>=r.top-pad&&x<=r.right+pad&&y<=r.bottom+pad;}
 function cellAt(x,y){
   for(const el of pill.querySelectorAll('.cell')){ if(inRect(x,y,el.getBoundingClientRect(),6)) return el.dataset.p; }
   return null;
 }
 function pointerInHot(x,y){
-  const p=pill.getBoundingClientRect();
-  if(inRect(x,y,p,4))return true;
-  if(!card.classList.contains('show'))return false;
-  const c=card.getBoundingClientRect();
-  if(inRect(x,y,c,4))return true;
-  const u={left:Math.min(p.left,c.left),top:Math.min(p.top,c.top),right:Math.max(p.right,c.right),bottom:Math.max(p.bottom,c.bottom)};
-  return inRect(x,y,u,0);
+  const pad=16;
+  const parts=[pill.getBoundingClientRect()];
+  const o=orb.getBoundingClientRect();
+  if(o.width>0&&o.height>0) parts.push(o);
+  if(card.classList.contains('show')) parts.push(card.getBoundingClientRect());
+  const t=tail.getBoundingClientRect();
+  if(t.width>0&&t.height>0) parts.push(t);
+  if(parts.some(r=>inRect(x,y,r,pad))) return true;
+  const u=parts.reduce((a,r)=>({left:Math.min(a.left,r.left),top:Math.min(a.top,r.top),right:Math.max(a.right,r.right),bottom:Math.max(a.bottom,r.bottom)}));
+  return inRect(x,y,u,pad);
 }
 let hideLogged=0;
 document.addEventListener('mousemove',e=>{
-  // Folded, the page is sent events only over the pill, so any movement at all is the pointer reaching it
-  if(folded){ pointerIn=true; unfold(); }
-  if(dragging)return; // no card while dragging
+  if(dragging||menuOpen){ pointerIn=true; clearTimeout(foldTimer); clearTimeout(tuckTimer); return; }
   setHovered(onHandle(e.clientX,e.clientY));
-  if(hovered){ if(card.classList.contains('show')){ clearTimeout(hideTimer); hideCard(); } return; }
-  const hot=pointerInHot(e.clientX,e.clientY);
+  const hot=pointerInHot(e.clientX,e.clientY)||!!hovered;
   if(hot){
+    pointerIn=true;
+    clearTimeout(foldTimer); clearTimeout(tuckTimer);
+    if(folded) unfold();
+    if(hovered){ if(card.classList.contains('show')){ clearTimeout(hideTimer); hideCard(); } return; }
     clearTimeout(hideTimer);
     const id=cellAt(e.clientX,e.clientY);
     if(id&&id!==hoverId){ hoverId=id; if(card.classList.contains('show')){ renderCard(); armWatchdog(); } }
     if(!card.classList.contains('show')) showCard();
+  } else if(pointerIn){
+    pointerIn=false;
+    setHovered(null);
+    if(card.classList.contains('show')){ if(hideLogged++<5) jslog(`mousemove left the hot area -> collapse at ${e.clientX},${e.clientY}`); scheduleHide(); }
+    scheduleFold();
   }
-  else if(card.classList.contains('show')){ if(hideLogged++<5) jslog(`mousemove left the hot area -> collapse at ${e.clientX},${e.clientY}`); scheduleHide(); }
 });
 document.addEventListener('mouseout',e=>{ // relatedTarget null = the cursor left the page
-  if(!e.relatedTarget && card.classList.contains('show')){ if(hideLogged++<5) jslog('mouseout left the page -> collapse'); scheduleHide(); }
+  if(e.relatedTarget) return;
+  pointerIn=false;
+  if(card.classList.contains('show')){ if(hideLogged++<5) jslog('mouseout left the page -> collapse'); scheduleHide(); }
+  scheduleFold();
 });
 listen('pointer_left',()=>{clearTimeout(hideTimer);hideCard();}).catch(()=>{});
 // Card content changes change its height -> report the hot rectangles again
@@ -1656,14 +1678,19 @@ function settle(id){
   delete refreshing[id];
   renderRing();
 }
-// Alt+drag, the Mac's ⌥-drag: round the screen's border, drawn by carry.html meanwhile. Without Alt
-// a press on the pill is only ever a click — a ring refreshes (#244) — so one that slips can no
-// longer carry the notch off (#251).
+pill.addEventListener('pointerdown',e=>{
+  if(e.button!==0||folded)return;
+  try{ pill.setPointerCapture(e.pointerId); }catch(err){}
+},true);
+// Drag the pill to slide it along the edge and around the screen. A press that does not
+// move stays a click and refreshes the ring.
 pill.addEventListener('mousedown',e=>{ if(e.button!==0||folded)return; press={x:e.clientX,y:e.clientY,id:cellAt(e.clientX,e.clientY)||hoverId,alt:e.altKey}; });
 document.addEventListener('mousemove',e=>{
-  if(!press||dragging||!press.alt)return;
-  if(Math.abs(e.clientY-press.y)>4||Math.abs(e.clientX-press.x)>4){
-    dragging=true; clearTimeout(hideTimer); hideCard();
+  if(!press||dragging)return;
+  const along=edgeIsVertical()?Math.abs(e.clientY-press.y):Math.abs(e.clientX-press.x);
+  const across=edgeIsVertical()?Math.abs(e.clientX-press.x):Math.abs(e.clientY-press.y);
+  if(along>8||across>8){
+    dragging=true; clearTimeout(hideTimer); clearTimeout(foldTimer); clearTimeout(tuckTimer); hideCard();
     const handle=beginHandleCarry(false);
     invoke('begin_carry',{shape:{...carryShape(),handle}}).catch(err=>{notice('begin_carry failed: '+err);dragging=false;endHandleCarry();});
   }
@@ -1687,9 +1714,15 @@ let carried=false;
 listen('carry_hold',()=>{ carried=true; document.documentElement.style.visibility='hidden'; }).catch(()=>{});
 document.addEventListener('mouseup',e=>{
   if(e.button!==0)return;
+  if(dragging) invoke('end_carry').catch(()=>{});
   if(press&&!dragging&&press.id) refreshRing(press.id);
   press=null;
 });
+window.addEventListener('pointerup',e=>{
+  if(e.button!==0||!dragging)return;
+  invoke('end_carry').catch(()=>{});
+});
+window.addEventListener('pointercancel',()=>{ if(dragging) invoke('end_carry').catch(()=>{}); });
 // The Mac's right-click menu, naming the ring or card under the pointer; WebView2's own menu never shows
 document.addEventListener('contextmenu',e=>{
   e.preventDefault();

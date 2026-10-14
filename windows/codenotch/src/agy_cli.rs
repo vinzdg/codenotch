@@ -15,11 +15,12 @@ use std::time::Duration;
 #[cfg(windows)]
 use std::os::windows::ffi::OsStrExt;
 
-/// Discover installed official Antigravity CLI (`agy.exe`).
-/// Checks `%LOCALAPPDATA%\agy\bin\agy.exe` and `PATH` only (only `.exe` binaries).
+/// Discover installed official Antigravity CLI.
+/// Windows: `%LOCALAPPDATA%\agy\bin\agy.exe` and `PATH` (`.exe` only).
+/// Linux: `~/.local/share/agy/bin/agy` and `PATH`.
 pub fn find_agy() -> Option<PathBuf> {
     if let Some(local) = dirs::data_local_dir() {
-        let candidate = local.join("agy").join("bin").join("agy.exe");
+        let candidate = local.join("agy").join("bin").join(agy_binary_name());
         if candidate.is_file() {
             return Some(candidate);
         }
@@ -30,10 +31,18 @@ pub fn find_agy() -> Option<PathBuf> {
     None
 }
 
+fn agy_binary_name() -> &'static str {
+    if cfg!(windows) {
+        "agy.exe"
+    } else {
+        "agy"
+    }
+}
+
 /// Helper for testing discovery in explicit directories without touching environment.
 fn find_agy_in(dirs: &[PathBuf]) -> Option<PathBuf> {
     for dir in dirs {
-        let candidate = dir.join("agy.exe");
+        let candidate = dir.join(agy_binary_name());
         if candidate.is_file() {
             return Some(candidate);
         }
@@ -556,12 +565,56 @@ fn run_cmd_conpty(
 
 #[cfg(not(windows))]
 fn run_cmd_conpty(
-    _program: &Path,
-    _args: &[&str],
-    _cwd: Option<&Path>,
-    _timeout: Duration,
+    program: &Path,
+    args: &[&str],
+    cwd: Option<&Path>,
+    timeout: Duration,
 ) -> Result<String, String> {
-    Err("Antigravity CLI runner requires Windows".into())
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    use std::sync::mpsc;
+    use std::thread;
+
+    let mut cmd = Command::new(program);
+    cmd.args(args)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .stdout(Stdio::piped());
+    if let Some(cwd) = cwd {
+        cmd.current_dir(cwd);
+    }
+    let mut child = cmd.spawn().map_err(|e| format!("Cannot start Antigravity CLI: {e}"))?;
+    let mut stdout = child.stdout.take().ok_or("CLI has no stdout")?;
+    let (tx, rx) = mpsc::sync_channel::<Vec<u8>>(1);
+    let reader = thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stdout.read_to_end(&mut buf);
+        let _ = tx.send(buf);
+    });
+    let started = std::time::Instant::now();
+    loop {
+        if let Ok(Some(status)) = child.try_wait() {
+            let raw = rx.recv_timeout(Duration::from_secs(2)).unwrap_or_default();
+            let _ = reader.join();
+            if !status.success() {
+                return Err(format!(
+                    "Antigravity CLI failed with exit code {}",
+                    status.code().unwrap_or(-1)
+                ));
+            }
+            if raw.len() > 65536 {
+                return Err("CLI quota output is too large".into());
+            }
+            return Ok(String::from_utf8_lossy(&raw).into_owned());
+        }
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = reader.join();
+            return Err("Antigravity CLI quota request timed out".into());
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
 }
 
 /// Executes official `agy --print /usage` via native ConPTY.

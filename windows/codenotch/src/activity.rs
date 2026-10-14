@@ -457,9 +457,69 @@ fn claude_io_bytes() -> Option<(u64, u64)> {
         Some((other, read))
     }
 }
+/// `rchar` counts socket reads on Linux the way Windows' Other counter counts AFD IOCTLs.
+/// `read_bytes` is storage, logged beside it and not used as the streaming signal.
+#[cfg(not(windows))]
+fn proc_io_counters(text: &str) -> Option<(u64, u64)> {
+    let mut rchar = None;
+    let mut read_bytes = None;
+    for line in text.lines() {
+        let Some((key, val)) = line.split_once(':') else { continue };
+        let Ok(n) = val.trim().parse::<u64>() else { continue };
+        match key.trim() {
+            "rchar" => rchar = Some(n),
+            "read_bytes" => read_bytes = Some(n),
+            _ => {}
+        }
+    }
+    Some((rchar?, read_bytes?))
+}
+
+#[cfg(not(windows))]
+fn claude_net_pid() -> Option<u32> {
+    let now = now_ms();
+    {
+        let g = CLAUDE_NET_PID.lock().unwrap();
+        let (pid, at) = *g;
+        if pid != 0 && now.saturating_sub(at) < 5 * 60_000 && std::path::Path::new(&format!("/proc/{pid}")).is_dir() {
+            return Some(pid);
+        }
+        if pid == 0 && at != 0 && now.saturating_sub(at) < 60_000 {
+            return None;
+        }
+    }
+    let mut found = None;
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        *CLAUDE_NET_PID.lock().unwrap() = (0, now);
+        return None;
+    };
+    for entry in entries.flatten() {
+        let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else { continue };
+        let Ok(cmdline) = std::fs::read(entry.path().join("cmdline")) else { continue };
+        let cmd = String::from_utf8_lossy(&cmdline).to_lowercase();
+        if cmd.contains("network.mojom.networkservice") && cmd.contains("claude") {
+            found = Some(pid);
+            break;
+        }
+    }
+    match found {
+        Some(pid) => {
+            *CLAUDE_NET_PID.lock().unwrap() = (pid, now);
+            crate::applog(&format!("claude net pid = {pid}"));
+            Some(pid)
+        }
+        None => {
+            *CLAUDE_NET_PID.lock().unwrap() = (0, now);
+            None
+        }
+    }
+}
+
 #[cfg(not(windows))]
 fn claude_io_bytes() -> Option<(u64, u64)> {
-    None
+    let pid = claude_net_pid()?;
+    let text = std::fs::read_to_string(format!("/proc/{pid}/io")).ok()?;
+    proc_io_counters(&text)
 }
 
 fn claude_activity() -> Vec<Activity> {
@@ -586,6 +646,15 @@ pub fn lower_thread_priority() {
 }
 #[cfg(not(windows))]
 pub fn lower_thread_priority() {}
+
+#[cfg(all(test, not(windows)))]
+mod tests {
+    #[test]
+    fn proc_io_reads_rchar_and_read_bytes() {
+        let text = "rchar: 100\nwchar: 5\nsyscr: 1\nsyscw: 2\nread_bytes: 40\nwrite_bytes: 0\n";
+        assert_eq!(super::proc_io_counters(text), Some((100, 40)));
+    }
+}
 
 pub fn start(app: AppHandle) {
     std::thread::spawn(move || {
