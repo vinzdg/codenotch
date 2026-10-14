@@ -8,9 +8,9 @@ final class BusyWaveTests: XCTestCase {
     /// appended here by hand to be covered.
     private let allGlyphs: [ProviderGlyph] = [
         .claude, .devin, .openai, .third, .cursor, .antigravity, .geminiSpark,
-        .glm, .qwen, .gemma, .meta, .deepseek, .mistral, .grok, .opencode,
+        .glm, .qwen, .gemma, .meta, .deepseek, .mistral, .grok, .grokbot, .opencode,
         .commandcode, .copilot, .kimi, .kilo, .kiro, .amp, .apify, .minimax,
-        .ollama, .ollamaLocal, .lmstudio, .llamaCpp, .qoder, .qianwenAI,
+        .ollama, .ollamaLocal, .lmstudio, .omlx, .llamaCpp, .qoder, .qianwenAI,
     ]
 
     func testEveryGlyphHasAnOpaqueBrandColour() {
