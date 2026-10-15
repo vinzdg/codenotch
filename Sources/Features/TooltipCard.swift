@@ -442,7 +442,8 @@ private struct PaceMarker: View {
     var body: some View {
         RoundedRectangle(cornerRadius: width / 2, style: .continuous)
             .fill(Palette.textPrimary)
-            .frame(width: width, height: NotchLayout.barHeight + Design.px(6))
+            // Whole points, so it overhangs the bar evenly above and below.
+            .frame(width: width, height: (NotchLayout.barHeight + Design.px(6)).rounded())
             .offset(x: paceMarkerX(position: position, trackWidth: trackWidth, markerWidth: width))
             .accessibilityHidden(true)
     }

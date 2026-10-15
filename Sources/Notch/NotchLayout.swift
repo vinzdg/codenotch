@@ -196,13 +196,19 @@ enum NotchLayout {
     static let tailLength    = Design.px(75)
     static let tailHeight    = Design.px(87)
     static let tailGap       = Design.px(28)    // tail tip -> notch body edge
-    static let barHeight     = Design.px(10.5)
+    /// Whole points, unlike the distances around it. A usage bar is a solid
+    /// edge-to-edge fill, so the compositor snaps its top and its bottom to the
+    /// pixel grid separately: at the frame's 3.95pt, a bar that happened to sit
+    /// half a pixel lower came out a whole pixel thinner than the one beside
+    /// it. Four points is four pixels at 1x and eight at 2x wherever it lands.
+    static let barHeight     = Design.px(10.5).rounded()
     static let headerGap     = Design.px(17)    // glyph -> title
     static let headerToBlock = Design.px(21)
     static let labelToBar    = Design.px(16.8)
     static let barToUsed     = Design.px(17.8)
     static let blockSpacing  = Design.px(20)
-    static let moneyBarHeight = Design.px(12)
+    /// Whole points for the reason `barHeight` is.
+    static let moneyBarHeight = Design.px(12).rounded()
     static let moneyBarToStats = Design.px(14)
     static let moneyStatGap = Design.px(4)
     static let usageDetailIdentityGap = Design.px(4)

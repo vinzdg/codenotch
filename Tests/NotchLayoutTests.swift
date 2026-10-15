@@ -134,6 +134,15 @@ final class NotchLayoutTests: XCTestCase {
             XCTAssertLessThanOrEqual(centre + cardHalf, panelHeight)
         }
     }
+
+    /// A solid bar has its top and bottom snapped to the pixel grid one by
+    /// one, so a fractional height drew two bars of one height a pixel apart
+    /// depending on where each sat. Whole points snap the same everywhere.
+    func testBarsAreWholePointsSoEveryOneDrawsTheSameThickness() {
+        for height in [NotchLayout.barHeight, NotchLayout.moneyBarHeight] {
+            XCTAssertEqual(height, height.rounded(), "\(height)pt lands on a different number of pixels by position")
+        }
+    }
 }
 
 /// The panel has to be sized for the provider list that caused the change, not
