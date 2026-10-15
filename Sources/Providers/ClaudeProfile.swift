@@ -137,6 +137,9 @@ struct ClaudeProfile: Equatable, Hashable {
     /// The old spelling is kept as the fallback rather than dropped: a profile
     /// whose `.claude.json` has not been written yet, or was signed out, still
     /// has to be named something, and the directory is all there is then.
+    ///
+    /// This is the name that tells a profile apart. Whether it needs telling
+    /// apart at all is for `displayNames(for:)`, which sees every profile.
     var displayName: String {
         guard let label = accountLabel() else {
             return slug.map { "Claude (\($0))" } ?? "Claude"
@@ -179,7 +182,15 @@ struct ClaudeProfile: Equatable, Hashable {
     /// company domain — would draw two rings with identical names, which is
     /// worse than the directory names this replaced. Only the profiles that
     /// actually collide pay the longer name.
+    ///
+    /// And a lone account is just `Claude`. The label is there to tell one ring
+    /// from another; with nothing to tell it from, `Claude Gmail Usage` over
+    /// the only Claude card reads as a product that does not exist.
     static func displayNames(for profiles: [ClaudeProfile]) -> [String: String] {
+        if profiles.count == 1, let only = profiles.first {
+            return [only.id: "Claude"]
+        }
+
         var sharing: [String: Int] = [:]
         for profile in profiles { sharing[profile.displayName, default: 0] += 1 }
 

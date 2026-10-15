@@ -342,7 +342,7 @@ final class UsageStore: ObservableObject {
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshNow(freshness: .live) }
+            MainActor.assumeIsolated { _ = self?.refreshNow(freshness: .live) }
         }
 
         // A window's `label` is display text a provider resolved while it was
@@ -354,7 +354,7 @@ final class UsageStore: ObservableObject {
         languageObserver = NotificationCenter.default.addObserver(
             forName: L10n.didChange, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshNow() }
+            MainActor.assumeIsolated { _ = self?.refreshNow() }
         }
     }
 
@@ -445,7 +445,14 @@ final class UsageStore: ObservableObject {
         sinceLastRefresh >= spacing
     }
 
-    func refreshNow() {
+    /// Starts a pass over every provider, or joins the one already running.
+    ///
+    /// Returns that pass for a caller that has to say when it is over — the
+    /// menu's "Refresh all" reads "Refreshing…" until then. A pass wedged
+    /// behind a keychain prompt can outlive `refreshDeadline`, so a caller
+    /// waiting on it needs a way to stop waiting of its own.
+    @discardableResult
+    func refreshNow() -> Task<Void, Never>? {
         refreshNow(freshness: freshnessWanted)
     }
 
@@ -460,18 +467,21 @@ final class UsageStore: ObservableObject {
     /// - Parameter includeIdleSkipped: false leaves manual-only providers out:
     ///   their fetch is expensive enough to spend only on a look, a rollover,
     ///   or a click — not on every idle tick.
-    func refreshNow(freshness: UsageFreshness, includeIdleSkipped: Bool = true) {
+    @discardableResult
+    func refreshNow(freshness: UsageFreshness, includeIdleSkipped: Bool = true) -> Task<Void, Never>? {
         guard !isRefreshing else {
             Log.usage.notice("refresh skipped: one already in flight")
-            return
+            return refreshTask
         }
         isRefreshing = true
         lastAttempt = pollingNow()
-        refreshTask = Task { [weak self] in
+        let pass = Task { [weak self] in
             await self?.refresh(freshness: freshness, includeIdleSkipped: includeIdleSkipped)
             self?.finish()
         }
+        refreshTask = pass
         armDeadline()
+        return pass
     }
 
     /// A provider's work has just stopped, so its number has just finished

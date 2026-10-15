@@ -103,6 +103,27 @@ enum Palette {
     /// Used only by dark, standard Liquid Glass tooltips. Other surfaces keep
     /// `textSecondary`, including their frame-accurate #808080 dark ink.
     static let readableTooltipTextSecondary = Color(dark: NSColor(hex: 0xC2C2C2), light: NSColor(hex: 0x6B6B6B))
+
+    /// The surface of a card in the menu bar's menu: a wash over the menu's own
+    /// glass rather than a slab on top of it, so the blur behind the menu still
+    /// reads through.
+    ///
+    /// The menu's glass takes its tint from what is behind it, not from the
+    /// Mac's appearance, so a Light menu can sit over a dark wallpaper and come
+    /// out dark. The wash is opaque enough that the ink chosen for the
+    /// appearance keeps its contrast whichever way the glass went: black on the
+    /// light wash, white on the dark one, with the secondary ink above 3:1 even
+    /// over glass tinted the other way.
+    static let menuCardSurface = Color(dark: NSColor(white: 0.08, alpha: 0.72),
+                                       light: NSColor(white: 1.0, alpha: 0.80))
+    /// The card's edge: enough to separate it from the glass, never a frame.
+    static let menuCardStroke = Color(dark: .white.withAlphaComponent(0.12),
+                                      light: .black.withAlphaComponent(0.08))
+    /// Secondary ink on a menu card. `textSecondary`'s #808080 is the notch's
+    /// frame-accurate grey on pure black; on the menu's lighter, translucent
+    /// card it fell under 3:1, so the card takes a lighter grey in dark and a
+    /// slightly darker one in light.
+    static let menuTextSecondary = Color(dark: NSColor(hex: 0xA8A8A8), light: NSColor(hex: 0x5E5E5E))
 }
 
 extension Color {

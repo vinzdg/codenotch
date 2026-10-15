@@ -148,7 +148,7 @@ final class OMLXViewTests: XCTestCase {
         }
     }
 
-    func testTheMenuListsOMLXModelsWithWhatTheirCellsShow() throws {
+    func testTheMenuDrawsACardPerOMLXModelWithWhatItsCellShows() throws {
         let runtime = OMLXFixtures.snapshot(try OMLXUsage.parse(OMLXFixtures.listing([
             model("Qwen3.8-27B-oQ8e-mtp", context: 32_768)
         ])))
@@ -175,13 +175,17 @@ final class OMLXViewTests: XCTestCase {
         let titles = menu.items.map(\.title)
         let joined = titles.joined(separator: "\n")
 
+        // A card for the loaded model rather than one for the runtime.
+        XCTAssertTrue(titles.contains("oMLX — Qwen3.8-27B-oQ8e-mtp"), joined)
+        XCTAssertFalse(titles.contains("oMLX — 1 model loaded"), joined)
+        let card = try XCTUnwrap(menu.items.first { $0.representedObject as? String == qwen }, joined)
+        XCTAssertNotNil(card.view, "the model was left as plain text")
+        XCTAssertNil(card.action, "a card is a reading, not a command")
+
+        // And what the cell knows is in the words VoiceOver gets.
         let cell = try XCTUnwrap(fleet.menuModel.snapshots.first { $0.id == qwen })
-        XCTAssertTrue(titles.contains("oMLX — 1 model loaded"), joined)
-        XCTAssertTrue(titles.contains("Qwen3.8-27B-oQ8e-mtp: \(cell.headlineText) · Prompt · 1 queued · Context 61% · Today 20k in · 1200 out"), joined)
-        let header = try XCTUnwrap(menu.items.first { $0.title.hasPrefix("oMLX") })
-        XCTAssertEqual(header.representedObject as? String, "omlx")
-        XCTAssertNotNil(header.action)
-        XCTAssertNil(try XCTUnwrap(menu.items.first { $0.title.hasPrefix("Qwen3.8-27B") }).action)
+        let heard = menu.items.compactMap { $0.accessibilityLabel() }.joined(separator: "\n")
+        XCTAssertTrue(heard.contains("Qwen3.8-27B-oQ8e-mtp: \(cell.headlineText) · Prompt · 1 queued · Context 61% · Today 20k in · 1200 out"), heard)
     }
 
     func testTheSettingsRowRendersOnAndOff() async throws {
