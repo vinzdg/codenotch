@@ -27,7 +27,7 @@
 //!
 //! Token values never reach logs, events or the UI; the card names the account and the plan.
 
-use crate::usage::{LimitWindow, UsageSnapshot};
+use crate::usage::{calendar_month_duration_ms, LimitWindow, UsageSnapshot};
 use crate::AppState;
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -320,6 +320,15 @@ pub fn plan(v: &serde_json::Value) -> Option<String> {
     non_empty(v.get("copilot_plan").or_else(|| v.get("plan")).and_then(|x| x.as_str()).map(|s| s.to_string()))
 }
 
+fn monthly_duration_ms(reset: Option<u64>) -> Option<u64> {
+    use chrono::{Datelike, Timelike};
+    let date = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(i64::try_from(reset?).ok()?)?;
+    if date.day() != 1 || date.hour() != 0 || date.minute() != 0 || date.second() != 0 {
+        return None;
+    }
+    calendar_month_duration_ms(reset)
+}
+
 fn window(id: &str, quota: &serde_json::Value, root: &serde_json::Value) -> Option<LimitWindow> {
     if quota.get("unlimited").and_then(|x| x.as_bool()) == Some(true) {
         return None;
@@ -339,6 +348,7 @@ fn window(id: &str, quota: &serde_json::Value, root: &serde_json::Value) -> Opti
         label: label(id),
         used: (consumed / entitlement).clamp(0.0, 1.0),
         resets_at,
+        duration_ms: monthly_duration_ms(resets_at),
         ..Default::default()
     })
 }
@@ -481,6 +491,36 @@ pub fn start(app: AppHandle) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn monthly_duration_requires_a_first_of_month_utc_reset() {
+        for (reset, days) in [
+            ("2024-03-01", 29), ("2025-03-01", 28), ("2026-01-01", 31),
+            ("2026-10-01T01:00:00+01:00", 30),
+        ] {
+            let (ws, _) = parse(&serde_json::json!({"quota_reset_date": reset,
+                "quota_snapshots": {"premium_interactions": {"entitlement": 300, "used": 30}}
+            }));
+            assert_eq!(ws[0].duration_ms, Some(days * 86_400_000), "{reset}");
+        }
+        for reset in [serde_json::Value::Null, serde_json::json!("invalid"),
+            serde_json::json!("2026-10-02"), serde_json::json!("2026-10-01T00:01:00Z"),
+            serde_json::json!("2026-10-01T00:00:01Z"), serde_json::json!("2026-10-01T00:00:00+01:00")] {
+            let (ws, _) = parse(&serde_json::json!({"quota_reset_date": reset.clone(),
+                "quota_snapshots": {"chat": {"entitlement": 50, "used": 5}}
+            }));
+            assert_eq!(ws[0].duration_ms, None, "{reset}");
+        }
+    }
+
+    #[test]
+    fn quota_specific_reset_controls_its_monthly_duration() {
+        let (ws, _) = parse(&serde_json::json!({"quota_reset_date": "2026-10-01",
+            "quota_snapshots": {"chat": {"entitlement": 50, "used": 5, "reset_date": "2025-03-01"}}
+        }));
+        assert_eq!(ws[0].duration_ms, Some(28 * 86_400_000));
+    }
+
+
     const REPLY: &str = r#"{"copilot_plan":"individual","quota_reset_date":"2026-10-01T00:00:00Z",
         "quota_snapshots":{
           "chat":{"entitlement":50,"remaining":48,"used":2,"unlimited":false},
@@ -497,6 +537,7 @@ mod tests {
         assert!((w[0].used - 0.02).abs() < 1e-9);
         assert!((w[1].used - 0.04).abs() < 1e-9);
         assert_eq!(w[0].resets_at, Some(1_790_812_800_000), "midnight UTC on 1 October 2026");
+        assert!(w.iter().all(|w| w.duration_ms == Some(30 * 86_400_000)));
         assert_eq!(plan(&v).as_deref(), Some("individual"));
     }
 

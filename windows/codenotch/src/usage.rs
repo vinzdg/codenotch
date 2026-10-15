@@ -27,6 +27,26 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 
+pub const FIVE_HOURS_MS: u64 = 5 * 60 * 60 * 1000;
+pub const SEVEN_DAYS_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+
+/// Invalid or unrepresentable lengths must not become plausible windows.
+pub(crate) fn duration_from_seconds(seconds: f64) -> Option<u64> {
+    let ms = seconds * 1000.0;
+    (ms.is_finite() && ms >= 1.0 && ms < u64::MAX as f64).then_some(ms as u64)
+}
+
+pub(crate) fn duration_between_ms(start: Option<u64>, end: Option<u64>) -> Option<u64> {
+    end?.checked_sub(start?).filter(|ms| *ms > 0)
+}
+
+/// Calendar months vary in length; preserve the UTC reset's time of day.
+pub(crate) fn calendar_month_duration_ms(ending_at: Option<u64>) -> Option<u64> {
+    let reset = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(i64::try_from(ending_at?).ok()?)?;
+    let start = reset.checked_sub_months(chrono::Months::new(1))?;
+    u64::try_from((reset - start).num_milliseconds()).ok().filter(|ms| *ms > 0)
+}
+
 const ENDPOINT: &str = "https://api.anthropic.com/api/oauth/usage";
 const POLL_ACTIVE_SECS: u64 = 60;
 const POLL_IDLE_SECS: u64 = 300;
@@ -136,6 +156,9 @@ pub struct LimitWindow {
     pub used: f64,
     /// Reset time, ms epoch (None = unknown)
     pub resets_at: Option<u64>,
+    /// Full length of the window in ms (None = unknown; no deficit is shown)
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
     /// Pure count window (no published denominator, e.g. Antigravity's requests today) — the cell shows ~N and the ring draws only its track
     #[serde(default)]
     pub count: Option<i64>,
@@ -477,6 +500,15 @@ fn spend_window(v: &serde_json::Value) -> Option<LimitWindow> {
         ..Default::default()
     })
 }
+fn duration_for(kind: &str) -> Option<u64> {
+    if matches!(kind, "session" | "five_hour") {
+        Some(FIVE_HOURS_MS)
+    } else if kind.starts_with("weekly_") || kind.starts_with("seven_day") {
+        Some(SEVEN_DAYS_MS)
+    } else {
+        None
+    }
+}
 
 fn parse_response(v: &serde_json::Value) -> Vec<LimitWindow> {
     let mut out: Vec<LimitWindow> = Vec::new();
@@ -496,7 +528,9 @@ fn parse_response(v: &serde_json::Value) -> Vec<LimitWindow> {
                 id: kind.to_string(),
                 label: label_for(kind),
                 used: (pct / 100.0).clamp(0.0, 1.0),
-                resets_at: resets, ..Default::default()
+                resets_at: resets,
+                duration_ms: duration_for(kind),
+                ..Default::default()
             });
         }
     }
@@ -524,7 +558,7 @@ fn parse_response(v: &serde_json::Value) -> Vec<LimitWindow> {
         if dup {
             continue;
         }
-        out.push(LimitWindow { id: id.into(), label, used, resets_at, ..Default::default() });
+        out.push(LimitWindow { id: id.into(), label, used, resets_at, duration_ms: duration_for(id), ..Default::default() });
     }
     if let Some(w) = spend_window(v) {
         out.push(w);
@@ -849,6 +883,77 @@ pub fn start(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn claude_aliases_have_known_durations_only() {
+        for (kind, expected) in [
+            ("session", Some(FIVE_HOURS_MS)), ("five_hour", Some(FIVE_HOURS_MS)),
+            ("weekly_all", Some(SEVEN_DAYS_MS)), ("weekly_scoped", Some(SEVEN_DAYS_MS)),
+            ("weekly_opus", Some(SEVEN_DAYS_MS)), ("seven_day", Some(SEVEN_DAYS_MS)),
+            ("seven_day_opus", Some(SEVEN_DAYS_MS)), ("seven_day_future", Some(SEVEN_DAYS_MS)),
+            ("weekly_future", Some(SEVEN_DAYS_MS)), ("monthly", None), ("unknown", None),
+        ] {
+            let windows = parse_response(&serde_json::json!({"limits": [{
+                "kind": kind, "percent": 60, "resets_at": "2026-10-10T00:00:00Z"
+            }]}));
+            assert_eq!(windows.len(), 1, "{kind}");
+            assert_eq!(windows[0].duration_ms, expected, "{kind}");
+        }
+        let windows = parse_response(&serde_json::json!({
+            "five_hour": {"utilization": 60, "resets_at": "2026-10-10T00:00:00Z"},
+            "seven_day": {"utilization": 20, "resets_at": "2026-10-17T00:00:00Z"}
+        }));
+        assert_eq!(windows.iter().map(|w| w.duration_ms).collect::<Vec<_>>(),
+            [Some(FIVE_HOURS_MS), Some(SEVEN_DAYS_MS)]);
+    }
+
+    #[test]
+    fn old_persisted_usage_without_duration_still_deserializes() {
+        let old = r#"{"status":"ok","windows":[{"id":"session","label":"Current session",
+            "used":0.6,"resets_at":1791590400000}],"fetched_at":1791581400000,"note":"saved"}"#;
+        let snap: UsageSnapshot = serde_json::from_str(old).unwrap();
+        assert_eq!(snap.status, "ok");
+        assert_eq!(snap.windows[0].used, 0.6);
+        assert_eq!(snap.windows[0].duration_ms, None);
+        assert_eq!(snap.backoff_until, 0);
+        let mut snap = snap;
+        snap.windows[0].duration_ms = Some(FIVE_HOURS_MS);
+        snap.windows.push(LimitWindow { id: "requests".into(), count: Some(3), ..Default::default() });
+        let json = serde_json::to_value(&snap).unwrap();
+        assert_eq!(json["windows"][0]["duration_ms"], FIVE_HOURS_MS);
+        let restored: UsageSnapshot = serde_json::from_value(json).unwrap();
+        assert_eq!(restored.windows[0].duration_ms, Some(FIVE_HOURS_MS));
+        assert_eq!(restored.windows[1].count, Some(3));
+        assert_eq!(restored.windows[1].duration_ms, None);
+    }
+
+    #[test]
+    fn duration_helpers_reject_invalid_lengths() {
+        for seconds in [0.0, -1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 1e30, 0.0001] {
+            assert_eq!(duration_from_seconds(seconds), None, "{seconds}");
+        }
+        assert_eq!(duration_from_seconds(18000.0), Some(FIVE_HOURS_MS));
+        assert_eq!(duration_from_seconds(1.25), Some(1250));
+        assert_eq!(duration_between_ms(Some(10), Some(20)), Some(10));
+        for (start, end) in [(None, Some(20)), (Some(10), None), (Some(10), Some(10)), (Some(20), Some(10))] {
+            assert_eq!(duration_between_ms(start, end), None);
+        }
+        assert_eq!(calendar_month_duration_ms(None), None);
+        assert_eq!(calendar_month_duration_ms(Some(u64::MAX)), None);
+    }
+
+    #[test]
+    fn calendar_month_lengths_use_utc_and_clamp_month_end() {
+        for (reset, days) in [
+            ("2024-03-01T00:00:00Z", 29), ("2025-03-01T00:00:00Z", 28),
+            ("2026-01-01T00:00:00Z", 31), ("2026-10-03T13:09:45.611Z", 30),
+            ("2024-03-31T13:09:45.611Z", 31), ("2025-03-31T13:09:45.611Z", 31),
+        ] {
+            let ms = chrono::DateTime::parse_from_rfc3339(reset).unwrap().timestamp_millis() as u64;
+            assert_eq!(calendar_month_duration_ms(Some(ms)), Some(days * 86_400_000), "{reset}");
+        }
+    }
+
 
     const EXP: u64 = 1_000_000_000;
 

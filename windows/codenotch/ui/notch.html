@@ -396,6 +396,16 @@ function leftPctText(f){
 // they draw, so an overspent limit reads empty rather than negative. As the Mac's Percent.metered
 // does. Colours never come through here: how bad a reading is stays a question about what was spent.
 function meteredFraction(f,showRemaining){ return showRemaining?1-f:f; }
+// Used quota ahead of elapsed time, as the Mac's UsagePace; reserves stay hidden.
+function deficitOf(w){
+  const now=Date.now();
+  if(w.count!=null || !Number.isFinite(w.used) || w.used<0 || !Number.isFinite(w.duration_ms) || !(w.duration_ms>0) || !Number.isFinite(w.resets_at) || !(w.resets_at>now)) return null;
+  const elapsed=1-Math.min((w.resets_at-now)/w.duration_ms,1);
+  const points=(Math.min(w.used,1)-elapsed)*100;
+  if(!(points>0)) return null;
+  const r=Math.round(points*10)/10;
+  return r===0?'<0.1':r.toFixed(1).replace(/\.0$/,'');
+}
 // Both halves as text, the '~' staying on the used half it qualifies. Shared so the card line and
 // the tests below read the same computation.
 function usedHalves(f,derived){
@@ -410,7 +420,8 @@ function usedHalves(f,derived){
 // The line keeps both ends either way — the card is the detailed view — but the remaining figure leads when set.
 function usedCopy(w){
   const [u,l]=usedHalves(w.used,w.derived);
-  return showRemaining?ui().leftUsed(l,u):ui().usedLeft(u,l);
+  const d=deficitOf(w);
+  return (showRemaining?ui().leftUsed(l,u):ui().usedLeft(u,l))+(d!=null?' · '+ui().deficit(d):'');
 }
 // HEADLINE_PCT_END
 
@@ -1051,32 +1062,33 @@ const UI={
   ko:{locale:'ko-KR',title:n=>n+' 사용량',resetting:'재설정 중…',resetsIn:m=>`${m}분 후 재설정`,
       resetsAt:t=>`${t}에 재설정`,resetsOn:(d,t)=>`${d} ${t}에 재설정`,resetsDate:d=>`${d}에 재설정`,
       ago:m=>m<60?`${m}분 전`:`${Math.round(m/60)}시간 전`,
-      usedLeft:(used,left)=>`${used}% 사용 · ${left}% 남음`,leftUsed:(left,used)=>`${left}% 남음 · ${used}% 사용`,andMore:n=>`외 ${n}개`,updated:a=>`${a}에 마지막 업데이트됨`},
+      usedLeft:(used,left)=>`${used}% 사용 · ${left}% 남음`,leftUsed:(left,used)=>`${left}% 남음 · ${used}% 사용`,deficit:v=>`${v}% 초과`,andMore:n=>`외 ${n}개`,updated:a=>`${a}에 마지막 업데이트됨`},
   'pt-BR':{locale:'pt-BR',title:n=>'Uso do '+n,resetting:'Renovando…',resetsIn:m=>`Renova em ${m} min`,
       resetsAt:t=>`Renova às ${t}`,resetsOn:(d,t)=>`Renova ${d} às ${t}`,resetsDate:d=>`Renova ${d}`,
       ago:m=>m<60?`há ${m} min`:`há ${Math.round(m/60)} h`,
-      usedLeft:(used,left)=>`${used}% usado · ${left}% restante`,leftUsed:(left,used)=>`${left}% restante · ${used}% usado`,andMore:n=>`e mais ${n}`},
+      usedLeft:(used,left)=>`${used}% usado · ${left}% restante`,leftUsed:(left,used)=>`${left}% restante · ${used}% usado`,deficit:v=>`${v}% de déficit`,andMore:n=>`e mais ${n}`},
   en:{locale:'en-US',title:n=>n+' Usage',resetting:'Resetting…',resetsIn:m=>`Resets in ${m} min`,
       resetsAt:t=>`Resets at ${t}`,resetsOn:(d,t)=>`Resets ${d} ${t}`,resetsDate:d=>`Resets ${d}`,
       ago:m=>m<60?`${m}m ago`:`${Math.round(m/60)}h ago`,
-      usedLeft:(used,left)=>`${used}% Used · ${left}% left`,leftUsed:(left,used)=>`${left}% left · ${used}% Used`,andMore:n=>`and ${n} more`,updated:a=>`Updated ${a}`},
+      usedLeft:(used,left)=>`${used}% Used · ${left}% left`,leftUsed:(left,used)=>`${left}% left · ${used}% Used`,deficit:v=>`${v}% deficit`,andMore:n=>`and ${n} more`,updated:a=>`Updated ${a}`},
   uk:{locale:'uk-UA',title:n=>'Використання '+n,resetting:'Скидання…',resetsIn:m=>`Скидання через ${m} хв`,
       resetsAt:t=>`Скидання о ${t}`,resetsOn:(d,t)=>`Скидання: ${d} ${t}`,resetsDate:d=>`Скидання: ${d}`,
       ago:m=>m<60?`${m} хв тому`:`${Math.round(m/60)} год тому`,
-      usedLeft:(used,left)=>`Використано ${used}% · лишилось ${left}%`,leftUsed:(left,used)=>`лишилось ${left}% · Використано ${used}%`,andMore:n=>`і ще ${n}`,updated:a=>`Оновлено ${a}`},
+      usedLeft:(used,left)=>`Використано ${used}% · лишилось ${left}%`,leftUsed:(left,used)=>`лишилось ${left}% · Використано ${used}%`,deficit:v=>`${v}% дефіциту`,andMore:n=>`і ще ${n}`,updated:a=>`Оновлено ${a}`},
   ru:{locale:'ru-RU',title:n=>'Использование '+n,resetting:'Сброс…',resetsIn:m=>`Сброс через ${m} мин`,
       resetsAt:t=>`Сброс в ${t}`,resetsOn:(d,t)=>`Сброс: ${d} ${t}`,resetsDate:d=>`Сброс: ${d}`,
       ago:m=>m<60?`${m} мин назад`:`${Math.round(m/60)} ч назад`,
-      usedLeft:(used,left)=>`Использовано ${used}% · осталось ${left}%`,leftUsed:(left,used)=>`осталось ${left}% · Использовано ${used}%`,andMore:n=>`и ещё ${n}`,updated:a=>`Обновлено ${a}`},
+      usedLeft:(used,left)=>`Использовано ${used}% · осталось ${left}%`,leftUsed:(left,used)=>`осталось ${left}% · Использовано ${used}%`,deficit:v=>`дефицит ${v}%`,andMore:n=>`и ещё ${n}`,updated:a=>`Обновлено ${a}`},
   zh:{locale:'zh-CN',title:n=>n+' 用量',resetting:'正在重置…',resetsIn:m=>`${m} 分钟后重置`,
       resetsAt:t=>`${t} 重置`,resetsOn:(d,t)=>`${d} ${t} 重置`,resetsDate:d=>`${d} 重置`,
       ago:m=>m<60?`${m} 分钟前`:`${Math.round(m/60)} 小时前`,
-      usedLeft:(used,left)=>`已用 ${used}% · 剩余 ${left}%`,leftUsed:(left,used)=>`剩余 ${left}% · 已用 ${used}%`,andMore:n=>`另有 ${n} 个`,updated:a=>`更新于 ${a}`},
+      usedLeft:(used,left)=>`已用 ${used}% · 剩余 ${left}%`,leftUsed:(left,used)=>`剩余 ${left}% · 已用 ${used}%`,deficit:v=>`${v}% 透支`,andMore:n=>`另有 ${n} 个`,updated:a=>`更新于 ${a}`},
   'zh-Hant':{locale:'zh-TW',title:n=>n+' 用量',resetting:'正在重置…',resetsIn:m=>`${m} 分鐘後重置`,
       resetsAt:t=>`${t} 重置`,resetsOn:(d,t)=>`${d} ${t} 重置`,resetsDate:d=>`${d} 重置`,
       ago:m=>m<60?`${m} 分鐘前`:`${Math.round(m/60)} 小時前`,
-      usedLeft:(used,left)=>`已用 ${used}% · 剩餘 ${left}%`,leftUsed:(left,used)=>`剩餘 ${left}% · 已用 ${used}%`,andMore:n=>`另有 ${n} 個`,updated:a=>`更新於 ${a}`},
+      usedLeft:(used,left)=>`已用 ${used}% · 剩餘 ${left}%`,leftUsed:(left,used)=>`剩餘 ${left}% · 已用 ${used}%`,deficit:v=>`${v}% 透支`,andMore:n=>`另有 ${n} 個`,updated:a=>`更新於 ${a}`},
 };
+UI.ja={...UI.en,usedLeft:UI.en.usedLeft,deficit:v=>`${v}% 超過`};
 function ui(){return UI[uiLang]||UI.en;}
 function textCopy(value){
   if(!value) return '';
@@ -1088,7 +1100,7 @@ function textCopy(value){
   return out;
 }
 function setUiLanguage(lang){
-  const next=TEXT[lang]?lang:'en';
+  const next=TEXT[lang]||UI[lang]?lang:'en';
   if(uiLang===next) return;
   uiLang=next;
   renderRing();

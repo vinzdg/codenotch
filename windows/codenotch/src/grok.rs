@@ -29,7 +29,7 @@
 //! would hand someone else's credential to the wrong host, so entries are filtered by issuer.
 //! Read only, never written; token values never reach logs, events or the UI.
 
-use crate::usage::{LimitWindow, UsageSnapshot};
+use crate::usage::{duration_between_ms, LimitWindow, UsageSnapshot};
 use crate::AppState;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -291,6 +291,12 @@ pub fn parse_credits(v: &serde_json::Value) -> (Vec<LimitWindow>, String) {
     let current = config.get("currentPeriod");
     let current_end = iso_ms(current.and_then(|p| p.get("end")));
     let resets_at = current_end.or_else(|| iso_ms(config.get("billingPeriodEnd")));
+    let start = if current_end.is_some() {
+        iso_ms(current.and_then(|p| p.get("start")))
+    } else {
+        iso_ms(config.get("billingPeriodStart"))
+    };
+    let duration_ms = duration_between_ms(start, resets_at);
 
     let mut out: Vec<LimitWindow> = Vec::new();
     let products = config.get("productUsage").and_then(|x| x.as_array());
@@ -306,6 +312,7 @@ pub fn parse_credits(v: &serde_json::Value) -> (Vec<LimitWindow>, String) {
             label: headline_label.unwrap_or_else(|| "Grok Build".into()),
             used,
             resets_at,
+            duration_ms,
             ..Default::default()
         });
     } else if let Some(products) = products {
@@ -316,7 +323,7 @@ pub fn parse_credits(v: &serde_json::Value) -> (Vec<LimitWindow>, String) {
             // The ring reads the window whose id is "credits"; using the wire name for the first
             // one left a valid bar on the card and a dash on the cell.
             let id = if out.is_empty() { "credits".to_string() } else { wire.unwrap_or(&label).to_string() };
-            out.push(LimitWindow { id, label, used, resets_at, ..Default::default() });
+            out.push(LimitWindow { id, label, used, resets_at, duration_ms, ..Default::default() });
         }
     }
 
@@ -472,6 +479,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn product_windows_use_matching_current_or_billing_bounds() {
+        for (period, expected) in [
+            (serde_json::json!({"start": "2026-09-05T08:21:18Z", "end": "2026-09-12T08:21:18Z"}),
+                Some(crate::usage::SEVEN_DAYS_MS)),
+            (serde_json::json!({"start": "2026-09-05T08:21:18Z", "end": "invalid"}), Some(30 * 86_400_000)),
+            (serde_json::json!({"end": "2026-09-12T08:21:18Z"}), None),
+            (serde_json::json!({"start": "2026-09-12T08:21:18Z", "end": "2026-09-12T08:21:18Z"}), None),
+            (serde_json::json!({"start": "2026-09-13T08:21:18Z", "end": "2026-09-12T08:21:18Z"}), None),
+        ] {
+            let (ws, _) = parse_credits(&serde_json::json!({"config": {
+                "currentPeriod": period,
+                "billingPeriodStart": "2026-09-01T00:00:00Z", "billingPeriodEnd": "2026-10-01T00:00:00Z",
+                "productUsage": [{"product": "GrokBuild", "usagePercent": 8}, {"product": "Other", "usagePercent": 5}]
+            }}));
+            assert_eq!(ws.len(), 2);
+            assert!(ws.iter().all(|w| w.duration_ms == expected), "{ws:?}");
+        }
+        let (ws, _) = parse_credits(&serde_json::json!({"config": {"creditUsagePercent": 8}}));
+        assert_eq!(ws[0].duration_ms, None);
+    }
+
+
+    #[test]
     fn picks_only_the_xai_session_and_prefers_a_live_one() {
         let root: serde_json::Value = serde_json::from_str(
             r#"{
@@ -519,6 +549,7 @@ mod tests {
         assert_eq!(w[0].label, "Grok Build");
         assert!((w[0].used - 0.08).abs() < 1e-9);
         assert!(w[0].resets_at.is_some());
+        assert_eq!(w[0].duration_ms, Some(crate::usage::SEVEN_DAYS_MS));
     }
 
     #[test]
@@ -532,6 +563,7 @@ mod tests {
         assert_eq!(w.len(), 1);
         assert_eq!(w[0].id, "credits");
         assert_eq!(w[0].used, 0.0);
+        assert_eq!(w[0].duration_ms, None, "the Mac's fresh weekly fallback does not attach a duration");
     }
 
     #[test]

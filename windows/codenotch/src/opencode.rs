@@ -27,7 +27,7 @@
 //! SQLite opening rule, as for Cursor: `mode=ro` first (it sees a token OpenCode just rotated into
 //! the WAL), then `immutable=1`. Token values never reach logs, events or the UI.
 
-use crate::usage::{LimitWindow, UsageSnapshot};
+use crate::usage::{calendar_month_duration_ms, LimitWindow, UsageSnapshot, FIVE_HOURS_MS, SEVEN_DAYS_MS};
 use crate::AppState;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -291,11 +291,19 @@ fn windows_from(v: &serde_json::Value) -> Vec<LimitWindow> {
         .filter_map(|(id, label)| {
             let entry = usage.get(*id)?;
             let pct = entry.get("percent").and_then(|x| x.as_f64())?;
+            let resets_at = entry.get("resetsAt").and_then(|x| x.as_str()).and_then(parse_reset);
+            let duration_ms = match *id {
+                "rolling" => Some(FIVE_HOURS_MS),
+                "weekly" => Some(SEVEN_DAYS_MS),
+                "monthly" => calendar_month_duration_ms(resets_at),
+                _ => None,
+            };
             Some(LimitWindow {
                 id: (*id).into(),
                 label: (*label).into(),
                 used: (pct / 100.0).clamp(0.0, 1.0),
-                resets_at: entry.get("resetsAt").and_then(|x| x.as_str()).and_then(parse_reset),
+                resets_at,
+                duration_ms,
                 ..Default::default()
             })
         })
@@ -442,6 +450,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn monthly_windows_use_calendar_lengths_even_for_nonmidnight_resets() {
+        for (reset, days) in [
+            ("2024-03-24T04:32:15.933+01:00", 29), ("2025-03-24T03:32:15.933Z", 28),
+            ("2026-01-03T13:09:45.611Z", 31), ("2024-03-31T13:09:45.611Z", 31),
+        ] {
+            let ws = windows_from(&serde_json::json!({"usage": {"monthly": {"percent": 40, "resetsAt": reset}}}));
+            assert_eq!(ws[0].duration_ms, Some(days * 86_400_000), "{reset}");
+        }
+    }
+
+    #[test]
+    fn only_monthly_duration_depends_on_a_valid_reset() {
+        for reset in [serde_json::Value::Null, serde_json::json!("invalid")] {
+            let ws = windows_from(&serde_json::json!({"usage": {
+                "rolling": {"percent": 10, "resetsAt": reset.clone()},
+                "weekly": {"percent": 20, "resetsAt": reset.clone()},
+                "monthly": {"percent": 40, "resetsAt": reset}
+            }}));
+            assert_eq!(ws.iter().map(|w| w.duration_ms).collect::<Vec<_>>(),
+                [Some(FIVE_HOURS_MS), Some(SEVEN_DAYS_MS), None]);
+        }
+    }
+
+
+    #[test]
     fn go_windows_parse_in_headline_order() {
         let v: serde_json::Value = serde_json::from_str(
             r#"{"usage":{
@@ -457,6 +490,8 @@ mod tests {
         assert_eq!(ws[1].used, 0.0, "0 % is a reading, not a gap");
         assert_eq!(ws[0].resets_at, Some(1788697866611));
         assert_eq!(ws[1].resets_at, Some(1788739200000));
+        assert_eq!(ws.iter().map(|w| w.duration_ms).collect::<Vec<_>>(),
+            [Some(FIVE_HOURS_MS), Some(SEVEN_DAYS_MS), Some(30 * 86_400_000)]);
     }
 
     #[test]

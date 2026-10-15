@@ -29,7 +29,7 @@
 //! Credentials are borrowed, never managed: the numbers come from Codex's own sign-in and Codex's
 //! own endpoint. No sign-in and no session history at all means absent (no cell is shown).
 
-use crate::usage::{LimitWindow, UsageSnapshot};
+use crate::usage::{duration_from_seconds, LimitWindow, UsageSnapshot};
 use crate::AppState;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -296,6 +296,7 @@ fn window_from(
         label: label_for(num(w.get("limit_window_seconds")).map(|s| s / 60.0), fallback),
         used: (pct / 100.0).clamp(0.0, 1.0),
         resets_at: reset_at_ms(w, now, "reset_at", "reset_after_seconds"),
+        duration_ms: num(w.get("limit_window_seconds")).and_then(duration_from_seconds),
         group: group.map(str::to_string),
         ..Default::default()
     })
@@ -504,6 +505,7 @@ pub fn snapshot_from_rollout(text: &str) -> Option<(Vec<LimitWindow>, Option<u64
                 label: label_for(num(w.get("window_minutes")), id),
                 used: (pct / 100.0).clamp(0.0, 1.0),
                 resets_at: reset_at_ms(w, now, "resets_at", "resets_in_seconds"),
+                duration_ms: num(w.get("window_minutes")).and_then(|m| duration_from_seconds(m * 60.0)),
                 ..Default::default()
             });
         }
@@ -550,6 +552,7 @@ fn app_server_snapshot(result: &serde_json::Value) -> Option<UsageSnapshot> {
             label: label_for(w.get("windowDurationMins").and_then(|x| x.as_f64()), id),
             used: (used / 100.0).clamp(0.0, 1.0),
             resets_at: w.get("resetsAt").and_then(|x| x.as_u64()).map(|s| s.saturating_mul(1000)),
+            duration_ms: num(w.get("windowDurationMins")).and_then(|m| duration_from_seconds(m * 60.0)),
             ..Default::default()
         });
     }
@@ -793,6 +796,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rollout_minutes_are_converted_without_assuming_a_fixed_window() {
+        let text = serde_json::json!({"rate_limits": {
+            "primary": {"used_percent": 10, "window_minutes": 90},
+            "secondary": {"used_percent": 20, "window_minutes": 10080}
+        }}).to_string();
+        let (ws, _, _) = snapshot_from_rollout(&text).unwrap();
+        assert_eq!(ws[0].duration_ms, Some(5_400_000));
+        assert_eq!(ws[1].duration_ms, Some(crate::usage::SEVEN_DAYS_MS));
+    }
+
+    #[test]
+    fn all_codex_sources_leave_invalid_or_missing_lengths_unknown() {
+        for value in [serde_json::Value::Null, serde_json::json!(0), serde_json::json!(-1),
+            serde_json::json!("300"), serde_json::json!(1e30)] {
+            let ws = windows_from_usage(&serde_json::json!({"rate_limit": {
+                "primary_window": {"used_percent": 10, "limit_window_seconds": value.clone()}
+            }}));
+            assert_eq!(ws[0].duration_ms, None, "HTTP: {value}");
+            let text = serde_json::json!({"rate_limits": {"primary": {
+                "used_percent": 10, "window_minutes": value.clone()
+            }}}).to_string();
+            assert_eq!(snapshot_from_rollout(&text).unwrap().0[0].duration_ms, None, "rollout: {value}");
+            let snap = app_server_snapshot(&serde_json::json!({"rateLimits": {"primary": {
+                "usedPercent": 10, "windowDurationMins": value
+            }}})).unwrap();
+            assert_eq!(snap.windows[0].duration_ms, None, "native: {value}");
+        }
+        let ws = windows_from_usage(&serde_json::json!({"rate_limit": {"primary_window": {"used_percent": 10}}}));
+        assert_eq!(ws[0].duration_ms, None);
+    }
+
+
+    #[test]
     fn app_server_uses_core_bucket_not_legacy_spark() {
         let value = serde_json::json!({"rateLimits":{"limitId":"codex_bengalfox","primary":{"usedPercent":0}},
             "rateLimitsByLimitId":{"codex":{"limitId":"codex","primary":{"usedPercent":32,"windowDurationMins":10080,"resetsAt":1789878630}}}});
@@ -816,6 +852,8 @@ mod tests {
         assert_eq!(snap.windows[1].used, 0.42);
         assert_eq!(snap.windows[0].resets_at, Some(1800000000000));
         assert_eq!(snap.windows[1].resets_at, None);
+        assert_eq!(snap.windows[0].duration_ms, Some(crate::usage::FIVE_HOURS_MS));
+        assert_eq!(snap.windows[1].duration_ms, Some(crate::usage::SEVEN_DAYS_MS));
     }
 
     #[test]
@@ -971,6 +1009,9 @@ mod tests {
         assert!((ws[2].used - 0.99).abs() < 1e-9);
         assert!((ws[3].used - 0.90).abs() < 1e-9);
         assert_eq!(ws[0].resets_at, Some(1_800_001_000_000));
+        assert_eq!(ws.iter().map(|w| w.duration_ms).collect::<Vec<_>>(),
+            [Some(18_000_000), Some(crate::usage::SEVEN_DAYS_MS),
+             Some(crate::usage::FIVE_HOURS_MS), Some(crate::usage::SEVEN_DAYS_MS)]);
     }
 
     #[test]

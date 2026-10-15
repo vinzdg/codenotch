@@ -56,6 +56,31 @@ pub fn used_left(w: &LimitWindow, lang: &str) -> String {
     }
 }
 
+/// Unknown window lengths must not imply an even pace.
+pub fn pace_points(w: &LimitWindow, now: u64) -> Option<f64> {
+    if w.count.is_some() || !w.used.is_finite() || w.used < 0.0 { return None }
+    let duration = w.duration_ms.filter(|d| *d > 0)? as f64;
+    let remaining = w.resets_at.filter(|r| *r > now)?.saturating_sub(now) as f64;
+    let elapsed = 1.0 - (remaining / duration).min(1.0);
+    Some((w.used.min(1.0) - elapsed) * 100.0)
+}
+
+/// Only ahead-of-pace usage adds text; the reserved side stays unsaid.
+pub fn deficit_text(w: &LimitWindow, now: u64, lang: &str) -> Option<String> {
+    let points = pace_points(w, now).filter(|p| *p > 0.0)?;
+    let rounded = (points * 10.0).round() / 10.0;
+    let value = if rounded == 0.0 { "<0.1".to_string() } else { format!("{rounded:.1}").trim_end_matches(".0").to_string() };
+    Some(match lang {
+        "pt-BR" => format!("{value}% de déficit"),
+        "ru" => format!("дефицит {value}%"),
+        "zh" | "zh-Hant" => format!("{value}% 透支"),
+        "ja" => format!("{value}% 超過"),
+        "uk" => format!("{value}% дефіциту"),
+        "ko" => format!("{value}% 초과"),
+        _ => format!("{value}% deficit"),
+    })
+}
+
 /// "Resets in 59 min", "Resets in 2h 15m", "Resets in 3 Days 4h", or the date and time once it is
 /// far enough out that a duration stops meaning anything.
 pub fn reset_text(resets_at: u64, now: u64, lang: &str) -> String {
@@ -281,6 +306,10 @@ pub fn window_line(w: &LimitWindow, now: u64, lang: &str) -> String {
         return format!("{name}: ~{count}");
     }
     let mut line = format!("{name}: {}", used_left(w, lang));
+    if let Some(deficit) = deficit_text(w, now, lang) {
+        line.push_str(" · ");
+        line.push_str(&deficit);
+    }
     if let Some(at) = w.resets_at {
         line.push_str(" · ");
         line.push_str(&reset_text(at, now, lang));
@@ -362,6 +391,90 @@ mod tests {
     }
 
     const MIN: u64 = 60 * 1000;
+
+    fn paced(used: f64, remaining: u64, duration: u64) -> LimitWindow {
+        let mut w = window("Current session", used, Some(MIN + remaining));
+        w.duration_ms = Some(duration);
+        w
+    }
+
+    #[test]
+    fn deficit_matches_the_mac_and_worked_examples() {
+        let duration = crate::usage::FIVE_HOURS_MS;
+        for (used, remaining, expected) in [
+            (0.10, 150 * MIN, None),
+            (0.50, 150 * MIN, None),
+            (0.60, 150 * MIN, Some("10% deficit")),
+            (0.70, 210 * MIN, Some("40% deficit")),
+            (0.625, 150 * MIN, Some("12.5% deficit")),
+            (0.5004, 150 * MIN, Some("<0.1% deficit")),
+            (1.0, 240 * MIN, Some("80% deficit")),
+            (1.2, 240 * MIN, Some("80% deficit")),
+            (0.30, 360 * MIN, Some("30% deficit")),
+            (0.02, duration, Some("2% deficit")),
+        ] {
+            assert_eq!(deficit_text(&paced(used, remaining, duration), MIN, "en").as_deref(), expected);
+        }
+        let weekly = crate::usage::SEVEN_DAYS_MS;
+        let w = paced(0.98, 1440 * MIN, weekly);
+        assert!((pace_points(&w, MIN).unwrap() - 12.285714).abs() < 0.00001);
+        assert_eq!(deficit_text(&w, MIN, "en").as_deref(), Some("12.3% deficit"));
+        let reserve = paced(0.27, weekly / 2, weekly);
+        assert!((pace_points(&reserve, MIN).unwrap() + 23.0).abs() < 0.00001);
+        assert_eq!(deficit_text(&reserve, MIN, "en"), None);
+        assert_eq!(deficit_text(&paced(0.4996, weekly / 2, weekly), MIN, "en"), None);
+        assert!((pace_points(&paced(0.8, 36 * 60 * MIN, 3 * 1440 * MIN), MIN).unwrap() - 30.0).abs() < 0.00001);
+        assert!((pace_points(&paced(0.2, weekly + 1000, weekly), MIN).unwrap() - 20.0).abs() < 0.00001);
+    }
+
+    #[test]
+    fn pace_requires_a_valid_current_percentage_window() {
+        let valid = paced(0.6, 150 * MIN, crate::usage::FIVE_HOURS_MS);
+        let invalid = [
+            LimitWindow { duration_ms: None, ..valid.clone() },
+            LimitWindow { duration_ms: Some(0), ..valid.clone() },
+            LimitWindow { resets_at: None, ..valid.clone() },
+            LimitWindow { resets_at: Some(MIN), ..valid.clone() },
+            LimitWindow { resets_at: Some(0), ..valid.clone() },
+            LimitWindow { count: Some(42), ..valid.clone() },
+            LimitWindow { used: f64::NAN, ..valid.clone() },
+            LimitWindow { used: f64::INFINITY, ..valid.clone() },
+            LimitWindow { used: f64::NEG_INFINITY, ..valid.clone() },
+            LimitWindow { used: -0.1, ..valid.clone() },
+        ];
+        for w in invalid {
+            assert_eq!(pace_points(&w, MIN), None);
+            assert_eq!(deficit_text(&w, MIN, "en"), None);
+        }
+    }
+
+    #[test]
+    fn a_deficit_sits_between_usage_and_reset_in_each_language() {
+        let w = paced(0.6, 150 * MIN, crate::usage::FIVE_HOURS_MS);
+        assert_eq!(window_line(&w, MIN, "en"), "Current session: 60% Used · 40% left · 10% deficit · Resets in 2h 30m");
+        assert_eq!(window_line(&w, MIN, "ru"), "Текущий сеанс: Использовано 60% · осталось 40% · дефицит 10% · Сброс через 2 ч 30 мин");
+        for used in [0.1, 0.5] {
+            let mut w = LimitWindow { used, ..w.clone() };
+            let under_pace = window_line(&w, MIN, "en");
+            w.duration_ms = None;
+            assert_eq!(under_pace, window_line(&w, MIN, "en"));
+        }
+    }
+
+    #[test]
+    fn the_card_and_the_menu_agree_on_deficit_wording() {
+        let page = include_str!("../ui/notch.html");
+        let dictionary = page.split("const UI={").nth(1).unwrap().split("function ui()").next().unwrap();
+        let w = paced(0.6, 150 * MIN, crate::usage::FIVE_HOURS_MS);
+        for lang in ["en", "pt-BR", "ru", "zh", "zh-Hant", "ja", "uk", "ko"] {
+            let key = if lang == "ja" { "UI.ja={".to_string() } else if lang.contains('-') { format!("'{lang}':{{") } else { format!("{lang}:{{") };
+            let block = dictionary.split(&key).nth(1).unwrap_or_else(|| panic!("missing {lang} UI")).split("},").next().unwrap();
+            let wording = deficit_text(&w, MIN, lang).unwrap().replace("10", "${v}");
+            assert!(block.contains(&format!("deficit:v=>`{wording}`")), "{lang} card and tray disagree on deficit wording");
+        }
+        assert_eq!(deficit_text(&w, MIN, "unknown"), deficit_text(&w, MIN, "en"));
+    }
+
 
     #[test]
     fn a_reading_reads_as_the_card_prints_it() {

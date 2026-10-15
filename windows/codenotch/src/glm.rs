@@ -25,7 +25,7 @@
 //!     (unit=6,number=1) the weekly allowance, TIME_LIMIT the monthly MCP budget — not by
 //!     the type token, which differs between token plans and credit plans.
 
-use crate::usage::{LimitWindow, UsageSnapshot};
+use crate::usage::{LimitWindow, UsageSnapshot, FIVE_HOURS_MS, SEVEN_DAYS_MS};
 use crate::AppState;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
@@ -415,6 +415,15 @@ fn rank(id: &str) -> u8 {
     }
 }
 
+fn duration_ms(unit: Option<i64>, number: Option<i64>) -> Option<u64> {
+    let length = match unit? {
+        3 => FIVE_HOURS_MS / 5,
+        6 => SEVEN_DAYS_MS,
+        _ => return None,
+    };
+    length.checked_mul(u64::try_from(number?).ok()?).filter(|ms| *ms > 0)
+}
+
 fn windows_from(v: &serde_json::Value) -> Vec<LimitWindow> {
     let Some(limits) = v.pointer("/data/limits").and_then(|x| x.as_array()) else {
         return Vec::new();
@@ -435,6 +444,7 @@ fn windows_from(v: &serde_json::Value) -> Vec<LimitWindow> {
             label: label_for(&id, unit, number),
             used: (pct / 100.0).clamp(0.0, 1.0),
             resets_at,
+            duration_ms: duration_ms(unit, number),
             id,
             ..Default::default()
         });
@@ -582,7 +592,7 @@ pub fn probe() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_account_api_key, zcode_decrypt, zcode_secret_from};
+    use super::*;
 
     /// Sealed outside this codebase by ZCode's own construction, so a passing test proves the
     /// notch reads ZCode's files rather than its own writing. Same vectors the Mac tests use.
@@ -676,5 +686,34 @@ mod tests {
         ));
         assert!(!is_account_api_key("account-provider::api-key"));
         assert!(!is_account_api_key("oauth:zai:access_token"));
+    }
+
+    #[test]
+    fn reported_hour_and_week_units_set_duration_regardless_of_meter() {
+        for meter in ["TOKENS_LIMIT", "CREDIT_LIMIT", "TIME_LIMIT"] {
+            for (unit, number, expected) in [
+                (3, 5, Some(FIVE_HOURS_MS)), (3, 2, Some(7_200_000)),
+                (6, 1, Some(SEVEN_DAYS_MS)), (6, 2, Some(2 * SEVEN_DAYS_MS)),
+                (4, 1, None), (3, 0, None), (6, -1, None), (6, i64::MAX, None),
+            ] {
+                let ws = windows_from(&serde_json::json!({"data": {"limits": [{
+                    "type": meter, "unit": unit, "number": number, "percentage": 10
+                }]}}));
+                assert_eq!(ws[0].duration_ms, expected, "{meter}: {unit}x{number}");
+            }
+        }
+    }
+
+    #[test]
+    fn mcp_and_incomplete_lengths_do_not_invent_a_month() {
+        for limit in [
+            serde_json::json!({"type": "TIME_LIMIT", "percentage": 4}),
+            serde_json::json!({"unit": 3, "percentage": 4}),
+            serde_json::json!({"number": 5, "percentage": 4}),
+            serde_json::json!({"unit": 3, "number": "5", "percentage": 4}),
+        ] {
+            let ws = windows_from(&serde_json::json!({"data": {"limits": [limit]}}));
+            assert_eq!(ws[0].duration_ms, None);
+        }
     }
 }

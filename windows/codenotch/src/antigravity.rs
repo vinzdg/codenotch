@@ -33,7 +33,7 @@
 //!
 //! Read only; token values are never cached and never appear in any log.
 
-use crate::usage::{LimitWindow, UsageSnapshot};
+use crate::usage::{LimitWindow, UsageSnapshot, FIVE_HOURS_MS, SEVEN_DAYS_MS};
 use crate::AppState;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -301,6 +301,7 @@ pub fn windows_from_bridge(v: &serde_json::Value) -> Vec<LimitWindow> {
             out.push(LimitWindow {
                 label: lane_name(&id).or(gname).or(bname).unwrap_or("Usage").to_string(),
                 group: gname.map(String::from),
+                duration_ms: quota_duration_ms(b),
                 id,
                 used: (1.0 - rem).clamp(0.0, 1.0),
                 resets_at: parse_iso(b.get("resetTime")),
@@ -322,6 +323,33 @@ pub(crate) fn lane_name(id: &str) -> Option<&'static str> {
         Some("5-hour Limit")
     } else {
         None
+    }
+}
+
+/// Only recognized cadences carry a length; model names alone are not evidence.
+pub(crate) fn lane_duration_ms(raw: &str) -> Option<u64> {
+    let normalized = raw.trim().to_lowercase().replace('_', "-");
+    let value = normalized.strip_suffix(" remaining").unwrap_or(&normalized);
+    let value = value.strip_suffix(" limit").unwrap_or(value);
+    if value == "weekly" || value.ends_with("-weekly") || value.ends_with(" weekly") {
+        Some(SEVEN_DAYS_MS)
+    } else if ["session", "5h", "5-hour", "five hour", "five-hour", "hourly"]
+        .iter().any(|cadence| value == *cadence || value.strip_suffix(*cadence)
+            .is_some_and(|prefix| prefix.ends_with(['-', ' ']))) {
+        Some(FIVE_HOURS_MS)
+    } else {
+        None
+    }
+}
+
+fn quota_duration_ms(bucket: &serde_json::Value) -> Option<u64> {
+    let durations = ["window", "bucketId", "displayName"].map(|key| {
+        bucket.get(key).and_then(|v| v.as_str()).and_then(lane_duration_ms)
+    });
+    if durations.contains(&Some(SEVEN_DAYS_MS)) {
+        Some(SEVEN_DAYS_MS)
+    } else {
+        durations.into_iter().flatten().next()
     }
 }
 
@@ -471,6 +499,10 @@ fn direct_quota(token: &str) -> Option<Vec<LimitWindow>> {
         .send_string("{}")
         .ok()?;
     let v: serde_json::Value = r.into_json().ok()?;
+    windows_from_direct(&v)
+}
+
+fn windows_from_direct(v: &serde_json::Value) -> Option<Vec<LimitWindow>> {
     let mut buckets: Vec<serde_json::Value> = Vec::new();
     if let Some(groups) = v.get("quotaGroups").and_then(|g| g.as_array()) {
         for g in groups {
@@ -501,6 +533,7 @@ fn direct_quota(token: &str) -> Option<Vec<LimitWindow>> {
                 label,
                 used: (used / limit).clamp(0.0, 1.0),
                 resets_at: parse_iso(b.get("resetTime")),
+                duration_ms: quota_duration_ms(b),
                 ..Default::default()
             })
         })
@@ -639,6 +672,7 @@ fn read_once(rt: &mut Runtime, prev: &UsageSnapshot) -> UsageSnapshot {
         label: "Requests today · no limit published".into(),
         used: 0.0,
         resets_at: None,
+        duration_ms: None,
         count: Some(n as i64),
         derived: true,
         ..Default::default()
@@ -801,6 +835,48 @@ mod tests {
     use super::{requests_in, state_roots_in};
     use std::path::{Path, PathBuf};
 
+    #[test]
+    fn quota_sources_use_cadence_fields_and_keep_unknown_lanes_unknown() {
+        let buckets = serde_json::json!([
+            {"bucketId": "gemini-5h", "remainingFraction": 0.8, "limit": 100, "used": 20},
+            {"bucketId": "opaque", "window": "weekly", "remainingFraction": 0.8, "limit": 100, "used": 20},
+            {"bucketId": "opaque", "displayName": "Five Hour Limit Remaining", "remainingFraction": 0.8, "limit": 100, "used": 20},
+            {"bucketId": "gemini-hourly", "displayName": "Weekly Limit Remaining", "remainingFraction": 0.8, "limit": 100, "used": 20},
+            {"bucketId": "gemini", "remainingFraction": 0.8, "limit": 100, "used": 20},
+            {"bucketId": "biweekly", "remainingFraction": 0.8, "limit": 100, "used": 20}
+        ]);
+        let expected = [Some(super::FIVE_HOURS_MS), Some(super::SEVEN_DAYS_MS),
+            Some(super::FIVE_HOURS_MS), Some(super::SEVEN_DAYS_MS), None, None];
+        for (bucket, expected) in buckets.as_array().unwrap().iter().zip(expected) {
+            for envelope in [
+                serde_json::json!({"buckets": [bucket]}),
+                serde_json::json!({"quotaGroups": [{"buckets": [bucket]}]}),
+            ] {
+                let direct = super::windows_from_direct(&envelope).unwrap();
+                assert_eq!(direct.len(), 1);
+                assert_eq!(direct[0].duration_ms, expected, "direct: {bucket}");
+            }
+            let bridge = super::windows_from_bridge(&serde_json::json!({"response": {"groups": [{
+                "displayName": "Gemini Models", "buckets": [bucket]
+            }]}}));
+            assert_eq!(bridge.len(), 1);
+            assert_eq!(bridge[0].duration_ms, expected, "bridge: {bucket}");
+        }
+    }
+
+    #[test]
+    fn lane_durations_recognize_aliases_without_matching_arbitrary_substrings() {
+        for lane in ["session", "gemini_5h", "3p-hourly", "5-hour", "Five Hour Limit", "Gemini Models Five Hour Limit"] {
+            assert_eq!(super::lane_duration_ms(lane), Some(super::FIVE_HOURS_MS), "{lane}");
+        }
+        for lane in ["weekly", "3p-weekly", "Gemini Models Weekly Limit Remaining"] {
+            assert_eq!(super::lane_duration_ms(lane), Some(super::SEVEN_DAYS_MS), "{lane}");
+        }
+        for lane in ["requests", "monthly", "biweekly", "5h-preview", "hourly-preview", "gemini"] {
+            assert_eq!(super::lane_duration_ms(lane), None, "{lane}");
+        }
+    }
+
     struct Home(PathBuf);
     impl Home {
         fn new(name: &str) -> Self {
@@ -905,7 +981,11 @@ mod tests {
             { "displayName": "Claude and GPT models", "buckets": [
                 { "bucketId": "3p-weekly", "remainingFraction": 1.0 },
                 { "bucketId": "3p-5h", "remainingFraction": 1.0 } ] } ] } });
-        let lanes: Vec<String> = super::windows_from_bridge(&reply)
+        let windows = super::windows_from_bridge(&reply);
+        assert_eq!(windows.iter().map(|w| w.duration_ms).collect::<Vec<_>>(),
+            [Some(super::FIVE_HOURS_MS), Some(super::SEVEN_DAYS_MS),
+             Some(super::FIVE_HOURS_MS), Some(super::SEVEN_DAYS_MS)]);
+        let lanes: Vec<String> = windows
             .into_iter()
             .map(|w| format!("{} › {} ({})", w.group.unwrap_or_default(), w.label, w.id))
             .collect();

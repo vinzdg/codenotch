@@ -136,6 +136,7 @@ fn parse_quota(text: &str) -> Result<Vec<LimitWindow>, String> {
         out.push(LimitWindow {
             label: lane.map_or(short_label, String::from),
             group,
+            duration_ms: crate::antigravity::lane_duration_ms(&label),
             id: label,
             used: ((100.0 - remaining) / 100.0).clamp(0.0, 1.0),
             resets_at: Some(reset as u64),
@@ -578,6 +579,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn unknown_cli_lane_durations_are_not_guessed() {
+        let windows = parse_quota("Quota:\nGemini Models Monthly Limit Remaining 90% 2026-10-12T01:47:23Z").unwrap();
+        assert_eq!(windows[0].duration_ms, None);
+    }
+
+
+    #[test]
     fn quoted_paths_keep_backslashes() {
         assert_eq!(quote_arg(r"C:\Program Files\agy.exe"), r#""C:\Program Files\agy.exe""#);
         assert_eq!(quote_arg("path with space\\"), "\"path with space\\\\\"");
@@ -597,6 +605,9 @@ mod tests {
         let text = "Quota:\nGemini Models Weekly Limit Remaining 94% 2026-09-12T01:47:23Z\nGemini Models Five Hour Limit Remaining 78% 2026-09-10T06:12:31Z\nClaude and GPT models Weekly Limit Remaining 100% 2026-09-17T01:47:23Z\nClaude and GPT models Five Hour Limit Remaining 100% 2026-09-10T08:13:44Z";
         let windows = parse_quota(text).expect("valid sample quota");
         assert_eq!(windows.len(), 4);
+        assert_eq!(windows.iter().map(|w| w.duration_ms).collect::<Vec<_>>(),
+            [Some(crate::usage::FIVE_HOURS_MS), Some(crate::usage::SEVEN_DAYS_MS),
+             Some(crate::usage::FIVE_HOURS_MS), Some(crate::usage::SEVEN_DAYS_MS)]);
 
         // Grouped by model and named by lane, 5-hour first, as the Mac card shows them
         assert_eq!(windows[0].id, "Gemini Models Five Hour Limit");
@@ -810,6 +821,7 @@ mod tests {
                 label: "Gemini · Weekly".into(),
                 used: 0.06,
                 resets_at: Some(1700000000000),
+                duration_ms: Some(crate::usage::SEVEN_DAYS_MS),
                 ..Default::default()
             }],
             fetched_at: 1700000000000,
@@ -819,6 +831,8 @@ mod tests {
         assert!(save_persisted_to(&dest, &snap).is_ok());
         let read_back = std::fs::read_to_string(&dest).unwrap();
         assert!(read_back.contains("Gemini · Weekly"));
+        let restored: UsageSnapshot = serde_json::from_str(&read_back).unwrap();
+        assert_eq!(restored.windows[0].duration_ms, Some(crate::usage::SEVEN_DAYS_MS));
 
         #[cfg(windows)]
         {
