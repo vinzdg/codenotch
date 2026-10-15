@@ -140,4 +140,57 @@ final class StatusItemQuickToggleTests: XCTestCase {
         controller.setActivity(providerID: "claude", sessions: [])
         XCTAssertTrue(controller.activeProviderIDs.isEmpty)
     }
+
+    func testAWaitingSessionMarksItsProviderWhateverElseItIsDoing() {
+        let controller = StatusItemController(onOpenSettings: {})
+
+        controller.setActivity(providerID: "claude", sessions: [session(.waiting, id: "claude-ask")])
+        XCTAssertEqual(controller.waitingProviderIDs, ["claude"])
+        XCTAssertTrue(controller.activeProviderIDs.isEmpty, "waiting is not work")
+
+        // Another session of the same provider at work does not hide the wait.
+        controller.setActivity(providerID: "claude", sessions: [session(.waiting, id: "claude-ask"),
+                                                                session(.busy, id: "claude-run")])
+        XCTAssertEqual(controller.waitingProviderIDs, ["claude"])
+        XCTAssertEqual(controller.activeProviderIDs, ["claude"])
+
+        controller.setActivity(providerID: "claude", sessions: [session(.busy, id: "claude-run")])
+        XCTAssertTrue(controller.waitingProviderIDs.isEmpty, "answered")
+        controller.setActivity(providerID: "claude", sessions: [])
+        XCTAssertTrue(controller.waitingProviderIDs.isEmpty)
+        XCTAssertTrue(controller.activeProviderIDs.isEmpty)
+    }
+
+    func testOnlyWorkThatEndsWithoutAQuestionIsFinished() {
+        let controller = StatusItemController(onOpenSettings: {})
+
+        // Already idle when first seen — at launch, say — is not an ending.
+        controller.setActivity(providerID: "claude", sessions: [session(.idle, id: "a")])
+        XCTAssertTrue(controller.finishedSinceLastDraw.isEmpty)
+
+        // Claude ends a turn at idle; others at success. Both count.
+        controller.setActivity(providerID: "claude", sessions: [session(.busy, id: "a")])
+        controller.setActivity(providerID: "claude", sessions: [session(.idle, id: "a")])
+        controller.setActivity(providerID: "codex", sessions: [session(.busy, id: "b")])
+        controller.setActivity(providerID: "codex", sessions: [session(.success, id: "b")])
+        XCTAssertEqual(controller.finishedSinceLastDraw, ["claude", "codex"])
+    }
+
+    func testStoppingToAskOrStillWorkingElsewhereIsNotFinished() {
+        let controller = StatusItemController(onOpenSettings: {})
+
+        controller.setActivity(providerID: "claude", sessions: [session(.busy, id: "a")])
+        controller.setActivity(providerID: "claude", sessions: [session(.waiting, id: "a")])
+        XCTAssertTrue(controller.finishedSinceLastDraw.isEmpty, "a question is the red dot, not a finish")
+
+        // One of two sessions done while the other works on: the pulse says it.
+        controller.setActivity(providerID: "codex", sessions: [session(.busy, id: "b"), session(.busy, id: "c")])
+        controller.setActivity(providerID: "codex", sessions: [session(.success, id: "b"), session(.busy, id: "c")])
+        XCTAssertTrue(controller.finishedSinceLastDraw.isEmpty)
+
+        // A session that vanished mid-turn — the window was closed — is not done.
+        controller.setActivity(providerID: "gemini", sessions: [session(.busy, id: "d")])
+        controller.setActivity(providerID: "gemini", sessions: [])
+        XCTAssertTrue(controller.finishedSinceLastDraw.isEmpty)
+    }
 }

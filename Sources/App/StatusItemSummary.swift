@@ -179,6 +179,11 @@ struct StatusItemArtwork {
     /// provider's mark. It is part of the template image, so AppKit gives it
     /// the same tint as the rest of the item.
     let activityBadgeProviderIDs: Set<String>
+    /// Providers with a session waiting on a reply. Their mark gets a hole in
+    /// its top trailing corner, and the red dot that fills it is drawn outside
+    /// this image — see `StatusItemWaitingBadges` — because a template image
+    /// is all one colour and the dot's whole point is that it is not.
+    let waitingBadgeProviderIDs: Set<String>
 
     /// The menu bar's own type size, with figures of one width: "72%" and
     /// "18%" take the same room, so nothing jitters as the numbers move.
@@ -186,11 +191,13 @@ struct StatusItemArtwork {
          font: NSFont = .monospacedDigitSystemFont(ofSize: NSFont.menuBarFont(ofSize: 0).pointSize,
                                                    weight: .regular),
          height: CGFloat = NSStatusBar.system.thickness,
-         activityBadgeProviderIDs: Set<String> = []) {
+         activityBadgeProviderIDs: Set<String> = [],
+         waitingBadgeProviderIDs: Set<String> = []) {
         self.summary = summary
         self.font = font
         self.height = height
         self.activityBadgeProviderIDs = activityBadgeProviderIDs
+        self.waitingBadgeProviderIDs = waitingBadgeProviderIDs
     }
 
     private enum Mark {
@@ -200,6 +207,8 @@ struct StatusItemArtwork {
         case rule(NSRect)
         /// Reduce Motion's still indication, cut clear of the mark below it.
         case activityBadge(NSRect)
+        /// Room for the waiting dot: a clear disc with nothing drawn in it.
+        case waitingCutout(NSRect)
     }
 
     private var separator: String { " · " }
@@ -229,7 +238,7 @@ struct StatusItemArtwork {
     var size: NSSize { NSSize(width: layout().width, height: height) }
 
     func image() -> NSImage {
-        let (width, marks, _) = layout()
+        let (width, marks, _, _) = layout()
         let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
             for (mark, alpha) in marks { draw(mark, alpha: alpha) }
             return true
@@ -243,13 +252,18 @@ struct StatusItemArtwork {
         layout().glyphFrames[providerID]
     }
 
-    private func layout() -> (width: CGFloat, marks: [(Mark, CGFloat)], glyphFrames: [String: NSRect]) {
+    /// Where each waiting dot goes, in the image's coordinates.
+    var waitingBadgeFrames: [String: NSRect] { layout().waitingBadges }
+
+    private func layout() -> (width: CGFloat, marks: [(Mark, CGFloat)], glyphFrames: [String: NSRect],
+                              waitingBadges: [String: NSRect]) {
         // Figures centred on the bar by their cap height, which is what the eye
         // measures digits by; the marks are centred on the same line.
         let baseline = ((height - font.capHeight) / 2 * 2).rounded() / 2
         let middle = baseline + font.capHeight / 2
         var marks: [(Mark, CGFloat)] = []
         var glyphFrames: [String: NSRect] = [:]
+        var waitingBadges: [String: NSRect] = [:]
         var x: CGFloat = 0
         func text(_ string: String, alpha: CGFloat) {
             marks.append((.text(string, NSPoint(x: x, y: baseline)), alpha))
@@ -269,7 +283,11 @@ struct StatusItemArtwork {
             let box = NSRect(x: x, y: middle - glyphSize / 2, width: glyphSize, height: glyphSize)
             glyphFrames[entry.id] = box
             marks.append((.glyph(entry.glyph, box, weeklyFraction: entry.weeklyFraction), alpha))
-            if activityBadgeProviderIDs.contains(entry.id) {
+            if waitingBadgeProviderIDs.contains(entry.id) {
+                let dot = waitingBadge(on: box)
+                waitingBadges[entry.id] = dot
+                marks.append((.waitingCutout(dot), alpha))
+            } else if activityBadgeProviderIDs.contains(entry.id) {
                 marks.append((.activityBadge(activityBadge(on: box)), alpha))
             }
             x += glyphSize + glyphGap
@@ -287,7 +305,18 @@ struct StatusItemArtwork {
                 text(entry.countdown, alpha: alpha)
             }
         }
-        return (x.rounded(.up), marks, glyphFrames)
+        return (x.rounded(.up), marks, glyphFrames, waitingBadges)
+    }
+
+    /// The upper trailing corner, where a notification badge sits on a Dock
+    /// icon — and the opposite corner from Reduce Motion's working dot, so the
+    /// two never read as the same thing even before the colour does. Larger
+    /// than that dot: this one is asking for something.
+    private func waitingBadge(on box: NSRect) -> NSRect {
+        let diameter = max(4, (glyphSize * 0.45).rounded())
+        return NSRect(x: (box.maxX - diameter * 0.7).rounded(),
+                      y: (box.maxY - diameter * 0.7).rounded(),
+                      width: diameter, height: diameter)
     }
 
     /// The badge sits in the lower trailing corner, where macOS icon badges
@@ -381,6 +410,13 @@ struct StatusItemArtwork {
             NSGraphicsContext.restoreGraphicsState()
             ink.setFill()
             NSBezierPath(ovalIn: dot).fill()
+        case .waitingCutout(let dot):
+            // The same clear ring, around a disc left empty for the red dot.
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current?.compositingOperation = .destinationOut
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: dot.insetBy(dx: -1.5, dy: -1.5)).fill()
+            NSGraphicsContext.restoreGraphicsState()
         }
     }
 }

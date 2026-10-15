@@ -763,6 +763,141 @@ final class StatusItemSummaryTests: XCTestCase {
         let bitmap = try XCTUnwrap(NSBitmapImageRep(data: data))
         try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: path))
     }
+
+    // MARK: - Waiting on a reply
+
+    func testAWaitingProviderGetsAClearHoleInItsTopTrailingCorner() throws {
+        let result = summary([claude(0.72, resetIn: hour), codex(0.41, resetIn: 2 * hour)])
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        let plain = StatusItemArtwork(summary: result, font: font, height: 22)
+        let waiting = StatusItemArtwork(summary: result, font: font, height: 22,
+                                        waitingBadgeProviderIDs: ["claude"])
+
+        XCTAssertEqual(waiting.size, plain.size, "a wait never moves other menu bar items")
+        XCTAssertTrue(waiting.image().isTemplate)
+        XCTAssertEqual(Set(waiting.waitingBadgeFrames.keys), ["claude"])
+        let dot = try XCTUnwrap(waiting.waitingBadgeFrames["claude"])
+        let glyph = try XCTUnwrap(waiting.glyphFrame(for: "claude"))
+        // Top trailing — the image is not flipped, so up is +y — and the
+        // opposite corner from Reduce Motion's working dot.
+        XCTAssertGreaterThan(dot.midX, glyph.midX)
+        XCTAssertGreaterThan(dot.midY, glyph.midY)
+        XCTAssertLessThanOrEqual(dot.maxY, waiting.size.height, "the dot is cut off by the bar")
+        // Left empty for the red dot, which the template cannot carry.
+        XCTAssertGreaterThan(ink(plain.image(), in: dot), 0, "the glyph reaches the corner")
+        XCTAssertEqual(ink(waiting.image(), in: dot), 0)
+        let codex = try XCTUnwrap(plain.glyphFrame(for: "codex")).insetBy(dx: -2, dy: -2)
+        XCTAssertEqual(ink(waiting.image(), in: codex), ink(plain.image(), in: codex),
+                       "the provider that is not waiting is unchanged")
+    }
+
+    func testAWaitTakesTheMarkFromReduceMotionsWorkingDot() throws {
+        let result = summary([claude(0.72, resetIn: hour)])
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        let both = StatusItemArtwork(summary: result, font: font, height: 22,
+                                     activityBadgeProviderIDs: ["claude"],
+                                     waitingBadgeProviderIDs: ["claude"])
+        let waitingOnly = StatusItemArtwork(summary: result, font: font, height: 22,
+                                            waitingBadgeProviderIDs: ["claude"])
+        let glyph = try XCTUnwrap(both.glyphFrame(for: "claude")).insetBy(dx: -3, dy: -3)
+        XCTAssertEqual(ink(both.image(), in: glyph), ink(waitingOnly.image(), in: glyph),
+                       "one signal per mark: the wait, not the wait and the work")
+    }
+
+    func testTheRedDotLandsInTheHoleTheArtworkLeft() throws {
+        let result = summary([claude(0.72, resetIn: hour), codex(0.41, resetIn: 2 * hour)])
+        let artwork = StatusItemArtwork(summary: result,
+                                        font: .monospacedDigitSystemFont(ofSize: 13, weight: .regular),
+                                        height: 22, waitingBadgeProviderIDs: ["codex"])
+        let hole = try XCTUnwrap(artwork.waitingBadgeFrames["codex"])
+        let inset = 7.0
+
+        let upright = NSView(frame: NSRect(x: 0, y: 0, width: artwork.size.width + 2 * inset, height: 22))
+        let badges = StatusItemWaitingBadges()
+        badges.update(view: upright, imageSize: artwork.size, badges: artwork.waitingBadgeFrames)
+        XCTAssertEqual(badges.showing, ["codex"])
+        XCTAssertEqual(badges.frame(for: "codex"), hole.offsetBy(dx: inset, dy: 0))
+
+        // A button's coordinates run top-down; the dot must still find the hole.
+        final class Flipped: NSView { override var isFlipped: Bool { true } }
+        let flipped = Flipped(frame: upright.frame)
+        let flippedBadges = StatusItemWaitingBadges()
+        flippedBadges.update(view: flipped, imageSize: artwork.size, badges: artwork.waitingBadgeFrames)
+        XCTAssertEqual(flippedBadges.frame(for: "codex"),
+                       NSRect(x: hole.minX + inset, y: 22 - hole.maxY, width: hole.width, height: hole.height))
+
+        badges.update(view: upright, imageSize: artwork.size, badges: [:])
+        XCTAssertTrue(badges.showing.isEmpty)
+        XCTAssertTrue(upright.subviews.isEmpty, "a wait that ended leaves no dot behind")
+    }
+
+    func testAWaitArrivesWithTwoDipsAndNoPulse() throws {
+        let result = summary([claude(0.72, resetIn: hour), codex(0.41, resetIn: 2 * hour)])
+        let artwork = StatusItemArtwork(summary: result,
+                                        font: .monospacedDigitSystemFont(ofSize: 13, weight: .regular),
+                                        height: 22)
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: artwork.size.width + 14, height: 22))
+        view.wantsLayer = true
+        let glyphs = Dictionary(uniqueKeysWithValues: result.entries.compactMap { entry in
+            artwork.glyphFrame(for: entry.id).map { (entry.id, $0) }
+        })
+        let pulse = StatusItemPulse()
+        pulse.update(view: view, imageSize: artwork.size, glyphs: glyphs, working: [])
+        pulse.nudge(["claude"])
+
+        XCTAssertEqual(pulse.nudging, ["claude"])
+        XCTAssertTrue(pulse.pulsing.isEmpty, "a nudge is not a breath")
+        let mask = try XCTUnwrap(view.layer?.mask)
+        let mark = try XCTUnwrap((mask.sublayers ?? []).first { !($0 is CAShapeLayer) })
+        let dips = try XCTUnwrap(mark.animation(forKey: StatusItemPulse.nudgeKey) as? CAKeyframeAnimation)
+        XCTAssertEqual(dips.values as? [Float], [1, StatusItemPulse.nudgeDimmest, 1, StatusItemPulse.nudgeDimmest, 1])
+        XCTAssertEqual(dips.repeatCount, 0, "it happens once")
+
+        // A redraw while it runs does not cut it short.
+        pulse.update(view: view, imageSize: artwork.size, glyphs: glyphs, working: [])
+        XCTAssertEqual(pulse.nudging, ["claude"])
+
+        pulse.clear()
+        XCTAssertTrue(pulse.nudging.isEmpty)
+        XCTAssertNil(view.layer?.mask)
+    }
+
+    func testFinishedWorkBlinksTwiceThreeTimesAsItsBreathStops() throws {
+        let result = summary([claude(0.72, resetIn: hour), codex(0.41, resetIn: 2 * hour)])
+        let artwork = StatusItemArtwork(summary: result,
+                                        font: .monospacedDigitSystemFont(ofSize: 13, weight: .regular),
+                                        height: 22)
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: artwork.size.width + 14, height: 22))
+        view.wantsLayer = true
+        let glyphs = Dictionary(uniqueKeysWithValues: result.entries.compactMap { entry in
+            artwork.glyphFrame(for: entry.id).map { (entry.id, $0) }
+        })
+        let pulse = StatusItemPulse()
+        pulse.update(view: view, imageSize: artwork.size, glyphs: glyphs, working: ["codex"])
+        // Work ends: the breath stops, and the blinks take its column.
+        pulse.update(view: view, imageSize: artwork.size, glyphs: glyphs, working: [])
+        pulse.nudge(["codex"], .finished)
+
+        XCTAssertEqual(pulse.nudge(for: "codex"), .finished)
+        XCTAssertTrue(pulse.pulsing.isEmpty)
+        let mask = try XCTUnwrap(view.layer?.mask)
+        let marks = (mask.sublayers ?? []).filter { !($0 is CAShapeLayer) }
+        XCTAssertEqual(marks.count, 1, "one column for the mark, not a settling breath under the blinks")
+        let blinks = try XCTUnwrap(marks.first?.animation(forKey: StatusItemPulse.nudgeKey) as? CAKeyframeAnimation)
+        let values = try XCTUnwrap(blinks.values as? [Float])
+        let times = try XCTUnwrap(blinks.keyTimes).map(\.doubleValue)
+        XCTAssertEqual(values.filter { $0 == StatusItemPulse.nudgeDimmest }.count, 6, "three double blinks")
+        XCTAssertEqual(times.first, 0)
+        XCTAssertEqual(try XCTUnwrap(times.last), 1, accuracy: 1e-9)
+        XCTAssertEqual(times, times.sorted(), "keyframes run forward")
+        XCTAssertEqual(blinks.repeatCount, 0)
+        XCTAssertEqual(blinks.duration, StatusItemPulse.Nudge.finished.duration)
+
+        // Back to work mid-blink: the breath takes over at once.
+        pulse.update(view: view, imageSize: artwork.size, glyphs: glyphs, working: ["codex"])
+        XCTAssertNil(pulse.nudge(for: "codex"))
+        XCTAssertEqual(pulse.pulsing, ["codex"])
+    }
 }
 
 /// The menu bar choice on its own: what "never chosen" means, and how the

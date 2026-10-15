@@ -76,9 +76,22 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// notch. Kept separate from usage snapshots: a usage refresh is not work,
     /// and activity never asks a provider to refresh its limits.
     private(set) var activeProviderIDs: Set<String> = []
+    /// Providers with a session waiting on a reply. These get the red dot and
+    /// not the pulse: waiting is the state that needs somebody, and one clear
+    /// signal on a mark says that better than two at once.
+    private(set) var waitingProviderIDs: Set<String> = []
+    /// Started waiting since the item was last drawn, so owed their one nudge.
+    private var waitingSinceLastDraw: Set<String> = []
+    /// Finished work since the item was last drawn, so owed their blinks.
+    /// Readable so the rule for "finished" can be tested without a status item.
+    private(set) var finishedSinceLastDraw: Set<String> = []
+    /// Each provider's sessions as last reported, by session id — what a
+    /// session was is what says whether it has just finished.
+    private var lastSessionStates: [String: [String: AgentSession.State]] = [:]
     /// Pulses the marks of the entries that are working without drawing a
     /// second, independently tinted copy of each mark over AppKit's image.
     private let pulse = StatusItemPulse()
+    private let waitingBadges = StatusItemWaitingBadges()
     private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private weak var observedStatusWindow: NSWindow?
     private var statusWindowObserver: NSObjectProtocol?
@@ -128,6 +141,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         guard let button = item.button else { return }
         observe(NSView.frameDidChangeNotification, on: .default, object: button) { controller in
             controller.pulse.relayout()
+            controller.waitingBadges.relayout()
             controller.observeStatusWindow(of: button)
         }
         // AppKit drops layer animations while a window is off screen; the
@@ -154,6 +168,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         countdownTimer?.invalidate()
         countdownTimer = nil
         pulse.clear()
+        waitingBadges.clear()
+        // Owed to a bar that is no longer there: shown again later, it would
+        // blink for work that ended while it was hidden.
+        waitingSinceLastDraw.removeAll()
+        finishedSinceLastDraw.removeAll()
         stopObservingStatusWindow()
         for (center, token) in observers { center.removeObserver(token) }
         observers = []
@@ -221,6 +240,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         if next.entries.isEmpty {
             pulse.clear()
+            waitingBadges.clear()
             item.length = NSStatusItem.squareLength
             button.image = Self.icon()
             button.toolTip = L10n.t("Codenotch")
@@ -231,38 +251,85 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // `redrawArtwork` sets the length from the artwork it draws, so there
         // is nothing for `variableLength` to work out.
         redrawArtwork()
-        let details = next.entries.map(\.detail).joined(separator: "\n")
+    }
+
+    /// What the item says in words: one line per reading, then who is waiting.
+    /// The red dot is colour alone, which a tooltip and VoiceOver cannot see.
+    private func describe(_ button: NSStatusBarButton, summary: StatusItemSummary, waiting: Set<String>) {
+        let names = Dictionary(snapshots.map { ($0.id, $0.displayName) }, uniquingKeysWith: { first, _ in first })
+        let waits = summary.entries.filter { waiting.contains($0.id) }.map { entry in
+            L10n.t("\(names[entry.id] ?? entry.id) is waiting for your reply")
+        }
+        let details = (summary.entries.map(\.detail) + waits).joined(separator: "\n")
         button.toolTip = details
         // The image is text VoiceOver cannot read; this says what it shows.
         button.setAccessibilityLabel(details)
     }
 
     /// Called by the activity coordinator with provider-specific normalized
-    /// sessions. Waiting, success and an open-but-idle process are deliberately
-    /// static; only actual work (`busy`) pulses.
+    /// sessions. Actual work (`busy`) pulses; a session waiting on a reply
+    /// puts a red dot on the mark, and takes precedence over work from another
+    /// session of the same provider. Work that has just ended blinks the mark
+    /// a few times as the pulse stops; after that, success and an
+    /// open-but-idle process are static.
     func setActivity(providerID: String, sessions: [AgentSession]) {
         let isActive = sessions.contains { $0.state == .busy }
-        let changed: Bool
+        let isWaiting = sessions.contains { $0.state == .waiting }
+        // Finished as the notch's completion watcher means it: a session that
+        // was busy and now is not, without stopping to ask anything — Claude
+        // ends a turn at `idle`, others at `success`. A session seen for the
+        // first time has no "was", so nothing already running at launch
+        // blinks. Only once the provider has no work left: while another of
+        // its sessions is busy, the pulse goes on and says so.
+        let was = lastSessionStates[providerID] ?? [:]
+        let finished = !isActive && !isWaiting && sessions.contains { session in
+            guard let before = was[session.id] else { return false }
+            return SessionCompletionWatcher.reason(from: before, to: session.state) == .finished
+        }
+        lastSessionStates[providerID] = Dictionary(sessions.map { ($0.id, $0.state) },
+                                                   uniquingKeysWith: { _, last in last })
+        var changed = false
+        if finished, finishedSinceLastDraw.insert(providerID).inserted {
+            changed = true
+        }
         if isActive {
-            changed = activeProviderIDs.insert(providerID).inserted
+            changed = activeProviderIDs.insert(providerID).inserted || changed
         } else {
-            changed = activeProviderIDs.remove(providerID) != nil
+            changed = (activeProviderIDs.remove(providerID) != nil) || changed
+        }
+        if isWaiting {
+            if waitingProviderIDs.insert(providerID).inserted {
+                waitingSinceLastDraw.insert(providerID)
+                changed = true
+            }
+        } else if waitingProviderIDs.remove(providerID) != nil {
+            waitingSinceLastDraw.remove(providerID)
+            changed = true
         }
         guard changed else { return }
         redrawArtwork()
     }
 
+    private var visibleProviderIDs: Set<String> {
+        Set(summary?.entries.map(\.id) ?? [])
+    }
+
+    private var visibleWaitingProviderIDs: Set<String> {
+        waitingProviderIDs.intersection(visibleProviderIDs)
+    }
+
     private var visibleActiveProviderIDs: Set<String> {
-        guard let summary else { return [] }
-        return activeProviderIDs.intersection(summary.entries.map(\.id))
+        activeProviderIDs.intersection(visibleProviderIDs).subtracting(waitingProviderIDs)
     }
 
     private func redrawArtwork() {
         guard let item, let button = item.button, let summary, !summary.entries.isEmpty else { return }
         let working = visibleActiveProviderIDs
+        let waiting = visibleWaitingProviderIDs
         let artwork = StatusItemArtwork(
             summary: summary,
-            activityBadgeProviderIDs: reducesMotion ? working : []
+            activityBadgeProviderIDs: reducesMotion ? working : [],
+            waitingBadgeProviderIDs: waiting
         )
         button.image = artwork.image()
         // The item is its artwork and nothing besides. Left to size itself an
@@ -274,14 +341,24 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let glyphs = Dictionary(uniqueKeysWithValues: summary.entries.compactMap { entry in
             artwork.glyphFrame(for: entry.id).map { (entry.id, $0) }
         })
+        describe(button, summary: summary, waiting: waiting)
+        // Still in either case: the dot is the signal, and it does not move.
+        waitingBadges.update(view: button, imageSize: artwork.size, badges: artwork.waitingBadgeFrames)
         if reducesMotion {
             // Accessibility changes are synchronous: no fading settle after
             // Reduce Motion is enabled. The artwork above keeps activity
-            // visible as a still badge instead.
+            // visible as a still badge instead, and a wait goes without its
+            // nudge.
             pulse.clear()
         } else {
             pulse.update(view: button, imageSize: artwork.size, glyphs: glyphs, working: working)
+            pulse.nudge(waitingSinceLastDraw.intersection(waiting), .waiting)
+            pulse.nudge(finishedSinceLastDraw.intersection(visibleProviderIDs).subtracting(working), .finished)
         }
+        // Owed once, on the draw that first shows the wait. A provider that
+        // started waiting while it was off the bar arrives without one.
+        waitingSinceLastDraw.removeAll()
+        finishedSinceLastDraw.removeAll()
     }
 
     private func scheduleCountdown(at change: Date?) {
