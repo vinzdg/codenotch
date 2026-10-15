@@ -21,8 +21,15 @@ import QuartzCore
 final class StatusItemPulse {
     /// One breath: full, down to `dimmest`, and back. Slow enough to read as
     /// "still going" rather than as an alert.
-    static let period: CFTimeInterval = 1.4
-    static let dimmest: Float = 0.62
+    ///
+    /// Deep enough to be seen out of the corner of an eye. A dip to 62% on a
+    /// mark the size of a menu bar glyph read as a flicker you had to be
+    /// looking at to catch; at a fifth the mark all but goes and comes back,
+    /// which is what makes "working" visible from across the screen. The
+    /// period is longer than the shallow breath's for the same reason the
+    /// amplitude is larger: a deep dip at the old pace read as blinking.
+    static let period: CFTimeInterval = 1.8
+    static let dimmest: Float = 0.2
     static let animationKey = "activity-pulse"
     /// How long a mark takes to come back to full once its provider stops.
     static let settleDuration: CFTimeInterval = 0.3

@@ -673,6 +673,9 @@ final class StatusItemSummaryTests: XCTestCase {
         XCTAssertEqual(animation.keyPath, "opacity")
         XCTAssertEqual(animation.fromValue as? Float, 1)
         XCTAssertEqual(animation.toValue as? Float, StatusItemPulse.dimmest)
+        // Deep enough to be noticed without looking straight at it: a shallow
+        // dip on a glyph this small read as no change at all.
+        XCTAssertLessThanOrEqual(StatusItemPulse.dimmest, 0.3)
         XCTAssertTrue(animation.autoreverses)
         XCTAssertEqual(animation.repeatCount, .infinity)
         XCTAssertEqual(animation.duration * 2, StatusItemPulse.period)
