@@ -324,7 +324,7 @@ fn run_cmd_conpty(
     use windows::Win32::System::Threading::{
         CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
         InitializeProcThreadAttributeList, ResumeThread, UpdateProcThreadAttribute,
-        WaitForSingleObject, CREATE_SUSPENDED,
+        WaitForSingleObject, CREATE_NO_WINDOW, CREATE_SUSPENDED,
         EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST,
         PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, STARTUPINFOEXW,
         STARTF_USESTDHANDLES,
@@ -481,7 +481,9 @@ fn run_cmd_conpty(
             None,
             None,
             false,
-            EXTENDED_STARTUPINFO_PRESENT | CREATE_SUSPENDED,
+            // CREATE_NO_WINDOW suppresses console window creation and prevents child
+            // console processes (e.g. stdio MCP servers launched by agy) from flashing a popup window.
+            EXTENDED_STARTUPINFO_PRESENT | CREATE_SUSPENDED | CREATE_NO_WINDOW,
             None,
             cwd_u16.as_ref().map_or(PCWSTR::null(), |v| PCWSTR(v.as_ptr())),
             &si_ex.StartupInfo,
