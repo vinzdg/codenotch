@@ -427,6 +427,21 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(showsWeeklyLimitInMenuBar, forKey: Keys.showsWeeklyLimitInMenuBar) }
     }
 
+    /// How much of each reading the item prints. `.automatic` is the rule it
+    /// has always followed — two readings with countdowns, shares alone past
+    /// that — now answerable by whoever has to live with the width.
+    @Published var menuBarReading: MenuBarReading {
+        didSet { defaults.set(menuBarReading.rawValue, forKey: Keys.menuBarReading) }
+    }
+
+    /// How the item shows that an agent is working. `.pulse` is what it has
+    /// always done, so an upgrade changes nothing; the other two exist because
+    /// movement in the menu bar is not everyone's idea of an indicator, and
+    /// stopping it used to mean turning Reduce Motion on for the whole Mac.
+    @Published var menuBarActivityStyle: MenuBarActivityStyle {
+        didSet { defaults.set(menuBarActivityStyle.rawValue, forKey: Keys.menuBarActivityStyle) }
+    }
+
     /// The providers the menu bar summarises when it does, as ids. Nil until
     /// the first choice — see `MenuBarLimits` for what that reads as. From
     /// then on it is the ones that are on, so a provider that turns up later
@@ -599,6 +614,8 @@ final class Preferences: ObservableObject {
         static let notificationChannel = "notificationChannel"
         static let showsLimitsInMenuBar = "showsLimitsInMenuBar"
         static let showsWeeklyLimitInMenuBar = "showsWeeklyLimitInMenuBar"
+        static let menuBarActivityStyle = "menuBarActivityStyle"
+        static let menuBarReading = "menuBarReading"
         static let menuBarProviders = "menuBarProviders"
         static let edge = "notchEdge"
         // A new key, so there is nothing under the old app name to migrate.
@@ -932,6 +949,10 @@ final class Preferences: ObservableObject {
         // Absent means an install from before this option, which must retain
         // its existing compact status-item presentation.
         self.showsWeeklyLimitInMenuBar = defaults.bool(forKey: Keys.showsWeeklyLimitInMenuBar)
+        self.menuBarActivityStyle = defaults.string(forKey: Keys.menuBarActivityStyle)
+            .flatMap(MenuBarActivityStyle.init(rawValue:)) ?? .pulse
+        self.menuBarReading = defaults.string(forKey: Keys.menuBarReading)
+            .flatMap(MenuBarReading.init(rawValue:)) ?? .automatic
         // Absent is kept distinct from empty: never chosen is not choosing none.
         self.menuBarProviders = defaults.stringArray(forKey: Keys.menuBarProviders).map(Set.init)
         // The right edge is where the notch has always been, and it is the one

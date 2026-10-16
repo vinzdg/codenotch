@@ -83,10 +83,29 @@ enum ProviderOrder {
     /// Stable by arrival order, which is the manual order: ties, and the
     /// unmeasurable trailing group, keep the arrangement dragging made.
     static func byRemainingUsage(_ snapshots: [ProviderSnapshot]) -> [ProviderSnapshot] {
+        sorted(snapshots) { orderKey(for: $0, leading: $0.headline) }
+    }
+
+    /// The same rule read off the five-hour window, for the menu bar.
+    ///
+    /// The bar prints that window whatever the notch's rings are leading
+    /// with, and it has four places with the countdowns in the first of them
+    /// — so here the order decides what is said about an account and whether
+    /// it is said at all. Sorting it by a figure it is not showing would be
+    /// the same fault as printing one.
+    static func byRemainingFiveHour(_ snapshots: [ProviderSnapshot]) -> [ProviderSnapshot] {
+        sorted(snapshots) { orderKey(for: $0, leading: $0.fiveHourWindow) }
+    }
+
+    /// Tier, then remaining within it, then arrival — which is the manual
+    /// order, so ties keep the arrangement dragging made.
+    private static func sorted(_ snapshots: [ProviderSnapshot],
+                               by key: (ProviderSnapshot) -> (tier: Int, remaining: Double))
+    -> [ProviderSnapshot] {
         snapshots.enumerated()
             .sorted {
-                let (rankA, leftA) = orderKey(for: $0.element)
-                let (rankB, leftB) = orderKey(for: $1.element)
+                let (rankA, leftA) = key($0.element)
+                let (rankB, leftB) = key($1.element)
                 if rankA != rankB { return rankA < rankB }
                 if leftA != leftB { return leftA > leftB }
                 return $0.offset < $1.offset
@@ -94,11 +113,12 @@ enum ProviderOrder {
             .map(\.element)
     }
 
-    /// (tier, headline-remaining): 0 usable, 1 shut with room, 2 fully
-    /// empty, 3 nothing measurable. The other window is the weekly one where
-    /// the provider has one apart from its headline.
-    private static func orderKey(for snapshot: ProviderSnapshot) -> (tier: Int, remaining: Double) {
-        guard let used = snapshot.headline?.usedFraction else { return (3, 0) }
+    /// (tier, remaining of the leading window): 0 usable, 1 shut with room,
+    /// 2 fully empty, 3 nothing measurable. The other window is the weekly
+    /// one where the provider has one apart from its headline.
+    private static func orderKey(for snapshot: ProviderSnapshot,
+                                 leading window: LimitWindow?) -> (tier: Int, remaining: Double) {
+        guard let used = window?.usedFraction else { return (3, 0) }
         let remaining = 1 - used
         if used >= 1 { return (2, remaining) }
         if let other = snapshot.weeklyWindow?.usedFraction, other >= 1 { return (1, remaining) }

@@ -185,4 +185,72 @@ final class ProviderOrderTests: XCTestCase {
         XCTAssertEqual(ordered([cell("a", session: 0.5), cell("b", session: 0.5)]),
                        ["a", "b"])
     }
+
+    // MARK: - Auto-order for the menu bar
+
+    /// A five-hour window and a week, with whichever the caller says leading
+    /// — the shape the menu bar reads and the notch may read differently.
+    private func metered(_ id: String, fiveHour: Double?, weekly: Double? = nil,
+                         weeklyHeadline: Bool = false) -> ProviderSnapshot {
+        var windows: [LimitWindow] = []
+        if let fiveHour {
+            windows.append(LimitWindow(id: "session", label: "Session",
+                                       usedFraction: fiveHour, duration: 5 * 3600))
+        }
+        if let weekly {
+            windows.append(LimitWindow(id: "weekly_all", label: "Weekly",
+                                       usedFraction: weekly, duration: 7 * 86400))
+        }
+        return ProviderSnapshot(id: id, displayName: id, glyph: .claude,
+                                fidelity: .official, status: .ok, windows: windows,
+                                headlineID: weeklyHeadline ? "weekly_all" : "session",
+                                weeklyID: weeklyHeadline ? "session" : "weekly_all")
+    }
+
+    private func barOrdered(_ snapshots: [ProviderSnapshot]) -> [String] {
+        ProviderOrder.byRemainingFiveHour(snapshots).map(\.id)
+    }
+
+    func testTheBarSortsByWhatIsLeftOfTheFiveHourWindow() {
+        XCTAssertEqual(barOrdered([metered("a", fiveHour: 0.7), metered("b", fiveHour: 0.2),
+                                   metered("c", fiveHour: 0.5)]),
+                       ["b", "c", "a"])
+    }
+
+    /// The point of a second rule. With the week leading the notch's ring,
+    /// the notch sorts by the week and the bar by the window it is actually
+    /// printing — so the bar is never ordered by a figure it does not show.
+    func testAWeeklyLeadMovesTheNotchsOrderAndNotTheBars() {
+        let rich = metered("rich-week", fiveHour: 0.9, weekly: 0.1, weeklyHeadline: true)
+        let poor = metered("poor-week", fiveHour: 0.1, weekly: 0.8, weeklyHeadline: true)
+        XCTAssertEqual(ordered([poor, rich]), ["rich-week", "poor-week"], "the notch reads the week")
+        XCTAssertEqual(barOrdered([rich, poor]), ["poor-week", "rich-week"], "the bar reads its own window")
+    }
+
+    /// The tiers are the notch's, read off the other window: a five-hour
+    /// window with room that the week has shut still sinks below what can
+    /// actually be spent, and stays above what is spent outright.
+    func testTheBarKeepsTheSameTiers() {
+        let usable = metered("usable", fiveHour: 0.9, weekly: 0.9)
+        let shut = metered("shut", fiveHour: 0.0, weekly: 1.0)
+        let empty = metered("empty", fiveHour: 1.0, weekly: 0.0)
+        XCTAssertEqual(barOrdered([shut, empty, usable]), ["usable", "shut", "empty"])
+    }
+
+    /// An account the bar cannot measure trails in the manual order, as it
+    /// does in the notch.
+    func testAnAccountWithNoFiveHourWindowTrailsInManualOrder() {
+        let weeklyOnly = ProviderSnapshot(id: "weekly-only", displayName: "w", glyph: .claude,
+                                          fidelity: .official, status: .ok,
+                                          windows: [LimitWindow(id: "weekly_all", label: "Weekly",
+                                                                usedFraction: 0.1, duration: 7 * 86400)],
+                                          headlineID: "weekly_all")
+        XCTAssertEqual(barOrdered([weeklyOnly, metered("spent", fiveHour: 1.0)]),
+                       ["spent", "weekly-only"])
+    }
+
+    func testTheBarsTiesKeepManualOrder() {
+        XCTAssertEqual(barOrdered([metered("a", fiveHour: 0.5), metered("b", fiveHour: 0.5)]),
+                       ["a", "b"])
+    }
 }

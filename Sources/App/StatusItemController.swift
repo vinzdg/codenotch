@@ -69,6 +69,51 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             updateButton()
         }
     }
+    /// Reads what is left rather than what is spent, from Settings. The notch
+    /// follows this and so do the cards in the menu below — the item's own
+    /// face was the one place in the app still answering from the other end.
+    var showsRemaining: Bool = false {
+        didSet {
+            guard showsRemaining != oldValue else { return }
+            updateButton()
+        }
+    }
+    /// Drops accounts with nothing left to spend from the item's face, as the
+    /// notch drops their rings. The menu keeps every provider read: the item
+    /// is the way into the app, and an account that cannot be reached is not
+    /// hidden, it is lost.
+    var hidesDepleted: Bool = false {
+        didSet {
+            guard hidesDepleted != oldValue else { return }
+            updateButton()
+        }
+    }
+    /// Sorts the face by what is left of the five-hour window it prints,
+    /// most first, as the notch sorts its rings. The menu keeps the manual
+    /// order: it is the full list, and a list that rearranges itself under
+    /// the pointer is harder to use than one that does not.
+    var autoOrders: Bool = false {
+        didSet {
+            guard autoOrders != oldValue else { return }
+            updateButton()
+        }
+    }
+    /// How much of each reading the face prints, from Settings. Presentation
+    /// only, like everything beside it: the same readings, shorter or longer.
+    var reading: MenuBarReading = .automatic {
+        didSet {
+            guard reading != oldValue else { return }
+            updateButton()
+        }
+    }
+    /// Pulse, a still dot, or nothing at all while an agent works. Reduce
+    /// Motion still has the last word over the pulse.
+    var activityStyle: MenuBarActivityStyle = .pulse {
+        didSet {
+            guard activityStyle != oldValue else { return }
+            redrawArtwork()
+        }
+    }
     /// What the item shows now, so a publication that changes nothing on it —
     /// a local runtime is re-read every second — redraws nothing.
     private var summary: StatusItemSummary?
@@ -214,7 +259,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         guard let item, let button = item.button else { return }
         let next = StatusItemSummary.make(from: snapshots, showing: limits, now: now,
                                           format: resetTimeFormat,
-                                          showingWeeklyLimit: showsWeeklyLimit)
+                                          showingWeeklyLimit: showsWeeklyLimit,
+                                          showingRemaining: showsRemaining,
+                                          hidingDepleted: hidesDepleted,
+                                          reading: reading,
+                                          autoOrdering: autoOrders)
         scheduleCountdown(at: next.nextChange)
         guard next != summary else { return }
         summary = next
@@ -259,10 +308,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func redrawArtwork() {
         guard let item, let button = item.button, let summary, !summary.entries.isEmpty else { return }
-        let working = visibleActiveProviderIDs
+        let working = activityStyle == .off ? Set<String>() : visibleActiveProviderIDs
         let artwork = StatusItemArtwork(
             summary: summary,
-            activityBadgeProviderIDs: reducesMotion ? working : []
+            activityBadgeProviderIDs: activityStyle.showsStillBadge(reducesMotion: reducesMotion)
+                ? working : []
         )
         button.image = artwork.image()
         // The item is its artwork and nothing besides. Left to size itself an
@@ -274,10 +324,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let glyphs = Dictionary(uniqueKeysWithValues: summary.entries.compactMap { entry in
             artwork.glyphFrame(for: entry.id).map { (entry.id, $0) }
         })
-        if reducesMotion {
+        if !activityStyle.animates(reducesMotion: reducesMotion) {
             // Accessibility changes are synchronous: no fading settle after
             // Reduce Motion is enabled. The artwork above keeps activity
-            // visible as a still badge instead.
+            // visible as a still badge instead. Chosen outright in Settings it
+            // is the same treatment — and with `.off`, not even the badge.
             pulse.clear()
         } else {
             pulse.update(view: button, imageSize: artwork.size, glyphs: glyphs, working: working)
