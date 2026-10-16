@@ -62,19 +62,29 @@ struct StatusItemSummary: Equatable {
     /// The chosen providers the bar can summarise, in the order the notch shows
     /// them. None at all while the feature is off — or when nothing chosen has
     /// a limit to show — which gives the item its icon back.
+    ///
+    /// `showingRemaining` and `hidingDepleted` are the notch's own switches,
+    /// answered here for the same reason the cards in the menu below already
+    /// answer the first: one account must not read two ways in one app.
+    /// Depleted accounts are dropped before the count, so an empty one never
+    /// takes a place from an account there is still something to say about.
     @MainActor
     static func make(from snapshots: [ProviderSnapshot], showing limits: MenuBarLimits,
                      now: Date, format: ResetTimeFormat = .automatic,
-                     showingWeeklyLimit: Bool = false) -> StatusItemSummary {
+                     showingWeeklyLimit: Bool = false,
+                     showingRemaining: Bool = false,
+                     hidingDepleted: Bool = false) -> StatusItemSummary {
         guard limits.isOn else { return StatusItemSummary(entries: [], nextChange: nil) }
         let summarised = snapshots.filter { snapshot in
             canSummarise(snapshot) && limits.isChosen(snapshot.id)
+                && !(hidingDepleted && snapshot.isDepleted)
         }.prefix(entryLimit)
         var marks: [ProviderGlyph: Int] = [:]
         for snapshot in summarised { marks[snapshot.glyph, default: 0] += 1 }
         let entries = summarised.map { snapshot in
             entry(for: snapshot, sharesMark: marks[snapshot.glyph, default: 0] > 1, now: now,
-                  format: format, showingWeeklyLimit: showingWeeklyLimit)
+                  format: format, showingWeeklyLimit: showingWeeklyLimit,
+                  showingRemaining: showingRemaining)
         }
         let nextChange = summarised
             .compactMap { $0.fiveHourWindow?.resetsAt }
@@ -90,7 +100,8 @@ struct StatusItemSummary: Equatable {
     @MainActor
     private static func entry(for snapshot: ProviderSnapshot, sharesMark: Bool,
                               now: Date, format: ResetTimeFormat,
-                              showingWeeklyLimit: Bool) -> Entry {
+                              showingWeeklyLimit: Bool,
+                              showingRemaining: Bool) -> Entry {
         let window = snapshot.fiveHourWindow
         // Past its reset a reading describes a window that is over. The store
         // re-reads on its first tick after a reset; until that lands the honest
@@ -98,7 +109,8 @@ struct StatusItemSummary: Equatable {
         let isOver = window?.resetsAt.map { $0 <= now } ?? false
         var percent = Entry.unknown
         if !isOver, let fraction = window?.usedFraction, fraction.isFinite {
-            percent = Percent.whole(for: fraction) + "%"
+            percent = (showingRemaining ? Percent.wholeRemaining(for: fraction)
+                                        : Percent.whole(for: fraction)) + "%"
         }
         let countdown = window?.resetsAt.flatMap { ResetCopy.countdown(to: $0, now: now) }
         // A remote login's "slug" would be `<kind>-remote-<uuid>` — its
@@ -112,17 +124,22 @@ struct StatusItemSummary: Equatable {
         let weeklyWindow = showingWeeklyLimit ? snapshot.weeklyLimitWindow : nil
         let weeklyIsOver = weeklyWindow?.resetsAt.map { $0 <= now } ?? false
         let weeklyFraction = weeklyIsOver ? nil : weeklyWindow?.usedFraction.flatMap { fraction in
-            fraction.isFinite && fraction >= 0 ? fraction : nil
+            // The ring sweeps from the end the figure beside it is read from,
+            // the way the notch's own rings do. The arc clamps what it is
+            // given, so an overspent week arrives here negative and draws shut.
+            fraction.isFinite && fraction >= 0
+                ? Percent.metered(fraction, showingRemaining: showingRemaining) : nil
         }
         var detail = detail(for: snapshot, window: window, isOver: isOver,
-                            countdown: countdown, now: now, format: format)
+                            countdown: countdown, now: now, format: format,
+                            showingRemaining: showingRemaining)
         if weeklyFraction != nil, let weeklyWindow {
             // The window's own label, the way the line above already names the
             // headline window. "Weekly" was baked in here when every provider
             // that had a second window called it that; QianwenAI's is a monthly
             // allowance, Claude's is "All models", and a bar that relabels
             // either one is reporting a window the provider never declared.
-            detail += " · \(weeklyWindow.label): \(weeklyWindow.summary)"
+            detail += " · \(weeklyWindow.label): \(weeklyWindow.summary(showingRemaining: showingRemaining))"
         }
         return Entry(
             id: snapshot.id,
@@ -143,12 +160,16 @@ struct StatusItemSummary: Equatable {
     @MainActor
     private static func detail(for snapshot: ProviderSnapshot, window: LimitWindow?,
                                isOver: Bool, countdown: String?, now: Date,
-                               format: ResetTimeFormat) -> String {
+                               format: ResetTimeFormat,
+                               showingRemaining: Bool) -> String {
         let reading: String
         if let window {
+            // Both ends are on this line whichever way round it reads — the
+            // tooltip is the detailed view. The setting decides which leads,
+            // so it leads with the figure the bar itself is showing.
             let figures = isOver
                 ? [L10n.t("Resetting…")]
-                : [window.summary] + [countdown].compactMap { $0 }
+                : [window.summary(showingRemaining: showingRemaining)] + [countdown].compactMap { $0 }
             reading = "\(window.label): \(figures.joined(separator: " · "))"
         } else if let headline = snapshot.headline {
             // What the account does meter, so a dash in the bar is explained

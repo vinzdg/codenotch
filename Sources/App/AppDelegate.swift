@@ -538,6 +538,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             statusItem.limits = preferences.menuBarLimits
             statusItem.resetTimeFormat = preferences.resetTimeFormat
             statusItem.showsWeeklyLimit = preferences.showsWeeklyLimitInMenuBar
+            statusItem.showsRemaining = preferences.showsRemainingInNotch
+            statusItem.hidesDepleted = preferences.hideDepletedAccounts
+            statusItem.activityStyle = preferences.menuBarActivityStyle
 
             preferences.$appPresence
                 .receive(on: RunLoop.main)
@@ -567,6 +570,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .removeDuplicates()
                 .receive(on: DispatchQueue.main)
                 .sink { [weak statusItem] in statusItem?.showsWeeklyLimit = $0 }
+                .store(in: &cancellables)
+
+            // The notch's own two display choices, which the item's face now
+            // answers as well. Presentation only, like everything above: the
+            // same readings, read from the other end or one account shorter.
+            preferences.$showsRemainingInNotch
+                .removeDuplicates()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak statusItem] in statusItem?.showsRemaining = $0 }
+                .store(in: &cancellables)
+
+            preferences.$hideDepletedAccounts
+                .removeDuplicates()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak statusItem] in statusItem?.hidesDepleted = $0 }
+                .store(in: &cancellables)
+
+            preferences.$menuBarActivityStyle
+                .removeDuplicates()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak statusItem] in statusItem?.activityStyle = $0 }
                 .store(in: &cancellables)
 
             preferences.$notchVisibility

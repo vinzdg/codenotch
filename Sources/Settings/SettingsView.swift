@@ -901,7 +901,7 @@ struct SettingsView: View {
 
                 Toggle(L10n.t("Show remaining instead of used"),
                        isOn: $preferences.showsRemainingInNotch)
-                Text(L10n.t("The notch reads what is left — the figures, the rings' sweep, and the card's bars and percentages. Colours still judge by what is spent, so a nearly empty ring still reads red."))
+                Text(L10n.t("The notch and the menu bar read what is left — the figures, the rings' sweep, and the card's bars and percentages. Colours still judge by what is spent, so a nearly empty ring still reads red."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -915,7 +915,7 @@ struct SettingsView: View {
 
                 Toggle(L10n.t("Hide accounts with nothing left to spend"),
                        isOn: $preferences.hideDepletedAccounts)
-                Text(L10n.t("When the 5-hour or the weekly window is at 0% remaining, the account leaves the notch until a window resets. Stale readings stay: an old number is not proof the account is empty."))
+                Text(L10n.t("When the 5-hour or the weekly window is at 0% remaining, the account leaves the notch and the menu bar until a window resets — the menu behind the menu bar item still lists it. Stale readings stay: an old number is not proof the account is empty."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1101,6 +1101,14 @@ struct SettingsView: View {
                 }
             }
 
+            // Its own group, next to the notch's, because it is the other
+            // surface Codenotch puts readings on. Under "App" these rows read
+            // as chrome for the app itself — a sub-question of which icon to
+            // show — rather than as the second place the limits appear.
+            Section(L10n.t("Menu bar")) {
+                menuBarRows
+            }
+
             Section(L10n.t("Usage Limits")) {
                 VStack(alignment: .leading, spacing: 4) {
                     Picker(L10n.t("Colour transition"), selection: $preferences.colorTransitionStyle) {
@@ -1181,14 +1189,6 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                // Only while there is a menu bar item for it to change. With
-                // the app in the Dock or nowhere, a switch here would do
-                // nothing anyone could see; the choice is kept for when the
-                // item comes back.
-                if preferences.appPresence == .menuBar {
-                    menuBarLimitRows
-                }
-
                 Picker(L10n.t("Language"), selection: $preferences.language) {
                     ForEach(AppLanguage.allCases) { Text($0.title).tag($0) }
                 }
@@ -1201,6 +1201,34 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// The Menu bar group's contents: the limit rows while there is an item
+    /// to put them in, and the way back to one while there is not.
+    ///
+    /// The group keeps its heading either way. Emptying it out would take the
+    /// feature's only signpost away from exactly the people who have not
+    /// found it yet, and a heading with nothing under it reads as a fault.
+    @ViewBuilder
+    private var menuBarRows: some View {
+        if preferences.appPresence == .menuBar {
+            menuBarLimitRows
+        } else {
+            // What was chosen is still there, only with nothing to show it
+            // in. Said here, with the way back beside it, rather than left
+            // for someone to work out that App icon further down decides it.
+            HStack {
+                Text(L10n.t("Codenotch has no menu bar item at the moment, so there is nothing here to change. What is chosen is kept for when the item comes back."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button(L10n.t("Show in menu bar")) {
+                    preferences.appPresence = .menuBar
+                }
+                .buttonStyle(SettingsButtonStyle(kind: .prominent))
+            }
+        }
     }
 
     /// Limits in the menu bar: the switch, and under it one row for each
@@ -1220,6 +1248,20 @@ struct SettingsView: View {
             Toggle(L10n.t("Show weekly limit in menu bar"),
                    isOn: $preferences.showsWeeklyLimitInMenuBar)
             Text(L10n.t("Adds a compact weekly-usage ring around each chosen provider that publishes it."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // The notch's own question, asked again here because the answers
+            // are not the same ones: the bar has no ring for an arc to turn
+            // inside, and movement a few pixels from the clock is read
+            // differently from movement on the screen edge.
+            Picker(L10n.t("Working indicator"), selection: $preferences.menuBarActivityStyle) {
+                ForEach(MenuBarActivityStyle.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+
+            Text(preferences.menuBarActivityStyle.explanation)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

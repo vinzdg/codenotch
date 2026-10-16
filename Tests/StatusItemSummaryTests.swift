@@ -57,15 +57,27 @@ final class StatusItemSummaryTests: XCTestCase {
     private func summary(_ snapshots: [ProviderSnapshot],
                          limits: MenuBarLimits? = nil,
                          format: ResetTimeFormat = .automatic,
-                         weekly: Bool = false) -> StatusItemSummary {
+                         weekly: Bool = false,
+                         remaining: Bool = false,
+                         hideDepleted: Bool = false) -> StatusItemSummary {
         StatusItemSummary.make(
             from: snapshots,
             showing: limits ?? MenuBarLimits(isOn: true, chosen: Set(snapshots.map(\.id))),
-            now: now, format: format, showingWeeklyLimit: weekly)
+            now: now, format: format, showingWeeklyLimit: weekly,
+            showingRemaining: remaining, hidingDepleted: hideDepleted)
     }
 
     private func on(_ chosen: Set<String>?) -> MenuBarLimits {
         MenuBarLimits(isOn: true, chosen: chosen)
+    }
+
+    /// A defaults domain of this test's own, so a stored choice is read back
+    /// from the same place it was written and never from the installed app's.
+    private func scratchDefaults() -> UserDefaults {
+        let name = "StatusItemSummaryTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return defaults
     }
 
     // MARK: - Which providers
@@ -466,6 +478,169 @@ final class StatusItemSummaryTests: XCTestCase {
                                         usedFraction: 0.28, duration: 7 * 86400)
         let entries = summary([first, second], weekly: true).entries
         XCTAssertEqual(entries.map(\.weeklyFraction), [0.67, 0.28])
+    }
+
+    // MARK: - Reading what is left
+
+    /// One account must not read two ways in one app: the notch, the cards in
+    /// the menu and now the item's own face all answer from the same end.
+    func testTheFaceReadsWhatIsLeftWhenTheAppIsSetThatWay() throws {
+        let spent = try XCTUnwrap(summary([claude(0.72, resetIn: 2 * hour + 18 * minute + 20)]).entries.first)
+        let left = try XCTUnwrap(summary([claude(0.72, resetIn: 2 * hour + 18 * minute + 20)],
+                                         remaining: true).entries.first)
+        XCTAssertEqual(spent.percent, "72%")
+        XCTAssertEqual(left.percent, "28%")
+        // Only the figure flips. The countdown is a time, not a share of one.
+        XCTAssertEqual(left.countdown, spent.countdown)
+    }
+
+    /// The tooltip carries both ends either way — it is the detailed view —
+    /// and leads with the one the bar above it is showing.
+    func testTheTooltipLeadsWithTheEndTheBarIsShowing() throws {
+        let left = try XCTUnwrap(summary([claude(0.72, resetIn: 2 * hour)], remaining: true).entries.first)
+        XCTAssertEqual(left.detail, "Claude — Current session: 28% left · 72% Used · 2h 00m")
+    }
+
+    /// Derived from the rounded used half, the rule `Percent.halves` follows,
+    /// so the figure on the bar and the one in the tooltip under it always add
+    /// up to a hundred.
+    func testTheFigureAndItsTooltipAlwaysAddUp() throws {
+        for used in [0.0, 0.004, 0.095, 0.5, 0.994, 1.0, 1.2] {
+            let entry = try XCTUnwrap(summary([claude(used, resetIn: hour)], remaining: true).entries.first)
+            let halves = Percent.halves(for: used)
+            XCTAssertTrue(entry.detail.contains("\(halves.left)% left · \(halves.used)% Used"),
+                          "\(used): \(entry.detail)")
+        }
+    }
+
+    /// The two figures `Percent.whole` protects, answered from the other end:
+    /// a window barely touched is not a full hundred left, and one nearly
+    /// spent still has something left rather than none.
+    func testTheRemainingFigureNeverRoundsToAFullHundredOrToNothing() throws {
+        let barelyTouched = try XCTUnwrap(summary([claude(0.003, resetIn: hour)], remaining: true).entries.first)
+        XCTAssertEqual(barelyTouched.percent, ">99%")
+        let nearlySpent = try XCTUnwrap(summary([claude(0.994, resetIn: hour)], remaining: true).entries.first)
+        XCTAssertEqual(nearlySpent.percent, "<1%")
+        let overspent = try XCTUnwrap(summary([claude(1.2, resetIn: hour)], remaining: true).entries.first)
+        XCTAssertEqual(overspent.percent, "0%", "an overspent window has nothing left, not less than nothing")
+    }
+
+    /// The ring sweeps from the end the figure beside it is read from, as the
+    /// notch's own rings do.
+    func testTheWeeklyRingSweepsFromTheSameEndAsTheFigure() throws {
+        let spent = try XCTUnwrap(summary([claude(0.32, resetIn: hour)], weekly: true).entries.first)
+        let left = try XCTUnwrap(summary([claude(0.32, resetIn: hour)], weekly: true,
+                                         remaining: true).entries.first)
+        XCTAssertEqual(spent.weeklyFraction, 0.31)
+        XCTAssertEqual(try XCTUnwrap(left.weeklyFraction), 0.69, accuracy: 0.0001)
+        XCTAssertTrue(left.detail.contains("All models: 69% left · 31% Used"), left.detail)
+    }
+
+    /// A provider with no five-hour reading is a dash whichever end the bar
+    /// reads from: there is no figure to turn around.
+    func testADashStaysADashWhenReadingWhatIsLeft() throws {
+        let entry = try XCTUnwrap(summary([claude(nil, resetIn: nil)], remaining: true).entries.first)
+        XCTAssertEqual(entry.percent, "—")
+        XCTAssertTrue(entry.isBlank)
+    }
+
+    // MARK: - Accounts with nothing left to spend
+
+    /// The same switch that takes an empty account's ring out of the notch.
+    func testAnEmptyAccountLeavesTheFaceWhenTheAppHidesDepletedOnes() {
+        let full = claude(1.0, resetIn: hour)
+        let codex = codex(0.41, resetIn: 2 * hour)
+        XCTAssertEqual(summary([full, codex]).entries.map(\.id), ["claude", "codex"])
+        XCTAssertEqual(summary([full, codex], hideDepleted: true).entries.map(\.id), ["codex"])
+    }
+
+    /// A spent week empties the account as surely as a spent session does,
+    /// which is the rule `ProviderSnapshot.isDepleted` already applies in the
+    /// notch.
+    func testASpentWeekEmptiesTheAccountToo() {
+        var spentWeek = claude(0.12, resetIn: hour)
+        spentWeek.windows[1] = LimitWindow(id: "weekly_all", label: "All models",
+                                           usedFraction: 1.0, duration: 7 * 86400)
+        XCTAssertEqual(summary([spentWeek], hideDepleted: true).entries.count, 0)
+    }
+
+    /// Stale readings stay: an old number is not proof the account is empty.
+    func testAStaleFullReadingIsNotProofTheAccountIsEmpty() {
+        let stale = claude(1.0, resetIn: hour, status: .stale(since: .distantPast))
+        XCTAssertEqual(summary([stale], hideDepleted: true).entries.map(\.id), ["claude"])
+    }
+
+    /// Dropped before the count, so an empty account never takes one of the
+    /// four places from an account there is still something to say about.
+    func testAnEmptyAccountDoesNotTakeAPlaceInTheBar() {
+        let spent = (1...3).map { claude(1.0, resetIn: hour, id: "claude-\($0)") }
+        let live = [codex(0.41, resetIn: hour), other("glm", glyph: .glm, length: 5 * hour)]
+        XCTAssertEqual(summary(spent + live).entries.map(\.id),
+                       ["claude-1", "claude-2", "claude-3", "codex"])
+        XCTAssertEqual(summary(spent + live, hideDepleted: true).entries.map(\.id), ["codex", "glm"])
+    }
+
+    /// Hiding is the item's face alone. The menu behind it lists every
+    /// provider read, because the item is the way into an app that has left
+    /// the Dock and an account that cannot be reached is not hidden but lost.
+    func testHidingAnEmptyAccountNeverTakesItOutOfTheMenu() {
+        let controller = StatusItemController(onOpenSettings: {})
+        controller.hidesDepleted = true
+        controller.snapshots = [claude(1.0, resetIn: hour), codex(0.41, resetIn: 2 * hour)]
+        let menu = NSMenu()
+        controller.rebuild(menu: menu, now: now)
+        let listed = menu.items.compactMap { $0.representedObject as? String }
+        XCTAssertEqual(listed, ["claude", "codex"])
+    }
+
+    // MARK: - Working indicator
+
+    /// What the item has always done, and what Reduce Motion has always made
+    /// of it, now said out loud so Settings can ask for either outright.
+    func testThePulseIsTheDefaultAndReduceMotionStillOverridesIt() {
+        XCTAssertEqual(Preferences(defaults: scratchDefaults()).menuBarActivityStyle, .pulse)
+        XCTAssertTrue(MenuBarActivityStyle.pulse.animates(reducesMotion: false))
+        XCTAssertFalse(MenuBarActivityStyle.pulse.showsStillBadge(reducesMotion: false))
+        XCTAssertFalse(MenuBarActivityStyle.pulse.animates(reducesMotion: true))
+        XCTAssertTrue(MenuBarActivityStyle.pulse.showsStillBadge(reducesMotion: true))
+    }
+
+    /// The still dot is the Reduce Motion treatment, chosen outright: a badge
+    /// and no animation, whatever the Mac's own setting says.
+    func testTheStillDotNeverAnimatesAndTheBadgeIsAlwaysThere() {
+        for reduced in [false, true] {
+            XCTAssertFalse(MenuBarActivityStyle.dot.animates(reducesMotion: reduced), "\(reduced)")
+            XCTAssertTrue(MenuBarActivityStyle.dot.showsStillBadge(reducesMotion: reduced), "\(reduced)")
+        }
+    }
+
+    /// Off is off: nothing moves and nothing is drawn.
+    func testNoneLeavesTheMarkAlone() {
+        for reduced in [false, true] {
+            XCTAssertFalse(MenuBarActivityStyle.off.animates(reducesMotion: reduced), "\(reduced)")
+            XCTAssertFalse(MenuBarActivityStyle.off.showsStillBadge(reducesMotion: reduced), "\(reduced)")
+        }
+    }
+
+    func testTheChosenIndicatorSurvivesARestart() {
+        let defaults = scratchDefaults()
+        Preferences(defaults: defaults).menuBarActivityStyle = .off
+        XCTAssertEqual(Preferences(defaults: defaults).menuBarActivityStyle, .off)
+    }
+
+    /// A working mark is dimmed and brought back, so the ink in its box moves
+    /// between frames; with the indicator off, the same mark is drawn exactly
+    /// as it is when nothing is working at all.
+    func testTheWorkingDotIsDrawnForTheStillDotAndNotForNone() throws {
+        let result = summary([claude(0.72, resetIn: hour)])
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        let idle = StatusItemArtwork(summary: result, font: font, height: 22)
+        let dotted = StatusItemArtwork(summary: result, font: font, height: 22,
+                                       activityBadgeProviderIDs: ["claude"])
+        let glyph = try XCTUnwrap(idle.glyphFrame(for: "claude")).insetBy(dx: -3, dy: -3)
+        XCTAssertGreaterThan(ink(dotted.image(), in: glyph), ink(idle.image(), in: glyph),
+                             "the still dot adds ink to the mark")
+        XCTAssertEqual(dotted.size, idle.size, "and never moves the items beside it")
     }
 
     // MARK: - Room in the bar

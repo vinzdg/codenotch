@@ -60323,6 +60323,545 @@
           }
         }
       }
+    },
+    "Codenotch has no menu bar item at the moment, so there is nothing here to change. What is chosen is kept for when the item comes back.": {
+      "extractionState": "manual",
+      "localizations": {
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codenotch'un şu anda menü çubuğunda bir simgesi yok, bu yüzden burada değiştirilecek bir şey de yok. Seçtikleriniz, simge geri geldiğinde kullanılmak üzere saklanır."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codenotch hat zurzeit kein Menüleistensymbol, hier gibt es also nichts zu ändern. Die Auswahl bleibt erhalten, bis das Symbol zurückkehrt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codenotch n'a pour l'instant aucun élément dans la barre des menus : il n'y a donc rien à régler ici. Vos choix sont conservés pour le retour de l'élément."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在 Codenotch のメニューバー項目はないため、ここで変更できるものはありません。選んだ内容は項目が戻ったときのために保持されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금은 Codenotch의 메뉴 막대 항목이 없어 여기서 바꿀 것이 없습니다. 선택한 내용은 항목이 돌아올 때를 위해 보관됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codenotch 当前没有菜单栏图标，因此这里没有可更改的内容。所选内容会保留，待图标回来时继续使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codenotch 目前沒有選單列項目，因此這裡沒有可更改的內容。所選內容會保留，待項目回來時繼續使用。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No momento o Codenotch não tem um ícone na barra de menus, então não há nada para alterar aqui. O que estiver escolhido fica guardado para quando o ícone voltar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сейчас у Codenotch нет значка в строке меню, поэтому здесь нечего менять. Выбранное сохранится до возвращения значка."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зараз Codenotch не має значка в рядку меню, тож тут немає чого змінювати. Вибране збережеться до повернення значка."
+          }
+        },
+        "uz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hozir Codenotch'ning menyu panelida belgisi yo'q, shuning uchun bu yerda o'zgartiradigan narsa yo'q. Tanlanganlar belgi qaytganida ishlatish uchun saqlanadi."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saat ini Codenotch tidak punya ikon di bilah menu, jadi tidak ada yang bisa diubah di sini. Pilihan Anda disimpan untuk saat ikonnya kembali."
+          }
+        }
+      }
+    },
+    "Show in menu bar": {
+      "extractionState": "manual",
+      "localizations": {
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menü çubuğunda göster"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In der Menüleiste zeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher dans la barre des menus"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューバーに表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메뉴 막대에 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在菜单栏中显示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在選單列中顯示"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar na barra de menus"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать в строке меню"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показати в рядку меню"
+          }
+        },
+        "uz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menyu panelida ko'rsatish"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tampilkan di bilah menu"
+          }
+        }
+      }
+    },
+    "Pulse": {
+      "extractionState": "manual",
+      "localizations": {
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nabız"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulsieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulsation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "脈動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "맥박"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "脉动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "脈動"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulsar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пульсация"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пульсація"
+          }
+        },
+        "uz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puls"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denyut"
+          }
+        }
+      }
+    },
+    "Still dot": {
+      "extractionState": "manual",
+      "localizations": {
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sabit nokta"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruhender Punkt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Point fixe"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "静止したドット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정 점"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "静止圆点"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "靜止圓點"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponto fixo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неподвижная точка"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нерухома крапка"
+          }
+        },
+        "uz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qimirlamas nuqta"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titik diam"
+          }
+        }
+      }
+    },
+    "Each working provider's mark dims and comes back, and blinks a few times as its work ends. With Reduce Motion on, the still dot is used instead.": {
+      "extractionState": "manual",
+      "localizations": {
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışan her sağlayıcının simgesi sönüp geri gelir, işi bittiğinde birkaç kez yanıp söner. Hareketi Azalt açıksa yerine sabit nokta kullanılır."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Zeichen jedes arbeitenden Anbieters wird dunkler und wieder hell und blinkt einige Male, wenn die Arbeit endet. Bei aktivierter Bewegungsreduzierung wird stattdessen der ruhende Punkt verwendet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La marque de chaque fournisseur au travail s'estompe puis revient, et clignote quelques fois à la fin du travail. Avec Réduire les animations, le point fixe est utilisé à la place."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業中のプロバイダのマークが薄くなって戻り、作業が終わると数回点滅します。「視差効果を減らす」がオンのときは代わりに静止したドットになります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 중인 제공자의 마크가 흐려졌다 돌아오고, 작업이 끝나면 몇 번 깜박입니다. 동작 줄이기가 켜져 있으면 대신 고정 점이 쓰입니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作中的服务方标记会变暗再恢复，工作结束时闪烁几次。开启“减弱动态效果”时改用静止圆点。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作中的服務商標記會變暗再回復，工作結束時閃爍幾次。開啟「減少動態效果」時改用靜止圓點。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A marca de cada provedor em atividade escurece e volta, e pisca algumas vezes ao terminar o trabalho. Com Reduzir movimento ativado, usa-se o ponto fixo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значок каждого работающего провайдера гаснет и возвращается, а по завершении работы несколько раз мигает. При включённом «Уменьшении движения» используется неподвижная точка."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значок кожного працюючого провайдера згасає й повертається, а по завершенні роботи кілька разів блимає. З увімкненим «Зменшенням руху» натомість використовується нерухома крапка."
+          }
+        },
+        "uz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ishlayotgan har bir provayder belgisi xiralashib qaytadi va ishi tugaganda bir necha marta chaqnaydi. Harakatni kamaytirish yoqilganda uning o'rniga qimirlamas nuqta ishlatiladi."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tanda setiap penyedia yang sedang bekerja meredup lalu kembali, dan berkedip beberapa kali saat pekerjaannya selesai. Dengan Kurangi Gerak aktif, titik diam dipakai sebagai gantinya."
+          }
+        }
+      }
+    },
+    "A dot on each working provider's mark, and nothing moves.": {
+      "extractionState": "manual",
+      "localizations": {
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışan her sağlayıcının simgesinde bir nokta, hiçbir şey kıpırdamaz."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Punkt auf dem Zeichen jedes arbeitenden Anbieters, und nichts bewegt sich."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un point sur la marque de chaque fournisseur au travail, et rien ne bouge."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業中のプロバイダのマークにドットが付くだけで、何も動きません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 중인 제공자의 마크에 점 하나, 움직이는 것은 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在工作中的服务方标记上加一个圆点，没有任何动态。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在工作中的服務商標記上加一個圓點，沒有任何動態。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um ponto na marca de cada provedor em atividade, e nada se move."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Точка на значке каждого работающего провайдера — и ничего не движется."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Крапка на значку кожного працюючого провайдера — і нічого не рухається."
+          }
+        },
+        "uz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ishlayotgan har bir provayder belgisida nuqta, hech narsa qimirlamaydi."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sebuah titik pada tanda setiap penyedia yang sedang bekerja, dan tidak ada yang bergerak."
+          }
+        }
+      }
+    },
+    "The bar shows the limits alone. Work is still in the notch, the menu and the tooltip.": {
+      "extractionState": "manual",
+      "localizations": {
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çubuk yalnızca limitleri gösterir. Çalışma bilgisi çentikte, menüde ve ipucu balonunda durmaya devam eder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Leiste zeigt nur die Limits. Die Arbeit bleibt in der Notch, im Menü und im Tooltip sichtbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La barre n'affiche que les limites. Le travail reste visible dans l'encoche, le menu et l'infobulle."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バーは上限だけを表示します。作業の状態はノッチ、メニュー、ツールチップで引き続き分かります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "막대는 한도만 보여 줍니다. 작업 상태는 노치와 메뉴, 툴팁에 그대로 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "菜单栏只显示额度。工作状态仍可在刘海、菜单和提示中看到。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選單列只顯示額度。工作狀態仍可在瀏海、選單和提示中看到。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A barra mostra apenas os limites. O trabalho continua visível no notch, no menu e na dica."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Строка показывает только лимиты. Работа по-прежнему видна в панели, в меню и во всплывающей подсказке."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рядок показує лише ліміти. Робота й далі видна у вирізі, у меню та у спливній підказці."
+          }
+        },
+        "uz": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel faqat cheklovlarni ko'rsatadi. Ish holati notchda, menyuda va qalqib chiquvchi maslahatda qoladi."
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilah hanya menampilkan batas. Aktivitas tetap terlihat di notch, menu, dan tooltip."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
