@@ -52,6 +52,9 @@ jobs:
       - name: Test notch percentage text
         run: node scripts/test-notch-pct.cjs
 
+      - name: Test Linux notch hover and contour
+        run: node --test scripts/test-linux-notch.cjs
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy

@@ -34,6 +34,8 @@ mod watcher;
 mod settings_window;
 mod topmost;
 mod updater;
+#[cfg(target_os = "linux")]
+mod linux_pointer;
 
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
@@ -737,7 +739,11 @@ static HOT: Mutex<Vec<[f64; 4]>> = Mutex::new(Vec::new());
 static EXPANDED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[tauri::command]
-fn set_hot(rects: Vec<[f64; 4]>, expanded: bool, probe: Option<[f64; 4]>) {
+fn set_hot(app: AppHandle, rects: Vec<[f64; 4]>, expanded: bool, probe: Option<[f64; 4]>) {
+    #[cfg(target_os = "linux")]
+    linux_pointer::set_hot(&app, rects.clone());
+    #[cfg(not(target_os = "linux"))]
+    let _ = app;
     *HOT.lock().unwrap() = rects;
     backdrop::set_probe(probe);
     EXPANDED.store(expanded, std::sync::atomic::Ordering::Relaxed);
@@ -751,6 +757,7 @@ fn set_hot(rects: Vec<[f64; 4]>, expanded: bool, probe: Option<[f64; 4]>) {
 /// never get the bit. `WS_EX_LAYERED` is what makes the window answer as one surface, so the helper
 /// that sets both is the only route. Clearing it again is safe — the notch is not otherwise layered
 /// (its transparency is DWM composition), so the window returns to the styles it had.
+#[cfg(not(target_os = "linux"))]
 fn set_click_through(app: &AppHandle, on: bool) {
     let Some(w) = app.get_webview_window("notch") else { return };
     let _ = w.set_ignore_cursor_events(on);
@@ -848,10 +855,12 @@ fn report_dpr(app: AppHandle, dpr: f64, w: f64, h: f64, settled: Option<bool>) {
 /// Slack around every hot rectangle: this is sampled on a timer, so a cursor arriving at the pill
 /// has to count as arrived slightly early, or a quick click lands between two polls while the
 /// window is still click-through and goes to whatever is behind it.
+#[cfg(any(test, not(target_os = "linux")))]
 const HOT_PAD: f64 = 10.0;
 
 /// Is the cursor on something the window is there for? `window` is the outer size in physical
 /// pixels, or None when it could not be read.
+#[cfg(any(test, not(target_os = "linux")))]
 fn cursor_in_hot(rects: &[[f64; 4]], lx: f64, ly: f64, window: Option<(f64, f64)>) -> bool {
     if rects.is_empty() {
         return false;
@@ -883,9 +892,11 @@ fn cursor_in_hot(rects: &[[f64; 4]], lx: f64, ly: f64, window: Option<(f64, f64)
 
 /// Was 150 ms, when this only decided whether the card stayed up. It now also gates whether a click
 /// reaches the notch, and at 150 ms a click arriving in the wrong sample went to the window behind.
+#[cfg(not(target_os = "linux"))]
 const WATCHDOG_MS: u64 = 50;
 /// Kept at the original 300 ms rather than falling out of the faster poll, which would make the
 /// card twitchy.
+#[cfg(not(target_os = "linux"))]
 const LEAVE_MS: u64 = 300;
 
 /// WebView2's mouseleave is unreliable inside a NOACTIVATE transparent window — a cursor that
@@ -899,6 +910,7 @@ const LEAVE_MS: u64 = 300;
 /// ordering is load-bearing: the window ignores the cursor while it is click-through, so the page
 /// gets no mousemove out there and cannot see the pointer arriving. This loop does, and hands the
 /// window its input back in time for the page to open the card.
+#[cfg(not(target_os = "linux"))]
 fn start_pointer_watchdog(app: AppHandle) {
     std::thread::spawn(move || {
         let need = (LEAVE_MS / WATCHDOG_MS).max(1) as u8;
@@ -2057,6 +2069,8 @@ fn main() {
             // after paints the wrong one for a frame, which is a black flash under a light choice
             apply_theme(&handle);
             if let Some(w) = handle.get_webview_window("notch") {
+                #[cfg(target_os = "linux")]
+                linux_pointer::install(&w)?;
                 let _ = w.show();
             }
             tray::setup(&handle)?;
@@ -2080,6 +2094,7 @@ fn main() {
             // Collecting glyphs may read icon resources out of a few executables; do it off the main thread and push when done
             let gh = handle.clone();
             std::thread::spawn(move || reload_glyphs(&gh));
+            #[cfg(not(target_os = "linux"))]
             start_pointer_watchdog(handle.clone());
             backdrop::start(handle.clone());
             start_work_area_watch(handle.clone());
