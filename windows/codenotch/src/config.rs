@@ -107,6 +107,9 @@ pub struct Config {
     /// The same one-shot migration for the OpenCode ring.
     #[serde(default)]
     pub opencode_notch_fixed: bool,
+    /// Add Command Code to a previously saved notch selection once.
+    #[serde(default)]
+    pub commandcode_notch_fixed: bool,
     /// The same one-shot migration for the GitHub Copilot ring.
     #[serde(default)]
     pub copilot_notch_fixed: bool,
@@ -311,6 +314,7 @@ impl Default for Config {
             antigravity_model: default_antigravity_model(),
             glm_notch_fixed: true, // a fresh install picks from the full list already
             opencode_notch_fixed: true,
+            commandcode_notch_fixed: true,
             copilot_notch_fixed: true,
             notch_visible: true,
             notch_on_hover: true,
@@ -382,6 +386,7 @@ pub fn load() -> Config {
     migrate_glm_notch(&mut cfg, &raw);
     // Likewise for OpenCode.
     migrate_opencode_notch(&mut cfg, &raw);
+    migrate_commandcode_notch(&mut cfg, &raw);
     // And for GitHub Copilot.
     migrate_copilot_notch(&mut cfg, &raw);
 
@@ -430,6 +435,17 @@ fn migrate_opencode_notch(cfg: &mut Config, raw: &Option<String>) {
         cfg.notch_slots.push(TraySlot { provider: "opencode".into() });
     }
     cfg.opencode_notch_fixed = true;
+}
+
+fn migrate_commandcode_notch(cfg: &mut Config, raw: &Option<String>) {
+    let predates = raw.as_deref()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+        .is_some_and(|value| value.get("commandcode_notch_fixed").is_none());
+    if !predates { return; }
+    if !cfg.notch_slots.is_empty() && !cfg.notch_slots.iter().any(|slot| slot.provider == "commandcode") {
+        cfg.notch_slots.push(TraySlot { provider: "commandcode".into() });
+    }
+    cfg.commandcode_notch_fixed = true;
 }
 
 fn migrate_copilot_notch(cfg: &mut Config, raw: &Option<String>) {

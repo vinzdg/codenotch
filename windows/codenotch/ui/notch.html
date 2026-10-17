@@ -424,6 +424,7 @@ let copilotSnap={status:'absent',windows:[],fetched_at:0,note:''};
 let glmSnap={status:'absent',windows:[],fetched_at:0,note:''};
 // OpenCode Go plan, read with OpenCode's own sign-in; absent until OpenCode is installed
 let opencodeSnap={status:'absent',windows:[],fetched_at:0,note:''};
+let commandcodeSnap={status:'absent',windows:[],fetched_at:0,note:''};
 let agSnap={status:'absent',windows:[],fetched_at:0,note:''};
 let glyphs={}; // id → {kind:'mark'|'appicon', url}
 let activity=[]; // working state of the non-Claude providers: {provider,state:'busy'|'waiting',name,detail,since}
@@ -1149,6 +1150,7 @@ function providers(){
   if(codexSnap.status!=='absent') list.push({id:'codex',base:'codex',name:'Codex',glyph:'Cx',snap:codexSnap});
   if(glmSnap.status!=='absent') list.push({id:'glm',base:'glm',name:'z.ai',glyph:'Z.ai',snap:glmSnap});
   if(opencodeSnap.status!=='absent') list.push({id:'opencode',base:'opencode',name:'OpenCode',glyph:'OC',snap:opencodeSnap});
+  if(commandcodeSnap.status!=='absent') list.push({id:'commandcode',base:'commandcode',name:'Command Code',glyph:'CC',snap:commandcodeSnap});
   if(cursorSnap.status!=='absent') list.push({id:'cursor',base:'cursor',name:'Cursor',glyph:'Cu',snap:cursorSnap});
   if(grokSnap.status!=='absent') list.push({id:'grok',base:'grok',name:'Grok',glyph:'Gk',snap:grokSnap});
   if(copilotSnap.status!=='absent') list.push({id:'copilot',base:'copilot',name:'GitHub Copilot',glyph:'Cp',snap:copilotSnap});
@@ -1187,6 +1189,7 @@ function headlineOf(snap,id){
   if(id==='copilot') return byId('premium_interactions')||ws[0];
   if(id==='glm') return byId('session');
   if(id==='opencode') return byId('rolling');
+  if(id==='commandcode') return byId('monthly');
   const fam=ws.filter(w=>laneFamily(w)===agPrefs.model), lanes=fam.length?fam:ws;
   if(agPrefs.limit!=='automatic'){ const w=tightestOf(lanes.filter(w=>laneIs(w,agPrefs.limit))); if(w) return w; }
   return tightestOf(lanes.filter(w=>w.used<1))||tightestOf(lanes)||lanes[0];
@@ -1205,6 +1208,7 @@ function weeklyOf(snap,id){
   if(id==='copilot') return null; // monthly quotas only; nothing weekly to draw
   if(id==='glm') return byId('weekly');
   if(id==='opencode') return byId('weekly');
+  if(id==='commandcode') return byId('weekly');
   const fam=ws.filter(w=>laneFamily(w)===agPrefs.model), lanes=fam.length?fam:ws;
   return tightestOf(lanes.filter(w=>laneIs(w,'weekly')));
 }
@@ -1376,7 +1380,7 @@ function renderCard(){
   let html=`<div class="c-head">${headIcon}<span class="c-title">${esc(ui().title(p.name))}</span></div>`;
   if(staleOf(snap)&&snap.fetched_at) html+=`<div class="c-sub">${ui().updated(ago(snap.fetched_at))}</div>`;
   if(snap.status==='needsAuth'){
-    const who={claude:'Sign in to Claude Code to see usage.',cursor:'Sign in to Cursor to see usage.',codex:'Sign in to Codex to see usage.',grok:'Run grok login to see usage.',copilot:'Run gh auth login to see usage.',opencode:'Run opencode auth login to see usage.',gemini:'Sign in to Antigravity to see usage.'}[p.base]||'';
+    const who={claude:'Sign in to Claude Code to see usage.',cursor:'Sign in to Cursor to see usage.',codex:'Sign in to Codex to see usage.',grok:'Run grok login to see usage.',copilot:'Run gh auth login to see usage.',opencode:'Run opencode auth login to see usage.',commandcode:'Sign in with the Command Code app to read your usage.',gemini:'Sign in to Antigravity to see usage.'}[p.base]||'';
     html+=`<div class="c-note">${textCopy(who)}<br>${esc(textCopy(snap.note||''))}</div>`;
   }else if(!snap.windows.length){
     html+=`<div class="c-note">${esc(textCopy(snap.note||'Waiting for first reading…'))}</div>`;
@@ -2171,6 +2175,8 @@ listen('glm',e=>{glmSnap=e.payload||glmSnap;renderRing();if(card.classList.conta
 invoke('get_glm').then(u=>{glmSnap=u||glmSnap;renderRing();}).catch(()=>{});
 listen('opencode',e=>{opencodeSnap=e.payload||opencodeSnap;settle('opencode');renderRing();if(card.classList.contains('show'))renderCard();}).catch(()=>{});
 invoke('get_opencode').then(u=>{opencodeSnap=u||opencodeSnap;renderRing();}).catch(()=>{});
+listen('commandcode',e=>{commandcodeSnap=e.payload||commandcodeSnap;settle('commandcode');renderRing();if(card.classList.contains('show'))renderCard();}).catch(()=>{});
+invoke('get_commandcode').then(u=>{commandcodeSnap=u||commandcodeSnap;renderRing();}).catch(()=>{});
 invoke('get_notch_slots').then(v=>{if(Array.isArray(v)){notchSlots=v;renderRing();}}).catch(()=>{});
 listen('notch_slots',e=>{
   notchSlots=Array.isArray(e.payload)?e.payload:null;

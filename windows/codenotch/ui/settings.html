@@ -1178,8 +1178,8 @@ document.getElementById('close').addEventListener('click', () => {
 });
 
 /* ---- providers ---------------------------------------------------------- */
-const ORDER = ['claude', 'codex', 'glm', 'opencode', 'cursor', 'grok', 'copilot', 'gemini'];
-const FALLBACK_LABEL = { claude:'Claude', codex:'Codex', glm:'z.ai', opencode:'OpenCode', cursor:'Cursor', grok:'Grok', copilot:'GitHub Copilot', gemini:'Antigravity' };
+const ORDER = ['claude', 'codex', 'glm', 'opencode', 'commandcode', 'cursor', 'grok', 'copilot', 'gemini'];
+const FALLBACK_LABEL = { claude:'Claude', codex:'Codex', glm:'z.ai', opencode:'OpenCode', commandcode:'Command Code', cursor:'Cursor', grok:'Grok', copilot:'GitHub Copilot', gemini:'Antigravity' };
 let options = [];      // [{id,label,status,used}] from get_tray_options
 let glyphs = {};       // id -> {kind:'svg'|'png'|'appicon', svg, url}
 function providerList(){

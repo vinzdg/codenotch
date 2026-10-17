@@ -26,10 +26,10 @@ pub struct Glyph {
     pub source: String,
 }
 
-pub const IDS: [&str; 7] = ["claude", "codex", "cursor", "grok", "copilot", "gemini", "opencode"];
+pub const IDS: [&str; 8] = ["claude", "codex", "cursor", "grok", "copilot", "gemini", "opencode", "commandcode"];
 
 /// Built-in artwork (@lobehub/icons-static-svg, MIT): the OpenAI mark for codex (matching upstream's glyph choice), the Antigravity mark for gemini
-const BUILTIN: [(&str, &str); 7] = [
+const BUILTIN: [(&str, &str); 8] = [
     ("claude", include_str!("../glyphs/claude.svg")),
     ("codex", include_str!("../glyphs/codex.svg")),
     ("cursor", include_str!("../glyphs/cursor.svg")),
@@ -37,6 +37,7 @@ const BUILTIN: [(&str, &str); 7] = [
     ("copilot", include_str!("../glyphs/copilot.svg")),
     ("gemini", include_str!("../glyphs/gemini.svg")),
     ("opencode", include_str!("../glyphs/opencode.svg")),
+    ("commandcode", include_str!("../glyphs/commandcode.svg")),
 ];
 
 /// Minimal SVG sanitising before inlining into the DOM: drop <script> blocks and on*="…" event
@@ -287,7 +288,7 @@ pub fn collect() -> HashMap<String, Glyph> {
                 found = Some(Glyph {
                     kind: "svg".into(),
                     svg: sanitize_svg(svg),
-                    source: "built-in · @lobehub/icons-static-svg 1.95.0 (MIT)".into(),
+                    source: if id == "commandcode" { "built-in · macOS Command Code asset" } else { "built-in · @lobehub/icons-static-svg 1.95.0 (MIT)" }.into(),
                     ..Default::default()
                 });
             }
@@ -310,7 +311,7 @@ pub fn collect() -> HashMap<String, Glyph> {
 /// For doctor
 pub fn probe() -> String {
     let m = collect();
-    let mut lines = vec![format!("glyph directory: {} (drop claude/codex/cursor/grok/copilot/gemini/opencode .svg or .png files here)", user_dir().display())];
+    let mut lines = vec![format!("glyph directory: {} (drop a provider .svg or .png file here)", user_dir().display())];
     for id in IDS {
         lines.push(match m.get(id) {
             Some(g) => format!("  {id}: {} ← {}", g.kind, g.source),
