@@ -573,6 +573,8 @@ const TEXT={
     'Premium requests':'프리미엄 요청',
     'Chat requests':'채팅 요청',
     'Completions':'코드 완성',
+    'Credits':'크레딧',
+    'No sessions or API balance found in ~/.dsh':'~/.dsh에서 세션이나 API 잔액을 찾을 수 없습니다',
   },
   'pt-BR':{
     'Included usage':'Uso incluído',
@@ -631,6 +633,8 @@ const TEXT={
     'Completions':'Conclusões de código',
     'Run opencode auth login to see usage.':'Execute opencode auth login para ver o uso.',
     'No OpenCode Go subscription on this account':'Nenhuma assinatura do OpenCode Go nesta conta',
+    'Credits':'Créditos',
+    'No sessions or API balance found in ~/.dsh':'Nenhuma sessão ou saldo de API encontrado em ~/.dsh',
     'needs your input':'precisa da sua resposta',
     'Working in':'Em execução em'
   },
@@ -691,6 +695,8 @@ const TEXT={
     'Completions':'Автодоповнення',
     'Run opencode auth login to see usage.':'Запустіть opencode auth login, щоб бачити використання.',
     'No OpenCode Go subscription on this account':'Для цього акаунта немає підписки OpenCode Go',
+    'Credits':'Кредити',
+    'No sessions or API balance found in ~/.dsh':'У ~/.dsh не знайдено сесій або балансу API',
     'needs your input':'потрібна ваша відповідь',
     'Working in':'Працює в'
   },
@@ -750,6 +756,8 @@ const TEXT={
     'Completions':'Autocompletados',
     'Run opencode auth login to see usage.':'Ejecuta opencode auth login para ver el uso.',
     'No OpenCode Go subscription on this account':'Esta cuenta no tiene suscripción a OpenCode Go',
+    'Credits':'Créditos',
+    'No sessions or API balance found in ~/.dsh':'No se encontraron sesiones ni saldo de API en ~/.dsh',
     'needs your input':'espera tu respuesta',
     'Working in':'Trabajando en',
     'Last known usage — not current.':'Último uso conocido, no el actual.',
@@ -808,6 +816,8 @@ const TEXT={
     'Premium requests':'Премиум-запросы',
     'Chat requests':'Запросы чата',
     'Completions':'Автодополнения',
+    'Credits':'Кредиты',
+    'No sessions or API balance found in ~/.dsh':'Сеансы или баланс API в ~/.dsh не найдены',
     'needs your input':'требуется ваш ответ',
     'Working in':'Работает в'
   },
@@ -870,6 +880,8 @@ const TEXT={
     'Updated':'已更新',
     'Run opencode auth login to see usage.':'请运行 opencode auth login 以查看用量。',
     'No OpenCode Go subscription on this account':'此账号没有 OpenCode Go 订阅',
+    'Credits':'额度',
+    'No sessions or API balance found in ~/.dsh':'在 ~/.dsh 中未找到会话或 API 余额',
   },
   'zh-Hant':{
     'Included usage':'包含用量',
@@ -930,6 +942,8 @@ const TEXT={
     'Updated':'已更新',
     'Run opencode auth login to see usage.':'請執行 opencode auth login 以查看用量。',
     'No OpenCode Go subscription on this account':'此帳號沒有 OpenCode Go 訂閱',
+    'Credits':'額度',
+    'No sessions or API balance found in ~/.dsh':'在 ~/.dsh 中未找到工作階段或 API 餘額',
   },
 };
 // Kept as patterns rather than exact keys: each one carries a number, a plan name or an error
@@ -972,6 +986,9 @@ const PATTERNS={
     [/Antigravity is closed — last reading kept/g,'Antigravity가 닫혀 있습니다 — 마지막 측정값 유지'],
     [/Sign in to Cursor \(the editor\) to see usage\./g,'사용량을 확인하려면 Cursor 편집기에 로그인하십시오.'],
     [/Cursor session was rejected — sign in again in the editor/g,'Cursor 세션이 거부되었습니다 — 편집기에서 다시 로그인하십시오'],
+    [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'$2 중 $1 남음 · $3 토큰'],
+    [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'$2 중 $1 사용 · $3 남음 · $4 토큰'],
+    [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD ($3 남음)'],
   ],
   'pt-BR':[
     [/^(\d+)m limit$/,'Limite de $1 min'],
@@ -1010,6 +1027,9 @@ const PATTERNS={
     [/Antigravity is closed — last reading kept/g,'O Antigravity está fechado — última leitura mantida'],
     [/Sign in to Cursor \(the editor\) to see usage\./g,'Entre no Cursor (o editor) para ver o uso.'],
     [/Cursor session was rejected — sign in again in the editor/g,'A sessão do Cursor foi rejeitada — entre novamente no editor'],
+    [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'$1 restantes de $2 · $3 tokens'],
+    [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'$1 de $2 usados · $3 restantes · $4 tokens'],
+    [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD ($3 restantes)'],
   ],
   uk:[
     [/^(\d+)m limit$/,'Ліміт $1 хв'],
@@ -1048,6 +1068,9 @@ const PATTERNS={
     [/Antigravity is closed — last reading kept/g,'Antigravity закрито — збережено останній показник'],
     [/Sign in to Cursor \(the editor\) to see usage\./g,'Увійдіть у Cursor (редактор), щоб бачити використання.'],
     [/Cursor session was rejected — sign in again in the editor/g,'Сеанс Cursor відхилено — увійдіть у редакторі ще раз'],
+    [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'$1 залишилось із $2 · $3 токенів'],
+    [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'$1 із $2 використано · $3 залишилось · $4 токенів'],
+    [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD ($3 залишилось)'],
   ],
   es:[
     [/^(\d+)m limit$/,'Límite de $1 min'],
@@ -1086,6 +1109,9 @@ const PATTERNS={
     [/Antigravity is closed — last reading kept/g,'Antigravity está cerrado — se conserva la última lectura'],
     [/Sign in to Cursor \(the editor\) to see usage\./g,'Inicia sesión en Cursor (el editor) para ver el uso.'],
     [/Cursor session was rejected — sign in again in the editor/g,'Se rechazó la sesión de Cursor — vuelve a iniciar sesión en el editor'],
+    [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'$1 restantes de $2 · $3 tokens'],
+    [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'$1 de $2 usados · $3 restantes · $4 tokens'],
+    [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD ($3 restantes)'],
   ],
   ru:[
     [/^(\d+)m limit$/,'Лимит на $1 мин'],
@@ -1124,6 +1150,9 @@ const PATTERNS={
     [/Antigravity is closed — last reading kept/g,'Antigravity закрыт — сохранено последнее показание'],
     [/Sign in to Cursor \(the editor\) to see usage\./g,'Войдите в Cursor (редактор), чтобы увидеть использование.'],
     [/Cursor session was rejected — sign in again in the editor/g,'Сеанс Cursor отклонён — снова войдите в редакторе'],
+    [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'$1 осталось из $2 · $3 токенов'],
+    [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'$1 из $2 исп. · $3 осталось · $4 токенов'],
+    [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD ($3 осталось)'],
   ],
   zh:[
     [/^(\d+)m limit$/,'$1 分钟限额'],
@@ -1162,6 +1191,9 @@ const PATTERNS={
     [/Antigravity is closed — last reading kept/g,'Antigravity 已关闭 — 保留上一次读数'],
     [/Sign in to Cursor \(the editor\) to see usage\./g,'请登录 Cursor（编辑器）以查看用量。'],
     [/Cursor session was rejected — sign in again in the editor/g,'Cursor 会话被拒绝 — 请在编辑器中重新登录'],
+    [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'剩余 $1 / $2 · $3 词元'],
+    [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'已用 $1 / $2 · 剩余 $3 · $4 词元'],
+    [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD（剩余 $3）'],
   ],
   'zh-Hant':[
     [/^(\d+)m limit$/,'$1 分鐘限額'],
@@ -1200,6 +1232,9 @@ const PATTERNS={
     [/Antigravity is closed — last reading kept/g,'Antigravity 已關閉 — 保留上一次讀數'],
     [/Sign in to Cursor \(the editor\) to see usage\./g,'請登入 Cursor（編輯器）以查看用量。'],
     [/Cursor session was rejected — sign in again in the editor/g,'Cursor 工作階段被拒絕 — 請在編輯器中重新登入'],
+    [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'剩餘 $1 / $2 · $3 詞元'],
+    [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'已用 $1 / $2 · 剩餘 $3 · $4 詞元'],
+    [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD（剩餘 $3）'],
   ],
 };
 // Grammar differs enough that a format string would not carry it — Russian puts the verb last,
@@ -1357,7 +1392,7 @@ function headlineOf(snap,id){
   if(id==='grok') return byId('credits')||ws[0];
   if(id==='copilot') return byId('premium_interactions')||ws[0];
   if(id==='glm') return byId('session');
-  if(id==='deepseek') return byId('today');
+  if(id==='deepseek') return byId('credits')||byId('today');
   if(id==='opencode') return byId('rolling');
   if(id==='commandcode') return byId('monthly');
   if(id==='qoder') return byId('quota');

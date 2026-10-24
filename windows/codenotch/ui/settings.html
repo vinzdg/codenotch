@@ -1169,6 +1169,20 @@ const RESET_KEYS = ['Reset notifications', 'Show a card when Claude, Codex, Curs
 for(const [lang, values] of Object.entries(RESET_COPY)){
   RESET_KEYS.forEach((key, index) => { STATIC_TEXT[lang][key] = values[index]; });
 }
+const DEEPSEEK_COPY = {
+  'pt-BR':['Formato de créditos','Saldo restante e tokens','Usado, restante e tokens','Compacto (apenas USD)'],
+  ru:['Отображение кредитов','Остаток и токены','Потрачено, остаток и токены','Компактно (только USD)'],
+  zh:['额度显示格式','剩余余额与词元','已用、剩余与词元','紧凑（仅 USD）'],
+  'zh-Hant':['額度顯示格式','剩餘餘額與詞元','已用、剩餘與詞元','精簡（僅 USD）'],
+  ja:['クレジット表示形式','残高とトークン','使用済み・残高・トークン','コンパクト（USD のみ）'],
+  ko:['크레딧 표시 형식','남은 잔액 및 토큰','사용량, 잔액 및 토큰','간결하게 (USD만)'],
+  es:['Formato de créditos','Saldo restante y tokens','Usado, restante y tokens','Compacto (solo USD)'],
+  uk:['Відображення кредитів','Залишок і токени','Витрачено, залишок і токени','Компактно (лише USD)'],
+};
+const DEEPSEEK_KEYS = ['Credit display', 'Remaining balance & tokens', 'Spent, remaining & tokens', 'Compact (USD only)'];
+for(const [lang, values] of Object.entries(DEEPSEEK_COPY)){
+  DEEPSEEK_KEYS.forEach((key, index) => { STATIC_TEXT[lang][key] = values[index]; });
+}
 const STATUS_TEXT = {
   en:{ ok:'', stale:'last reading is old', needsAuth:'not signed in', absent:'not installed', none:'nothing to report', error:'not reachable' },
   'pt-BR':{ ok:'', stale:'última leitura desatualizada', needsAuth:'não autenticado', absent:'não instalado', none:'nada para exibir', error:'indisponível' },
@@ -1411,6 +1425,8 @@ let notchSlots = [];
 const AG_LIMITS = [['automatic', 'Automatic'], ['5h', '5-Hour Limit'], ['weekly', 'Weekly Limit']];
 const AG_MODELS = [['gemini', 'Gemini Models'], ['3p', 'Claude and GPT models']];
 let agPrefs = { limit:'automatic', model:'gemini' };
+const DEEPSEEK_DISPLAYS = [['remaining', 'Remaining balance & tokens'], ['spent', 'Spent, remaining & tokens'], ['compact', 'Compact (USD only)']];
+let deepseekDisplay = 'remaining';
 const HOOKS_WHY = 'Turning this on adds a few lines to your Claude Code settings file so that Claude Code sends Codenotch a short message when a session starts, when it is working, when it is waiting for your answer, and when it finishes. That is what makes the ring spin and the amber ring pulse.';
 const ONE_STAYS = 'One provider always stays ticked, so the pill is never empty.';
 const NO_RING = 'These have no ring to place. Switch one on and it joins the end of the list above.';
@@ -1426,6 +1442,11 @@ function agSelect(key, choices, value){
     + choices.map(([v, t]) => '<option value="' + v + '"' + (v === value ? ' selected' : '') + '>' + esc(ui(t, t)) + '</option>').join('')
     + '</select>';
 }
+function dsSelect(choices, value){
+  return '<select data-ds="display">'
+    + choices.map(([v, t]) => '<option value="' + v + '"' + (v === value ? ' selected' : '') + '>' + esc(ui(t, t)) + '</option>').join('')
+    + '</select>';
+}
 function accountBlock(p, isOn, locked){
   const st = statusText(p);
   let h = '<div class="acct' + (isOn ? '' : ' off') + '">'
@@ -1436,6 +1457,9 @@ function accountBlock(p, isOn, locked){
   if(p.id === 'gemini' && isOn){
     h += '<div class="acct-sub"><span>' + esc(ui('Notch reads', 'Notch reads')) + '</span>' + agSelect('limit', AG_LIMITS, agPrefs.limit) + '</div>'
       + '<div class="acct-sub"><span>' + esc(ui('Model data', 'Model data')) + '</span>' + agSelect('model', AG_MODELS, agPrefs.model) + '</div>';
+  }
+  if(p.id === 'deepseek' && isOn){
+    h += '<div class="acct-sub"><span>' + esc(ui('Credit display', 'Credit display')) + '</span>' + dsSelect(DEEPSEEK_DISPLAYS, deepseekDisplay) + '</div>';
   }
   if(p.id === 'claude'){
     h += '<div class="acct-sub"><span>' + esc(ui('Let Claude Code notify Codenotch', 'Let Claude Code notify Codenotch')) + '</span>'
@@ -1487,6 +1511,13 @@ accountsPane.addEventListener('click', e => {
   if(e.target.closest('[data-remote="hooks"]')) hooks.toggle();
 });
 accountsPane.addEventListener('change', e => {
+  const dsBox = e.target.closest('[data-ds]');
+  if(dsBox){
+    invoke('set_deepseek_display', { display: dsBox.value })
+      .then(v => { deepseekDisplay = typeof v === 'string' ? v : dsBox.value; renderAccounts(); toast(); })
+      .catch(err => { renderAccounts(); strip('set_deepseek_display failed: ' + errText(err)); });
+    return;
+  }
   const box = e.target.closest('[data-ag]');
   if(!box) return;
   const want = Object.assign({}, agPrefs, { [box.dataset.ag]: box.value });
@@ -1942,6 +1973,7 @@ function boot(){
       renderAccounts();
     }),
     call('get_antigravity_prefs', undefined, null).then(v => { if(v && typeof v === 'object'){ agPrefs = v; renderAccounts(); } }),
+    call('get_deepseek_display', undefined, 'remaining').then(v => { if(typeof v === 'string'){ deepseekDisplay = v; renderAccounts(); } }),
     call('get_glyphs', undefined, null).then(g => { if(g && typeof g === 'object'){ glyphs = g; renderAccounts(); } }),
     call('get_scale', undefined, null).then(v => { if(typeof v === 'number') notchSize = v; renderSize(); }),
     call('get_notch_edge', undefined, null).then(v => { if(typeof v === 'string') notchEdge = v; renderEdge(); }),

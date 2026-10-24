@@ -1309,7 +1309,7 @@ fn ring_window<'a>(
         "opencode" => by_id("rolling"),
         "commandcode" => by_id("monthly"),
         // The Harness publishes no limit: the headline is today's derived budget ring.
-        "deepseek" => by_id("today"),
+        "deepseek" => by_id("credits").or_else(|| by_id("today")),
         // getUsageInfo meters one plan window; the addon/org buckets are card-only rows.
         "qoder" => by_id("quota"),
         _ => antigravity_lane(windows, antigravity_limit, antigravity_model),
@@ -1463,6 +1463,27 @@ fn set_antigravity_prefs(app: AppHandle, limit: String, model: String) -> Antigr
     let _ = app.emit("antigravity_prefs", &prefs);
     tray::refresh_menu(&app);
     prefs
+}
+
+#[tauri::command]
+fn get_deepseek_display(app: AppHandle) -> String {
+    let st = app.state::<AppState>();
+    let c = st.cfg.lock().unwrap();
+    config::deepseek_display_or_default(&c.deepseek_display)
+}
+
+#[tauri::command]
+fn set_deepseek_display(app: AppHandle, display: String) -> String {
+    let chosen = config::deepseek_display_or_default(&display);
+    {
+        let st = app.state::<AppState>();
+        let mut c = st.cfg.lock().unwrap();
+        c.deepseek_display = chosen.clone();
+        config::save(&c);
+    }
+    deepseek_harness::apply_display(&app, &chosen);
+    tray::refresh_menu(&app);
+    chosen
 }
 
 /// Which providers get a ring on the notch. An empty list means every provider.
@@ -2121,6 +2142,8 @@ fn main() {
             set_notch_slots,
             get_antigravity_prefs,
             set_antigravity_prefs,
+            get_deepseek_display,
+            set_deepseek_display,
             get_app_icon,
             get_ui_flags,
             set_ui_flags,

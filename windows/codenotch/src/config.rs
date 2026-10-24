@@ -115,6 +115,8 @@ pub struct Config {
     /// The model family that choice looks at, as the Mac app's "Model data": "gemini" or "3p"
     #[serde(default = "default_antigravity_model")]
     pub antigravity_model: String,
+    #[serde(default = "default_deepseek_display")]
+    pub deepseek_display: String,
     /// One-shot migration flag: a config saved before the GLM ring existed gets GLM added to the
     /// notch once; an explicit later un-tick is respected and never overridden.
     #[serde(default)]
@@ -305,6 +307,15 @@ fn default_antigravity_limit() -> String {
 fn default_antigravity_model() -> String {
     "gemini".into()
 }
+pub fn default_deepseek_display() -> String {
+    "remaining".into()
+}
+pub fn deepseek_display_or_default(value: &str) -> String {
+    match value {
+        "spent" | "remaining" | "compact" => value.to_string(),
+        _ => default_deepseek_display(),
+    }
+}
 
 fn default_port() -> u16 {
     48666
@@ -340,6 +351,7 @@ impl Default for Config {
             notch_slots: Vec::new(),     // filled in by load(), from notch_providers
             antigravity_limit: default_antigravity_limit(),
             antigravity_model: default_antigravity_model(),
+            deepseek_display: default_deepseek_display(),
             glm_notch_fixed: true, // a fresh install picks from the full list already
             opencode_notch_fixed: true,
             commandcode_notch_fixed: true,

@@ -102,11 +102,13 @@ fn headline(item: &Item) -> Option<&LimitWindow> {
         provider => {
             let default = match provider {
                 "cursor" => Some("included"), "glm" => Some("session"), "opencode" => Some("rolling"),
-                "grok" => Some("credits"), "copilot" => Some("premium_interactions"), _ => None,
+                "grok" => Some("credits"), "copilot" => Some("premium_interactions"),
+                "deepseek" => Some("credits"), "commandcode" => Some("monthly"), "qoder" => Some("quota"),
+                _ => None,
             };
             item.headline_id.as_deref().filter(|id| !id.is_empty()).or(default)
                 .and_then(|id| by_id(windows, id))
-                .or_else(|| if provider == "cursor" { by_id(windows, "api") } else { None })
+                .or_else(|| if provider == "cursor" { by_id(windows, "api") } else if provider == "deepseek" { by_id(windows, "today") } else { None })
         }
     }
 }

@@ -63,6 +63,7 @@ custom shells, vertical taskbars and secondary taskbars are not supported.
 | **Antigravity** | Official `agy` CLI `/usage` print when installed; otherwise the existing local `language_server` bridge, Google Cloud Code API, or transcript model count | Official four quota rows (Gemini & Claude/GPT 5h/weekly) without running the full IDE. When CLI is absent, falls back to legacy local bridge/API. |
 | **OpenCode Go** | `GET https://opencode.ai/zen/go/v1/usage` | Reads the `opencode-go` key in OpenCode's `auth.json`, or `OPENCODE_APIKEY` when set. The environment key takes precedence. Shows rolling 5-hour, weekly and monthly usage. This is a separate subscription from the Z.ai GLM Coding Plan; its key must not be sent to Z.ai's monitor endpoint. |
 | **Qoder** | `getUsageInfo()` on the account plane of the official [`@qoder-ai/qoder-agent-sdk`](https://docs.qoder.com/cli/sdk/overview), through the bundled `qoder-usage.cjs` sidecar, reusing the local signed-in `qodercli` session (`qodercliAuth()`) | Plan usage ring (the account's own total where the plan bucket is empty) with the renewal date (`expiresAt`), add-on and organization rows when the account carries them, credits left in the card note. The read is a documented account query: no inference is started and no credits are spent to ask. Qoder Desktop's own DPAPI vault is never opened or decrypted. |
+| **DeepSeek Harness** | `GET https://api.deepseek.com/user/balance` using `DEEPSEEK_API_KEY` from `~/.dsh/.credentials.yaml` (or `DEEPSEEK_API_KEY` env var), combined with cumulative session transcripts in `~/.dsh/sessions` | Prepaid credit usage (`Credits`) scaled against total funded amount (`spent + remaining`), showing 100% used when credits are depleted. Supports three selectable note formats in Settings → Accounts (`remaining`, `spent`, `compact`) with full localization and native SVG icon rendering on the taskbar strip. |
 
 Providers that are not installed simply do not get a cell.
 
@@ -228,6 +229,22 @@ sessions that are not waiting.
   consumption sits in the add-on pool, so an empty bucket is skipped rather than drawn as a full
   ring. `expiresAt` also arrives as a far-future sentinel (year 9999) on plans that do not renew;
   anything past 2100 is read as no renewal date.
+
+### DeepSeek Harness
+
+- **Backend (`src/deepseek_harness.rs`, `src/config.rs`, `src/main.rs`, `src/taskbar_model.rs`, `src/taskbar_render.rs`)**:
+  - Reads `DEEPSEEK_API_KEY` from `~/.dsh/.credentials.yaml` (or `DEEPSEEK_API_KEY` environment variable) and queries `GET https://api.deepseek.com/user/balance` for `is_available` and `total_balance` (USD).
+  - Scans `~/.dsh/sessions/**/session.v4.jsonl.zstd` with per-file modification-time caching (`SESSION_CACHE`) to compute cumulative token usage and cost across all sessions.
+  - Computes `funded = (spent + remaining).max(2.00)` so top-ups above `$2.00` USD scale automatically, and reports `used = 1.0` (100% used / 0% remaining) when `is_available == false` or `remaining <= 0.0`.
+  - Persists `deepseek_display` in `Config` (`"remaining"` by default, `"spent"`, or `"compact"`) with Tauri commands `get_deepseek_display` and `set_deepseek_display`.
+  - Registers `glyphs/deepseek.svg` (along with `commandcode.svg` and `qoder.svg`) in `taskbar_render.rs` `LOGOS` so the native DirectComposition taskbar strip (`Left side` and `Before system tray`) renders the DeepSeek SVG logo instead of a fallback letter.
+- **Frontend (`ui/notch.html`, `ui/taskbar.html`, `ui/settings.html`)**:
+  - Selects the `credits` window (with fallback to `today`) in `notch.html` and `taskbar.html`, and hides the reset label for DeepSeek prepaid credits in taskbar details.
+  - Adds the **Credit display** selector under the DeepSeek Harness row in `settings.html` (`Accounts` tab) to switch between:
+    - `remaining`: `$0.00 remaining of $2.00 · 39.1M tokens`
+    - `spent`: `$2.00 of $2.00 used · $0.00 left · 39.1M tokens`
+    - `compact`: `$2.00 / $2.00 USD ($0.00 left)`
+  - Provides translations (`TEXT`, `PATTERNS`, `STATIC_TEXT`, and `taskbar.html` patterns) for `en`, `es`, `pt-BR`, `ko`, `ru`, `uk`, `zh`, `zh-Hant`, and `ja`.
 
 
 ## Install / build

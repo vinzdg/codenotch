@@ -37,7 +37,7 @@ use windows::{
 };
 
 // Existing licensed artwork, shared with the web UI; no paths are redrawn here.
-const LOGOS: [(&str, &str); 7] = [
+const LOGOS: [(&str, &str); 10] = [
     ("claude", include_str!("../glyphs/claude.svg")),
     ("codex", include_str!("../glyphs/codex.svg")),
     ("cursor", include_str!("../glyphs/cursor.svg")),
@@ -45,6 +45,9 @@ const LOGOS: [(&str, &str); 7] = [
     ("copilot", include_str!("../glyphs/copilot.svg")),
     ("gemini", include_str!("../glyphs/gemini.svg")),
     ("opencode", include_str!("../glyphs/opencode.svg")),
+    ("commandcode", include_str!("../glyphs/commandcode.svg")),
+    ("deepseek", include_str!("../glyphs/deepseek.svg")),
+    ("qoder", include_str!("../glyphs/qoder.svg")),
 ];
 
 pub struct Renderer {
@@ -469,7 +472,7 @@ mod tests {
             // Every built-in document is also submitted through DrawSvgDocument.
             frame.items = LOGOS.iter().enumerate().map(|(index, (provider, _))| Indicator {
                 id:format!("fixture-{index}"), provider:(*provider).into(), inner:None,
-                outer:Some(index as f32 / 6.0), text:format!("{}%", index * 16),
+                outer:Some((index as f32 / 9.0).min(1.0)), text:format!("{}%", (index * 11).min(100)),
                 work_state:"idle".into(), dimmed:index % 2 != 0, inner_weekly:false, outer_weekly:false,
             }).collect();
             renderer.resize(1120, 84).unwrap();

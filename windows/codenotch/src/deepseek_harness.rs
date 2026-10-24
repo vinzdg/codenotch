@@ -21,17 +21,19 @@
 
 use crate::usage::{LimitWindow, UsageSnapshot};
 use crate::AppState;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 
 const POLL_SECS: u64 = 60;
-
-/// What a day of Harness work is compared against. DeepSeek bills per token and the account
-/// has no session window, so this is the operator's budget, not a vendor limit.
-const DAILY_BUDGET_USD: f64 = 2.0;
+const MIN_TOPUP_USD: f64 = 2.0;
+const BALANCE_ENDPOINT: &str = "https://api.deepseek.com/user/balance";
 
 static REFRESH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static SESSION_CACHE: Mutex<Option<HashMap<PathBuf, (u64, Totals)>>> = Mutex::new(None);
 
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -78,6 +80,25 @@ pub struct Totals {
     pub tokens: u64,
     pub cost: f64,
     pub sessions: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct BalanceReading {
+    pub currency: String,
+    pub raw_balance: f64,
+    pub is_available: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BalanceState {
+    pub funded: f64,
+    pub last_balance: f64,
+    pub baseline_spent: f64,
+    pub remaining: f64,
+    pub spent: f64,
+    pub tokens: u64,
+    pub has_api_reading: bool,
+    pub is_available: bool,
 }
 
 /// The Harness writes one zstd frame per line, concatenated. `StreamingDecoder`
@@ -197,6 +218,7 @@ fn modified_ms(path: &Path) -> Option<u64> {
 }
 
 /// Start of the local day containing `now_ms`, and the next midnight after it.
+#[cfg(test)]
 fn day_bounds(now_ms: u64) -> (u64, u64) {
     use chrono::{Local, TimeZone};
     let now = Local.timestamp_millis_opt(now_ms as i64).single().unwrap_or_else(Local::now);
@@ -205,29 +227,222 @@ fn day_bounds(now_ms: u64) -> (u64, u64) {
     (start as u64, start as u64 + 86_400_000)
 }
 
-/// Read today's usage. Returns `None` when the Harness has never recorded anything.
-pub fn totals_today(now_ms: u64) -> Option<Totals> {
+pub fn totals_all() -> Option<Totals> {
     let files = transcripts();
-    if files.is_empty() {
+    if files.is_empty() && read_api_key().is_none() {
         return None;
     }
-    let (start, end) = day_bounds(now_ms);
+    let mut guard = SESSION_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    let cache = guard.get_or_insert_with(HashMap::new);
     let mut totals = Totals::default();
     for path in &files {
-        // A transcript is only ever appended to, so one last written before today holds nothing of
-        // today's. Skipping it keeps a minute's poll from decompressing the whole history.
-        if modified_ms(path).is_some_and(|m| m < start) {
-            continue;
+        let mtime = modified_ms(path).unwrap_or(0);
+        if let Some((cached_mtime, cached_totals)) = cache.get(path) {
+            if *cached_mtime == mtime && mtime > 0 {
+                totals.tokens += cached_totals.tokens;
+                totals.cost += cached_totals.cost;
+                totals.sessions += cached_totals.sessions;
+                continue;
+            }
         }
-        if fold_session(path, start, end, &mut totals) {
-            totals.sessions += 1;
+        let mut file_totals = Totals::default();
+        if fold_session(path, 0, u64::MAX, &mut file_totals) {
+            file_totals.sessions = 1;
+        }
+        totals.tokens += file_totals.tokens;
+        totals.cost += file_totals.cost;
+        totals.sessions += file_totals.sessions;
+        if mtime > 0 {
+            cache.insert(path.clone(), (mtime, file_totals));
         }
     }
     Some(totals)
 }
 
+fn credentials_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".dsh").join(".credentials.yaml"))
+}
+
+pub fn parse_api_key_from_yaml(text: &str) -> Option<String> {
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("DEEPSEEK_API_KEY:") {
+            let key = rest.trim().trim_matches('"').trim_matches('\'').trim();
+            if !key.is_empty() {
+                return Some(key.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn read_api_key() -> Option<String> {
+    if let Some(path) = credentials_path() {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            if let Some(key) = parse_api_key_from_yaml(&text) {
+                return Some(key);
+            }
+        }
+    }
+    std::env::var("DEEPSEEK_API_KEY")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+pub fn parse_balance_json(v: &serde_json::Value) -> Option<BalanceReading> {
+    let is_available = v.get("is_available").and_then(|x| x.as_bool()).unwrap_or(false);
+    let infos = v.get("balance_infos")?.as_array()?;
+    let mut candidates: Vec<BalanceReading> = Vec::new();
+    for item in infos {
+        let currency = item.get("currency").and_then(|x| x.as_str()).unwrap_or("USD").to_string();
+        let raw_balance = item
+            .get("total_balance")
+            .and_then(|x| x.as_str().and_then(|s| s.parse::<f64>().ok()).or_else(|| x.as_f64()))
+            .unwrap_or(0.0);
+        candidates.push(BalanceReading {
+            currency,
+            raw_balance,
+            is_available,
+        });
+    }
+    candidates
+        .iter()
+        .find(|c| c.raw_balance > 0.0)
+        .or_else(|| candidates.iter().find(|c| c.currency == "USD"))
+        .or_else(|| candidates.first())
+        .cloned()
+}
+
+fn fetch_balance() -> Option<BalanceReading> {
+    let key = read_api_key()?;
+    let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(15)).build();
+    let resp = agent
+        .get(BALANCE_ENDPOINT)
+        .set("Authorization", &format!("Bearer {key}"))
+        .set("Accept", "application/json")
+        .call()
+        .ok()?;
+    let json = resp.into_json::<serde_json::Value>().ok()?;
+    parse_balance_json(&json)
+}
+
 fn store_path() -> std::path::PathBuf {
     crate::config::config_path().with_file_name("deepseek-usage.json")
+}
+
+fn balance_state_path() -> std::path::PathBuf {
+    crate::config::config_path().with_file_name("deepseek-balance.json")
+}
+
+fn load_balance_state() -> BalanceState {
+    std::fs::read_to_string(balance_state_path())
+        .ok()
+        .and_then(|t| serde_json::from_str::<BalanceState>(&t).ok())
+        .unwrap_or_default()
+}
+
+fn save_balance_state(state: &BalanceState) {
+    if let Ok(t) = serde_json::to_string_pretty(state) {
+        let _ = std::fs::write(balance_state_path(), t);
+    }
+}
+
+pub fn compute_balance_state(
+    prev: &BalanceState,
+    local_spent: f64,
+    tokens: u64,
+    api: Option<BalanceReading>,
+) -> BalanceState {
+    if let Some(b) = api {
+        let remaining = if b.is_available && b.raw_balance > 0.0 {
+            b.raw_balance
+        } else {
+            0.0
+        };
+        let (funded, baseline_spent) = if !prev.has_api_reading {
+            let f = (local_spent + remaining).max(prev.funded).max(MIN_TOPUP_USD);
+            (f, 0.0)
+        } else if remaining > prev.last_balance + 0.01 {
+            if prev.last_balance <= 0.001 {
+                (remaining.max(MIN_TOPUP_USD), local_spent)
+            } else {
+                let added = remaining - prev.last_balance;
+                ((prev.funded + added).max(remaining).max(MIN_TOPUP_USD), prev.baseline_spent)
+            }
+        } else {
+            let cycle_spent = (local_spent - prev.baseline_spent).max(0.0);
+            let f = prev.funded.max(cycle_spent + remaining).max(MIN_TOPUP_USD);
+            (f, prev.baseline_spent)
+        };
+        let depleted = !b.is_available || b.raw_balance <= 0.0;
+        let final_remaining = if depleted { 0.0 } else { remaining };
+        let spent = if depleted {
+            funded
+        } else {
+            (funded - final_remaining).max(0.0)
+        };
+        BalanceState {
+            funded,
+            last_balance: final_remaining,
+            baseline_spent,
+            remaining: final_remaining,
+            spent,
+            tokens,
+            has_api_reading: true,
+            is_available: !depleted,
+        }
+    } else if prev.has_api_reading {
+        let cycle_spent = (local_spent - prev.baseline_spent).max(0.0);
+        let funded = prev.funded.max(cycle_spent + prev.remaining).max(MIN_TOPUP_USD);
+        let remaining = if prev.is_available { prev.remaining } else { 0.0 };
+        let spent = if !prev.is_available || remaining <= 0.0 {
+            funded
+        } else {
+            (funded - remaining).max(0.0)
+        };
+        BalanceState {
+            funded,
+            last_balance: prev.last_balance,
+            baseline_spent: prev.baseline_spent,
+            remaining,
+            spent,
+            tokens,
+            has_api_reading: true,
+            is_available: prev.is_available,
+        }
+    } else {
+        let funded = local_spent.max(prev.funded).max(MIN_TOPUP_USD);
+        let spent = local_spent.min(funded);
+        let remaining = (funded - spent).max(0.0);
+        BalanceState {
+            funded,
+            last_balance: remaining,
+            baseline_spent: 0.0,
+            remaining,
+            spent,
+            tokens,
+            has_api_reading: false,
+            is_available: remaining > 0.0,
+        }
+    }
+}
+
+pub fn format_tokens(tokens: u64) -> String {
+    if tokens >= 1_000_000 {
+        format!("{:.1}M tokens", tokens as f64 / 1_000_000.0)
+    } else {
+        format!("{}k tokens", tokens / 1000)
+    }
+}
+
+pub fn format_note(style: &str, spent: f64, funded: f64, remaining: f64, tokens: u64) -> String {
+    let tok = format_tokens(tokens);
+    match style {
+        "spent" => format!("${:.2} of ${:.2} used \u{b7} ${:.2} left \u{b7} {}", spent, funded, remaining, tok),
+        "compact" => format!("${:.2} / ${:.2} USD (${:.2} left)", spent, funded, remaining),
+        _ => format!("${:.2} remaining of ${:.2} \u{b7} {}", remaining, funded, tok),
+    }
 }
 
 pub fn load_persisted() -> UsageSnapshot {
@@ -235,10 +450,25 @@ pub fn load_persisted() -> UsageSnapshot {
         .ok()
         .and_then(|t| serde_json::from_str::<UsageSnapshot>(&t).ok())
         .map(|mut s| {
-            // A reading from before midnight describes yesterday.
-            let (start, _) = day_bounds(now_ms());
-            if s.fetched_at < start && s.status == "ok" {
-                s.status = "stale".into();
+            let style = crate::config::load().deepseek_display;
+            let state = load_balance_state();
+            if state.funded > 0.0 {
+                let used = if !state.is_available || state.remaining <= 0.0 {
+                    1.0
+                } else {
+                    (state.spent / state.funded).clamp(0.0, 1.0)
+                };
+                s.windows = vec![LimitWindow {
+                    id: "credits".into(),
+                    label: "Credits".into(),
+                    used,
+                    resets_at: None,
+                    count: None,
+                    derived: !state.has_api_reading,
+                    group: None,
+                    ..Default::default()
+                }];
+                s.note = format_note(&style, state.spent, state.funded, state.remaining, state.tokens);
             }
             s
         })
@@ -255,78 +485,87 @@ pub fn request_refresh() {
     REFRESH.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// Build the snapshot for `now_ms`. Pure, so the tests can drive it.
-pub fn snapshot_at(now_ms: u64) -> UsageSnapshot {
-    let Some(totals) = totals_today(now_ms) else {
+pub fn apply_display(app: &AppHandle, style: &str) {
+    let state = load_balance_state();
+    if state.funded <= 0.0 {
+        request_refresh();
+        return;
+    }
+    let next_note = format_note(style, state.spent, state.funded, state.remaining, state.tokens);
+    let snap = {
+        let st = app.state::<AppState>();
+        let mut guard = st.deepseek.lock().unwrap();
+        guard.note = next_note;
+        guard.clone()
+    };
+    persist(&snap);
+    let _ = app.emit("deepseek", &snap);
+}
+
+pub fn snapshot_with_style(now_ms: u64, style: &str) -> UsageSnapshot {
+    let Some(totals) = totals_all() else {
         return UsageSnapshot { status: "absent".into(), ..Default::default() };
     };
-    let (_, end) = day_bounds(now_ms);
-    let used = (totals.cost / DAILY_BUDGET_USD).clamp(0.0, 1.0);
+    let prev = load_balance_state();
+    let api = fetch_balance();
+    let state = compute_balance_state(&prev, totals.cost, totals.tokens, api);
+    save_balance_state(&state);
+
+    let used = if !state.is_available || state.remaining <= 0.0 {
+        1.0
+    } else if state.funded > 0.0 {
+        (state.spent / state.funded).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
 
     UsageSnapshot {
         status: "ok".into(),
-        windows: vec![
-            LimitWindow {
-                id: "today".into(),
-                label: "Today".into(),
-                used,
-                resets_at: Some(end),
-                count: None,
-                derived: true,
-                group: None,
-                ..Default::default()
-            },
-            LimitWindow {
-                id: "tokens".into(),
-                label: "Tokens today".into(),
-                used: 0.0,
-                resets_at: None,
-                count: Some(totals.tokens as i64),
-                derived: true,
-                group: None,
-                ..Default::default()
-            },
-        ],
+        windows: vec![LimitWindow {
+            id: "credits".into(),
+            label: "Credits".into(),
+            used,
+            resets_at: None,
+            count: None,
+            derived: !state.has_api_reading,
+            group: None,
+            ..Default::default()
+        }],
         fetched_at: now_ms,
-        note: format!(
-            "~${:.2} of ${:.2} \u{b7} {}k tokens \u{b7} {} session{}",
-            totals.cost,
-            DAILY_BUDGET_USD,
-            totals.tokens / 1000,
-            totals.sessions,
-            if totals.sessions == 1 { "" } else { "s" }
-        ),
+        note: format_note(style, state.spent, state.funded, state.remaining, state.tokens),
         backoff_until: 0,
         ..Default::default()
     }
 }
 
+#[cfg(test)]
+pub fn snapshot_at(now_ms: u64) -> UsageSnapshot {
+    let style = crate::config::load().deepseek_display;
+    snapshot_with_style(now_ms, &style)
+}
+
 pub fn start(app: AppHandle) {
     std::thread::spawn(move || {
-        {
-            let st = app.state::<AppState>();
-            let snap = st.deepseek.lock().unwrap().clone();
-            let _ = app.emit("deepseek", &snap);
-        }
         loop {
-            if REFRESH.swap(false, std::sync::atomic::Ordering::Relaxed) {
-                let snap = snapshot_at(now_ms());
-                persist(&snap);
-                {
-                    let st = app.state::<AppState>();
-                    *st.deepseek.lock().unwrap() = snap.clone();
-                }
-                let _ = app.emit("deepseek", &snap);
-                continue;
-            }
-            let snap = snapshot_at(now_ms());
+            let style = {
+                let st = app.state::<AppState>();
+                let c = st.cfg.lock().unwrap();
+                crate::config::deepseek_display_or_default(&c.deepseek_display)
+            };
+            let snap = snapshot_with_style(now_ms(), &style);
             persist(&snap);
             {
                 let st = app.state::<AppState>();
                 *st.deepseek.lock().unwrap() = snap.clone();
             }
             let _ = app.emit("deepseek", &snap);
-            std::thread::sleep(Duration::from_secs(POLL_SECS));
+            crate::tray::refresh_menu(&app);
+            for _ in 0..POLL_SECS {
+                if REFRESH.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_secs(1));
+            }
         }
     });
 }
@@ -346,7 +585,6 @@ mod tests {
 
     #[test]
     fn peak_and_offpeak_rates() {
-        // 2026-10-19 is a Monday; 02:00 UTC is peak, 12:00 UTC is off-peak.
         assert!(is_peak(utc(2026, 10, 19, 2)));
         assert!(!is_peak(utc(2026, 10, 19, 12)));
         assert!((cost_usd(utc(2026, 10, 19, 2), 1_000_000, 0, 0) - 0.30).abs() < 1e-9);
@@ -355,25 +593,94 @@ mod tests {
 
     #[test]
     fn weekend_is_offpeak() {
-        // 2026-10-17 is a Saturday: 02:00 UTC would be peak on a weekday.
         assert!(!is_peak(utc(2026, 10, 17, 2)));
     }
 
     #[test]
     fn cost_counts_cache_reads_on_the_hit_rate() {
-        // 10M cache-read tokens at the off-peak hit rate = $0.03
         assert!((cost_usd(utc(2026, 10, 19, 12), 0, 10_000_000, 0) - 0.03).abs() < 1e-9);
     }
 
     #[test]
-    fn snapshot_shows_a_derived_budget_ring() {
+    fn depleted_balance_reports_100_percent_and_all_three_display_formats() {
+        let prev = BalanceState::default();
+        let api = Some(BalanceReading {
+            currency: "USD".into(),
+            raw_balance: -0.08,
+            is_available: false,
+        });
+        let state = compute_balance_state(&prev, 1.45, 39_062_765, api);
+        assert!(!state.is_available);
+        assert_eq!(state.remaining, 0.0);
+        assert_eq!(state.funded, 2.0);
+        assert_eq!(state.spent, 2.0);
+        assert_eq!(
+            format_note("remaining", state.spent, state.funded, state.remaining, state.tokens),
+            "$0.00 remaining of $2.00 · 39.1M tokens"
+        );
+        assert_eq!(
+            format_note("spent", state.spent, state.funded, state.remaining, state.tokens),
+            "$2.00 of $2.00 used · $0.00 left · 39.1M tokens"
+        );
+        assert_eq!(
+            format_note("compact", state.spent, state.funded, state.remaining, state.tokens),
+            "$2.00 / $2.00 USD ($0.00 left)"
+        );
+    }
+
+    #[test]
+    fn top_up_above_two_dollars_scales_funded_amount() {
+        let prev = BalanceState {
+            funded: 2.0,
+            last_balance: 0.0,
+            baseline_spent: 1.80,
+            remaining: 0.0,
+            spent: 2.0,
+            tokens: 10_000_000,
+            has_api_reading: true,
+            is_available: false,
+        };
+        let after_topup = compute_balance_state(
+            &prev,
+            1.80,
+            10_000_000,
+            Some(BalanceReading {
+                currency: "USD".into(),
+                raw_balance: 10.0,
+                is_available: true,
+            }),
+        );
+        assert_eq!(after_topup.funded, 10.0);
+        assert_eq!(after_topup.remaining, 10.0);
+        assert_eq!(after_topup.spent, 0.0);
+
+        let after_spend = compute_balance_state(
+            &after_topup,
+            4.30,
+            25_000_000,
+            Some(BalanceReading {
+                currency: "USD".into(),
+                raw_balance: 7.50,
+                is_available: true,
+            }),
+        );
+        assert_eq!(after_spend.funded, 10.0);
+        assert_eq!(after_spend.remaining, 7.50);
+        assert_eq!(after_spend.spent, 2.50);
+        assert_eq!(
+            format_note("remaining", after_spend.spent, after_spend.funded, after_spend.remaining, after_spend.tokens),
+            "$7.50 remaining of $10.00 · 25.0M tokens"
+        );
+    }
+
+    #[test]
+    fn snapshot_shows_a_credits_ring() {
         let snap = snapshot_at(now_ms());
-        // Either the Harness has data (ok) or it has none (absent); both are valid here.
         eprintln!("deepseek snapshot: status={} note={}", snap.status, snap.note);
         assert!(snap.status == "ok" || snap.status == "absent");
         if snap.status == "ok" {
-            assert!(snap.windows.iter().any(|w| w.id == "today" && w.derived));
-            assert!(snap.windows.iter().any(|w| w.id == "tokens"));
+            assert!(snap.windows.iter().any(|w| w.id == "credits"));
+            assert!(!snap.note.contains("session"));
         }
     }
 
