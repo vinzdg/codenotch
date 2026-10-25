@@ -5,7 +5,7 @@ import Foundation
 /// as Pi without letting either source overwrite the other's sessions.
 @MainActor
 final class ActivityCoordinator {
-    private let monitors: [String: any AgentActivityMonitor]
+    private var monitors: [String: any AgentActivityMonitor]
     private let onSessions: (String, [AgentSession]) -> Void
     private var subscriptions: [String: AnyCancellable] = [:]
     private var enabledIDs: Set<String> = []
@@ -61,6 +61,28 @@ final class ActivityCoordinator {
         guard enabledIDs.contains(providerID) else { return }
         supplementalSessions[providerID, default: [:]][source] = sessions
         publish(providerID)
+    }
+
+    /// Synchronizes the monitor table when profiles are added or removed at
+    /// runtime without interrupting monitors that are already running.
+    func syncMonitors(_ updated: [String: any AgentActivityMonitor]) {
+        let removedOrReplaced = monitors.keys.filter { id in
+            guard let next = updated[id], let current = monitors[id] else { return true }
+            return (current as AnyObject) !== (next as AnyObject)
+        }
+        for id in removedOrReplaced {
+            if activeIDs.remove(id) != nil {
+                subscriptions.removeValue(forKey: id)?.cancel()
+                monitors[id]?.stop()
+                nativeSessions.removeValue(forKey: id)
+            }
+            if updated[id] == nil {
+                supplementalSessions.removeValue(forKey: id)
+                onSessions(id, [])
+            }
+        }
+        monitors = updated
+        setEnabled(enabledIDs)
     }
 
     func stop() { setEnabled([]) }

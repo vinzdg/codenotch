@@ -442,6 +442,8 @@ struct SettingsView: View {
     /// already be centred, in which case the action has no visible movement;
     /// the acknowledgement keeps the button from feeling inert.
     @State private var didRecentre = false
+    @State private var newProfileFamily: ProfileFamily = .claude
+    @State private var newProfileSlug: String = ""
 
     /// Whether this Mac draws the notch as its own cutout — the one placement
     /// where the hardware sets the size outright, and so the only one where the
@@ -476,6 +478,7 @@ struct SettingsView: View {
     var previewSessionLimitAlert: (() -> Void)? = nil
     var previewWeeklyLimitAlert: (() -> Void)? = nil
     var sendTestNotification: (() -> Void)? = nil
+    var rescanProfiles: (() -> Void)? = nil
     @Environment(\.codenotchReduceTransparency) private var reduceTransparency
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -584,6 +587,9 @@ struct SettingsView: View {
             accounts = providers()
         }
         .onReceive(preferences.$remoteHosts.receive(on: RunLoop.main)) { _ in
+            accounts = providers()
+        }
+        .onReceive(preferences.$configuredProfiles.receive(on: RunLoop.main)) { _ in
             accounts = providers()
         }
     }
@@ -784,7 +790,11 @@ struct SettingsView: View {
                                cursorRefresh: cursorRefresh,
                                onDrop: { cursorRefresh += 1 },
                                takePlaceOf: { move($0, onto: account.id) },
-                               didConnect: { connect(account.id) })
+                               didConnect: { connect(account.id) },
+                               siblingCount: familyCount(for: account.id),
+                               hasOtherConnectedSibling: hasOtherConnectedSibling(for: account.id),
+                               switchActiveSeat: { switchActiveSeat(to: account.id) },
+                               removeProfile: canRemoveProfile(account.id) ? { removeConfiguredProfile(account.id) } : nil)
                 }
                 if connected.isEmpty {
                     Text(L10n.t("Nothing is connected, so the notch has no rings to draw."))
@@ -819,11 +829,56 @@ struct SettingsView: View {
                                    cursorRefresh: cursorRefresh,
                                    onDrop: {},
                                    takePlaceOf: { _ in false },
-                                   didConnect: { connect(account.id) })
+                                   didConnect: { connect(account.id) },
+                                   siblingCount: familyCount(for: account.id),
+                                   hasOtherConnectedSibling: hasOtherConnectedSibling(for: account.id),
+                                   switchActiveSeat: { switchActiveSeat(to: account.id) },
+                                   removeProfile: canRemoveProfile(account.id) ? { removeConfiguredProfile(account.id) } : nil)
                     }
                     // Says what switching one back on will do, which is the
                     // only question this group raises.
                     Text(L10n.t("These have no ring to place. Switch one on and it joins the end of the list above."))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Section(L10n.t("Additional Accounts")) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Picker(L10n.t("Provider"), selection: $newProfileFamily) {
+                            ForEach(ProfileFamily.allCases) { family in
+                                Text(family.title).tag(family)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(width: 150)
+
+                        TextField(L10n.t("Profile name (e.g. work, personal)"), text: $newProfileSlug)
+                            .textFieldStyle(.roundedBorder)
+                            .labelsHidden()
+                            .frame(maxWidth: 240)
+                            .onSubmit { addConfiguredProfile() }
+
+                        Button(L10n.t("Add Account")) {
+                            addConfiguredProfile()
+                        }
+                        .disabled(normalizedNewSlug == nil)
+
+                        Spacer(minLength: 4)
+
+                        Button {
+                            rescanProfiles?()
+                            accounts = providers()
+                        } label: {
+                            Label(L10n.t("Rescan"), systemImage: "arrow.clockwise")
+                        }
+                        .help(L10n.t("Scan your home directory for new profile folders without restarting Codenotch."))
+                    }
+
+                    Text(addProfileHint)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1555,8 +1610,59 @@ struct SettingsView: View {
     }
 
     private func refreshVisibleState() {
+        rescanProfiles?()
         accounts = providers()
         displays = DisplayOption.connected
+    }
+
+    private var normalizedNewSlug: String? {
+        newProfileFamily.normalizeSlug(newProfileSlug)
+    }
+
+    private var addProfileHint: String {
+        let slug = normalizedNewSlug ?? "work"
+        let path = newProfileFamily.displayPath(forSlug: slug)
+        let name = newProfileFamily.displayName(forSlug: slug)
+        return L10n.t("Creates \(path) and adds \(name) above. Click Sign in on its row to authenticate without restarting Codenotch.")
+    }
+
+    private func addConfiguredProfile() {
+        guard let added = preferences.addProfile(family: newProfileFamily, slug: newProfileSlug) else { return }
+        newProfileSlug = ""
+        rescanProfiles?()
+        accounts = providers()
+        connect(added.id)
+    }
+
+    private func familyCount(for providerID: String) -> Int {
+        guard let family = ProfileFamily.family(forProviderID: providerID) else { return 1 }
+        return accounts.filter { ProfileFamily.family(forProviderID: $0.id) == family }.count
+    }
+
+    private func hasOtherConnectedSibling(for providerID: String) -> Bool {
+        guard let family = ProfileFamily.family(forProviderID: providerID) else { return false }
+        return accounts.contains {
+            $0.id != providerID
+                && ProfileFamily.family(forProviderID: $0.id) == family
+                && preferences.isConnected($0.id)
+        }
+    }
+
+    private func switchActiveSeat(to providerID: String) {
+        preferences.switchActiveProfile(to: providerID, among: accounts.map(\.id))
+        accounts = ProviderOrder.arrange(accounts, by: preferences.providerOrder, id: \.id)
+    }
+
+    private func canRemoveProfile(_ providerID: String) -> Bool {
+        guard ProfileFamily.isExtraProfile(providerID: providerID) else { return false }
+        return preferences.configuredProfiles.contains { $0.id == providerID }
+    }
+
+    private func removeConfiguredProfile(_ providerID: String) {
+        signOut(providerID)
+        preferences.removeProfile(id: providerID)
+        rescanProfiles?()
+        accounts = providers()
     }
 
     private var displayExplanation: String {
@@ -1906,6 +2012,10 @@ private struct AccountRow: View {
     /// Called after this row is switched on, so the list can decide where it
     /// now belongs. The row itself cannot: it can see only itself.
     let didConnect: () -> Void
+    var siblingCount: Int = 1
+    var hasOtherConnectedSibling: Bool = false
+    var switchActiveSeat: (() -> Void)? = nil
+    var removeProfile: (() -> Void)? = nil
 
     @Environment(\.codenotchReduceTransparency) private var reduceTransparency
 
@@ -2072,6 +2182,24 @@ private struct AccountRow: View {
                     Button(destination.title) { open(destination) }
                         .controlSize(.small)
                         .help(destination.help)
+                }
+
+                if siblingCount > 1, hasOtherConnectedSibling, let switchActiveSeat {
+                    Button(L10n.t("Use Only This")) { switchActiveSeat() }
+                        .controlSize(.small)
+                        .help(L10n.t("Switch the active ring to \(displayName) and turn off the other accounts for this provider."))
+                }
+
+                if let removeProfile {
+                    Button {
+                        removeProfile()
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(SettingsIconButtonStyle())
+                    .help(L10n.t("Remove \(displayName) from Codenotch. Existing credentials on disk are never deleted."))
                 }
 
                 Toggle(provider.name, isOn: binding)

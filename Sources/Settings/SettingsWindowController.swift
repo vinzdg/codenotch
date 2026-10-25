@@ -34,6 +34,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let previewSessionLimitAlert: (() -> Void)?
     private let previewWeeklyLimitAlert: (() -> Void)?
     private let sendTestNotification: (() -> Void)?
+    private let rescanProfiles: (() -> Void)?
 
     init(preferences: Preferences,
          providers: @escaping () -> [ProviderSummary],
@@ -48,6 +49,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
          previewSessionLimitAlert: (() -> Void)? = nil,
          previewWeeklyLimitAlert: (() -> Void)? = nil,
          sendTestNotification: (() -> Void)? = nil,
+         rescanProfiles: (() -> Void)? = nil,
          usageStore: UsageStore? = nil,
          ollamaRelay: OllamaActivityRelay? = nil,
          lmstudioMetrics: LMStudioMetrics? = nil, omlxMetrics: OMLXMetrics? = nil, phoneLinkPairing: PhoneLinkPairing? = nil, phoneLinkRegistry: PhoneLinkRegistry? = nil, phoneLinkServerStatus: PhoneLinkServerStatus? = nil) {
@@ -64,6 +66,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         self.previewSessionLimitAlert = previewSessionLimitAlert
         self.previewWeeklyLimitAlert = previewWeeklyLimitAlert
         self.sendTestNotification = sendTestNotification
+        self.rescanProfiles = rescanProfiles
         self.switchAccount = switchAccount
         self.retry = retry
         self.updater = updater
@@ -275,7 +278,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                                    previewResetAlert: previewResetAlert,
                                    previewSessionLimitAlert: previewSessionLimitAlert,
                                    previewWeeklyLimitAlert: previewWeeklyLimitAlert,
-                                   sendTestNotification: sendTestNotification)
+                                   sendTestNotification: sendTestNotification,
+                                   rescanProfiles: rescanProfiles)
         )
         window.center()
         window.isReleasedWhenClosed = false

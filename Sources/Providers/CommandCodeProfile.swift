@@ -22,15 +22,23 @@ struct CommandCodeProfile: Equatable, Hashable {
     }
 
     static func discover(home: URL = homeDirectory,
-                         fileManager: FileManager = .default) -> [CommandCodeProfile] {
+                         fileManager: FileManager = .default,
+                         configuredSlugs: Set<String> = []) -> [CommandCodeProfile] {
         let names = (try? fileManager.contentsOfDirectory(atPath: home.path)) ?? []
-        let extras = names.compactMap { name -> CommandCodeProfile? in
-            guard let slug = slug(fromDirectoryName: name) else { return nil }
+        var bySlug: [String: CommandCodeProfile] = [:]
+        for name in names {
+            guard let slug = slug(fromDirectoryName: name) else { continue }
             let directory = home.appendingPathComponent(name)
-            guard isProfileDirectory(directory, fileManager: fileManager) else { return nil }
-            return CommandCodeProfile(slug: slug, configDirectory: directory)
+            guard isProfileDirectory(directory, fileManager: fileManager) else { continue }
+            bySlug[slug] = CommandCodeProfile(slug: slug, configDirectory: directory)
         }
-        return [.default(home: home)] + extras.sorted { $0.slug! < $1.slug! }
+        for raw in configuredSlugs {
+            guard let slug = ProfileFamily.commandCode.normalizeSlug(raw), bySlug[slug] == nil else { continue }
+            let directory = home.appendingPathComponent("\(directoryPrefix)-\(slug)")
+            bySlug[slug] = CommandCodeProfile(slug: slug, configDirectory: directory)
+        }
+        let extras = bySlug.values.sorted { $0.slug! < $1.slug! }
+        return [.default(home: home)] + extras
     }
 
     static func slug(fromDirectoryName name: String) -> String? {

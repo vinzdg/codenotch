@@ -58,22 +58,29 @@ struct ClaudeProfile: Equatable, Hashable {
     /// needs authorization, so this costs no extra prompt per candidate.
     static func discover(home: URL = homeDirectory,
                          fileManager: FileManager = .default,
+                         configuredSlugs: Set<String> = [],
                          hasCredential: (ClaudeProfile) -> Bool = Self.hasKeychainCredential)
     -> [ClaudeProfile] {
         let names = (try? fileManager.contentsOfDirectory(atPath: home.path)) ?? []
-        let extras = names.compactMap { name -> ClaudeProfile? in
-            guard let slug = slug(fromDirectoryName: name) else { return nil }
+        var bySlug: [String: ClaudeProfile] = [:]
+        for name in names {
+            guard let slug = slug(fromDirectoryName: name) else { continue }
             let directory = home.appendingPathComponent(name)
-            guard isProfileDirectory(directory, fileManager: fileManager) else { return nil }
+            guard isProfileDirectory(directory, fileManager: fileManager) else { continue }
             let candidate = ClaudeProfile(slug: slug, configDirectory: directory)
             guard hasCredential(candidate) else {
                 Log.usage.debug("ignoring \(candidate.displayPath, privacy: .public): looks like a profile but has no token under \(candidate.keychainService, privacy: .public)")
-                return nil
+                continue
             }
-            return candidate
+            bySlug[slug] = candidate
         }
-        return [ClaudeProfile.default(home: home)]
-            + extras.sorted { $0.slug! < $1.slug! }
+        for raw in configuredSlugs {
+            guard let slug = ProfileFamily.claude.normalizeSlug(raw), bySlug[slug] == nil else { continue }
+            let directory = home.appendingPathComponent("\(directoryPrefix)-\(slug)")
+            bySlug[slug] = ClaudeProfile(slug: slug, configDirectory: directory)
+        }
+        let extras = bySlug.values.sorted { $0.slug! < $1.slug! }
+        return [ClaudeProfile.default(home: home)] + extras
     }
 
     /// Whether Claude Code has ever filed a token for this profile's directory.

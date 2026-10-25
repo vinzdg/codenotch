@@ -72,6 +72,87 @@ final class UsageStore: ObservableObject {
         refreshNow()
     }
 
+    /// Synchronizes local multi-account profile providers (`Claude`, `Codex`,
+    /// `Antigravity`, `Command Code`) at runtime when profiles are added,
+    /// removed, or discovered without restarting Codenotch. Existing provider
+    /// instances whose id and display name have not changed are kept in place
+    /// so their cached credentials, rate-limit back-offs, and in-flight fetches
+    /// survive untouched.
+    func syncProfileProviders(_ incoming: [UsageProvider]) {
+        let existingByID = Dictionary(uniqueKeysWithValues: providers.map { ($0.id, $0) })
+        let incomingIDs = Set(incoming.map(\.id))
+
+        var removedIDs: [String] = []
+        for provider in providers where ProfileFamily.family(forProviderID: provider.id) != nil {
+            if !incomingIDs.contains(provider.id) {
+                removedIDs.append(provider.id)
+            }
+        }
+
+        var addedProviders: [UsageProvider] = []
+        var renamedIDs: Set<String> = []
+        var resolvedByFamily: [ProfileFamily: [UsageProvider]] = [:]
+        for candidate in incoming {
+            guard let family = ProfileFamily.family(forProviderID: candidate.id) else { continue }
+            if let existing = existingByID[candidate.id] {
+                if existing.displayName == candidate.displayName {
+                    resolvedByFamily[family, default: []].append(existing)
+                } else {
+                    renamedIDs.insert(candidate.id)
+                    resolvedByFamily[family, default: []].append(candidate)
+                }
+            } else {
+                addedProviders.append(candidate)
+                resolvedByFamily[family, default: []].append(candidate)
+            }
+        }
+
+        guard !removedIDs.isEmpty || !addedProviders.isEmpty || !renamedIDs.isEmpty else { return }
+
+        for id in removedIDs {
+            cancelRefresh(providerID: id)
+            refusedAccess.remove(id)
+            needsRenewal.remove(id)
+            snapshots.removeAll { $0.id == id }
+        }
+
+        var rebuilt: [UsageProvider] = []
+        var emittedFamilies: Set<ProfileFamily> = []
+        for provider in providers {
+            if let family = ProfileFamily.family(forProviderID: provider.id) {
+                if emittedFamilies.insert(family).inserted,
+                   let familyProviders = resolvedByFamily[family] {
+                    rebuilt.append(contentsOf: familyProviders)
+                }
+            } else {
+                rebuilt.append(provider)
+            }
+        }
+        for family in ProfileFamily.allCases where !emittedFamilies.contains(family) {
+            if let familyProviders = resolvedByFamily[family] {
+                rebuilt.append(contentsOf: familyProviders)
+            }
+        }
+        providers = rebuilt
+
+        if !renamedIDs.isEmpty {
+            snapshots = snapshots.map(named)
+        }
+
+        for provider in addedProviders where !disconnected.contains(provider.id) {
+            if let remembered = lastGood[provider.id] {
+                var snapshot = remembered.snapshot
+                snapshot.status = .stale(since: remembered.fetchedAt)
+                publish(snapshot)
+            } else {
+                publish(Self.placeholder(provider))
+            }
+            _ = refresh(providerID: provider.id)
+        }
+
+        providerAccountRevision &+= 1
+    }
+
     /// Provider ids plus any model cells currently on screen.
     var knownIDs: [String] {
         Array(Set(providers.map(\.id) + snapshots.map(\.id) + localModelSummaries.map(\.id)))
@@ -806,9 +887,28 @@ final class UsageStore: ObservableObject {
             if let install, !TerminalCommand.isInstalled(command: command) {
                 NSWorkspace.shared.open(install)
             } else {
+                Self.ensureProfileDirectoryIfNeeded(for: provider)
                 TerminalCommand.run(command)
             }
             return true
+        }
+    }
+
+    /// Creates the target profile directory before launching a CLI login
+    /// command (`codex login`, `claude auth login`, `commandcode login`) so the
+    /// tool never fails on a missing folder when signing into a new profile.
+    private static func ensureProfileDirectoryIfNeeded(for provider: UsageProvider) {
+        if let claude = provider as? ClaudeOAuthProvider, claude.profile.slug != nil {
+            try? FileManager.default.createDirectory(at: claude.profile.configDirectory,
+                                                     withIntermediateDirectories: true)
+        } else if let codex = provider as? CodexLocalProvider, codex.profile.slug != nil {
+            try? FileManager.default.createDirectory(at: codex.profile.configDirectory,
+                                                     withIntermediateDirectories: true)
+        } else if let commandCode = provider as? CommandCodeProvider, commandCode.profile.slug != nil {
+            try? FileManager.default.createDirectory(
+                at: commandCode.profile.configDirectory.appendingPathComponent(".commandcode"),
+                withIntermediateDirectories: true
+            )
         }
     }
 

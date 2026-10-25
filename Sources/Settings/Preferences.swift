@@ -82,6 +82,15 @@ final class Preferences: ObservableObject {
         }
     }
 
+    /// Secondary local account profiles explicitly added in Settings.
+    @Published var configuredProfiles: [ConfiguredProfile] {
+        didSet {
+            if let data = try? JSONEncoder().encode(configuredProfiles) {
+                defaults.set(data, forKey: Keys.configuredProfiles)
+            }
+        }
+    }
+
     /// Providers whose threshold alerts are muted. Stored as the muted set so
     /// a provider added later alerts by default. Connection is stored the
     /// other way: the ones that are on.
@@ -684,6 +693,7 @@ final class Preferences: ObservableObject {
         static let busyIndicatorStyle = "busyIndicatorStyle"
         static let customEndpoints = "customEndpoints"
         static let remoteHosts = "remoteHosts"
+        static let configuredProfiles = "configuredProfiles"
         /// Entries written when remote hosts were Claude-only. Read once on
         /// the way to the new key, then dropped — the shapes match, and kinds
         /// default to Claude.
@@ -830,6 +840,15 @@ final class Preferences: ObservableObject {
             }
         }
         return []
+    }
+
+    nonisolated static func storedConfiguredProfiles(
+        defaults: UserDefaults = .standard
+    ) -> [ConfiguredProfile] {
+        guard let data = defaults.data(forKey: Keys.configuredProfiles),
+              let profiles = try? JSONDecoder().decode([ConfiguredProfile].self, from: data)
+        else { return [] }
+        return profiles
     }
 
     /// The MiniMax region read straight from disk, off the main actor.
@@ -1120,6 +1139,7 @@ final class Preferences: ObservableObject {
             self.customEndpoints = []
         }
         self.remoteHosts = Self.storedRemoteHosts(defaults: defaults)
+        self.configuredProfiles = Self.storedConfiguredProfiles(defaults: defaults)
         // Read from the system rather than from our own store: the user can turn
         // this off in System Settings, and a remembered `true` would then be a lie.
         self.launchAtLogin = Self.isRegisteredForLogin
@@ -1200,6 +1220,81 @@ final class Preferences: ObservableObject {
             setConnected(false, for: host.providerID)
         }
         remoteHosts.removeAll { $0.id == id }
+    }
+
+    // MARK: Multi-account profiles
+
+    func configuredSlugs(for family: ProfileFamily) -> Set<String> {
+        Set(configuredProfiles.filter { $0.family == family }.map(\.slug))
+    }
+
+    /// Adds or re-activates a secondary account profile, creates its isolated
+    /// directory on disk, connects its ring, and places it beside its family's
+    /// existing accounts when a manual order is in use.
+    @discardableResult
+    func addProfile(family: ProfileFamily,
+                    slug rawSlug: String,
+                    home: URL = FileManager.default.homeDirectoryForCurrentUser,
+                    createDirectory: Bool = true) -> ConfiguredProfile? {
+        guard let slug = family.normalizeSlug(rawSlug) else { return nil }
+        let profile = ConfiguredProfile(family: family, slug: slug)
+        if createDirectory {
+            try? profile.ensureDirectoryExists(home: home)
+        }
+        if !configuredProfiles.contains(profile) {
+            configuredProfiles.append(profile)
+        }
+        setConnected(true, for: profile.id)
+        if !providerOrder.isEmpty, !providerOrder.contains(profile.id) {
+            var next = providerOrder
+            if let lastSibling = next.lastIndex(where: { ProfileFamily.family(forProviderID: $0) == family }) {
+                next.insert(profile.id, at: next.index(after: lastSibling))
+            } else {
+                next.append(profile.id)
+            }
+            providerOrder = next
+        }
+        return profile
+    }
+
+    /// Removes a secondary account profile from Settings, disconnects its ring,
+    /// and forgets its custom nickname or order placement. Never deletes files
+    /// on disk, preserving borrow-only credential discipline.
+    func removeProfile(id: String) {
+        guard ProfileFamily.isExtraProfile(providerID: id) else { return }
+        setConnected(false, for: id)
+        configuredProfiles.removeAll { $0.id == id }
+        accountNicknames.removeValue(forKey: id)
+        providerOrder.removeAll { $0 == id }
+    }
+
+    /// Switches the active seat for a provider family to `providerID`,
+    /// connecting `providerID` and disconnecting any other local profiles in the
+    /// same family while keeping the family's slot in `providerOrder`.
+    func switchActiveProfile(to providerID: String, among knownIDs: [String]) {
+        guard let family = ProfileFamily.family(forProviderID: providerID) else { return }
+        let siblings = knownIDs.filter { ProfileFamily.family(forProviderID: $0) == family }
+        guard !siblings.isEmpty else { return }
+
+        if !providerOrder.isEmpty {
+            let activeSiblings = siblings.filter { $0 != providerID && isConnected($0) }
+            if let anchor = activeSiblings.first,
+               let anchorIndex = providerOrder.firstIndex(of: anchor) {
+                var next = providerOrder
+                if let currentIndex = next.firstIndex(of: providerID) {
+                    next.swapAt(anchorIndex, currentIndex)
+                } else {
+                    next[anchorIndex] = providerID
+                    next.append(anchor)
+                }
+                providerOrder = next
+            }
+        }
+
+        setConnected(true, for: providerID)
+        for sibling in siblings where sibling != providerID {
+            setConnected(false, for: sibling)
+        }
     }
 
     // MARK: Account names

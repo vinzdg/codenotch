@@ -16,15 +16,23 @@ struct CodexProfile: Equatable, Hashable {
     }
 
     static func discover(home: URL = homeDirectory,
-                         fileManager: FileManager = .default) -> [CodexProfile] {
+                         fileManager: FileManager = .default,
+                         configuredSlugs: Set<String> = []) -> [CodexProfile] {
         let names = (try? fileManager.contentsOfDirectory(atPath: home.path)) ?? []
-        let extras = names.compactMap { name -> CodexProfile? in
-            guard let slug = slug(fromDirectoryName: name) else { return nil }
+        var bySlug: [String: CodexProfile] = [:]
+        for name in names {
+            guard let slug = slug(fromDirectoryName: name) else { continue }
             let directory = home.appendingPathComponent(name)
-            guard isProfileDirectory(directory, fileManager: fileManager) else { return nil }
-            return CodexProfile(slug: slug, configDirectory: directory)
+            guard isProfileDirectory(directory, fileManager: fileManager) else { continue }
+            bySlug[slug] = CodexProfile(slug: slug, configDirectory: directory)
         }
-        return [.default(home: home)] + extras.sorted { $0.slug! < $1.slug! }
+        for raw in configuredSlugs {
+            guard let slug = ProfileFamily.codex.normalizeSlug(raw), bySlug[slug] == nil else { continue }
+            let directory = home.appendingPathComponent("\(directoryPrefix)-\(slug)")
+            bySlug[slug] = CodexProfile(slug: slug, configDirectory: directory)
+        }
+        let extras = bySlug.values.sorted { $0.slug! < $1.slug! }
+        return [.default(home: home)] + extras
     }
 
     static func slug(fromDirectoryName name: String) -> String? {

@@ -81,13 +81,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Every Claude Code configuration directory on this Mac — `~/.claude` and
-    /// any `~/.claude-<slug>` — found once at launch. Each gets a usage
-    /// provider and a session monitor of its own, keyed by the same id, so a
-    /// work login's sessions spin the work ring and nobody else's.
-    private let claudeProfiles = ClaudeProfile.discover()
-    private let codexProfiles = CodexProfile.discover()
-    private let antigravityProfiles = AntigravityProfile.discover()
-    private let commandCodeProfiles = CommandCodeProfile.discover()
+    /// any `~/.claude-<slug>` — found at launch and updated when profiles are
+    /// added or discovered in Settings. Each gets a usage provider and a
+    /// session monitor of its own, keyed by the same id, so a work login's
+    /// sessions spin the work ring and nobody else's.
+    private var claudeProfiles = ClaudeProfile.discover()
+    private var codexProfiles = CodexProfile.discover()
+    private var antigravityProfiles = AntigravityProfile.discover()
+    private var commandCodeProfiles = CommandCodeProfile.discover()
+    private var baseMonitors: [String: any AgentActivityMonitor] = [:]
     /// Held as concrete providers, not just handed to the store: the token
     /// refresher needs to ask one of them how long its token has left, and the
     /// protocol has no business carrying that.
@@ -111,6 +113,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Preferences.migrateFromPreviousName()
         let preferences = Preferences()
         self.preferences = preferences
+        claudeProfiles = ClaudeProfile.discover(configuredSlugs: preferences.configuredSlugs(for: .claude))
+        codexProfiles = CodexProfile.discover(configuredSlugs: preferences.configuredSlugs(for: .codex))
+        antigravityProfiles = AntigravityProfile.discover(configuredSlugs: preferences.configuredSlugs(for: .antigravity))
+        commandCodeProfiles = CommandCodeProfile.discover(configuredSlugs: preferences.configuredSlugs(for: .commandCode))
+        ClaudeOAuthProvider.loginCount = isRunningTests ? 1 : claudeProfiles.count
 
         // One notch per display: the fleet owns a controller for each screen
         // the scope asks for and fans every reading out to all of them. The
@@ -244,6 +251,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let active = stored.filter { $0.isEnabled && $0.isConfigured }
                     let providers: [UsageProvider] = active.map { $0.makeProvider() }
                     store?.registerRemoteProviders(providers)
+                }
+                .store(in: &cancellables)
+            preferences.$configuredProfiles
+                .dropFirst()
+                .removeDuplicates()
+                .receive(on: RunLoop.main)
+                .sink { [weak self] _ in
+                    self?.rescanProfiles()
                 }
                 .store(in: &cancellables)
             Costs.attach(to: store)
@@ -481,6 +496,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 },
                 sendTestNotification: { [weak self] in
                     self?.sendTestNotification()
+                },
+                rescanProfiles: { [weak self] in
+                    self?.rescanProfiles()
                 },
                 usageStore: store, ollamaRelay: relay, lmstudioMetrics: lmstudio, omlxMetrics: omlx,
                 phoneLinkPairing: phonePairing, phoneLinkRegistry: phoneRegistry, phoneLinkServerStatus: serverStatus
@@ -995,77 +1013,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // What each agent is doing right now, so the notch can say whether it is
         // still working without you switching to it.
-        var monitors: [String: any AgentActivityMonitor] = [
+        baseMonitors = [
             "cursor": CursorActivityMonitor(),
             "grok": GrokActivityMonitor(),
             "gemini-api": GeminiAPIActivityMonitor(),
             "kimi": KimiActivityMonitor(),
         ]
-        for profile in antigravityProfiles {
-            monitors[profile.id] = AntigravityActivityMonitor(profile: profile)
-        }
-        var claudeMonitors: [ClaudeSessionMonitor] = []
-        var claudeMonitorsByProfile: [(ClaudeProfile, ClaudeSessionMonitor)] = []
-        for profile in claudeProfiles {
-            let monitor = ClaudeSessionMonitor(
-                directory: profile.sessionsDirectory,
-                projects: profile.projectsDirectory
-            )
-            claudeMonitors.append(monitor)
-            claudeMonitorsByProfile.append((profile, monitor))
-            monitors[profile.id] = monitor
-        }
-
-        // With one profile there is nothing to attribute: every session in the
-        // directory is that account's, by definition. With two or more there
-        // is, because the Claude desktop app files the sessions it hosts under
-        // the *default* profile's directory whichever account it is signed in
-        // to — so the second account's work spun the first account's ring, and
-        // switching account in the app did not move it. See
-        // `ClaudeSessionOwnership`.
-        if claudeProfiles.count > 1 {
-            let index = ClaudeDesktopSessionIndex()
-            let directories = claudeProfiles.map(\.sessionsDirectory)
-            var accounts: [String: String] = [:]
-            var transcripts: [String: ClaudeTranscriptReader] = [:]
-            for profile in claudeProfiles {
-                let path = profile.sessionsDirectory.path
-                if let account = profile.accountID() { accounts[path] = account }
-                transcripts[path] = ClaudeTranscriptReader(projects: profile.projectsDirectory)
-            }
-            let profileIDs = Dictionary(uniqueKeysWithValues: claudeProfiles.map {
-                ($0.sessionsDirectory.path, $0.id)
-            })
-            for (profile, monitor) in claudeMonitorsByProfile {
-                var ownership = ClaudeSessionOwnership(
-                    own: profile.sessionsDirectory,
-                    directories: directories,
-                    accounts: accounts,
-                    transcripts: transcripts,
-                    index: index
-                )
-                ownership.isShown = { [weak preferences] directory in
-                    guard let preferences, let id = profileIDs[directory.path] else { return true }
-                    return preferences.isConnected(id)
-                }
-                monitor.ownership = ownership
-            }
-            let named = accounts.count, total = claudeProfiles.count
-            Log.sessions.info("claude session ownership: \(named, privacy: .public) of \(total, privacy: .public) profiles name an account")
-        }
-        for profile in codexProfiles {
-            monitors[profile.id] = CodexActivityMonitor(profile: profile)
-        }
-
-        // The `/usage` probe is a Claude Code process too, and files a session
-        // for the seconds it runs. Every Claude monitor steps over it by pid
-        // and by its scratch directory, whether or not a token refresher runs
-        // below. Without this the probe showed as a `busy` session, vanished,
-        // and was announced as a turn that finished.
-        for monitor in claudeMonitors {
-            monitor.ignoredPIDs = { ClaudeUsageCLI.runningPIDs }
-            monitor.ignoredWorkingDirectories = [ClaudeUsageCLI.scratchLocation().path]
-        }
 
         // Renewing the token runs the Claude command, which registers a session
         // of its own for the second it lives. Every Claude monitor is told to
@@ -1082,13 +1035,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 expiry: { await defaultProvider.tokenExpiry },
                 reload: { await defaultProvider.reloadTokenExpiry() }
             )
-            for monitor in claudeMonitors {
-                monitor.ignoredPIDs = { [weak refresher] in
-                    var pids = ClaudeUsageCLI.runningPIDs
-                    if let pid = refresher?.launchedPID { pids.insert(pid) }
-                    return pids
-                }
-            }
             // The one place the failure becomes visible. The store carries the
             // fact; nothing here retries, and the warning clears itself the
             // moment a reading comes back.
@@ -1103,6 +1049,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             refresher.start()
             tokenRefresher = refresher
         }
+        let monitors = buildMonitors(preferences: preferences)
         let activity = ActivityCoordinator(monitors: monitors) { [weak self, weak fleet] id, sessions in
             guard let fleet else { return }
             fleet.setSessions(providerID: id, sessions: sessions)
@@ -1240,6 +1187,134 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fleet.apply(deepSeekPricingEnabled: preferences.deepSeekPricingEnabled)
         fleet.apply(deepSeekPricingSchedule: preferences.deepSeekPricingSchedule)
         fleet.show()
+    }
+
+    @MainActor
+    private func buildMonitors(preferences: Preferences) -> [String: any AgentActivityMonitor] {
+        var monitors = baseMonitors
+        for profile in antigravityProfiles {
+            monitors[profile.id] = AntigravityActivityMonitor(profile: profile)
+        }
+        var claudeMonitors: [ClaudeSessionMonitor] = []
+        var claudeMonitorsByProfile: [(ClaudeProfile, ClaudeSessionMonitor)] = []
+        for profile in claudeProfiles {
+            let monitor = ClaudeSessionMonitor(
+                directory: profile.sessionsDirectory,
+                projects: profile.projectsDirectory
+            )
+            claudeMonitors.append(monitor)
+            claudeMonitorsByProfile.append((profile, monitor))
+            monitors[profile.id] = monitor
+        }
+
+        // With one profile there is nothing to attribute: every session in the
+        // directory is that account's, by definition. With two or more there
+        // is, because the Claude desktop app files the sessions it hosts under
+        // the *default* profile's directory whichever account it is signed in
+        // to — so the second account's work spun the first account's ring, and
+        // switching account in the app did not move it. See
+        // `ClaudeSessionOwnership`.
+        if claudeProfiles.count > 1 {
+            let index = ClaudeDesktopSessionIndex()
+            let directories = claudeProfiles.map(\.sessionsDirectory)
+            var accounts: [String: String] = [:]
+            var transcripts: [String: ClaudeTranscriptReader] = [:]
+            for profile in claudeProfiles {
+                let path = profile.sessionsDirectory.path
+                if let account = profile.accountID() { accounts[path] = account }
+                transcripts[path] = ClaudeTranscriptReader(projects: profile.projectsDirectory)
+            }
+            let profileIDs = Dictionary(uniqueKeysWithValues: claudeProfiles.map {
+                ($0.sessionsDirectory.path, $0.id)
+            })
+            for (profile, monitor) in claudeMonitorsByProfile {
+                var ownership = ClaudeSessionOwnership(
+                    own: profile.sessionsDirectory,
+                    directories: directories,
+                    accounts: accounts,
+                    transcripts: transcripts,
+                    index: index
+                )
+                ownership.isShown = { [weak preferences] directory in
+                    guard let preferences, let id = profileIDs[directory.path] else { return true }
+                    return preferences.isConnected(id)
+                }
+                monitor.ownership = ownership
+            }
+            let named = accounts.count, total = claudeProfiles.count
+            Log.sessions.info("claude session ownership: \(named, privacy: .public) of \(total, privacy: .public) profiles name an account")
+        }
+        for profile in codexProfiles {
+            monitors[profile.id] = CodexActivityMonitor(profile: profile)
+        }
+
+        // The `/usage` probe is a Claude Code process too, and files a session
+        // for the seconds it runs. Every Claude monitor steps over it by pid
+        // and by its scratch directory, whether or not a token refresher runs
+        // below. Without this the probe showed as a `busy` session, vanished,
+        // and was announced as a turn that finished.
+        let refresher = tokenRefresher
+        for monitor in claudeMonitors {
+            monitor.ignoredPIDs = { [weak refresher] in
+                var pids = ClaudeUsageCLI.runningPIDs
+                if let pid = refresher?.launchedPID { pids.insert(pid) }
+                return pids
+            }
+            monitor.ignoredWorkingDirectories = [ClaudeUsageCLI.scratchLocation().path]
+        }
+        return monitors
+    }
+
+    /// Re-discover local profile directories and configured profiles without
+    /// restarting Codenotch.
+    @MainActor
+    func rescanProfiles() {
+        guard let preferences, let store else { return }
+        let newClaude = ClaudeProfile.discover(configuredSlugs: preferences.configuredSlugs(for: .claude))
+        let newCodex = CodexProfile.discover(configuredSlugs: preferences.configuredSlugs(for: .codex))
+        let newAntigravity = AntigravityProfile.discover(configuredSlugs: preferences.configuredSlugs(for: .antigravity))
+        let newCommandCode = CommandCodeProfile.discover(configuredSlugs: preferences.configuredSlugs(for: .commandCode))
+
+        let newClaudeNames = ClaudeProfile.displayNames(for: newClaude)
+        let oldClaudeNames = Dictionary(uniqueKeysWithValues: claudeProviders.map { ($0.id, $0.displayName) })
+
+        let changed = newClaude.map(\.id) != claudeProfiles.map(\.id)
+            || newClaudeNames != oldClaudeNames
+            || newCodex.map(\.id) != codexProfiles.map(\.id)
+            || newAntigravity.map(\.id) != antigravityProfiles.map(\.id)
+            || newCommandCode.map(\.id) != commandCodeProfiles.map(\.id)
+        guard changed else { return }
+
+        claudeProfiles = newClaude
+        codexProfiles = newCodex
+        antigravityProfiles = newAntigravity
+        commandCodeProfiles = newCommandCode
+        ClaudeOAuthProvider.loginCount = isRunningTests ? 1 : claudeProfiles.count
+
+        let existingClaude = Dictionary(uniqueKeysWithValues: claudeProviders.map { ($0.id, $0) })
+        let updatedClaudeProviders: [ClaudeOAuthProvider] = claudeProfiles.map { profile in
+            let desiredName = newClaudeNames[profile.id] ?? profile.displayName
+            if let existing = existingClaude[profile.id], existing.displayName == desiredName {
+                return existing
+            }
+            return ClaudeOAuthProvider(profile: profile, displayName: newClaudeNames[profile.id])
+        }
+        claudeProviders = updatedClaudeProviders
+
+        let incoming: [UsageProvider] = updatedClaudeProviders
+            + codexProfiles.map { CodexLocalProvider(profile: $0) }
+            + antigravityProfiles.map { AntigravityProvider(profile: $0) }
+            + commandCodeProfiles.map { CommandCodeProvider(profile: $0) }
+
+        let allIDs = Array(Set(store.providerSummaries.map(\.id) + incoming.map(\.id)))
+        preferences.reconcile(discoveredIDs: allIDs)
+        store.disconnected = preferences.disconnectedIDs(among: allIDs)
+        store.syncProfileProviders(incoming)
+
+        let monitors = buildMonitors(preferences: preferences)
+        activityCoordinator?.syncMonitors(monitors)
+        activityCoordinator?.setEnabled(preferences.connectedProviders)
+        CostAccountStore.shared.rediscover()
     }
 
     /// Open the notch, and make a noise, when something has just finished.

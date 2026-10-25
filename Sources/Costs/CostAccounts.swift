@@ -71,11 +71,14 @@ final class CostAccountStore: ObservableObject {
     /// Profiles come from Codenotch's own discovery, so an account added there
     /// (a new `~/.claude-<slug>`) shows up here without a second list.
     func rediscover() {
+        let configured = Preferences.storedConfiguredProfiles()
+        let claudeSlugs = Set(configured.filter { $0.family == .claude }.map(\.slug))
+        let codexSlugs = Set(configured.filter { $0.family == .codex }.map(\.slug))
         var list: [CostAccount] = []
-        for p in ClaudeProfile.discover() {
+        for p in ClaudeProfile.discover(configuredSlugs: claudeSlugs) {
             list.append(apply(CostAccount(id: p.id, provider: "claude", name: p.displayName, configDirectory: p.configDirectory)))
         }
-        for p in CodexProfile.discover() {
+        for p in CodexProfile.discover(configuredSlugs: codexSlugs) {
             list.append(apply(CostAccount(id: p.id, provider: "codex", name: p.displayName, configDirectory: p.configDirectory)))
         }
         if list != accounts { accounts = list }
@@ -137,7 +140,8 @@ final class CostAccountStore: ObservableObject {
             }
             return
         }
-        guard let profile = ClaudeProfile.discover().first(where: { $0.id == id }) else { return }
+        let claudeSlugs = Set(Preferences.storedConfiguredProfiles().filter { $0.family == .claude }.map(\.slug))
+        guard let profile = ClaudeProfile.discover(configuredSlugs: claudeSlugs).first(where: { $0.id == id }) else { return }
         Task.detached(priority: .utility) {
             guard let creds = try? ClaudeCredentials.read(services: profile.keychainServices, interactive: false) else { return }
             var request = URLRequest(url: URL(string: "https://api.anthropic.com/api/oauth/profile")!)

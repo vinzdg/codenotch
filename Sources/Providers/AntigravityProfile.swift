@@ -32,18 +32,26 @@ struct AntigravityProfile: Equatable, Hashable {
     /// profile markers and valid credentials, slugs in alphabetical order.
     static func discover(home: URL = homeDirectory,
                          fileManager: FileManager = .default,
+                         configuredSlugs: Set<String> = [],
                          hasCredential: (AntigravityProfile) -> Bool = AntigravityCredentials.hasCredential) -> [AntigravityProfile] {
         let geminiDir = home.appendingPathComponent(".gemini")
         let names = (try? fileManager.contentsOfDirectory(atPath: geminiDir.path)) ?? []
-        let extras = names.compactMap { name -> AntigravityProfile? in
-            guard let slug = slug(fromDirectoryName: name) else { return nil }
+        var bySlug: [String: AntigravityProfile] = [:]
+        for name in names {
+            guard let slug = slug(fromDirectoryName: name) else { continue }
             let directory = geminiDir.appendingPathComponent(name)
-            guard isProfileDirectory(directory, fileManager: fileManager) else { return nil }
+            guard isProfileDirectory(directory, fileManager: fileManager) else { continue }
             let candidate = AntigravityProfile(slug: slug, configDirectory: directory)
-            guard hasCredential(candidate) else { return nil }
-            return candidate
+            guard hasCredential(candidate) else { continue }
+            bySlug[slug] = candidate
         }
-        return [.default(home: home)] + extras.sorted { $0.slug! < $1.slug! }
+        for raw in configuredSlugs {
+            guard let slug = ProfileFamily.antigravity.normalizeSlug(raw), bySlug[slug] == nil else { continue }
+            let directory = geminiDir.appendingPathComponent("\(directoryPrefix)-\(slug)")
+            bySlug[slug] = AntigravityProfile(slug: slug, configDirectory: directory)
+        }
+        let extras = bySlug.values.sorted { $0.slug! < $1.slug! }
+        return [.default(home: home)] + extras
     }
 
     /// `antigravity-work` -> `work`; anything else -> nil. The bare `antigravity` is
