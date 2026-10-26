@@ -910,6 +910,31 @@ final class UsageStore: ObservableObject {
         let age = Date().timeIntervalSince(previous.fetchedAt)
         var snapshot = previous.snapshot
         snapshot.status = age > staleAfter ? .stale(since: previous.fetchedAt) : previous.snapshot.status
+        // A quota that is effectively exhausted (about 1% left or less) and is
+        // now being rejected has, in practice, hit zero: the last successful
+        // poll simply never reached 100%. Reflect that rather than leaving a
+        // stuck 1% on screen. Muse is the case that trips this, but the rule
+        // is general — a 429 at ~1% remaining means there is nothing left.
+        if case UsageProviderError.rateLimited = error,
+           let used = snapshot.headline?.usedFraction, used >= 0.99 {
+            if let headlineID = snapshot.headlineID,
+               let idx = snapshot.windows.firstIndex(where: { $0.id == headlineID }) {
+                let w = snapshot.windows[idx]
+                snapshot.windows[idx] = LimitWindow(id: w.id, group: w.group, label: w.label,
+                    usedFraction: 1, remaining: w.remaining, used: w.used, usedText: w.usedText,
+                    detail: w.detail, money: w.money, resetsAt: w.resetsAt, duration: w.duration,
+                    bandOverride: w.bandOverride, prefersUsedText: w.prefersUsedText)
+            }
+            if let weeklyID = snapshot.weeklyID, weeklyID != snapshot.headlineID,
+               let idx = snapshot.windows.firstIndex(where: { $0.id == weeklyID }),
+               let used = snapshot.windows[idx].usedFraction, used >= 0.99 {
+                let w = snapshot.windows[idx]
+                snapshot.windows[idx] = LimitWindow(id: w.id, group: w.group, label: w.label,
+                    usedFraction: 1, remaining: w.remaining, used: w.used, usedText: w.usedText,
+                    detail: w.detail, money: w.money, resetsAt: w.resetsAt, duration: w.duration,
+                    bandOverride: w.bandOverride, prefersUsedText: w.prefersUsedText)
+            }
+        }
         return snapshot
     }
 

@@ -1640,10 +1640,12 @@ struct SettingsView: View {
     /// What the list footer says about ordering: the picker above names the
     /// sort, so this only says what dragging still does under it.
     private var listOrderFooter: String {
-        switch preferences.ringOrder {
+        switch preferences.ringOrder.canonical {
         case .manual:
             return L10n.t("The notch draws these in this order. Drag one by its handle to move it.")
-        case .remaining, .deficit:
+        case .remaining, .deficit, .expiring:
+            return L10n.t("Auto-order is on: dragging still sets the order ties break in.")
+        default:
             return L10n.t("Auto-order is on: dragging still sets the order ties break in.")
         }
     }

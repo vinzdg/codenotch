@@ -207,6 +207,26 @@ final class ProviderOrderTests: XCTestCase {
         ProviderOrder.byBurnDeficit(snapshots, now: deficitNow).map(\.id)
     }
 
+    /// A cell with both clocks running: a 5-hour session beside a week, led
+    /// by whichever window `weeklyHeadline` names — the shape
+    /// `WeeklyHeadline` leaves when the weekly limit is the main ring, and
+    /// its mirror when the main ring stays the session.
+    private func dualCell(_ id: String, sessionUsed: Double, sessionHoursLeft: Double,
+                          weeklyUsed: Double, weeklyHoursLeft: Double,
+                          weeklyHeadline: Bool) -> ProviderSnapshot {
+        let session = LimitWindow(id: "session", label: "Session", usedFraction: sessionUsed,
+                                  resetsAt: deficitNow.addingTimeInterval(sessionHoursLeft * 3600),
+                                  duration: 5 * 3600)
+        let weekly = LimitWindow(id: "weekly_all", label: "Weekly", usedFraction: weeklyUsed,
+                                 resetsAt: deficitNow.addingTimeInterval(weeklyHoursLeft * 3600),
+                                 duration: week)
+        return ProviderSnapshot(id: id, displayName: id, glyph: .claude,
+                                fidelity: .official, status: .ok,
+                                windows: [session, weekly],
+                                headlineID: weeklyHeadline ? "weekly_all" : "session",
+                                weeklyID: weeklyHeadline ? "session" : "weekly_all")
+    }
+
     /// The case this exists for: 70% left expiring in 23h (~56 to burn)
     /// outranks 100% left with 6 days (~14 to burn), where most-remaining
     /// would put the fresh 100% first and let the expiring 70% die.
@@ -242,19 +262,51 @@ final class ProviderOrderTests: XCTestCase {
                        ["timed", "full", "half"])
     }
 
-    func testWeeklyUrgencyCountsBeyondTheHeadline() {
-        // The max across windows, not the headline: a comfortable session
-        // beside an expiring week is still urgent.
-        let session = LimitWindow(id: "session", label: "Session", usedFraction: 0.1,
-                                  resetsAt: deficitNow.addingTimeInterval(4 * 3600), duration: 5 * 3600)
-        let weekly = LimitWindow(id: "weekly_all", label: "Weekly", usedFraction: 0.3,
-                                 resetsAt: deficitNow.addingTimeInterval(23 * 3600), duration: week)
-        let urgent = ProviderSnapshot(id: "urgent", displayName: "urgent", glyph: .claude,
-                                      fidelity: .official, status: .ok,
-                                      windows: [session, weekly],
-                                      headlineID: "session", weeklyID: "weekly_all")
-        let calm = timedCell("calm", used: 0.1, hoursLeft: 6 * 24)
-        XCTAssertEqual(deficitOrdered([calm, urgent]), ["urgent", "calm"])
+    func testExpiryFollowsAWeeklyHeadlineToTheWeeklyReset() {
+        // The weekly limit is the main ring: its reset (23h) is the deadline,
+        // not the session's (4.5h), which the ring is not showing. A bench
+        // resetting sooner (12h) still beats it.
+        let bench = timedCell("bench", used: 0.5, hoursLeft: 12)
+        let weeklyLed = dualCell("dual", sessionUsed: 0.9, sessionHoursLeft: 4.5,
+                                 weeklyUsed: 0.3, weeklyHoursLeft: 23, weeklyHeadline: true)
+        XCTAssertEqual(deficitOrdered([bench, weeklyLed]), ["bench", "dual"])
+        // The same readings led by the session: the deadline becomes the
+        // session's 4.5h, which is sooner than the bench's 12h.
+        let sessionLed = dualCell("dual", sessionUsed: 0.9, sessionHoursLeft: 4.5,
+                                  weeklyUsed: 0.3, weeklyHoursLeft: 23, weeklyHeadline: false)
+        // sessionLed is over-pace (will run out on its own), so it sinks
+        // below the under-pace bench even though its reset is sooner.
+        XCTAssertEqual(deficitOrdered([sessionLed, bench]), ["bench", "dual"])
+    }
+
+    func testExpiryFollowsASessionHeadlineToTheSessionReset() {
+        // The 5-hour window is the main ring: its reset (4.5h) is the
+        // deadline, not the week's (6 days). A bench resetting sooner (2h)
+        // still beats it.
+        let bench = timedCell("bench", used: 0.5, hoursLeft: 24)
+        let sessionLed = dualCell("dual", sessionUsed: 0.05, sessionHoursLeft: 4.5,
+                                  weeklyUsed: 0.9, weeklyHoursLeft: 6 * 24, weeklyHeadline: false)
+        XCTAssertEqual(deficitOrdered([bench, sessionLed]), ["dual", "bench"])
+        // Led by the week instead, the deadline becomes the week's 6 days,
+        // which is later than the bench's 24h.
+        let weeklyLed = dualCell("dual", sessionUsed: 0.1, sessionHoursLeft: 4.5,
+                                 weeklyUsed: 0.9, weeklyHoursLeft: 6 * 24, weeklyHeadline: true)
+        XCTAssertEqual(deficitOrdered([weeklyLed, bench]), ["bench", "dual"])
+    }
+
+    func testDeficitIgnoresATimedWindowThatDoesNotLead() {
+        // The leading window has no clock, so there is no deficit to sort
+        // by — an urgent week beside it does not invent one, any more than
+        // most-remaining reads the weekly figure for a session-led ring.
+        let clockless = ProviderSnapshot(
+            id: "clockless", displayName: "clockless", glyph: .claude,
+            fidelity: .official, status: .ok,
+            windows: [LimitWindow(id: "session", label: "Session", usedFraction: 0.0),
+                      LimitWindow(id: "weekly_all", label: "Weekly", usedFraction: 0.3,
+                                  resetsAt: deficitNow.addingTimeInterval(23 * 3600), duration: week)],
+            headlineID: "session", weeklyID: "weekly_all")
+        let timed = timedCell("timed", used: 0.9, hoursLeft: 23)
+        XCTAssertEqual(deficitOrdered([clockless, timed]), ["timed", "clockless"])
     }
 
     func testDeficitTiersMirrorRemainingTiers() {

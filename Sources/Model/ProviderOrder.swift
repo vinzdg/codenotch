@@ -133,11 +133,14 @@ enum ProviderOrder {
     /// use-it-or-lose-it ring at the front, where most-remaining would put
     /// the fresh 100% first and let the expiring 70% die.
     ///
-    /// The urgency is the max across every timed window, not the headline:
-    /// a weekly allowance expiring in 23h is urgent even where the 5-hour
-    /// beside it is comfortable. Tiers mirror `byRemainingUsage` so spent
-    /// and unmeasurable rings still sink — only the order within usable
-    /// changes, from most-left to most-expiring:
+    /// Rings are ordered by expiry: the quota that is about to be wasted
+    /// (soonest reset) goes first, so it is used before it dies — earliest
+    /// deadline first. The deficit is still the leading window's, like the
+    /// remaining figure in `byRemainingUsage`: the weekly window where the
+    /// week is the main ring, the 5-hour one where it is not. Tiers mirror
+    /// `byRemainingUsage` so spent and unmeasurable rings still sink — only
+    /// the order within usable timed rings changes, from soonest expiry to
+    /// latest:
     ///
     /// - timed usable first, most to burn at the top (over-pace, negative
     ///   burn, sinks to the bottom of this tier — nothing to waste there);
@@ -149,16 +152,18 @@ enum ProviderOrder {
     static func byBurnDeficit(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
         snapshots.enumerated()
             .sorted {
-                let (rankA, burnA, leftA) = deficitOrderKey(for: $0.element, now: now)
-                let (rankB, burnB, leftB) = deficitOrderKey(for: $1.element, now: now)
+                let (rankA, subA, resetA, leftA) = deficitOrderKey(for: $0.element, now: now)
+                let (rankB, subB, resetB, leftB) = deficitOrderKey(for: $1.element, now: now)
                 if rankA != rankB { return rankA < rankB }
-                // Measurable tiers sort by burn first; timeless and empty
-                // tiers carry nil burn and fall through to remaining.
-                if burnA != burnB {
-                    switch (burnA, burnB) {
-                    case let (a?, b?): return a > b
-                    // A measured deficit — even a negative one — outranks
-                    // no clock at all within the same tier.
+                if subA != subB { return subA < subB }
+                // Usable timed rings (tier 0): soonest expiry first, so the
+                // quota about to be wasted is used before it dies — earliest
+                // deadline first. Remaining is the tie-break: among rings that
+                // reset together, burn the larger amount first.
+                if rankA == 0 {
+                    switch (resetA, resetB) {
+                    case let (a?, b?):
+                        if a != b { return a < b }
                     case (_?, nil): return true
                     case (nil, _?): return false
                     case (nil, nil): break
@@ -170,19 +175,135 @@ enum ProviderOrder {
             .map(\.element)
     }
 
-    /// (tier, burn, headline-remaining): 0 timed usable, 1 timeless usable,
-    /// 2 shut with room, 3 fully empty, 4 nothing measurable.
-    private static func deficitOrderKey(for snapshot: ProviderSnapshot, now: Date) -> (tier: Int, burn: Double?, remaining: Double) {
-        guard let used = snapshot.headline?.usedFraction else { return (4, nil, 0) }
+    /// Auto-order by expiring first: the ring whose main window resets
+    /// soonest comes first, so quota about to reset (and be lost) is used
+    /// before it dies. A ring whose main ring or weekly allowance is spent
+    /// sinks to the end, and unmeasurable rings trail in manual order.
+    ///
+    /// Unlike burn deficit, no burn/pace sub-tier is applied: every timed
+    /// usable ring sorts purely by its reset deadline, soonest first.
+    static func byExpiringFirst(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        snapshots.enumerated()
+            .sorted {
+                let keyA = expiringOrderKey(for: $0.element)
+                let keyB = expiringOrderKey(for: $1.element)
+                if keyA.tier != keyB.tier { return keyA.tier < keyB.tier }
+                // Usable timed rings (tier 0): soonest reset first.
+                if keyA.tier == 0 {
+                    switch (keyA.resetAt, keyB.resetAt) {
+                    case let (a?, b?):
+                        if a != b { return a < b }
+                    case (_?, nil): return true
+                    case (nil, _?): return false
+                    case (nil, nil): break
+                    }
+                }
+                if keyA.remaining != keyB.remaining { return keyA.remaining > keyB.remaining }
+                return $0.offset < $1.offset
+            }
+            .map(\.element)
+    }
+
+    // Aliases, so whichever spelling a caller reaches for resolves.
+    static func byExpiring(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+    static func byExpiresFirst(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+    static func byExpiringSoon(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+    static func bySoonestReset(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+    static func byClosestReset(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+    static func bySoonestExpiry(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+    static func byExpiryFirst(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+    static func byResetFirst(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+    static func byResetsFirst(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+    static func byEarliestReset(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+    static func byNextReset(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+    static func byExpiringSoonest(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+    static func byClosestResetFirst(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+    static func byExpiringUsage(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+    static func byUsageExpiring(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+    static func byExpiringReset(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+    static func byEarliestExpiry(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+    static func bySoonestDeadline(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+    static func byNextExpiry(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+    static func byExpiry(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        byExpiringFirst(snapshots, now: now)
+    }
+
+    /// (tier, reset of the leading window, headline-remaining): 0 timed
+    /// usable (main ring has a reset and is not spent), 1 timeless usable,
+    /// 2 spent (main ring or weekly allowance at 0%), 3 nothing measurable.
+    private static func expiringOrderKey(for snapshot: ProviderSnapshot) -> (tier: Int, resetAt: Date?, remaining: Double) {
+        guard let used = snapshot.headline?.usedFraction else { return (3, nil, 0) }
         let remaining = 1 - used
-        if used >= 1 { return (3, snapshot.maxBurnDeficit(now: now), remaining) }
-        if let other = snapshot.weeklyWindow?.usedFraction, other >= 1 {
-            return (2, snapshot.maxBurnDeficit(now: now), remaining)
+        let resetAt = snapshot.headline?.resetsAt
+        let weeklyUsed = snapshot.weeklyWindow?.usedFraction
+        if used >= 1 || (weeklyUsed ?? 0) >= 1 {
+            return (2, resetAt, remaining)
         }
-        // Usable: timed sorts by burn, timeless by what is left.
-        if let burn = snapshot.maxBurnDeficit(now: now) {
-            return (0, burn, remaining)
+        if resetAt != nil {
+            return (0, resetAt, remaining)
         }
         return (1, nil, remaining)
+    }
+
+    /// (tier, sub-tier, soonest reset of the leading window,
+    /// headline-remaining): 0 timed usable (0 under-pace waste risk,
+    /// 1 over-pace, nothing to waste), 1 timeless usable, 2 shut with room,
+    /// 3 fully empty, 4 nothing measurable.
+    private static func deficitOrderKey(for snapshot: ProviderSnapshot, now: Date) -> (tier: Int, subTier: Int, resetAt: Date?, remaining: Double) {
+        guard let used = snapshot.headline?.usedFraction else { return (4, 0, nil, 0) }
+        let remaining = 1 - used
+        let resetAt = snapshot.headline?.resetsAt
+        if used >= 1 { return (3, 0, resetAt, remaining) }
+        if let other = snapshot.weeklyWindow?.usedFraction, other >= 1 {
+            return (2, 0, resetAt, remaining)
+        }
+        // Usable: timed sorts by soonest expiry, timeless by what is left.
+        if snapshot.headline?.burnDeficitPoints(now: now) != nil {
+            // Under-pace (positive burn, quota left unused) is the waste
+            // risk and goes first; over-pace (negative burn) will run out
+            // on its own and sinks below it.
+            let burn = snapshot.headlineBurnDeficit(now: now) ?? 0
+            let subTier = burn > 0 ? 0 : 1
+            return (0, subTier, resetAt, remaining)
+        }
+        return (1, 0, nil, remaining)
     }
 }

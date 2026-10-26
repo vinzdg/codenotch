@@ -940,10 +940,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     // still has room.
                     let usable = hideDepleted ? snapshots.filter { !$0.isDepleted } : snapshots
                     var drawn = Self.drawn(usable, weekly: weekly, paced: paced)
-                    switch order {
+                    switch order.canonical {
                     case .deficit:   drawn = ProviderOrder.byBurnDeficit(drawn, now: Date())
+                    case .expiring:  drawn = ProviderOrder.byExpiringFirst(drawn, now: Date())
                     case .remaining: drawn = ProviderOrder.byRemainingUsage(drawn)
                     case .manual:    break
+                    default:         break
                     }
                     fleet?.setSnapshots(drawn)
                 }

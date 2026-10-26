@@ -132,17 +132,38 @@ final class BurnDeficitTests: XCTestCase {
         XCTAssertGreaterThan(urgent, fresh)
     }
 
-    func testMaxBurnTakesTheMostUrgentWindow() throws {
+    func testHeadlineBurnTakesTheLeadingWindow() throws {
         let session = LimitWindow(id: "session", label: "Session", usedFraction: 0.1,
                                   resetsAt: now.addingTimeInterval(4 * 3600), duration: 5 * 3600)
         let weekly = LimitWindow(id: "weekly_all", label: "Weekly", usedFraction: 0.3,
                                  resetsAt: now.addingTimeInterval(23 * 3600), duration: week)
-        let snapshot = ProviderSnapshot(id: "p", displayName: "p", glyph: .claude,
-                                        fidelity: .official, status: .ok,
-                                        windows: [session, weekly],
-                                        headlineID: "session", weeklyID: "weekly_all")
-        let max = try XCTUnwrap(snapshot.maxBurnDeficit(now: now))
-        XCTAssertEqual(max, 56.3095, accuracy: 0.01)
+        // Led by the session, the burn is the session's 10 points, however
+        // urgent the week beside it is: the 5-hour window is the main
+        // percentage, so its deficit is the one that orders the rings.
+        let sessionLed = ProviderSnapshot(id: "p", displayName: "p", glyph: .claude,
+                                          fidelity: .official, status: .ok,
+                                          windows: [session, weekly],
+                                          headlineID: "session", weeklyID: "weekly_all")
+        XCTAssertEqual(try XCTUnwrap(sessionLed.headlineBurnDeficit(now: now)), 10, accuracy: 0.0001)
+        // The weekly limit as the main ring reads the week's ~56 instead.
+        let weeklyLed = ProviderSnapshot(id: "p", displayName: "p", glyph: .claude,
+                                         fidelity: .official, status: .ok,
+                                         windows: [session, weekly],
+                                         headlineID: "weekly_all", weeklyID: "session")
+        XCTAssertEqual(try XCTUnwrap(weeklyLed.headlineBurnDeficit(now: now)), 56.3095, accuracy: 0.01)
+    }
+
+    func testAClocklessHeadlineHasNoBurnEvenBesideATimedWeek() {
+        // No fallback to the other window: a leading window with no cycle
+        // has no deficit, so the timed week beside it cannot order the ring.
+        let snapshot = ProviderSnapshot(
+            id: "p", displayName: "p", glyph: .claude,
+            fidelity: .official, status: .ok,
+            windows: [LimitWindow(id: "session", label: "Session", usedFraction: 0.3),
+                      LimitWindow(id: "weekly_all", label: "Weekly", usedFraction: 0.3,
+                                  resetsAt: now.addingTimeInterval(23 * 3600), duration: week)],
+            headlineID: "session", weeklyID: "weekly_all")
+        XCTAssertNil(snapshot.headlineBurnDeficit(now: now))
     }
 
     func testNoClockMeansNoBurn() {
@@ -151,7 +172,7 @@ final class BurnDeficitTests: XCTestCase {
                                         fidelity: .official, status: .ok,
                                         windows: [LimitWindow(id: "w", label: "W", usedFraction: 0.3)],
                                         headlineID: "w")
-        XCTAssertNil(snapshot.maxBurnDeficit(now: now))
+        XCTAssertNil(snapshot.headlineBurnDeficit(now: now))
     }
 }
 

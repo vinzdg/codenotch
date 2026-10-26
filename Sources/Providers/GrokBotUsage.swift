@@ -11,7 +11,10 @@ enum GrokBotUsage {
         var windows = [LimitWindow(
             id: "weekly",
             label: L10n.t("Weekly usage"),
-            usedFraction: reading.percentUsed / 100,
+            // Grok Bot reports a fractional percentage (e.g. 99.4). Round to a
+            // whole number so the ring and card read like every other
+            // provider's — "99% Used · 1% left" rather than "99.4% · 0.6%".
+            usedFraction: reading.percentUsed.rounded() / 100,
             resetsAt: reading.resetsAt,
             duration: 7 * 86400
         )]
@@ -19,7 +22,7 @@ enum GrokBotUsage {
             windows.append(LimitWindow(
                 id: "on_demand",
                 label: L10n.t("On demand"),
-                usedFraction: onDemand.usedCents / onDemand.limitCents
+                usedFraction: (onDemand.usedCents / onDemand.limitCents * 100).rounded() / 100
             ))
         }
         return windows
