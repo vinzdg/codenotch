@@ -65,7 +65,11 @@ final class NotchFleet {
     private var weeklyReading: Bool = false
     private var showsRemainingInNotch: Bool = false
     private var shutRingsWhenSpent: Bool = true
-    private var foldsForFullScreen = true
+    private var autoHideMode: AutoHideMode = .onFullscreen
+    private var foldsForFullScreen: Bool {
+        get { autoHideMode != .never }
+        set { autoHideMode = newValue ? .onFullscreen : .never }
+    }
     private var surfaceStyle: NotchSurfaceStyle = .glass
     private var deepSeekPricingEnabled = true
     private var deepSeekPricingSchedule = DeepSeekPricing.Schedule.current
@@ -208,10 +212,10 @@ final class NotchFleet {
         }
     }
 
-    func apply(foldsForFullScreen: Bool) {
-        self.foldsForFullScreen = foldsForFullScreen
+    func apply(autoHideMode: AutoHideMode) {
+        self.autoHideMode = autoHideMode
         for controller in controllers.values {
-            controller.apply(foldsForFullScreen: foldsForFullScreen)
+            controller.apply(autoHideMode: autoHideMode)
         }
     }
 
@@ -254,6 +258,10 @@ final class NotchFleet {
         for model in models {
             model.weeklyRingDashed = weeklyRingDashed
         }
+    }
+
+    func apply(foldsForFullScreen: Bool) {
+        apply(autoHideMode: foldsForFullScreen ? .onFullscreen : .never)
     }
 
     func apply(weeklyRing: WeeklyRing) {
@@ -538,7 +546,7 @@ final class NotchFleet {
         let controller = NotchWindowController()
         controller.assignedScreen = screen
         controller.displayPreference = displayPreference
-        controller.foldsForFullScreen = foldsForFullScreen
+        controller.autoHideMode = autoHideMode
         controller.model.edge = edge
         controller.model.alongOffset = alongOffset
         // Set before `show()`, so a display plugged in later builds its panel

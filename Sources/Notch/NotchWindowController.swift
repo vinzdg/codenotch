@@ -140,15 +140,67 @@ final class NotchWindowController {
         return value
     }
 
-    /// Whether a frontmost full-screen app may fold the notch at all. A
-    /// setting rather than a rule: on a screen kept full-screen all day the
-    /// fold reads as the notch refusing to stay put, not as it tidying up.
-    var foldsForFullScreen = true
+    /// Determines whether an active application window overlaps this notch's frame on the screen edge.
+    /// Default implementation queries WindowServer and NSWorkspace; overridable for testing.
+    lazy var isWindowOverlapActive: () -> Bool = { [weak self] in
+        guard let self, let panel = self.panel else { return false }
+        let screen = self.currentScreen()
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? (screen?.frame.height ?? 0)
+        let bounds = self.expandedNotchScreenBounds(primaryScreenHeight: primaryHeight)
+        return FullScreenDetector.isWindowOverlapping(notchBounds: bounds, on: screen)
+    }
 
-    /// When a full-screen app is active on the current space, auto-folds the notch.
-    /// When returning to a desktop space with `isAlwaysOn`, restores the unfolded state.
+    /// When the notch folds away automatically.
+    var autoHideMode: AutoHideMode = .onFullscreen
+
+    /// Whether a frontmost full-screen app may fold the notch at all.
+    /// Backward-compatible proxy for `autoHideMode`.
+    var foldsForFullScreen: Bool {
+        get { autoHideMode != .never }
+        set { autoHideMode = newValue ? .onFullscreen : .never }
+    }
+
+    /// Whether the notch should fold away for the currently active app or window.
+    var shouldFoldForActiveAppOrWindow: Bool {
+        switch autoHideMode {
+        case .never:
+            return false
+        case .onFullscreen:
+            return isFullScreenActive()
+        case .onOverlap:
+            return isFullScreenActive() || isWindowOverlapActive()
+        }
+    }
+
+    /// The expanded notch body rect in panel coordinates.
+    var expandedNotchRect: CGRect {
+        let depth = NotchLayout.bodyDepth(for: model.edge) * model.sizeScale
+        return placement.rect(
+            along: model.slack,
+            across: 0,
+            length: model.shapeLength * model.sizeScale,
+            depth: depth
+        )
+    }
+
+    /// The bounding rect of the expanded notch on the screen edge, in CoreGraphics coordinates
+    /// (origin at top-left of primary display).
+    func expandedNotchScreenBounds(primaryScreenHeight: CGFloat) -> CGRect {
+        guard let panel else { return .zero }
+        let rect = expandedNotchRect
+        let panelCGY = primaryScreenHeight - panel.frame.maxY
+        return CGRect(
+            x: panel.frame.minX + rect.minX,
+            y: panelCGY + rect.minY,
+            width: rect.width,
+            height: rect.height
+        )
+    }
+
+    /// When a full-screen app or overlapping window is active on the current space, auto-folds the notch.
+    /// When returning to a non-overlapping desktop space with `isAlwaysOn`, restores the unfolded state.
     func handleActiveSpaceOrAppChange() {
-        if foldsForFullScreen && isFullScreenActive() && !model.isPinned {
+        if shouldFoldForActiveAppOrWindow && !model.isPinned {
             if let panel {
                 let local = localCursor(in: panel.frame)
                 let overTooltip = model.hoveredIndex
@@ -182,18 +234,21 @@ final class NotchWindowController {
     }
 
     /// Re-evaluated on the spot rather than on the next cursor poll, so the
-    /// notch answers the setting in the same beat: switched off under a
-    /// frontmost full-screen app, an always-on notch comes straight back.
-    func apply(foldsForFullScreen: Bool) {
-        self.foldsForFullScreen = foldsForFullScreen
-        if !foldsForFullScreen {
-            // A fold already in flight captured ignoreAlwaysOn and would land
-            // once more against an always-on notch, even as the setting that
-            // caused it is being switched off.
+    /// notch answers the setting in the same beat.
+    func apply(autoHideMode: AutoHideMode) {
+        self.autoHideMode = autoHideMode
+        if autoHideMode == .never {
             foldWork?.cancel()
             foldWork = nil
         }
         handleActiveSpaceOrAppChange()
+    }
+
+    /// Re-evaluated on the spot rather than on the next cursor poll, so the
+    /// notch answers the setting in the same beat: switched off under a
+    /// frontmost full-screen app, an always-on notch comes straight back.
+    func apply(foldsForFullScreen: Bool) {
+        apply(autoHideMode: foldsForFullScreen ? .onFullscreen : .never)
     }
 
     func show() {
@@ -1346,7 +1401,7 @@ final class NotchWindowController {
         // "Always show" under a full-screen app while the other path keeps
         // restoring it — the notch ends up folding on every poll.
         setExpanded(geometry.liveRect(gripRevealed: gripRevealed).contains(local) || overTooltip,
-                    ignoreAlwaysOn: foldsForFullScreen && isFullScreenActive())
+                    ignoreAlwaysOn: shouldFoldForActiveAppOrWindow)
         // Opening calls onLook, which may change content, scale or placement
         // synchronously. Never carry the folded evaluation across that call.
         if !wasExpanded { geometry = cursorGeometry }

@@ -26,11 +26,14 @@ struct ThresholdAlert: Equatable {
 @MainActor
 final class ThresholdNotifier {
     private var crossed: [String: Int] = [:]
+    private let warningThreshold: () -> Int
     private let isMuted: (String) -> Bool
     private let deliver: (ThresholdAlert) -> Void
 
-    init(isMuted: @escaping (String) -> Bool = { _ in false },
+    init(warningThreshold: @escaping () -> Int = { 80 },
+         isMuted: @escaping (String) -> Bool = { _ in false },
          deliver: @escaping (ThresholdAlert) -> Void = { _ in }) {
+        self.warningThreshold = warningThreshold
         self.isMuted = isMuted
         self.deliver = deliver
     }
@@ -53,7 +56,8 @@ final class ThresholdNotifier {
         }
         guard let fraction = snapshot.usedFraction else { return }
         let percent = fraction * 100
-        let level = percent >= 100 ? 100 : percent >= 80 ? 80 : 0
+        let warn = max(1, min(99, warningThreshold()))
+        let level = percent >= 100 ? 100 : percent >= Double(warn) ? warn : 0
 
         // The first reading only records. Every provider arrives with no
         // history when Codenotch launches, and after a restart that reading is
@@ -67,7 +71,8 @@ final class ThresholdNotifier {
         guard level > previous, !isMuted(snapshot.id) else { return }
 
         guard let headline = snapshot.headline else { return }
-        for threshold in [80, 100] where threshold > previous && threshold <= level {
+        let thresholds = [warn, 100].sorted()
+        for threshold in thresholds where threshold > previous && threshold <= level {
             deliver(ThresholdAlert(
                 threshold: threshold,
                 providerID: snapshot.id,

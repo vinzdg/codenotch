@@ -120,19 +120,17 @@ clean:
 #
 # One-time setup, which you have to run yourself because it takes a password:
 #
-#   xcrun notarytool store-credentials UsageNotch \
-#       --apple-id <your-apple-id> --team-id 6WFPL8B9FB --password <app-specific-password>
+#   xcrun notarytool store-credentials Codenotch \
+#       --apple-id <your-apple-id> --team-id 6WFPL8B9FB
 #
 # The app-specific password comes from appleid.apple.com → Sign-In and Security
 # → App-Specific Passwords. Not your Apple ID password.
 
 RELEASE_DIR := build/release
 APP_NAME    := Codenotch
-# The label of the stored notarytool credential in the login keychain, not
-# anything to do with the app's name — it was created before the rename and
-# renaming the variable is what broke `make release` after it. Recreating it
-# needs an app-specific password, so the label simply stays as it is.
-NOTARY_PROFILE := UsageNotch
+# The label of the stored notarytool credential in the login keychain.
+# Defaults to Codenotch (matching TASKS.md); can be overridden if using legacy UsageNotch.
+NOTARY_PROFILE ?= Codenotch
 DMG := $(RELEASE_DIR)/$(APP_NAME).dmg
 
 .PHONY: archive dmg notarize release verify-release publish

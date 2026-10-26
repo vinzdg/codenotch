@@ -69,25 +69,14 @@ enum FullScreenDetector {
             safeTop = 0
         }
 
-        if let windowInfoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
-            var extractedWindows: [(pid: pid_t, layer: Int, bounds: CGRect)] = []
-            for info in windowInfoList {
-                guard let pid = info[kCGWindowOwnerPID as String] as? pid_t,
-                      let layer = info[kCGWindowLayer as String] as? Int,
-                      let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
-                      let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary)
-                else { continue }
-                extractedWindows.append((pid: pid, layer: layer, bounds: bounds))
-            }
-
-            if isFullScreen(
-                screenBounds: cgScreenBounds,
-                frontmostPID: frontApp.processIdentifier,
-                windows: extractedWindows,
-                safeAreaTopInset: safeTop
-            ) {
-                return true
-            }
+        let extractedWindows = extractWindows()
+        if isFullScreen(
+            screenBounds: cgScreenBounds,
+            frontmostPID: frontApp.processIdentifier,
+            windows: extractedWindows,
+            safeAreaTopInset: safeTop
+        ) {
+            return true
         }
 
         // Supplementary check: on a full-screen Space without camera notch,
@@ -99,5 +88,58 @@ enum FullScreenDetector {
         }
 
         return false
+    }
+
+    /// Pure function checking whether any on-screen layer 0 window belonging to `frontmostPID`
+    /// overlaps the given `notchBounds` (in CoreGraphics coordinates).
+    static func isWindowOverlapping(
+        notchBounds: CGRect,
+        frontmostPID: pid_t,
+        windows: [(pid: pid_t, layer: Int, bounds: CGRect)]
+    ) -> Bool {
+        for window in windows {
+            guard window.pid == frontmostPID, window.layer == 0 else { continue }
+            // Ignore windows smaller than typical interactive application windows
+            guard window.bounds.width >= 20, window.bounds.height >= 20 else { continue }
+            let intersection = window.bounds.intersection(notchBounds)
+            if !intersection.isNull && intersection.width > 1 && intersection.height > 1 {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Queries WindowServer and NSWorkspace to determine if an active (frontmost) window
+    /// overlaps the given notch bounds (in CoreGraphics coordinates).
+    static func isWindowOverlapping(
+        notchBounds: CGRect,
+        on screen: NSScreen? = NSScreen.main
+    ) -> Bool {
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return false }
+        guard frontApp.bundleIdentifier != Bundle.main.bundleIdentifier else { return false }
+
+        let extractedWindows = extractWindows()
+        return isWindowOverlapping(
+            notchBounds: notchBounds,
+            frontmostPID: frontApp.processIdentifier,
+            windows: extractedWindows
+        )
+    }
+
+    /// Extracts on-screen, non-desktop layer 0 windows from the WindowServer list.
+    static func extractWindows() -> [(pid: pid_t, layer: Int, bounds: CGRect)] {
+        guard let windowInfoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return []
+        }
+        var extractedWindows: [(pid: pid_t, layer: Int, bounds: CGRect)] = []
+        for info in windowInfoList {
+            guard let pid = info[kCGWindowOwnerPID as String] as? pid_t,
+                  let layer = info[kCGWindowLayer as String] as? Int,
+                  let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary)
+            else { continue }
+            extractedWindows.append((pid: pid, layer: layer, bounds: bounds))
+        }
+        return extractedWindows
     }
 }
