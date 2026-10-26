@@ -351,10 +351,14 @@ pub fn probe() -> String {
         Some(p) => format!("sidecar {}", p.display()),
         None => "sidecar not installed (see qoder-sdk in %APPDATA%\\codenotch)".into(),
     };
-    let node = Command::new(node_program())
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+    let mut node_cmd = Command::new(node_program());
+    node_cmd.arg("--version").stdout(Stdio::null()).stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        node_cmd.creation_flags(0x0800_0000);
+    }
+    let node = node_cmd
         .spawn()
         .map(|_| "node ok")
         .unwrap_or("node not found");

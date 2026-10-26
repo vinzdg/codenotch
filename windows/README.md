@@ -17,6 +17,20 @@ the standalone CLI must be installed. Existing profiles in that layout are detec
 Pausing monitoring retains the tool's sign-in. Authentication, cached readings and
 retry deadlines stay separate, including after rate limiting or reconnection.
 
+## Hidden background execution and terminal suppression
+
+On Windows 11 with modern default terminal emulators (such as Windows Terminal or OpenConsole), launching console executables (`powershell.exe`, `agy.exe`, `codex.exe`, `node.exe`, `gh.exe`, `claude -p`) from a GUI application without an attached console can cause Windows Terminal to intercept console allocation and flash a terminal window or tab on screen during periodic background polling.
+
+Codenotch establishes a permanent hidden console session at process initialization (`AllocConsole` followed immediately by `ShowWindow(GetConsoleWindow(), SW_HIDE)` and a custom `SetConsoleCtrlHandler` that ignores console events). All background child processes inherit this pre-allocated hidden console session alongside `CREATE_NO_WINDOW`, preventing any terminal window from flashing or popping up on screen.
+
+## Anti-aliasing and border controls
+
+Settings → Appearance provides separate controls for **Borders** (`off`, `subpixel`, `vector`, `ssaa`, `ssaa8x`, `ultra`; default `ssaa` / SSAA 4x) and **Content** (`off`, `subpixel`, `ssaa`, `ssaa8x`, `ultra`; default `ssaa` / SSAA 4x), alongside **Border thickness** (`0.0 px` to `3.0 px`, default `2.5 px`), **Border opacity** (default `15%`), and **Border colour** (default `#ffffff`).
+
+Anti-aliasing smoothing applies consistently across the entire interface:
+- **Borders**: Tunes the vector pill contour (`#pillContourStroke`), fillets, resting arcs (`.h-rest`), handle disc borders (`.h-disc`), and drag handle dot outlines (`#grip .dot`). Vector SVG mode renders an open vector contour (`#pillContourStroke`) so that the edge where the notch emerges from the screen bezel remains completely unbordered. Subpixel mode adds subpixel edge feathering and precision stroke antialiasing.
+- **Content / Lower controls**: Smooths internal elements including the brand logos (`.glyph svg`), provider ring arcs (`.ringwrap > svg`), percentage indicators (`.pct`), settings gear glyph (`.h-glyph`), the six drag handle dots (`#grip`, `#gripDots`, `.dot`), liquid handle transitions (`#orbGoo`), and hover card elements. Supports selectable intensity from standard Subpixel and SSAA 4x up to aggressive **SSAA 8x** (`#ssaa8x`) and **Ultra** (`#ssaaUltra`), thoroughly dissolving stair-stepping and jagged edges across intricate vector marks on 1080p displays.
+
 ## Taskbar display
 
 Settings → Appearance → Taskbar can place compact usage indicators in free space
@@ -31,8 +45,8 @@ provider calls that bucket `primary`. Claude Enterprise accounts publishing only
 spend limit display that limit. Activity is assigned only to an identified
 account; unknown ownership never animates a different account's indicator.
 
-Size, theme, warning thresholds, colour transition, remaining/used display and weekly-ring position/style
-reuse the existing appearance settings. The weekly option controls an additional
+Size, theme, anti-aliasing (independent settings for `Borders` and `Content`), border styling (thickness `0.0 px` to `3.0 px`, opacity, and colour with the screen-touching edge left unbordered), warning thresholds, colour transition, remaining/used display and weekly-ring position/style
+reuse the existing appearance settings. On 1080p displays (`1.0x` DPI), Settings → Appearance allows separately tuning anti-aliasing for **Borders** (`off`, `subpixel`, `vector`, `ssaa`) and **Content** (`off`, `subpixel`, `ssaa`). **Border thickness** scales or hides (`0.0 px` up to `3.0 px`) the outline around the notch pill, fillets, folded strip, and rings, alongside customizable border colour and opacity. The edge where the notch emerges from the screen border remains unbordered. The weekly option controls an additional
 ring; an account with only a weekly quota keeps its one primary ring. Floating-notch
 visibility, adaptive pill, edge and screen controls are disabled in taskbar mode.
 Changes apply while the app runs. Large indicators are bounded by the taskbar height
@@ -60,9 +74,10 @@ custom shells, vertical taskbars and secondary taskbars are not supported.
 | **GitHub Copilot** | The GitHub CLI's own session, read only: `GH_TOKEN`/`GITHUB_TOKEN` when set, else `oauth_token` in `%APPDATA%\GitHub CLI\hosts.yml`, else `gh auth token` run hidden (the token may live in Credential Manager) → `api.github.com/copilot_internal/user`, the quota endpoint GitHub's own editors ask | Premium requests on the ring, with chat requests and completions on the hover card; all reset on the first of the month. An `unlimited` quota, or one with no entitlement, draws nothing. The account and plan are named on the card. Sign in with `gh auth login`; Codenotch never starts a sign-in itself. |
 | **OpenCode** | OpenCode's own sign-in, read only: the `opencode-go` key in `~/.local/share/opencode/auth.json` → `opencode.ai/zen/go/v1/usage`, or — since OpenCode 1.18 — the OAuth sign-in in `opencode.db` (`credential` table) → `opencode.ai/inference/go/v1/usage` | The Go plan's 5-hour, weekly and monthly windows. A sign-in without a Go plan shows "No OpenCode Go subscription" instead of a ring; Zen pay-as-you-go credit has no balance or usage API, so it is not shown. Working-state and per-session model/cost come from the local `opencode.db` `session_v2` table (read-only, WAL-aware) — see OpenCode Desktop sessions below. |
 | **Command Code** | The Command Code app's `~/.commandcode/auth.json` key, or `COMMAND_CODE_API_KEY`, read only; its official `/alpha` billing endpoints | GOAT plan monthly spend on the ring, with 5-hour and weekly limits on the hover card. Sign in through the Command Code app. |
-| **Antigravity** | Official `agy` CLI `/usage` print when installed; otherwise the existing local `language_server` bridge, Google Cloud Code API, or transcript model count | Official four quota rows (Gemini & Claude/GPT 5h/weekly) without running the full IDE. When CLI is absent, falls back to legacy local bridge/API. |
+| **Antigravity** | Official `agy` CLI `/usage` print when installed (polled in the background via hidden pipes without console window flashes); otherwise the existing local `language_server` bridge, Google Cloud Code API, or transcript model count | Official quota rows for `Gemini Models` (5h + weekly) and `Claude, GPT and Argon models` (`Modelos Claude, GPT y Argon`, including 5h, weekly, and `Argon`) without running the full IDE. Total usage percentage is calculated proportionally as 25% Argon, 25% Claude and GPT (5h), and 50% Gemini Models (5h). When CLI is absent, falls back to legacy local bridge/API. |
 | **OpenCode Go** | `GET https://opencode.ai/zen/go/v1/usage` | Reads the `opencode-go` key in OpenCode's `auth.json`, or `OPENCODE_APIKEY` when set. The environment key takes precedence. Shows rolling 5-hour, weekly and monthly usage. This is a separate subscription from the Z.ai GLM Coding Plan; its key must not be sent to Z.ai's monitor endpoint. |
 | **Qoder** | `getUsageInfo()` on the account plane of the official [`@qoder-ai/qoder-agent-sdk`](https://docs.qoder.com/cli/sdk/overview), through the bundled `qoder-usage.cjs` sidecar, reusing the local signed-in `qodercli` session (`qodercliAuth()`) | Plan usage ring (the account's own total where the plan bucket is empty) with the renewal date (`expiresAt`), add-on and organization rows when the account carries them, credits left in the card note. The read is a documented account query: no inference is started and no credits are spent to ask. Qoder Desktop's own DPAPI vault is never opened or decrypted. |
+| **DeepSeek Harness** | `GET https://api.deepseek.com/user/balance` using `DEEPSEEK_API_KEY` from `~/.dsh/.credentials.yaml` (or `DEEPSEEK_API_KEY` env var), combined with cumulative session transcripts in `~/.dsh/sessions` | Prepaid credit usage (`Credits`) scaled against total funded amount (`spent + remaining`), showing 100% used when credits are depleted. Supports three selectable note formats in Settings → Accounts (`remaining`, `spent`, `compact`) with full localization and native SVG icon rendering on the taskbar strip. |
 
 Providers that are not installed simply do not get a cell.
 
@@ -164,8 +179,8 @@ this display rule does not bypass HTTP 403 or change OAuth, polling or backoff.
 ### Antigravity
 
 - **Official CLI (Preferred)**: When the official Antigravity CLI (`agy.exe`) is installed (`%LOCALAPPDATA%\agy\bin\agy.exe` or on `PATH`) and signed in, Codenotch reads official quotas directly without keeping the full IDE running.
-- **Execution**: Runs the official CLI in a hidden Windows pseudo-console, with a 70-second timeout and cleanup of its process tree. It does not need PowerShell scripts or a separate service.
-- **Refresh**: Checks at startup and on hover/explicit request when readings are at least five minutes old; failed attempts are also limited to once per five minutes. It keeps previous readings on failure, without switching to legacy APIs. The CLI is not launched periodically while idle.
+- **Execution**: Runs the official CLI in a hidden child process (`CREATE_NO_WINDOW`, `SW_HIDE`, redirected pipes inside a Windows `JobObject` with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) with a 70-second timeout and cleanup of its process tree. Because `CREATE_NO_WINDOW` creates a hidden console inherited by child processes (including stdio MCP servers), no terminal window ever flashes on screen.
+- **Refresh**: Polls periodically in a background thread every five minutes (`CLI_TTL`) and on explicit refresh requests, so hovering over the widget reads the cached state in memory immediately without spawning a process on hover. It keeps previous readings on failure, without switching to legacy APIs.
 - **Fallback**: When the official CLI is not installed, Codenotch preserves the legacy local bridge (`language_server`), Credential Manager, and transcript model turn counting to maintain compatibility with existing installations.
 - **Official CLI Reference**: Standalone `/usage` printing is described in the [official Antigravity CLI documentation](https://www.antigravity.google/docs/cli/headless). Note: no categorical Terms of Service guarantee is made.
 
@@ -228,6 +243,22 @@ sessions that are not waiting.
   consumption sits in the add-on pool, so an empty bucket is skipped rather than drawn as a full
   ring. `expiresAt` also arrives as a far-future sentinel (year 9999) on plans that do not renew;
   anything past 2100 is read as no renewal date.
+
+### DeepSeek Harness
+
+- **Backend (`src/deepseek_harness.rs`, `src/config.rs`, `src/main.rs`, `src/taskbar_model.rs`, `src/taskbar_render.rs`)**:
+  - Reads `DEEPSEEK_API_KEY` from `~/.dsh/.credentials.yaml` (or `DEEPSEEK_API_KEY` environment variable) and queries `GET https://api.deepseek.com/user/balance` for `is_available` and `total_balance` (USD).
+  - Scans `~/.dsh/sessions/**/session.v4.jsonl.zstd` with per-file modification-time caching (`SESSION_CACHE`) to compute cumulative token usage and cost across all sessions.
+  - Computes `funded = (spent + remaining).max(2.00)` so top-ups above `$2.00` USD scale automatically, and reports `used = 1.0` (100% used / 0% remaining) when `is_available == false` or `remaining <= 0.0`.
+  - Persists `deepseek_display` in `Config` (`"remaining"` by default, `"spent"`, or `"compact"`) with Tauri commands `get_deepseek_display` and `set_deepseek_display`.
+  - Registers `glyphs/deepseek.svg` (along with `commandcode.svg` and `qoder.svg`) in `taskbar_render.rs` `LOGOS` so the native DirectComposition taskbar strip (`Left side` and `Before system tray`) renders the DeepSeek SVG logo instead of a fallback letter.
+- **Frontend (`ui/notch.html`, `ui/taskbar.html`, `ui/settings.html`)**:
+  - Selects the `credits` window (with fallback to `today`) in `notch.html` and `taskbar.html`, and hides the reset label for DeepSeek prepaid credits in taskbar details.
+  - Adds the **Credit display** selector under the DeepSeek Harness row in `settings.html` (`Accounts` tab) to switch between:
+    - `remaining`: `$0.00 remaining of $2.00 · 39.1M tokens`
+    - `spent`: `$2.00 of $2.00 used · $0.00 left · 39.1M tokens`
+    - `compact`: `$2.00 / $2.00 USD ($0.00 left)`
+  - Provides translations (`TEXT`, `PATTERNS`, `STATIC_TEXT`, and `taskbar.html` patterns) for `en`, `es`, `pt-BR`, `ko`, `ru`, `uk`, `zh`, `zh-Hant`, and `ja`.
 
 
 ## Install / build

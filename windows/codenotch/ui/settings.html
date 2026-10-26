@@ -83,6 +83,12 @@
   .item.cap{min-height:0;padding:8px 12px;font-size:12px;color:var(--text2);display:block}
   .item .hint{font-size:12px;color:var(--text2)}
   .value{color:var(--text2)}
+  .item.aa-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:center}
+  .aa-col{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+  .aa-col > label{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .aa-col > select{margin-left:auto;min-width:110px}
+  .item.cap.aa-cap-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:6px 12px 10px}
+  .aa-cap-col{font-size:11.5px;color:var(--text2);line-height:1.35}
 
   /* ---- account rows ---- */
   .acct{padding:9px 12px}
@@ -195,6 +201,37 @@
           <div class="item cap">The figure under each ring reads what is left — 87% instead of 13% used, the same number the card prints beside it. The rings themselves still fill by what is spent.</div>
           <div class="item"><span>Show usage pace</span><button class="switch" id="sw-pace" role="switch" aria-checked="false" aria-label="Show usage pace"></button></div>
           <div class="item cap">The card adds how far a timed window is ahead of its clock — 12% deficit means 12 points more spent than the time gone would allow.</div>
+          <div class="item aa-row">
+            <div class="aa-col">
+              <label for="select-antialias-border">Borders anti-aliasing</label>
+              <select id="select-antialias-border" aria-label="Borders anti-aliasing">
+                <option value="off">Off</option>
+                <option value="subpixel">Subpixel</option>
+                <option value="vector">Vector SVG</option>
+                <option value="ssaa">SSAA 4x</option>
+                <option value="ssaa8x">SSAA 8x</option>
+                <option value="ultra">Ultra</option>
+              </select>
+            </div>
+            <div class="aa-col">
+              <label for="select-antialias-internal">Content anti-aliasing</label>
+              <select id="select-antialias-internal" aria-label="Content anti-aliasing">
+                <option value="off">Off</option>
+                <option value="subpixel">Subpixel</option>
+                <option value="ssaa">SSAA 4x</option>
+                <option value="ssaa8x">SSAA 8x</option>
+                <option value="ultra">Ultra</option>
+              </select>
+            </div>
+          </div>
+          <div class="item cap aa-cap-row">
+            <div id="cap-antialias-border" class="aa-cap-col" data-dynamic></div>
+            <div id="cap-antialias-internal" class="aa-cap-col" data-dynamic></div>
+          </div>
+          <div class="item slider"><span>Border thickness</span><span class="value" id="val-border" data-dynamic>2.5 px</span><input type="range" class="range" id="range-border" min="0" max="30" step="1" aria-label="Border thickness"></div>
+          <div class="item slider"><span>Border opacity</span><span class="value" id="val-border-opacity" data-dynamic>15%</span><input type="range" class="range" id="range-border-opacity" min="0" max="100" step="1" aria-label="Border opacity"></div>
+          <div class="item"><span>Border colour</span><input type="color" id="picker-border-color" value="#ffffff" aria-label="Border colour" style="width:44px;height:24px;border:none;background:none;cursor:pointer;padding:0"></div>
+          <div class="item cap" id="cap-border-settings">Controls edge thickness (0px – 3px), opacity and colour. The screen edge where the notch emerges remains unbordered.</div>
           <fieldset class="notch-only" data-notch-only>
           <div class="item"><span>Edge</span><span class="seg" id="seg-edge"><button data-v="left">Left</button><button data-v="right">Right</button><button data-v="top">Top</button><button data-v="bottom">Bottom</button></span></div>
           <div class="item cap" id="cap-edge" data-dynamic></div>
@@ -340,7 +377,8 @@ const PT_BR_STATIC = {
   '5-Hour Limit':'Limite de 5 horas',
   'Weekly Limit':'Limite semanal',
   'Gemini Models':'Modelos Gemini',
-  'Claude and GPT models':'Modelos Claude e GPT',
+  'Claude and GPT models':'Modelos Claude, GPT e Argon',
+  'Claude, GPT and Argon models':'Modelos Claude, GPT e Argon',
   'Let Claude Code notify Codenotch':'Permitir que o Claude Code notifique o Codenotch',
   'Turning this on adds a few lines to your Claude Code settings file so that Claude Code sends Codenotch a short message when a session starts, when it is working, when it is waiting for your answer, and when it finishes. That is what makes the ring spin and the amber ring pulse.':'Ao ativar esta opção, algumas linhas são adicionadas ao arquivo de configurações do Claude Code para que ele envie uma mensagem curta ao Codenotch quando uma sessão começa, quando está trabalhando, quando aguarda sua resposta e quando termina. Isso faz o anel girar e o anel âmbar pulsar.',
   'Notch':'Notch',
@@ -443,7 +481,7 @@ const RU_STATIC = {
   'One provider always stays ticked, so the pill is never empty.':'Хотя бы один провайдер всегда выбран, поэтому панель не бывает пустой.',
   'At least one provider stays on the notch':'На панели должен остаться хотя бы один провайдер',
   'Notch reads':'Показания панели', 'Model data':'Данные модели', 'Automatic':'Автоматически', '5-Hour Limit':'Лимит на 5 часов', 'Weekly Limit':'Недельный лимит',
-  'Gemini Models':'Модели Gemini', 'Claude and GPT models':'Модели Claude и GPT',
+  'Gemini Models':'Модели Gemini', 'Claude and GPT models':'Модели Claude, GPT и Argon', 'Claude, GPT and Argon models':'Модели Claude, GPT и Argon',
   'Let Claude Code notify Codenotch':'Разрешить Claude Code уведомлять Codenotch',
   'Turning this on adds a few lines to your Claude Code settings file so that Claude Code sends Codenotch a short message when a session starts, when it is working, when it is waiting for your answer, and when it finishes. That is what makes the ring spin and the amber ring pulse.':'При включении в файл настроек Claude Code добавляются строки, чтобы он сообщал Codenotch о начале работы, процессе, ожидании ответа и завершении сеанса. Благодаря этому кольцо вращается, а янтарное кольцо пульсирует.',
   'Notch':'Панель', 'Show':'Показывать', 'Always show':'Всегда показывать', 'Hide':'Скрыть',
@@ -531,7 +569,8 @@ const ZH_STATIC = {
   '5-Hour Limit':'5 小时额度',
   'Weekly Limit':'每周额度',
   'Gemini Models':'Gemini 模型',
-  'Claude and GPT models':'Claude 和 GPT 模型',
+  'Claude and GPT models':'Claude、GPT 和 Argon 模型',
+  'Claude, GPT and Argon models':'Claude、GPT 和 Argon 模型',
   'Let Claude Code notify Codenotch':'允许 Claude Code 通知 Codenotch',
   'Turning this on adds a few lines to your Claude Code settings file so that Claude Code sends Codenotch a short message when a session starts, when it is working, when it is waiting for your answer, and when it finishes. That is what makes the ring spin and the amber ring pulse.':'开启此选项会在你的 Claude Code 设置文件中添加几行代码，以便 Claude Code 在会话开始、处理中、等待你回答以及完成时向 Codenotch 发送简短消息。这就是圆环旋转和琥珀色圆环闪烁的原因。',
   'Notch':'刘海',
@@ -642,7 +681,8 @@ const ZH_HANT_STATIC = {
   '5-Hour Limit':'5 小時額度',
   'Weekly Limit':'每週額度',
   'Gemini Models':'Gemini 模型',
-  'Claude and GPT models':'Claude 和 GPT 模型',
+  'Claude and GPT models':'Claude、GPT 和 Argon 模型',
+  'Claude, GPT and Argon models':'Claude、GPT 和 Argon 模型',
   'Let Claude Code notify Codenotch':'允許 Claude Code 通知 Codenotch',
   'Turning this on adds a few lines to your Claude Code settings file so that Claude Code sends Codenotch a short message when a session starts, when it is working, when it is waiting for your answer, and when it finishes. That is what makes the ring spin and the amber ring pulse.':'開啟此選項會在你的 Claude Code 設定檔中加入幾行程式碼，以便 Claude Code 在工作階段開始、處理中、等待你回答以及完成時向 Codenotch 傳送簡短訊息。這就是圓環旋轉和琥珀色圓環閃爍的原因。',
   'Notch':'瀏海',
@@ -753,7 +793,8 @@ const JA_STATIC = {
   '5-Hour Limit':'5 時間の上限',
   'Weekly Limit':'週間の上限',
   'Gemini Models':'Gemini モデル',
-  'Claude and GPT models':'Claude と GPT のモデル',
+  'Claude and GPT models':'Claude・GPT・Argon のモデル',
+  'Claude, GPT and Argon models':'Claude・GPT・Argon のモデル',
   'Let Claude Code notify Codenotch':'Claude Code から Codenotch に通知を送信する',
   'Turning this on adds a few lines to your Claude Code settings file so that Claude Code sends Codenotch a short message when a session starts, when it is working, when it is waiting for your answer, and when it finishes. That is what makes the ring spin and the amber ring pulse.':'これをオンにすると、Claude Code の設定ファイルに数行が追加され、セッションの開始時、処理中、回答の待機中、および終了時に Claude Code が Codenotch に短いメッセージを送信するようになります。これにより、リングが回転したり、琥珀色のリングが点滅したりします。',
   'Notch':'ノッチ',
@@ -851,7 +892,8 @@ const KO_STATIC = {
   '5-Hour Limit':'5시간 제한',
   'Weekly Limit':'주간 제한',
   'Gemini Models':'Gemini 모델',
-  'Claude and GPT models':'Claude 및 GPT 모델',
+  'Claude and GPT models':'Claude, GPT 및 Argon 모델',
+  'Claude, GPT and Argon models':'Claude, GPT 및 Argon 모델',
   'Let Claude Code notify Codenotch':'Claude Code가 Codenotch에 알리도록 허용',
   'Turning this on adds a few lines to your Claude Code settings file so that Claude Code sends Codenotch a short message when a session starts, when it is working, when it is waiting for your answer, and when it finishes. That is what makes the ring spin and the amber ring pulse.':'이것을 켜면 Claude Code 설정 파일에 몇 줄이 추가되어 세션이 시작될 때, 작업 중일 때, 사용자의 응답을 기다릴 때, 그리고 완료될 때 Claude Code가 Codenotch에 짧은 메시지를 보냅니다. 이것이 링을 회전하게 하고 주황색 링을 깜박이게 하는 원리입니다.',
   'Notch':'노치',
@@ -964,7 +1006,8 @@ const UK_STATIC = {
   '5-Hour Limit':'Ліміт 5 годин',
   'Weekly Limit':'Тижневий ліміт',
   'Gemini Models':'Моделі Gemini',
-  'Claude and GPT models':'Моделі Claude і GPT',
+  'Claude and GPT models':'Моделі Claude, GPT і Argon',
+  'Claude, GPT and Argon models':'Моделі Claude, GPT і Argon',
   'Let Claude Code notify Codenotch':'Дозволити Claude Code сповіщати Codenotch',
   'Turning this on adds a few lines to your Claude Code settings file so that Claude Code sends Codenotch a short message when a session starts, when it is working, when it is waiting for your answer, and when it finishes. That is what makes the ring spin and the amber ring pulse.':'Коли це ввімкнено, у файл налаштувань Claude Code додається кілька рядків, щоб він надсилав Codenotch коротке повідомлення на початку сесії, під час роботи, коли чекає на вашу відповідь і коли завершує. Саме завдяки цьому кільце обертається, а бурштинове пульсує.',
   'Notch':'Виріз',
@@ -1079,7 +1122,8 @@ const ES_STATIC = {
   '5-Hour Limit':'Límite de 5 horas',
   'Weekly Limit':'Límite semanal',
   'Gemini Models':'Modelos Gemini',
-  'Claude and GPT models':'Modelos Claude y GPT',
+  'Claude and GPT models':'Modelos Claude, GPT y Argon',
+  'Claude, GPT and Argon models':'Modelos Claude, GPT y Argon',
   'Let Claude Code notify Codenotch':'Dejar que Claude Code avise a Codenotch',
   'Turning this on adds a few lines to your Claude Code settings file so that Claude Code sends Codenotch a short message when a session starts, when it is working, when it is waiting for your answer, and when it finishes. That is what makes the ring spin and the amber ring pulse.':'Al activarlo se añaden unas líneas al archivo de ajustes de Claude Code para que envíe a Codenotch un mensaje breve cuando una sesión empieza, cuando está trabajando, cuando espera tu respuesta y cuando termina. Eso es lo que hace girar el anillo y latir el anillo ámbar.',
   'Notch':'Notch',
@@ -1168,6 +1212,48 @@ const RESET_COPY = {
 const RESET_KEYS = ['Reset notifications', 'Show a card when Claude, Codex, Cursor or another active provider renews a window after at least 10% use. The card also appears while the notch is hidden.', 'Notification sound', 'Preview the reset card', 'Preview card', 'Notifications'];
 for(const [lang, values] of Object.entries(RESET_COPY)){
   RESET_KEYS.forEach((key, index) => { STATIC_TEXT[lang][key] = values[index]; });
+}
+const DEEPSEEK_COPY = {
+  'pt-BR':['Formato de créditos','Saldo restante e tokens','Usado, restante e tokens','Compacto (apenas USD)'],
+  ru:['Отображение кредитов','Остаток и токены','Потрачено, остаток и токены','Компактно (только USD)'],
+  zh:['额度显示格式','剩余余额与词元','已用、剩余与词元','紧凑（仅 USD）'],
+  'zh-Hant':['額度顯示格式','剩餘餘額與詞元','已用、剩餘與詞元','精簡（僅 USD）'],
+  ja:['クレジット表示形式','残高とトークン','使用済み・残高・トークン','コンパクト（USD のみ）'],
+  ko:['크레딧 표시 형식','남은 잔액 및 토큰','사용량, 잔액 및 토큰','간결하게 (USD만)'],
+  es:['Formato de créditos','Saldo restante y tokens','Usado, restante y tokens','Compacto (solo USD)'],
+  uk:['Відображення кредитів','Залишок і токени','Витрачено, залишок і токени','Компактно (лише USD)'],
+};
+const DEEPSEEK_KEYS = ['Credit display', 'Remaining balance & tokens', 'Spent, remaining & tokens', 'Compact (USD only)'];
+for(const [lang, values] of Object.entries(DEEPSEEK_COPY)){
+  DEEPSEEK_KEYS.forEach((key, index) => { STATIC_TEXT[lang][key] = values[index]; });
+}
+const AA_COPY = {
+  'pt-BR':['Suavização de bordas (Anti-aliasing)','Suavização interna (conteúdo)','Subpixel','SVG vetorial','SSAA 4x','SSAA 8x','Ultra','Espessura da borda','Opacidade da borda','Cor da borda','Controla espessura (0px a 3px), opacidade e cor. O lado encostado na tela permanece sem borda.','Renderização padrão de bordas sem suavização de contorno.','Suaviza curvas de canto em nível de subpixel (SSAA 2x na barra).','Substitui cantos CSS por contorno vetorial SVG contínuo sem degraus.','Suavização SSAA 4x de bordas para telas 1080p: contorno vetorial SVG com filtro + SSAA 4x na barra.','Suavização SSAA 8x agressiva de bordas com difusão subpixel + SSAA 8x na barra.','Máxima suavização ultra de bordas com filtragem multisample.','Renderização padrão de conteúdo para anéis, ícones e texto.','Ativa suavização subpixel e precisão geométrica em anéis e ícones.','Filtro de suavização SSAA 4x em anéis, símbolos e cartões para telas 1080p.','Suavização agressiva SSAA 8x: elimina serrilhado em diagonais e logotipos.','Suavização ultra agressiva 16x: máxima eliminação de serrilhado e preservação de contraste.'],
+  ru:['Сглаживание краёв (Anti-aliasing)','Сглаживание содержимого','Субпиксельное','Векторный SVG','SSAA 4x','SSAA 8x','Ultra','Толщина контура','Прозрачность контура','Цвет контура','Управляет толщиной (0–3 px), прозрачностью и цветом. Сторона у края экрана остаётся без рамки.','Стандартная отрисовка контура без дополнительного сглаживания.','Сглаживает угловые кривые на субпиксельном уровне (SSAA 2x на панели).','Заменяет углы CSS единым векторным контуром SVG без ступенек.','Сглаживание краёв SSAA 4x для 1080p: векторный контур SVG с фильтром + SSAA 4x на панели.','Агрессивное сглаживание краёв SSAA 8x с субпиксельным размытием + SSAA 8x на панели.','Максимальное ультра-сглаживание контуров с мультисэмплингом.','Стандартная отрисовка содержимого колец, значков и текста.','Включает субпиксельное сглаживание и геометрическую точность колец и значков.','Фильтр SSAA 4x для колец, символов и карточек для экранов 1080p.','Агрессивное сглаживание SSAA 8x: устраняет лесенку на диагоналях и логотипах.','Ультра-агрессивное сглаживание 16x: максимальное сглаживание лесенки с сохранением чёткости.'],
+  zh:['边缘抗锯齿 (Anti-aliasing)','内容抗锯齿','亚像素','矢量 SVG','SSAA 4x','SSAA 8x','Ultra','边框粗细','边框不透明度','边框颜色','控制边框粗细（0px – 3px）、不透明度与颜色。贴合屏幕边缘一侧不绘制边框。','标准边框渲染，无额外平滑。','在亚像素级别平滑转角曲线（任务栏 2x SSAA）。','使用连续的 SVG 矢量轮廓替换 CSS 圆角以消除锯齿。','针对 1080p 屏幕的 SSAA 4x 边缘平滑：SVG 矢量轮廓加滤镜 + 任务栏 4x SSAA。','SSAA 8x 强力边缘平滑：增强亚像素羽化 + 任务栏 8x SSAA。','终极极致边缘多重采样平滑。','圆环、图标与文本的标准渲染。','在圆环与图标上启用亚像素抗锯齿与几何精度。','适用于 1080p 屏幕的圆环、符号与卡片 SSAA 4x 平滑滤镜。','SSAA 8x 强力平滑：消除 1080p 对角线和图标锯齿。','Ultra 极致 16x 平滑：最强抗锯齿与边缘对比度保护。'],
+  'zh-Hant':['邊緣抗鋸齒 (Anti-aliasing)','內容抗鋸齒','次像素','向量 SVG','SSAA 4x','SSAA 8x','Ultra','邊框粗細','邊框不透明度','邊框顏色','控制邊框粗細（0px – 3px）、不透明度與顏色。貼合螢幕邊緣一側不繪製邊框。','標準邊框渲染，無額外平滑。','在次像素層級平滑轉角曲線（工作列 2x SSAA）。','以連續的 SVG 向量輪廓取代 CSS 圓角以消除鋸齒。','針對 1080p 螢幕的 SSAA 4x 邊緣平滑：SVG 向量輪廓加濾鏡 + 工作列 4x SSAA。','SSAA 8x 強力邊緣平滑：增強次像素羽化 + 工作列 8x SSAA。','終極極致邊緣多重取樣平滑。','圓環、圖示與文字的標準渲染。','在圓環與圖示上啟用次像素抗鋸齒與幾何精度。','適用於 1080p 螢幕的圓環、符號與卡片 SSAA 4x 平滑濾鏡。','SSAA 8x 強力平滑：消除 1080p 對角線與圖示鋸齒。','Ultra 極致 16x 平滑：最強抗鋸齒與邊緣對比度保護。'],
+  ja:['枠線のアンチエイリアス','コンテンツのアンチエイリアス','サブピクセル','ベクター SVG','SSAA 4x','SSAA 8x','Ultra','枠線の太さ','枠線の不透明度','枠線の色','枠線の太さ (0px – 3px)、不透明度、色を調整します。画面に接する側は枠線なしを維持します。','追加のスムージングを行わない標準の輪郭描画。','サブピクセル単位で角の曲線を滑らかにします（タスクバー 2x SSAA）。','CSS の角を連続した SVG ベクター輪郭に置き換えてジャギーを解消します。','1080p 画面向け SSAA 4x 輪郭スムージング：SVG ベクター輪郭 + タスクバー 4x SSAA。','SSAA 8x 強力輪郭スムージング：サブピクセルぼかし強化 + タスクバー 8x SSAA。','マルチサンプルによる究極のウルトラ輪郭スムージング。','リング、アイコン、テキストの標準描画。','リングやアイコンにサブピクセルアンチエイリアスと幾何学的精度を適用します。','1080p 画面用のリング、シンボル、カード向け SSAA 4x スムージングフィルター。','SSAA 8x 強力スムージング：1080p の斜め線やロゴのジャギーを徹底解消。','Ultra 究極 16x スムージング：最高のジャギー除去とエッジコントラスト保持。'],
+  ko:['테두리 안티앨리어싱','내부 콘텐츠 안티앨리어싱','서브픽셀','벡터 SVG','SSAA 4x','SSAA 8x','Ultra','테두리 두께','테두리 불투명도','테두리 색상','테두리 두께(0px – 3px), 불투명도 및 색상을 제어합니다. 화면에 닿는 면에는 테두리가 없습니다.','윤곽선 다듬기 없는 표준 테두리 렌더링입니다.','모서리 곡선을 서브픽셀 단위로 부드럽게 다듬습니다 (작업 표시줄 2x SSAA).','CSS 모서리를 계단 현상 없는 연속 SVG 벡터 윤곽선으로 대체합니다.','1080p 화면을 위한 SSAA 4x 테두리 스무딩: SVG 벡터 윤곽선 + 작업 표시줄 4x SSAA。','SSAA 8x 강화 테두리 스무딩: 서브픽셀 페더링 강화 + 작업 표시줄 8x SSAA。','멀티샘플링을 통한 극한의 울트라 테두리 스무딩입니다.','링, 아이콘, 텍스트의 표준 렌더링입니다.','링과 아이콘에 서브픽셀 안티앨리어싱 및 기하학적 정밀도를 활성화합니다.','1080p 화면을 위한 링, 기호 및 카드용 SSAA 4x 스무딩 필터입니다.','SSAA 8x 강력 스무딩: 1080p 대각선 및 로고 계단 현상을 말끔히 제거합니다.','Ultra 극한 16x 스무딩: 최대 앤티앨리어싱 및 에지 대비 유지.'],
+  es:['Suavizado de bordes (Anti-aliasing)','Suavizado interno (resto de contenido)','Subpíxel','Vector SVG','SSAA 4x','SSAA 8x','Ultra','Grosor del borde','Transparencia del borde','Color del borde','Controla grosor (0px a 3px), opacidad y color. El borde donde la muesca sale de la pantalla se mantiene sin línea.','Renderizado estándar de bordes sin suavizado de contorno.','Suaviza las curvas de esquina a nivel subpíxel (SSAA 2x en barra de tareas).','Reemplaza las aletas radiales CSS por un contorno vectorial SVG continuo sin dientes de sierra.','Suavizado de bordes SSAA 4x para pantallas 1080p: contorno vectorial SVG con filtro de borde + SSAA 4x en barra.','Suavizado de bordes SSAA 8x agresivo con difuminado subpíxel mejorado + SSAA 8x en barra.','Máximo suavizado ultra de bordes con filtrado multisample.','Renderizado estándar del contenido interno para anillos, iconos y texto.','Activa suavizado subpíxel y precisión geométrica en anillos e iconos.','Filtro de suavizado SSAA 4x en anillos, símbolos y tarjetas para pantallas 1080p.','Suavizado agresivo SSAA 8x: elimina dientes de sierra en diagonales y logotipos para pantallas 1080p.','Suavizado ultra agresivo 16x: máxima eliminación de bordes dentados y preservación de contraste.'],
+  uk:['Згладжування країв (Anti-aliasing)','Згладжування вмісту','Субпіксельне','Векторний SVG','SSAA 4x','SSAA 8x','Ultra','Товщина контуру','Прозорість контуру','Колір контуру','Керує товщиною (0–3 px), прозорістю та кольором. Сторона біля краю екрана залишається без рамки.','Стандартне відмальовування контуру без додаткового згладжування.','Згладжує кутові криві на субпіксельному рівні (SSAA 2x на панелі).','Замінює кути CSS суцільним векторним контуром SVG без сходинок.','Згладжування країв SSAA 4x для 1080p: векторний контур SVG із фільтром + SSAA 4x на панелі.','Агресивне згладжування країв SSAA 8x із субпіксельним розмиттям + SSAA 8x на панелі.','Максимальне ультра-згладжування контурів із мультисемплінгом.','Стандартне відмальовування вмісту кілець, значків і тексту.','Вмикає субпіксельне згладжування та геометричну точність кілець і значків.','Фільтр SSAA 4x для кілець, символів і карток для екранів 1080p.','Агресивне згладжування SSAA 8x: усуває сходинки на діагоналях і логотипах.','Ультра-агресивне згладжування 16x: максимальне усунення сходинок зі збереженням контрасту.'],
+};
+const AA_KEYS = [
+  'Borders anti-aliasing', 'Content anti-aliasing', 'Subpixel', 'Vector SVG', 'SSAA 4x', 'SSAA 8x', 'Ultra', 'Border thickness', 'Border opacity', 'Border colour',
+  'Controls edge thickness (0px – 3px), opacity and colour. The screen edge where the notch emerges remains unbordered.',
+  'Standard border rendering without extra contour smoothing.',
+  'Feathers corner curves at the subpixel level (2x SSAA on taskbar).',
+  'Replaces CSS radial fillets with a continuous SVG vector contour with no stair-stepping.',
+  'SSAA 4x border smoothing for 1080p screens: SVG vector contour with edge filter + 4x SSAA on taskbar.',
+  'SSAA 8x aggressive border smoothing with enhanced subpixel feathering + 8x SSAA on taskbar.',
+  'Ultra border smoothing with maximum multisample filtering.',
+  'Standard content rendering for rings, icons and text.',
+  'Enables subpixel anti-aliasing and geometric precision on rings and icons.',
+  'SSAA 4x multisample smoothing filter on rings, symbols and cards for 1080p screens.',
+  'SSAA 8x aggressive smoothing: eliminates stair-steps on 1080p diagonal lines and logos.',
+  'Ultra aggressive 16x smoothing: maximum anti-aliasing and edge contrast preservation.'
+];
+for(const [lang, values] of Object.entries(AA_COPY)){
+  AA_KEYS.forEach((key, index) => { STATIC_TEXT[lang][key] = values[index]; });
 }
 const STATUS_TEXT = {
   en:{ ok:'', stale:'last reading is old', needsAuth:'not signed in', absent:'not installed', none:'nothing to report', error:'not reachable' },
@@ -1409,8 +1495,10 @@ document.getElementById('sw-weekly-dashed').addEventListener('click', () => week
    switch every provider back on, the opposite of what the click asked for. */
 let notchSlots = [];
 const AG_LIMITS = [['automatic', 'Automatic'], ['5h', '5-Hour Limit'], ['weekly', 'Weekly Limit']];
-const AG_MODELS = [['gemini', 'Gemini Models'], ['3p', 'Claude and GPT models']];
+const AG_MODELS = [['gemini', 'Gemini Models'], ['3p', 'Claude, GPT and Argon models']];
 let agPrefs = { limit:'automatic', model:'gemini' };
+const DEEPSEEK_DISPLAYS = [['remaining', 'Remaining balance & tokens'], ['spent', 'Spent, remaining & tokens'], ['compact', 'Compact (USD only)']];
+let deepseekDisplay = 'remaining';
 const HOOKS_WHY = 'Turning this on adds a few lines to your Claude Code settings file so that Claude Code sends Codenotch a short message when a session starts, when it is working, when it is waiting for your answer, and when it finishes. That is what makes the ring spin and the amber ring pulse.';
 const ONE_STAYS = 'One provider always stays ticked, so the pill is never empty.';
 const NO_RING = 'These have no ring to place. Switch one on and it joins the end of the list above.';
@@ -1426,6 +1514,11 @@ function agSelect(key, choices, value){
     + choices.map(([v, t]) => '<option value="' + v + '"' + (v === value ? ' selected' : '') + '>' + esc(ui(t, t)) + '</option>').join('')
     + '</select>';
 }
+function dsSelect(choices, value){
+  return '<select data-ds="display">'
+    + choices.map(([v, t]) => '<option value="' + v + '"' + (v === value ? ' selected' : '') + '>' + esc(ui(t, t)) + '</option>').join('')
+    + '</select>';
+}
 function accountBlock(p, isOn, locked){
   const st = statusText(p);
   let h = '<div class="acct' + (isOn ? '' : ' off') + '">'
@@ -1436,6 +1529,9 @@ function accountBlock(p, isOn, locked){
   if(p.id === 'gemini' && isOn){
     h += '<div class="acct-sub"><span>' + esc(ui('Notch reads', 'Notch reads')) + '</span>' + agSelect('limit', AG_LIMITS, agPrefs.limit) + '</div>'
       + '<div class="acct-sub"><span>' + esc(ui('Model data', 'Model data')) + '</span>' + agSelect('model', AG_MODELS, agPrefs.model) + '</div>';
+  }
+  if(p.id === 'deepseek' && isOn){
+    h += '<div class="acct-sub"><span>' + esc(ui('Credit display', 'Credit display')) + '</span>' + dsSelect(DEEPSEEK_DISPLAYS, deepseekDisplay) + '</div>';
   }
   if(p.id === 'claude'){
     h += '<div class="acct-sub"><span>' + esc(ui('Let Claude Code notify Codenotch', 'Let Claude Code notify Codenotch')) + '</span>'
@@ -1487,6 +1583,13 @@ accountsPane.addEventListener('click', e => {
   if(e.target.closest('[data-remote="hooks"]')) hooks.toggle();
 });
 accountsPane.addEventListener('change', e => {
+  const dsBox = e.target.closest('[data-ds]');
+  if(dsBox){
+    invoke('set_deepseek_display', { display: dsBox.value })
+      .then(v => { deepseekDisplay = typeof v === 'string' ? v : dsBox.value; renderAccounts(); toast(); })
+      .catch(err => { renderAccounts(); strip('set_deepseek_display failed: ' + errText(err)); });
+    return;
+  }
   const box = e.target.closest('[data-ag]');
   if(!box) return;
   const want = Object.assign({}, agPrefs, { [box.dataset.ag]: box.value });
@@ -1834,6 +1937,128 @@ document.getElementById('btn-reset-limits').addEventListener('click', () => {
     .then(renderLimits);
 });
 
+const AA_BORDER_WHY = {
+  off: 'Standard border rendering without extra contour smoothing.',
+  subpixel: 'Feathers corner curves at the subpixel level (2x SSAA on taskbar).',
+  vector: 'Replaces CSS radial fillets with a continuous SVG vector contour with no stair-stepping.',
+  ssaa: 'SSAA 4x border smoothing for 1080p screens: SVG vector contour with edge filter + 4x SSAA on taskbar.',
+  ssaa8x: 'SSAA 8x aggressive border smoothing with enhanced subpixel feathering + 8x SSAA on taskbar.',
+  ultra: 'Ultra border smoothing with maximum multisample filtering.'
+};
+const AA_INTERNAL_WHY = {
+  off: 'Standard content rendering for rings, icons and text.',
+  subpixel: 'Enables subpixel anti-aliasing and geometric precision on rings and icons.',
+  ssaa: 'SSAA 4x multisample smoothing filter on rings, symbols and cards for 1080p screens.',
+  ssaa8x: 'SSAA 8x aggressive smoothing: eliminates stair-steps on 1080p diagonal lines and logos.',
+  ultra: 'Ultra aggressive 16x smoothing: maximum anti-aliasing and edge contrast preservation.'
+};
+let antialiasBorderMode = 'ssaa', aaBorderBusy = false;
+let antialiasInternalMode = 'ssaa', aaInternalBusy = false;
+let borderThickness = 2.5;
+let borderOpacity = 0.15;
+let borderColor = '#ffffff';
+function renderAntialias(){
+  const selBorder = document.getElementById('select-antialias-border');
+  if(selBorder){
+    selBorder.value = antialiasBorderMode;
+    selBorder.disabled = aaBorderBusy;
+  }
+  const whyBorder = AA_BORDER_WHY[antialiasBorderMode] || AA_BORDER_WHY.off;
+  const capBorder = document.getElementById('cap-antialias-border');
+  if(capBorder) capBorder.textContent = ui(whyBorder, whyBorder);
+
+  const selInternal = document.getElementById('select-antialias-internal');
+  if(selInternal){
+    selInternal.value = antialiasInternalMode;
+    selInternal.disabled = aaInternalBusy;
+  }
+  const whyInternal = AA_INTERNAL_WHY[antialiasInternalMode] || AA_INTERNAL_WHY.off;
+  const capInternal = document.getElementById('cap-antialias-internal');
+  if(capInternal) capInternal.textContent = ui(whyInternal, whyInternal);
+}
+const selBorder = document.getElementById('select-antialias-border');
+if(selBorder){
+  selBorder.addEventListener('change', () => {
+    const want = selBorder.value;
+    if(want === antialiasBorderMode) return;
+    aaBorderBusy = true;
+    antialiasBorderMode = want;
+    renderAntialias();
+    invoke('set_antialias_border', { mode: want })
+      .then(v => { antialiasBorderMode = typeof v === 'string' ? v : want; toast(); })
+      .catch(err => {
+        strip('set_antialias_border failed: ' + errText(err));
+        return call('get_antialias_border', undefined, 'ssaa').then(v => { if(typeof v === 'string') antialiasBorderMode = v; });
+      })
+      .then(() => { aaBorderBusy = false; renderAntialias(); });
+  });
+}
+const selInternal = document.getElementById('select-antialias-internal');
+if(selInternal){
+  selInternal.addEventListener('change', () => {
+    const want = selInternal.value;
+    if(want === antialiasInternalMode) return;
+    aaInternalBusy = true;
+    antialiasInternalMode = want;
+    renderAntialias();
+    invoke('set_antialias_internal', { mode: want })
+      .then(v => { antialiasInternalMode = typeof v === 'string' ? v : want; toast(); })
+      .catch(err => {
+        strip('set_antialias_internal failed: ' + errText(err));
+        return call('get_antialias_internal', undefined, 'ssaa').then(v => { if(typeof v === 'string') antialiasInternalMode = v; });
+      })
+      .then(() => { aaInternalBusy = false; renderAntialias(); });
+  });
+}
+function renderBorderControls(){
+  const el = document.getElementById('range-border');
+  el.value = Math.round(borderThickness * 10);
+  paintFill(el);
+  document.getElementById('val-border').textContent = borderThickness.toFixed(1) + ' px';
+
+  const elOp = document.getElementById('range-border-opacity');
+  elOp.value = Math.round(borderOpacity * 100);
+  paintFill(elOp);
+  document.getElementById('val-border-opacity').textContent = Math.round(borderOpacity * 100) + '%';
+
+  const elColor = document.getElementById('picker-border-color');
+  elColor.value = borderColor;
+}
+document.getElementById('range-border').addEventListener('input', e => {
+  const v = (+e.target.value) / 10;
+  document.getElementById('val-border').textContent = v.toFixed(1) + ' px';
+  paintFill(e.target);
+  invoke('set_border_thickness', { thickness: v }).catch(() => {});
+});
+document.getElementById('range-border').addEventListener('change', e => {
+  const v = (+e.target.value) / 10;
+  invoke('set_border_thickness', { thickness: v })
+    .then(saved => { if(typeof saved === 'number') borderThickness = saved; renderBorderControls(); toast(); })
+    .catch(err => strip('set_border_thickness failed: ' + errText(err)));
+});
+document.getElementById('range-border-opacity').addEventListener('input', e => {
+  const v = (+e.target.value) / 100;
+  document.getElementById('val-border-opacity').textContent = Math.round(v * 100) + '%';
+  paintFill(e.target);
+  invoke('set_border_opacity', { opacity: v }).catch(() => {});
+});
+document.getElementById('range-border-opacity').addEventListener('change', e => {
+  const v = (+e.target.value) / 100;
+  invoke('set_border_opacity', { opacity: v })
+    .then(saved => { if(typeof saved === 'number') borderOpacity = saved; renderBorderControls(); toast(); })
+    .catch(err => strip('set_border_opacity failed: ' + errText(err)));
+});
+document.getElementById('picker-border-color').addEventListener('input', e => {
+  const c = e.target.value;
+  invoke('set_border_color', { color: c }).catch(() => {});
+});
+document.getElementById('picker-border-color').addEventListener('change', e => {
+  const c = e.target.value;
+  invoke('set_border_color', { color: c })
+    .then(saved => { if(typeof saved === 'string') borderColor = saved; renderBorderControls(); toast(); })
+    .catch(err => strip('set_border_color failed: ' + errText(err)));
+});
+
 /* ---- Appearance: position ------------------------------------------------ */
 document.getElementById('btn-recentre').addEventListener('click', () => {
   invoke('reset_notch_position')
@@ -1922,6 +2147,8 @@ function renderAll(){
   renderWeekly();
   renderTheme();
   renderTransition();
+  renderAntialias();
+  renderBorderControls();
   drawSwitch(document.getElementById('sw-autostart'), autostart);
   drawSwitch(document.getElementById('sw-fullscreen'), foldFullScreen);
   drawSwitch(document.getElementById('sw-reset-alert'), resetAlert);
@@ -1942,6 +2169,7 @@ function boot(){
       renderAccounts();
     }),
     call('get_antigravity_prefs', undefined, null).then(v => { if(v && typeof v === 'object'){ agPrefs = v; renderAccounts(); } }),
+    call('get_deepseek_display', undefined, 'remaining').then(v => { if(typeof v === 'string'){ deepseekDisplay = v; renderAccounts(); } }),
     call('get_glyphs', undefined, null).then(g => { if(g && typeof g === 'object'){ glyphs = g; renderAccounts(); } }),
     call('get_scale', undefined, null).then(v => { if(typeof v === 'number') notchSize = v; renderSize(); }),
     call('get_notch_edge', undefined, null).then(v => { if(typeof v === 'string') notchEdge = v; renderEdge(); }),
@@ -1950,6 +2178,11 @@ function boot(){
     call('get_color_transition', undefined, null).then(v => { if(typeof v === 'string') colorTransition = v; renderTransition(); }),
     call('get_watch_limit', undefined, null).then(v => { if(typeof v === 'number') watchLimit = v; renderLimits(); }),
     call('get_critical_limit', undefined, null).then(v => { if(typeof v === 'number') criticalLimit = v; renderLimits(); }),
+    call('get_antialias_border', undefined, 'ssaa').then(v => { if(typeof v === 'string') antialiasBorderMode = v; renderAntialias(); }),
+    call('get_antialias_internal', undefined, 'ssaa').then(v => { if(typeof v === 'string') antialiasInternalMode = v; renderAntialias(); }),
+    call('get_border_thickness', undefined, 2.5).then(v => { if(typeof v === 'number') borderThickness = v; renderBorderControls(); }),
+    call('get_border_opacity', undefined, 0.15).then(v => { if(typeof v === 'number') borderOpacity = v; renderBorderControls(); }),
+    call('get_border_color', undefined, '#ffffff').then(v => { if(typeof v === 'string') borderColor = v; renderBorderControls(); }),
     call('get_theme', undefined, null).then(v => { if(typeof v === 'string') theme = v; renderTheme(); }),
     call('get_theme_resolved', undefined, null).then(v => { if(typeof v === 'string') applyTheme(v); }),
     call('get_ui_flags', undefined, null).then(v => { if(v && typeof v === 'object') flags = readFlags(v); renderFlags(); }),

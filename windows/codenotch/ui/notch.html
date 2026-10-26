@@ -12,6 +12,7 @@
     --ample:#00FF88; --watch:#F2FF00; --crit:#FF3F00;
     --ink:#ffffff; --ink-2:#e8e8ea; --ink-3:#c8c8c8; --ink-4:#b0b0b3; --ink-dim:#808080;
     --btn:#252525; --btn-line:#555; --btn-hover:#383838; --btn-line-hover:#aaa;
+    --edge-w:2.5px; --aa-feather:0px;
   }
   /* Rust resolves the choice — Light, Dark, or what Windows is set to — and the page is told, rather
      than reading prefers-color-scheme: correcting a live window's theme does not reliably reach
@@ -24,6 +25,7 @@
     --ample:#00A356; --watch:#B08800; --crit:#FF3F00;
     --ink:#1d1d1f; --ink-2:#1d1d1f; --ink-3:#3c3c43; --ink-4:#4a4a4f; --ink-dim:#6b6b6b;
     --btn:#ffffff; --btn-line:#c6c6cc; --btn-hover:#f0f0f2; --btn-line-hover:#8e8e93;
+    --edge-w:2.5px; --aa-feather:0px;
   }
   .c-auth{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
   .c-auth button{font:inherit;font-size:11px;color:var(--ink);background:var(--btn);border:1px solid var(--btn-line);border-radius:7px;padding:6px 9px;cursor:pointer}
@@ -42,7 +44,7 @@
     width:70px;padding:18px 0;background:var(--pill);
     border-radius:20px 0 0 20px;
     /* Stays visible on dark wallpapers: a thin stroke plus a faint glow, the only outline when black sits on black */
-    border:1px solid var(--edge);border-right:none;
+    border:var(--edge-w) solid var(--edge);border-right:none;
     box-shadow:none;
     display:flex;flex-direction:column;align-items:center;gap:14px;cursor:pointer;
   }
@@ -58,11 +60,11 @@
   #pill{--fillet:38.7px}
   #pill::before{
     top:calc(-1 * var(--fillet)); /* covers the 1 px stroke along the pill's top edge so there is no seam */
-    background:radial-gradient(circle at 0 0, transparent calc(var(--fillet) - 1.5px), var(--edge) calc(var(--fillet) - 0.5px), var(--pill) calc(var(--fillet) + 0.5px));
+    background:radial-gradient(circle at 0 0, transparent calc(var(--fillet) - var(--edge-w) - 0.5px - var(--aa-feather)), var(--edge) calc(var(--fillet) - var(--edge-w) - 0.5px + var(--aa-feather)), var(--edge) calc(var(--fillet) - 0.5px - var(--aa-feather)), var(--pill) calc(var(--fillet) + 0.5px + var(--aa-feather)));
   }
   #pill::after{
     bottom:calc(-1 * var(--fillet));
-    background:radial-gradient(circle at 0 100%, transparent calc(var(--fillet) - 1.5px), var(--edge) calc(var(--fillet) - 0.5px), var(--pill) calc(var(--fillet) + 0.5px));
+    background:radial-gradient(circle at 0 100%, transparent calc(var(--fillet) - var(--edge-w) - 0.5px - var(--aa-feather)), var(--edge) calc(var(--fillet) - var(--edge-w) - 0.5px + var(--aa-feather)), var(--edge) calc(var(--fillet) - 0.5px - var(--aa-feather)), var(--pill) calc(var(--fillet) + 0.5px + var(--aa-feather)));
   }
   .cell{display:flex;flex-direction:column;align-items:center;gap:6px}
   /* The ring takes the Mac's own share of the body, NotchLayout.ringDiameter against sideBodyDepth: 44 in
@@ -154,10 +156,10 @@
      is the concave arc between the two. */
 
   /* Left: the right-hand layout mirrored. */
-  body[data-edge="left"] #pill{right:auto;left:0;border-radius:0 20px 20px 0;border-right:1px solid var(--edge);border-left:none}
+  body[data-edge="left"] #pill{right:auto;left:0;border-radius:0 20px 20px 0;border-right:var(--edge-w) solid var(--edge);border-left:none}
   body[data-edge="left"] #pill::before,body[data-edge="left"] #pill::after{right:auto;left:0}
-  body[data-edge="left"] #pill::before{background:radial-gradient(circle at 100% 0, transparent calc(var(--fillet) - 1.5px), var(--edge) calc(var(--fillet) - 0.5px), var(--pill) calc(var(--fillet) + 0.5px))}
-  body[data-edge="left"] #pill::after{background:radial-gradient(circle at 100% 100%, transparent calc(var(--fillet) - 1.5px), var(--edge) calc(var(--fillet) - 0.5px), var(--pill) calc(var(--fillet) + 0.5px))}
+  body[data-edge="left"] #pill::before{background:radial-gradient(circle at 100% 0, transparent calc(var(--fillet) - var(--edge-w) - 0.5px - var(--aa-feather)), var(--edge) calc(var(--fillet) - var(--edge-w) - 0.5px + var(--aa-feather)), var(--edge) calc(var(--fillet) - 0.5px - var(--aa-feather)), var(--pill) calc(var(--fillet) + 0.5px + var(--aa-feather)))}
+  body[data-edge="left"] #pill::after{background:radial-gradient(circle at 100% 100%, transparent calc(var(--fillet) - var(--edge-w) - 0.5px - var(--aa-feather)), var(--edge) calc(var(--fillet) - var(--edge-w) - 0.5px + var(--aa-feather)), var(--edge) calc(var(--fillet) - 0.5px - var(--aa-feather)), var(--pill) calc(var(--fillet) + 0.5px + var(--aa-feather)))}
   body[data-edge="left"] #card{left:108.7px;right:5px;margin-left:0;margin-right:auto}
   body[data-edge="left"] #tail{right:auto;left:80.5px;clip-path:path('M28.2 0C28.2 8.18 11.84 12.43 0 16.36C11.84 20.29 28.2 24.54 28.2 32.72Z')}
 
@@ -168,16 +170,16 @@
     flex-direction:row;width:auto;height:auto;padding:12px 18px;
     /* Both ends have a flare here, and each flare's edge line runs on into the pill's own: without this
        one, the far flare's line stopped short at the pill and stood out of it as a stub */
-    border-right:1px solid var(--edge);
+    border-right:var(--edge-w) solid var(--edge);
   }
   body[data-edge="top"] #pill::before,body[data-edge="top"] #pill::after,
   body[data-edge="bottom"] #pill::before,body[data-edge="bottom"] #pill::after{right:auto;top:auto;bottom:auto}
   body[data-edge="top"] #pill{top:0;border-radius:0 0 20px 20px;border-top:none}
-  body[data-edge="top"] #pill::before{top:0;left:calc(-1 * var(--fillet));background:radial-gradient(circle at 0 100%, transparent calc(var(--fillet) - 1.5px), var(--edge) calc(var(--fillet) - 0.5px), var(--pill) calc(var(--fillet) + 0.5px))}
-  body[data-edge="top"] #pill::after{top:0;right:calc(-1 * var(--fillet));background:radial-gradient(circle at 100% 100%, transparent calc(var(--fillet) - 1.5px), var(--edge) calc(var(--fillet) - 0.5px), var(--pill) calc(var(--fillet) + 0.5px))}
+  body[data-edge="top"] #pill::before{top:0;left:calc(-1 * var(--fillet));background:radial-gradient(circle at 0 100%, transparent calc(var(--fillet) - var(--edge-w) - 0.5px - var(--aa-feather)), var(--edge) calc(var(--fillet) - var(--edge-w) - 0.5px + var(--aa-feather)), var(--edge) calc(var(--fillet) - 0.5px - var(--aa-feather)), var(--pill) calc(var(--fillet) + 0.5px + var(--aa-feather)))}
+  body[data-edge="top"] #pill::after{top:0;right:calc(-1 * var(--fillet));background:radial-gradient(circle at 100% 100%, transparent calc(var(--fillet) - var(--edge-w) - 0.5px - var(--aa-feather)), var(--edge) calc(var(--fillet) - var(--edge-w) - 0.5px + var(--aa-feather)), var(--edge) calc(var(--fillet) - 0.5px - var(--aa-feather)), var(--pill) calc(var(--fillet) + 0.5px + var(--aa-feather)))}
   body[data-edge="bottom"] #pill{bottom:0;border-radius:20px 20px 0 0;border-bottom:none}
-  body[data-edge="bottom"] #pill::before{bottom:0;left:calc(-1 * var(--fillet));background:radial-gradient(circle at 0 0, transparent calc(var(--fillet) - 1.5px), var(--edge) calc(var(--fillet) - 0.5px), var(--pill) calc(var(--fillet) + 0.5px))}
-  body[data-edge="bottom"] #pill::after{bottom:0;right:calc(-1 * var(--fillet));background:radial-gradient(circle at 100% 0, transparent calc(var(--fillet) - 1.5px), var(--edge) calc(var(--fillet) - 0.5px), var(--pill) calc(var(--fillet) + 0.5px))}
+  body[data-edge="bottom"] #pill::before{bottom:0;left:calc(-1 * var(--fillet));background:radial-gradient(circle at 0 0, transparent calc(var(--fillet) - var(--edge-w) - 0.5px - var(--aa-feather)), var(--edge) calc(var(--fillet) - var(--edge-w) - 0.5px + var(--aa-feather)), var(--edge) calc(var(--fillet) - 0.5px - var(--aa-feather)), var(--pill) calc(var(--fillet) + 0.5px + var(--aa-feather)))}
+  body[data-edge="bottom"] #pill::after{bottom:0;right:calc(-1 * var(--fillet));background:radial-gradient(circle at 100% 0, transparent calc(var(--fillet) - var(--edge-w) - 0.5px - var(--aa-feather)), var(--edge) calc(var(--fillet) - var(--edge-w) - 0.5px + var(--aa-feather)), var(--edge) calc(var(--fillet) - 0.5px - var(--aa-feather)), var(--pill) calc(var(--fillet) + 0.5px + var(--aa-feather)))}
   /* A fixed width here, not the fluid one the upright edges use: `placeCard` measures the card to
      centre it, and a shrink-to-fit width would change as it moves. 246 is the upstream cap either way. */
   body[data-edge="top"] #card,body[data-edge="bottom"] #card{
@@ -200,11 +202,35 @@
   body.folded #pill{clip-path:var(--clip-rest)}
   /* WebKitGTK paints the overflowing gradient fillets separately from the
      clipped pill. A single vector outline keeps all corners in the same frame. */
-  body.linux-vector #pill{background:transparent;border-color:transparent}
-  body.linux-vector #pill::before,body.linux-vector #pill::after{display:none}
-  #pillContour{position:absolute;pointer-events:none;overflow:visible;
+  body.contour-ready.linux-vector #pill,body.contour-ready.aa-vector #pill,body.contour-ready.aa-border-vector #pill{background:transparent;border-color:transparent !important}
+  body.contour-ready.linux-vector #pill::before,body.contour-ready.linux-vector #pill::after,
+  body.contour-ready.aa-vector #pill::before,body.contour-ready.aa-vector #pill::after,
+  body.contour-ready.aa-border-vector #pill::before,body.contour-ready.aa-border-vector #pill::after{display:none}
+  #pillContour{position:absolute;pointer-events:none;overflow:visible;display:none;
     transform-origin:100% 50%;transition:transform .36s cubic-bezier(.32,.72,.24,1),opacity .18s ease}
-  #pillContour path{fill:var(--pill);stroke:var(--edge);stroke-width:1}
+  body.contour-ready.linux-vector #pillContour,body.contour-ready.aa-vector #pillContour,body.contour-ready.aa-border-vector #pillContour{display:block}
+  #pillContour path{fill:var(--pill);stroke:none;shape-rendering:geometricPrecision}
+  #pillContour path#pillContourFill{fill:var(--pill);stroke:none}
+  #pillContour path#pillContourStroke{fill:none;stroke:var(--edge);stroke-width:var(--edge-w);stroke-linecap:round;stroke-linejoin:round;shape-rendering:geometricPrecision}
+  body.aa-subpixel svg,body.aa-vector svg,body.aa-ssaa svg,body.aa-border-subpixel svg,body.aa-border-vector svg,body.aa-border-ssaa svg,body.aa-border-ssaa8x svg,body.aa-border-ultra svg,body.aa-internal-subpixel svg,body.aa-internal-ssaa svg,body.aa-internal-ssaa8x svg,body.aa-internal-ultra svg{shape-rendering:geometricPrecision}
+  body.aa-subpixel,body.aa-vector,body.aa-ssaa,body.aa-border-subpixel,body.aa-border-vector,body.aa-border-ssaa,body.aa-border-ssaa8x,body.aa-border-ultra,body.aa-internal-subpixel,body.aa-internal-ssaa,body.aa-internal-ssaa8x,body.aa-internal-ultra{-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
+  body.aa-border-subpixel .h-disc,body.aa-border-vector .h-disc{box-shadow:0 0 0.8px var(--edge)}
+  body.aa-border-ssaa .h-disc{box-shadow:0 0 1px var(--edge);filter:url(#ssaaSmooth)}
+  body.aa-border-ssaa8x .h-disc{box-shadow:0 0 1.4px var(--edge);filter:url(#ssaa8x)}
+  body.aa-border-ultra .h-disc{box-shadow:0 0 1.8px var(--edge);filter:url(#ssaaUltra)}
+  body.aa-border-subpixel:not(.aa-border-ssaa):not(.aa-border-ssaa8x):not(.aa-border-ultra) .h-rest,body.aa-border-vector:not(.aa-border-ssaa):not(.aa-border-ssaa8x):not(.aa-border-ultra) .h-rest{filter:drop-shadow(0 0 0.4px var(--edge))}
+  body.aa-border-subpixel:not(.aa-border-ssaa):not(.aa-border-ssaa8x):not(.aa-border-ultra):not(.aa-internal-ssaa):not(.aa-internal-ssaa8x):not(.aa-internal-ultra) #grip,body.aa-border-vector:not(.aa-border-ssaa):not(.aa-border-ssaa8x):not(.aa-border-ultra):not(.aa-internal-ssaa):not(.aa-internal-ssaa8x):not(.aa-internal-ultra) #grip{filter:drop-shadow(0 0 0.4px var(--edge))}
+  body.aa-internal-subpixel:not(.aa-internal-ssaa):not(.aa-internal-ssaa8x):not(.aa-internal-ultra) .h-glyph{filter:drop-shadow(0 0 0.35px var(--ink-2))}
+  body.aa-internal-subpixel:not(.aa-border-ssaa):not(.aa-border-ssaa8x):not(.aa-border-ultra):not(.aa-internal-ssaa):not(.aa-internal-ssaa8x):not(.aa-internal-ultra) #grip{filter:drop-shadow(0 0 0.35px var(--edge))}
+  body.aa-internal-subpixel:not(.aa-internal-ssaa):not(.aa-internal-ssaa8x):not(.aa-internal-ultra) .glyph svg{filter:drop-shadow(0 0 0.35px currentColor)}
+
+  body.aa-ssaa #pillContourStroke,body.aa-border-ssaa #pillContourStroke,body.aa-border-ssaa .h-rest,body.aa-border-ssaa #grip .dot{filter:url(#ssaaSmooth)}
+  body.aa-border-ssaa8x #pillContourStroke,body.aa-border-ssaa8x .h-rest,body.aa-border-ssaa8x #grip .dot{filter:url(#ssaa8x)}
+  body.aa-border-ultra #pillContourStroke,body.aa-border-ultra .h-rest,body.aa-border-ultra #grip .dot{filter:url(#ssaaUltra)}
+
+  body.aa-ssaa .ringwrap > svg,body.aa-internal-ssaa .ringwrap > svg,body.aa-internal-ssaa .glyph,body.aa-internal-ssaa .pct,body.aa-internal-ssaa .h-glyph,body.aa-internal-ssaa #grip .dot,body.aa-internal-ssaa #orbGoo .plain,body.aa-internal-ssaa #tail,body.aa-internal-ssaa .c-bar,body.aa-internal-ssaa .c-head .mark svg{filter:url(#ssaaSmooth)}
+  body.aa-internal-ssaa8x .ringwrap > svg,body.aa-internal-ssaa8x .glyph,body.aa-internal-ssaa8x .pct,body.aa-internal-ssaa8x .h-glyph,body.aa-internal-ssaa8x #grip .dot,body.aa-internal-ssaa8x #orbGoo .plain,body.aa-internal-ssaa8x #tail,body.aa-internal-ssaa8x .c-bar,body.aa-internal-ssaa8x .c-head .mark svg{filter:url(#ssaa8x)}
+  body.aa-internal-ultra .ringwrap > svg,body.aa-internal-ultra .glyph,body.aa-internal-ultra .pct,body.aa-internal-ultra .h-glyph,body.aa-internal-ultra #grip .dot,body.aa-internal-ultra #orbGoo .plain,body.aa-internal-ultra #tail,body.aa-internal-ultra .c-bar,body.aa-internal-ultra .c-head .mark svg{filter:url(#ssaaUltra)}
   body.folded #pillContour{transform:scale(.14,.2);opacity:0}
   body[data-edge="left"] #pillContour{transform-origin:0 50%}
   body[data-edge="top"] #pillContour{transform-origin:50% 0}
@@ -218,7 +244,7 @@
   /* That outline is all there is of a pill on a backdrop of its own colour, a black pill on a black
      wallpaper or a light one on a white page, so it has an edge of its own: at least 3:1 against the
      pill's fill in either palette, where --edge is 1.5:1. */
-  #rest{position:absolute;box-sizing:border-box;background:var(--pill);border:1px solid var(--rest-edge);pointer-events:none;
+  #rest{position:absolute;box-sizing:border-box;background:var(--pill);border:var(--edge-w) solid var(--rest-edge);pointer-events:none;
     right:0;top:50%;translate:0 -50%;width:10px;height:79px;border-right:none;border-radius:6px 0 0 6px;
     opacity:0;transition:opacity .16s ease,background-color .3s ease,border-color .3s ease}
   body.folded #rest{opacity:1;transition:opacity .2s ease .18s,background-color .3s ease,border-color .3s ease} /* arrives as the clip does */
@@ -227,8 +253,8 @@
      the palette that stands out there. Until Rust answers, and once it is switched off, Theme decides. */
   body[data-behind="dark"] #rest{--pill:#f5f5f7;--rest-edge:#86868b}
   body[data-behind="light"] #rest{--pill:#000;--rest-edge:#5c5c5c}
-  body[data-edge="left"] #rest{right:auto;left:0;border-right:1px solid var(--rest-edge);border-left:none;border-radius:0 6px 6px 0}
-  body[data-edge="top"] #rest,body[data-edge="bottom"] #rest{right:auto;left:50%;top:auto;translate:-50% 0;width:79px;height:10px;border:1px solid var(--rest-edge)}
+  body[data-edge="left"] #rest{right:auto;left:0;border-right:var(--edge-w) solid var(--rest-edge);border-left:none;border-radius:0 6px 6px 0}
+  body[data-edge="top"] #rest,body[data-edge="bottom"] #rest{right:auto;left:50%;top:auto;translate:-50% 0;width:79px;height:10px;border:var(--edge-w) solid var(--rest-edge)}
   body[data-edge="top"] #rest{top:0;border-top:none;border-radius:0 0 6px 6px}
   body[data-edge="bottom"] #rest{bottom:0;border-bottom:none;border-radius:6px 6px 0 0}
   /* The rings leave by fading and sliding a little toward the edge, one after another — the Mac's
@@ -252,7 +278,7 @@
   .handle.hover{cursor:pointer}
   .handle > *{position:absolute;left:50%;top:50%;pointer-events:none;transition:opacity .2s,transform .36s cubic-bezier(.34,1.3,.64,1)}
   .h-rest{width:72px;height:72px;margin:-36px 0 0 -36px;overflow:visible;transform:rotate(var(--arc)) scale(1)}
-  .h-disc{width:46.6px;height:46.6px;margin:-23.3px 0 0 -23.3px;border-radius:50%;background:var(--pill);border:1px solid var(--edge);opacity:0;transform:scale(1.1)}
+  .h-disc{width:46.6px;height:46.6px;margin:-23.3px 0 0 -23.3px;border-radius:50%;background:var(--pill);border:var(--edge-w) solid var(--edge);opacity:0;transform:scale(1.1)}
   .h-ring{stroke:var(--edge)}
   .h-fill{stroke:var(--pill)}
   /* A gear drawn from geometry, its corners rounded by a stroke in its own colour */
@@ -277,7 +303,7 @@
   body.folded #orbGoo{opacity:0;transition:opacity .04s linear .23s}
   #orbGoo .p-ring{fill:none;stroke:var(--edge);stroke-linecap:round}
   #orbGoo .p-fill{fill:none;stroke:var(--pill);stroke-linecap:round}
-  #orbGoo .p-disc{fill:var(--pill);stroke:var(--edge);stroke-width:1}
+  #orbGoo .p-disc{fill:var(--pill);stroke:var(--edge);stroke-width:var(--edge-w)}
   #orbGoo .liquid path{fill:none;stroke:#000;stroke-linecap:round}
   #orbGoo .liquid .l-neck,#orbGoo .liquid circle{fill:#000;stroke:none}
   #orbGooF .rim{flood-color:var(--edge)} #orbGooF .fill{flood-color:var(--pill)}
@@ -287,13 +313,35 @@
   #grip{position:absolute;width:166px;height:166px;margin:-83px 0 0 -83px;overflow:visible;pointer-events:none;display:none}
   #grip.placed{display:block}
   body.folded #grip{visibility:hidden}
-  #grip .dot{fill:var(--pill);stroke:var(--edge);stroke-width:1}
+  #grip .dot{fill:var(--pill);stroke:var(--edge);stroke-width:var(--edge-w)}
   #grip .liquid .dot,#grip .liquid .core,#grip .liquid .neck{fill:#000;stroke:none}
   #gripGoo .rim{flood-color:var(--edge)} #gripGoo .fill{flood-color:var(--pill)}
 </style>
 </head>
 <body>
 <div id="root">
+  <svg id="aaDefs" width="0" height="0" style="position:absolute;width:0;height:0;overflow:hidden;pointer-events:none" aria-hidden="true">
+    <defs>
+      <filter id="ssaaSmooth" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="0.38" result="aaBlur"/>
+        <feComponentTransfer in="aaBlur">
+          <feFuncA type="linear" slope="1.10" intercept="-0.02"/>
+        </feComponentTransfer>
+      </filter>
+      <filter id="ssaa8x" x="-35%" y="-35%" width="170%" height="170%" color-interpolation-filters="sRGB">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="0.62" result="aaBlur"/>
+        <feComponentTransfer in="aaBlur">
+          <feFuncA type="linear" slope="1.18" intercept="-0.03"/>
+        </feComponentTransfer>
+      </filter>
+      <filter id="ssaaUltra" x="-45%" y="-45%" width="190%" height="190%" color-interpolation-filters="sRGB">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="0.90" result="aaBlur"/>
+        <feComponentTransfer in="aaBlur">
+          <feFuncA type="linear" slope="1.30" intercept="-0.05"/>
+        </feComponentTransfer>
+      </filter>
+    </defs>
+  </svg>
   <div id="card"></div>
   <div id="tail"></div>
   <svg id="grip" viewBox="-83 -83 166 166" aria-hidden="true">
@@ -347,27 +395,124 @@ const invoke = window.__TAURI__.core.invoke;
 const listen = window.__TAURI__.event.listen;
 const isLinux=/Linux/.test(navigator.platform);
 document.body.classList.toggle('linux-vector',isLinux);
-let pillContour=null, contourPath=null;
+let notchEdge='right';
+function edgeIsVertical(){ return notchEdge==='left'||notchEdge==='right'; }
+let antialiasBorderMode='ssaa';
+let antialiasInternalMode='ssaa';
+let borderThickness=2.5;
+let borderColor='#ffffff';
+let borderOpacity=0.15;
+let pillContour=null, contourFill=null, contourStroke=null;
 function paintPillContour(){
-  if(!isLinux)return;
+  const usesVector=isLinux||antialiasBorderMode==='vector'||antialiasBorderMode==='ssaa'||antialiasBorderMode==='ssaa8x'||antialiasBorderMode==='ultra';
+  if(!usesVector){
+    document.body.classList.remove('contour-ready');
+    if(pillContour) pillContour.style.display='none';
+    return;
+  }
+  const pillEl=document.getElementById('pill');
+  if(!pillEl) return;
+  const r=pillEl.getBoundingClientRect(),vertical=edgeIsVertical();
+  const z=parseFloat(document.documentElement.style.zoom)||1;
+  const F=(parseFloat(getComputedStyle(pillEl).getPropertyValue('--fillet'))||38.7)*z;
+  const W=vertical?r.width:r.height,H=vertical?r.height:r.width,R=Math.min(20*z,W/2,H/2);
+  if(!W||!H){
+    document.body.classList.remove('contour-ready');
+    return;
+  }
   if(!pillContour){
     pillContour=document.createElementNS('http://www.w3.org/2000/svg','svg');
     pillContour.id='pillContour';pillContour.setAttribute('aria-hidden','true');
-    contourPath=document.createElementNS(pillContour.namespaceURI,'path');
-    pillContour.appendChild(contourPath);
+    contourFill=document.createElementNS(pillContour.namespaceURI,'path');
+    contourFill.id='pillContourFill';
+    contourStroke=document.createElementNS(pillContour.namespaceURI,'path');
+    contourStroke.id='pillContourStroke';
+    pillContour.appendChild(contourFill);
+    pillContour.appendChild(contourStroke);
     const root=document.getElementById('root');root.insertBefore(pillContour,root.firstChild);
   }
-  const r=pill.getBoundingClientRect(),vertical=edgeIsVertical();
-  const z=parseFloat(document.documentElement.style.zoom)||1;
-  const F=(parseFloat(getComputedStyle(pill).getPropertyValue('--fillet'))||38.7)*z;
-  const W=vertical?r.width:r.height,H=vertical?r.height:r.width,R=Math.min(20*z,W/2,H/2);
-  if(!W||!H)return;
   const width=vertical?W:H+2*F,height=vertical?H+2*F:W;
   pillContour.setAttribute('viewBox',`0 0 ${width} ${height}`);
-  Object.assign(pillContour.style,{left:`${(r.left-(vertical?0:F))/z}px`,top:`${(r.top-(vertical?F:0))/z}px`,width:`${width/z}px`,height:`${height/z}px`});
-  contourPath.setAttribute('d',`M${W} 0 A${F} ${F} 0 0 1 ${W-F} ${F} H${R} Q0 ${F} 0 ${F+R} V${F+H-R} Q0 ${F+H} ${R} ${F+H} H${W-F} A${F} ${F} 0 0 1 ${W} ${H+2*F} Z`);
-  contourPath.setAttribute('transform',notchEdge==='left'?`matrix(-1 0 0 1 ${W} 0)`:notchEdge==='top'?`matrix(0 -1 1 0 0 ${W})`:notchEdge==='bottom'?'matrix(0 1 1 0 0 0)':'matrix(1 0 0 1 0 0)');
+  Object.assign(pillContour.style,{left:`${(r.left-(vertical?0:F))/z}px`,top:`${(r.top-(vertical?F:0))/z}px`,width:`${width/z}px`,height:`${height/z}px`,display:'block'});
+  const openPath=`M${W} 0 A${F} ${F} 0 0 1 ${W-F} ${F} H${R} Q0 ${F} 0 ${F+R} V${F+H-R} Q0 ${F+H} ${R} ${F+H} H${W-F} A${F} ${F} 0 0 1 ${W} ${H+2*F}`;
+  contourFill.setAttribute('d',openPath+' Z');
+  contourStroke.setAttribute('d',openPath);
+  const transform=notchEdge==='left'?`matrix(-1 0 0 1 ${W} 0)`:notchEdge==='top'?`matrix(0 -1 1 0 0 ${W})`:notchEdge==='bottom'?'matrix(0 1 1 0 0 0)':'matrix(1 0 0 1 0 0)';
+  contourFill.setAttribute('transform',transform);
+  contourStroke.setAttribute('transform',transform);
+  document.body.classList.add('contour-ready');
 }
+function applyAntialiasBorder(mode){
+  antialiasBorderMode=(mode==='subpixel'||mode==='vector'||mode==='ssaa'||mode==='ssaa8x'||mode==='ultra')?mode:'off';
+  document.body.classList.toggle('aa-border-subpixel',antialiasBorderMode==='subpixel');
+  document.body.classList.toggle('aa-border-vector',antialiasBorderMode==='vector'||antialiasBorderMode==='ssaa'||antialiasBorderMode==='ssaa8x'||antialiasBorderMode==='ultra');
+  document.body.classList.toggle('aa-border-ssaa',antialiasBorderMode==='ssaa');
+  document.body.classList.toggle('aa-border-ssaa8x',antialiasBorderMode==='ssaa8x');
+  document.body.classList.toggle('aa-border-ultra',antialiasBorderMode==='ultra');
+  document.documentElement.style.setProperty('--aa-feather',antialiasBorderMode==='subpixel'?'0.7px':(antialiasBorderMode==='ssaa8x'||antialiasBorderMode==='ultra'?'1.2px':'0px'));
+  paintPillContour();
+}
+function applyAntialiasInternal(mode){
+  antialiasInternalMode=(mode==='subpixel'||mode==='ssaa'||mode==='ssaa8x'||mode==='ultra')?mode:'off';
+  document.body.classList.toggle('aa-internal-subpixel',antialiasInternalMode==='subpixel');
+  document.body.classList.toggle('aa-internal-ssaa',antialiasInternalMode==='ssaa');
+  document.body.classList.toggle('aa-internal-ssaa8x',antialiasInternalMode==='ssaa8x');
+  document.body.classList.toggle('aa-internal-ultra',antialiasInternalMode==='ultra');
+}
+function hexToRgba(hex, alpha){
+  let h=(hex||'#ffffff').replace('#','');
+  if(h.length===3) h=h.split('').map(c=>c+c).join('');
+  const num=parseInt(h,16);
+  if(isNaN(num)) return `rgba(255,255,255,${alpha})`;
+  return `rgba(${(num>>16)&255},${(num>>8)&255},${num&255},${alpha})`;
+}
+function applyBorderStyling(){
+  const rgba=hexToRgba(borderColor,borderOpacity);
+  const restRgba=hexToRgba(borderColor,Math.min(1,borderOpacity*1.25));
+  document.documentElement.style.setProperty('--edge',rgba);
+  document.documentElement.style.setProperty('--rest-edge',restRgba);
+  const hRing=document.querySelector('.h-ring');
+  if(hRing) hRing.style.stroke=rgba;
+  paintPillContour();
+}
+function applyBorderThickness(v){
+  const bw=Number.isFinite(Number(v))?Math.max(0,Math.min(3,Number(v))):2.5;
+  borderThickness=bw;
+  document.documentElement.style.setProperty('--edge-w',`${bw}px`);
+  const hRing=document.querySelector('.h-ring');
+  if(hRing) hRing.setAttribute('stroke-width',bw>0?(6.8+2*bw).toFixed(2):'0');
+  document.querySelectorAll('#gripGoo feMorphology, #orbGooF feMorphology').forEach(el=>el.setAttribute('radius',Math.max(0.01,bw).toFixed(2)));
+  document.querySelectorAll('#gripGoo .rim, #orbGooF .rim').forEach(el=>el.setAttribute('flood-opacity',bw>0?'1':'0'));
+  paintPillContour();
+}
+function applyBorderColor(color){
+  borderColor=color||'#ffffff';
+  applyBorderStyling();
+}
+function applyBorderOpacity(op){
+  borderOpacity=Number.isFinite(Number(op))?Math.max(0,Math.min(1,Number(op))):0.15;
+  applyBorderStyling();
+}
+applyAntialiasBorder(antialiasBorderMode);
+applyAntialiasInternal(antialiasInternalMode);
+applyBorderThickness(borderThickness);
+applyBorderStyling();
+if(typeof ResizeObserver!=='undefined'){
+  const pillObs=new ResizeObserver(()=>paintPillContour());
+  const pillEl=document.getElementById('pill');
+  if(pillEl) pillObs.observe(pillEl);
+  pillObs.observe(document.documentElement);
+}
+invoke('get_antialias_border').then(applyAntialiasBorder).catch(()=>{});
+listen('antialias_border',e=>applyAntialiasBorder(e.payload)).catch(()=>{});
+invoke('get_antialias_internal').then(applyAntialiasInternal).catch(()=>{});
+listen('antialias_internal',e=>applyAntialiasInternal(e.payload)).catch(()=>{});
+invoke('get_border_thickness').then(applyBorderThickness).catch(()=>{});
+listen('border_thickness',e=>applyBorderThickness(e.payload)).catch(()=>{});
+invoke('get_border_color').then(applyBorderColor).catch(()=>{});
+listen('border_color',e=>applyBorderColor(e.payload)).catch(()=>{});
+invoke('get_border_opacity').then(applyBorderOpacity).catch(()=>{});
+listen('border_opacity',e=>applyBorderOpacity(e.payload)).catch(()=>{});
 
 /* Colour ramp (upstream palette values) */
 let AMPLE='#00FF88', WATCH='#F2FF00', CRIT='#FF3F00';
@@ -481,7 +626,6 @@ let glyphs={}; // id → {kind:'mark'|'appicon', url}
 let activity=[]; // working state of the non-Claude providers: {provider,state:'busy'|'waiting',name,detail,since}
 /* Which screen edge the notch is pinned to. Rust owns it (it is what placed the window); the page is
    told so it can mirror or rotate itself to match. 'right' is the default and the pre-edge layout. */
-let notchEdge='right';
 // Show on hover — the logic is beside the handles below; declared here, since reportHot reads `folded` from the first frame
 let onHover=false, fullScreen=false, folded=false, pointerIn=false, menuOpen=false, foldTimer=null;
 /* How much of the window the taskbar covers, in CSS px, from Rust: top, right, bottom, left. The pill
@@ -496,7 +640,6 @@ function applyInsets(v){
 // Pushed on every placement, and asked for once in case the placement happened before this page was listening
 listen('notch_insets',e=>applyInsets(e.payload)).catch(()=>{});
 invoke('get_notch_insets').then(applyInsets).catch(()=>{});
-function edgeIsVertical(){ return notchEdge==='left'||notchEdge==='right'; }
 function applyEdge(e){
   const next=(e==='left'||e==='top'||e==='bottom')?e:'right';
   if(next===notchEdge) return;
@@ -517,6 +660,9 @@ let uiLang='en';
 // words the card writes itself. A language with no table falls back to English rather than
 // showing half a translation, so adding one is only ever data.
 const TEXT={
+  en:{
+    'Claude and GPT models':'Claude, GPT and Argon models',
+  },
   ko:{
     'Included usage':'포함 사용량',
     'API usage':'API 사용량',
@@ -531,7 +677,8 @@ const TEXT={
     '5-Hour Limit':'5시간 제한',
     '5-hour Limit':'5시간 제한',
     'Gemini Models':'Gemini 모델',
-    'Claude and GPT models':'Claude 및 GPT 모델',
+    'Claude and GPT models':'Claude, GPT 및 Argon 모델',
+    'Claude, GPT and Argon models':'Claude, GPT 및 Argon 모델',
     'Monthly limit':'월간 제한',
     'Monthly Limit':'월간 제한',
     'Longer window':'장기 사용 기간',
@@ -573,6 +720,8 @@ const TEXT={
     'Premium requests':'프리미엄 요청',
     'Chat requests':'채팅 요청',
     'Completions':'코드 완성',
+    'Credits':'크레딧',
+    'No sessions or API balance found in ~/.dsh':'~/.dsh에서 세션이나 API 잔액을 찾을 수 없습니다',
   },
   'pt-BR':{
     'Included usage':'Uso incluído',
@@ -601,7 +750,8 @@ const TEXT={
     '5-Hour Limit':'Limite de 5 horas',
     '5-hour Limit':'Limite de 5 horas',
     'Gemini Models':'Modelos Gemini',
-    'Claude and GPT models':'Modelos Claude e GPT',
+    'Claude and GPT models':'Modelos Claude, GPT e Argon',
+    'Claude, GPT and Argon models':'Modelos Claude, GPT e Argon',
     'Monthly limit':'Limite mensal',
     'Monthly Limit':'Limite mensal',
     'Longer window':'Janela mais longa',
@@ -631,6 +781,8 @@ const TEXT={
     'Completions':'Conclusões de código',
     'Run opencode auth login to see usage.':'Execute opencode auth login para ver o uso.',
     'No OpenCode Go subscription on this account':'Nenhuma assinatura do OpenCode Go nesta conta',
+    'Credits':'Créditos',
+    'No sessions or API balance found in ~/.dsh':'Nenhuma sessão ou saldo de API encontrado em ~/.dsh',
     'needs your input':'precisa da sua resposta',
     'Working in':'Em execução em'
   },
@@ -661,7 +813,8 @@ const TEXT={
     '5-Hour Limit':'Ліміт 5 годин',
     '5-hour Limit':'Ліміт 5 годин',
     'Gemini Models':'Моделі Gemini',
-    'Claude and GPT models':'Моделі Claude і GPT',
+    'Claude and GPT models':'Моделі Claude, GPT і Argon',
+    'Claude, GPT and Argon models':'Моделі Claude, GPT і Argon',
     'Monthly limit':'Місячний ліміт',
     'Monthly Limit':'Місячний ліміт',
     'Longer window':'Довше вікно',
@@ -691,6 +844,8 @@ const TEXT={
     'Completions':'Автодоповнення',
     'Run opencode auth login to see usage.':'Запустіть opencode auth login, щоб бачити використання.',
     'No OpenCode Go subscription on this account':'Для цього акаунта немає підписки OpenCode Go',
+    'Credits':'Кредити',
+    'No sessions or API balance found in ~/.dsh':'У ~/.dsh не знайдено сесій або балансу API',
     'needs your input':'потрібна ваша відповідь',
     'Working in':'Працює в'
   },
@@ -721,7 +876,8 @@ const TEXT={
     '5-Hour Limit':'Límite de 5 horas',
     '5-hour Limit':'Límite de 5 horas',
     'Gemini Models':'Modelos Gemini',
-    'Claude and GPT models':'Modelos Claude y GPT',
+    'Claude and GPT models':'Modelos Claude, GPT y Argon',
+    'Claude, GPT and Argon models':'Modelos Claude, GPT y Argon',
     'Monthly limit':'Límite mensual',
     'Monthly Limit':'Límite mensual',
     'Longer window':'Periodo más largo',
@@ -750,6 +906,8 @@ const TEXT={
     'Completions':'Autocompletados',
     'Run opencode auth login to see usage.':'Ejecuta opencode auth login para ver el uso.',
     'No OpenCode Go subscription on this account':'Esta cuenta no tiene suscripción a OpenCode Go',
+    'Credits':'Créditos',
+    'No sessions or API balance found in ~/.dsh':'No se encontraron sesiones ni saldo de API en ~/.dsh',
     'needs your input':'espera tu respuesta',
     'Working in':'Trabajando en',
     'Last known usage — not current.':'Último uso conocido, no el actual.',
@@ -781,7 +939,8 @@ const TEXT={
     '5-Hour Limit':'Лимит на 5 часов',
     '5-hour Limit':'Лимит на 5 часов',
     'Gemini Models':'Модели Gemini',
-    'Claude and GPT models':'Модели Claude и GPT',
+    'Claude and GPT models':'Модели Claude, GPT и Argon',
+    'Claude, GPT and Argon models':'Модели Claude, GPT и Argon',
     'Monthly limit':'Месячный лимит',
     'Monthly Limit':'Месячный лимит',
     'Longer window':'Более длительный период',
@@ -808,6 +967,8 @@ const TEXT={
     'Premium requests':'Премиум-запросы',
     'Chat requests':'Запросы чата',
     'Completions':'Автодополнения',
+    'Credits':'Кредиты',
+    'No sessions or API balance found in ~/.dsh':'Сеансы или баланс API в ~/.dsh не найдены',
     'needs your input':'требуется ваш ответ',
     'Working in':'Работает в'
   },
@@ -825,7 +986,8 @@ const TEXT={
     '5-Hour Limit':'5 小时限额',
     '5-hour Limit':'5 小时限额',
     'Gemini Models':'Gemini 模型',
-    'Claude and GPT models':'Claude 与 GPT 模型',
+    'Claude and GPT models':'Claude、GPT 与 Argon 模型',
+    'Claude, GPT and Argon models':'Claude、GPT 与 Argon 模型',
     'Monthly limit':'每月限额',
     'Monthly Limit':'每月限额',
     'Longer window':'更长的周期',
@@ -870,6 +1032,8 @@ const TEXT={
     'Updated':'已更新',
     'Run opencode auth login to see usage.':'请运行 opencode auth login 以查看用量。',
     'No OpenCode Go subscription on this account':'此账号没有 OpenCode Go 订阅',
+    'Credits':'额度',
+    'No sessions or API balance found in ~/.dsh':'在 ~/.dsh 中未找到会话或 API 余额',
   },
   'zh-Hant':{
     'Included usage':'包含用量',
@@ -885,7 +1049,8 @@ const TEXT={
     '5-Hour Limit':'5 小時限額',
     '5-hour Limit':'5 小時限額',
     'Gemini Models':'Gemini 模型',
-    'Claude and GPT models':'Claude 與 GPT 模型',
+    'Claude and GPT models':'Claude、GPT 與 Argon 模型',
+    'Claude, GPT and Argon models':'Claude、GPT 與 Argon 模型',
     'Monthly limit':'每月限額',
     'Monthly Limit':'每月限額',
     'Longer window':'更長的週期',
@@ -930,6 +1095,8 @@ const TEXT={
     'Updated':'已更新',
     'Run opencode auth login to see usage.':'請執行 opencode auth login 以查看用量。',
     'No OpenCode Go subscription on this account':'此帳號沒有 OpenCode Go 訂閱',
+    'Credits':'額度',
+    'No sessions or API balance found in ~/.dsh':'在 ~/.dsh 中未找到工作階段或 API 餘額',
   },
 };
 // Kept as patterns rather than exact keys: each one carries a number, a plan name or an error
@@ -972,6 +1139,9 @@ const PATTERNS={
     [/Antigravity is closed — last reading kept/g,'Antigravity가 닫혀 있습니다 — 마지막 측정값 유지'],
     [/Sign in to Cursor \(the editor\) to see usage\./g,'사용량을 확인하려면 Cursor 편집기에 로그인하십시오.'],
     [/Cursor session was rejected — sign in again in the editor/g,'Cursor 세션이 거부되었습니다 — 편집기에서 다시 로그인하십시오'],
+    [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'$2 중 $1 남음 · $3 토큰'],
+    [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'$2 중 $1 사용 · $3 남음 · $4 토큰'],
+    [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD ($3 남음)'],
   ],
   'pt-BR':[
     [/^(\d+)m limit$/,'Limite de $1 min'],
@@ -1010,6 +1180,9 @@ const PATTERNS={
     [/Antigravity is closed — last reading kept/g,'O Antigravity está fechado — última leitura mantida'],
     [/Sign in to Cursor \(the editor\) to see usage\./g,'Entre no Cursor (o editor) para ver o uso.'],
     [/Cursor session was rejected — sign in again in the editor/g,'A sessão do Cursor foi rejeitada — entre novamente no editor'],
+    [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'$1 restantes de $2 · $3 tokens'],
+    [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'$1 de $2 usados · $3 restantes · $4 tokens'],
+    [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD ($3 restantes)'],
   ],
   uk:[
     [/^(\d+)m limit$/,'Ліміт $1 хв'],
@@ -1048,6 +1221,9 @@ const PATTERNS={
     [/Antigravity is closed — last reading kept/g,'Antigravity закрито — збережено останній показник'],
     [/Sign in to Cursor \(the editor\) to see usage\./g,'Увійдіть у Cursor (редактор), щоб бачити використання.'],
     [/Cursor session was rejected — sign in again in the editor/g,'Сеанс Cursor відхилено — увійдіть у редакторі ще раз'],
+    [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'$1 залишилось із $2 · $3 токенів'],
+    [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'$1 із $2 використано · $3 залишилось · $4 токенів'],
+    [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD ($3 залишилось)'],
   ],
   es:[
     [/^(\d+)m limit$/,'Límite de $1 min'],
@@ -1086,6 +1262,9 @@ const PATTERNS={
     [/Antigravity is closed — last reading kept/g,'Antigravity está cerrado — se conserva la última lectura'],
     [/Sign in to Cursor \(the editor\) to see usage\./g,'Inicia sesión en Cursor (el editor) para ver el uso.'],
     [/Cursor session was rejected — sign in again in the editor/g,'Se rechazó la sesión de Cursor — vuelve a iniciar sesión en el editor'],
+    [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'$1 restantes de $2 · $3 tokens'],
+    [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'$1 de $2 usados · $3 restantes · $4 tokens'],
+    [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD ($3 restantes)'],
   ],
   ru:[
     [/^(\d+)m limit$/,'Лимит на $1 мин'],
@@ -1124,6 +1303,9 @@ const PATTERNS={
     [/Antigravity is closed — last reading kept/g,'Antigravity закрыт — сохранено последнее показание'],
     [/Sign in to Cursor \(the editor\) to see usage\./g,'Войдите в Cursor (редактор), чтобы увидеть использование.'],
     [/Cursor session was rejected — sign in again in the editor/g,'Сеанс Cursor отклонён — снова войдите в редакторе'],
+    [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'$1 осталось из $2 · $3 токенов'],
+    [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'$1 из $2 исп. · $3 осталось · $4 токенов'],
+    [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD ($3 осталось)'],
   ],
   zh:[
     [/^(\d+)m limit$/,'$1 分钟限额'],
@@ -1162,6 +1344,9 @@ const PATTERNS={
     [/Antigravity is closed — last reading kept/g,'Antigravity 已关闭 — 保留上一次读数'],
     [/Sign in to Cursor \(the editor\) to see usage\./g,'请登录 Cursor（编辑器）以查看用量。'],
     [/Cursor session was rejected — sign in again in the editor/g,'Cursor 会话被拒绝 — 请在编辑器中重新登录'],
+    [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'剩余 $1 / $2 · $3 词元'],
+    [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'已用 $1 / $2 · 剩余 $3 · $4 词元'],
+    [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD（剩余 $3）'],
   ],
   'zh-Hant':[
     [/^(\d+)m limit$/,'$1 分鐘限額'],
@@ -1200,6 +1385,9 @@ const PATTERNS={
     [/Antigravity is closed — last reading kept/g,'Antigravity 已關閉 — 保留上一次讀數'],
     [/Sign in to Cursor \(the editor\) to see usage\./g,'請登入 Cursor（編輯器）以查看用量。'],
     [/Cursor session was rejected — sign in again in the editor/g,'Cursor 工作階段被拒絕 — 請在編輯器中重新登入'],
+    [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'剩餘 $1 / $2 · $3 詞元'],
+    [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'已用 $1 / $2 · 剩餘 $3 · $4 詞元'],
+    [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD（剩餘 $3）'],
   ],
 };
 // Grammar differs enough that a format string would not carry it — Russian puts the verb last,
@@ -1357,10 +1545,38 @@ function headlineOf(snap,id){
   if(id==='grok') return byId('credits')||ws[0];
   if(id==='copilot') return byId('premium_interactions')||ws[0];
   if(id==='glm') return byId('session');
-  if(id==='deepseek') return byId('today');
+  if(id==='deepseek') return byId('credits')||byId('today');
   if(id==='opencode') return byId('rolling');
   if(id==='commandcode') return byId('monthly');
   if(id==='qoder') return byId('quota');
+  const isArgon=w=>(w.id&&w.id.toLowerCase().includes('argon'))||(w.label&&w.label.toLowerCase().includes('argon'));
+  const isClaude5h=w=>!isArgon(w)&&((w.id&&(w.id.toLowerCase().includes('claude')||w.id.toLowerCase().includes('gpt')||w.id.toLowerCase().includes('3p')))||(w.group&&w.group.toLowerCase().includes('claude')))&&laneIs(w,'5h');
+  const isGemini5h=w=>((w.id&&w.id.toLowerCase().includes('gemini'))||(w.group&&w.group.toLowerCase().includes('gemini')))&&laneIs(w,'5h');
+  const wArgon=ws.find(isArgon);
+  const wClaude=ws.find(isClaude5h);
+  const wGemini=ws.find(isGemini5h);
+  let totalWeight=0, sum=0;
+  const resets=[];
+  if(wArgon && typeof wArgon.used==='number' && Number.isFinite(wArgon.used)){
+    sum+=0.25*Math.min(Math.max(wArgon.used,0),1);
+    totalWeight+=0.25;
+    if(wArgon.resets_at) resets.push(wArgon.resets_at);
+  }
+  if(wClaude && typeof wClaude.used==='number' && Number.isFinite(wClaude.used)){
+    sum+=0.25*Math.min(Math.max(wClaude.used,0),1);
+    totalWeight+=0.25;
+    if(wClaude.resets_at) resets.push(wClaude.resets_at);
+  }
+  if(wGemini && typeof wGemini.used==='number' && Number.isFinite(wGemini.used)){
+    sum+=0.50*Math.min(Math.max(wGemini.used,0),1);
+    totalWeight+=0.50;
+    if(wGemini.resets_at) resets.push(wGemini.resets_at);
+  }
+  if(totalWeight>0){
+    const used=Math.min(Math.max(sum/totalWeight,0),1);
+    const resets_at=resets.length?Math.min(...resets):null;
+    return {id:'antigravity-total',label:'Total',used,resets_at,duration_ms:5*3600*1000};
+  }
   const fam=ws.filter(w=>laneFamily(w)===agPrefs.model), lanes=fam.length?fam:ws;
   if(agPrefs.limit!=='automatic'){ const w=tightestOf(lanes.filter(w=>laneIs(w,agPrefs.limit))); if(w) return w; }
   return tightestOf(lanes.filter(w=>w.used<1))||tightestOf(lanes)||lanes[0];
@@ -2235,13 +2451,13 @@ function paintOrb(g){
   const a=g.arc, d=g.disc||[0,0,0];
   if(!g.liquid){
     // The resting arc's own drawing: the edge a pixel either side of the fill
-    pRing.setAttribute('d',a?a.d:''); pRing.setAttribute('stroke-width',a?(a.width+2).toFixed(2):'0');
+    pRing.setAttribute('d',a?a.d:''); pRing.setAttribute('stroke-width',a&&borderThickness>0?(a.width+2*borderThickness).toFixed(2):'0');
     pFill.setAttribute('d',a?a.d:''); pFill.setAttribute('stroke-width',a?a.width.toFixed(2):'0');
     setCircle(pDisc,d[0],d[1],d[2]-.5);
     return;
   }
   orbBlur.setAttribute('stdDeviation',g.goo.toFixed(2));
-  lArc.setAttribute('d',a?a.d:''); lArc.setAttribute('stroke-width',a?(a.width+2).toFixed(2):'0');
+  lArc.setAttribute('d',a?a.d:''); lArc.setAttribute('stroke-width',a?(a.width+2*borderThickness).toFixed(2):'0');
   lBand.setAttribute('d',g.band?g.band.d:''); lBand.setAttribute('stroke-width',g.band?g.band.width.toFixed(2):'0');
   lNeck.setAttribute('d',g.neck||'');
   setCircle(lDisc,d[0],d[1],d[2]);

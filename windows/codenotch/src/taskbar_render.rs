@@ -11,13 +11,14 @@ use windows::{
         Foundation::{E_INVALIDARG, E_OUTOFMEMORY, E_UNEXPECTED, HMODULE, HWND, POINT},
         Graphics::{
             Direct2D::{
-                Common::{D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT, D2D_POINT_2F, D2D_RECT_F, D2D_SIZE_F},
+                Common::{D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_HOLLOW, D2D1_FIGURE_END_OPEN, D2D1_PIXEL_FORMAT, D2D_POINT_2F, D2D_RECT_F, D2D_SIZE_F, D2D_SIZE_U},
                 D2D1CreateDevice, ID2D1Device, ID2D1DeviceContext, ID2D1DeviceContext5,
                 ID2D1Image, ID2D1SolidColorBrush, ID2D1StrokeStyle, ID2D1SvgDocument,
-                D2D1_ANTIALIAS_MODE_ALIASED, D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+                D2D1_ANTIALIAS_MODE_ALIASED, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
                 D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_PROPERTIES1, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_FLAT,
                 D2D1_DASH_STYLE_SOLID, D2D1_DEVICE_CONTEXT_OPTIONS_NONE,
-                D2D1_DRAW_TEXT_OPTIONS_CLIP, D2D1_ELLIPSE, D2D1_LINE_JOIN_ROUND,
+                D2D1_DRAW_TEXT_OPTIONS_CLIP, D2D1_ELLIPSE, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC,
+                D2D1_INTERPOLATION_MODE_MULTI_SAMPLE_LINEAR, D2D1_LINE_JOIN_ROUND,
                 D2D1_STROKE_STYLE_PROPERTIES, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
             },
             Direct3D::{D3D_DRIVER_TYPE, D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP},
@@ -37,7 +38,7 @@ use windows::{
 };
 
 // Existing licensed artwork, shared with the web UI; no paths are redrawn here.
-const LOGOS: [(&str, &str); 7] = [
+const LOGOS: [(&str, &str); 10] = [
     ("claude", include_str!("../glyphs/claude.svg")),
     ("codex", include_str!("../glyphs/codex.svg")),
     ("cursor", include_str!("../glyphs/cursor.svg")),
@@ -45,6 +46,9 @@ const LOGOS: [(&str, &str); 7] = [
     ("copilot", include_str!("../glyphs/copilot.svg")),
     ("gemini", include_str!("../glyphs/gemini.svg")),
     ("opencode", include_str!("../glyphs/opencode.svg")),
+    ("commandcode", include_str!("../glyphs/commandcode.svg")),
+    ("deepseek", include_str!("../glyphs/deepseek.svg")),
+    ("qoder", include_str!("../glyphs/qoder.svg")),
 ];
 
 pub struct Renderer {
@@ -168,22 +172,77 @@ impl Renderer {
                     ..Default::default()
                 };
                 let bitmap = self.context.CreateBitmapFromDxgiSurface(&dxgi_surface, Some(&properties))?;
-                self.context.SetTarget(&bitmap);
-                let transform = matrix(1.0, offset.x as f32, offset.y as f32);
-                self.context.SetTransform(&transform);
-                self.context.BeginDraw();
-                // BeginDraw can return a texture atlas offset, even for a full update.
-                self.context.PushAxisAlignedClip(&D2D_RECT_F { left:0.0, top:0.0,
-                    right:self.width as f32, bottom:self.height as f32 }, D2D1_ANTIALIAS_MODE_ALIASED);
-                self.context.Clear(Some(&rgba(0.0, 0.0, 0.0, 0.0)));
-                for slot in &slots {
-                    if let Some(item) = frame.items.get(slot.index) {
-                        self.draw_indicator(item, slot, frame, visual_scale, hovered == Some(slot.index),
-                            pressed == Some(slot.index), seconds, offset);
+                let ssaa: u32 = match frame.appearance.antialias_internal.as_str() {
+                    "subpixel" => 2,
+                    "ssaa" => 4,
+                    "ssaa8x" | "ultra" => 8,
+                    _ => match frame.appearance.antialias_border.as_str() {
+                        "vector" | "subpixel" => 2,
+                        "ssaa" => 4,
+                        "ssaa8x" | "ultra" => 8,
+                        _ => 1,
+                    },
+                };
+                if ssaa > 1 && self.width.saturating_mul(ssaa) <= 16384 && self.height.saturating_mul(ssaa) <= 4096 {
+                    let ssaa_f = ssaa as f32;
+                    let ssaa_props = D2D1_BITMAP_PROPERTIES1 {
+                        pixelFormat: D2D1_PIXEL_FORMAT { format:DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode:D2D1_ALPHA_MODE_PREMULTIPLIED },
+                        dpiX:96.0, dpiY:96.0,
+                        bitmapOptions:D2D1_BITMAP_OPTIONS_TARGET,
+                        ..Default::default()
+                    };
+                    let ssaa_bitmap = self.context.CreateBitmap(
+                        D2D_SIZE_U { width:self.width * ssaa, height:self.height * ssaa },
+                        None, 0, &ssaa_props,
+                    )?;
+                    self.context.SetTarget(&ssaa_bitmap);
+                    self.context.SetTransform(&matrix(ssaa_f, 0.0, 0.0));
+                    self.context.BeginDraw();
+                    self.context.PushAxisAlignedClip(&D2D_RECT_F { left:0.0, top:0.0,
+                        right:self.width as f32, bottom:self.height as f32 }, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+                    self.context.Clear(Some(&rgba(0.0, 0.0, 0.0, 0.0)));
+                    for slot in &slots {
+                        if let Some(item) = frame.items.get(slot.index) {
+                            self.draw_indicator(item, slot, frame, visual_scale, hovered == Some(slot.index),
+                                pressed == Some(slot.index), seconds, POINT::default(), ssaa_f);
+                        }
                     }
+                    self.context.PopAxisAlignedClip();
+                    self.context.EndDraw(None, None)?;
+
+                    self.context.SetTarget(&bitmap);
+                    self.context.SetTransform(&matrix(1.0, offset.x as f32, offset.y as f32));
+                    self.context.BeginDraw();
+                    self.context.PushAxisAlignedClip(&D2D_RECT_F { left:0.0, top:0.0,
+                        right:self.width as f32, bottom:self.height as f32 }, D2D1_ANTIALIAS_MODE_ALIASED);
+                    self.context.Clear(Some(&rgba(0.0, 0.0, 0.0, 0.0)));
+                    let dest = D2D_RECT_F { left:0.0, top:0.0, right:self.width as f32, bottom:self.height as f32 };
+                    let src = D2D_RECT_F { left:0.0, top:0.0, right:(self.width * ssaa) as f32, bottom:(self.height * ssaa) as f32 };
+                    let interp = if frame.appearance.antialias == "subpixel" {
+                        D2D1_INTERPOLATION_MODE_MULTI_SAMPLE_LINEAR
+                    } else {
+                        D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC
+                    };
+                    self.context.DrawBitmap(&ssaa_bitmap, Some(&dest), 1.0, interp, Some(&src), None);
+                    self.context.PopAxisAlignedClip();
+                    self.context.EndDraw(None, None)
+                } else {
+                    self.context.SetTarget(&bitmap);
+                    let transform = matrix(1.0, offset.x as f32, offset.y as f32);
+                    self.context.SetTransform(&transform);
+                    self.context.BeginDraw();
+                    self.context.PushAxisAlignedClip(&D2D_RECT_F { left:0.0, top:0.0,
+                        right:self.width as f32, bottom:self.height as f32 }, D2D1_ANTIALIAS_MODE_ALIASED);
+                    self.context.Clear(Some(&rgba(0.0, 0.0, 0.0, 0.0)));
+                    for slot in &slots {
+                        if let Some(item) = frame.items.get(slot.index) {
+                            self.draw_indicator(item, slot, frame, visual_scale, hovered == Some(slot.index),
+                                pressed == Some(slot.index), seconds, offset, 1.0);
+                        }
+                    }
+                    self.context.PopAxisAlignedClip();
+                    self.context.EndDraw(None, None)
                 }
-                self.context.PopAxisAlignedClip();
-                self.context.EndDraw(None, None)
             })();
             self.context.SetTarget(None::<&ID2D1Image>);
             let surface_result = self.surface.EndDraw();
@@ -193,7 +252,7 @@ impl Renderer {
     }
 
     unsafe fn draw_indicator(&self, item: &Indicator, slot: &Slot, frame: &Frame, scale: f32,
-        hovered: bool, pressed: bool, seconds: f32, offset: POINT) {
+        hovered: bool, pressed: bool, seconds: f32, offset: POINT, ssaa: f32) {
         self.context.PushAxisAlignedClip(&D2D_RECT_F { left:slot.x, top:0.0,
             right:slot.x + slot.width, bottom:self.height as f32 }, D2D1_ANTIALIAS_MODE_ALIASED);
         let dim = if item.dimmed { 0.5 } else { 1.0 };
@@ -225,11 +284,11 @@ impl Renderer {
         }
         let logo_index = (if frame.dark { 0 } else { 2 }) + usize::from(item.dimmed);
         if let Some(documents) = self.logos.get(item.provider.as_str()) {
-            self.context.SetTransform(&matrix(slot.logo_size / 24.0,
-                offset.x as f32 + slot.center_x - slot.logo_size / 2.0,
-                offset.y as f32 + slot.center_y - slot.logo_size / 2.0));
+            self.context.SetTransform(&matrix(ssaa * slot.logo_size / 24.0,
+                ssaa * (offset.x as f32 + slot.center_x - slot.logo_size / 2.0),
+                ssaa * (offset.y as f32 + slot.center_y - slot.logo_size / 2.0)));
             self.svg_context.DrawSvgDocument(&documents[logo_index]);
-            self.context.SetTransform(&matrix(1.0, offset.x as f32, offset.y as f32));
+            self.context.SetTransform(&matrix(ssaa, offset.x as f32, offset.y as f32));
         } else {
             let label: Vec<u16> = item.provider.chars().next().unwrap_or('?').to_uppercase().collect::<String>().encode_utf16().collect();
             self.context.DrawText(&label, &self.format, &D2D_RECT_F {
@@ -290,6 +349,20 @@ impl Renderer {
             let angle = start + fraction * std::f32::consts::TAU * step as f32 / segments as f32;
             D2D_POINT_2F { x:center.x + radius * angle.cos(), y:center.y + radius * angle.sin() }
         };
+        if let Ok(factory) = self.context.GetFactory() {
+            if let Ok(path) = factory.CreatePathGeometry() {
+                if let Ok(sink) = path.Open() {
+                    sink.BeginFigure(point(0), D2D1_FIGURE_BEGIN_HOLLOW);
+                    let pts: Vec<D2D_POINT_2F> = (1..=segments).map(point).collect();
+                    sink.AddLines(&pts);
+                    sink.EndFigure(D2D1_FIGURE_END_OPEN);
+                    if sink.Close().is_ok() {
+                        self.context.DrawGeometry(&path, brush, thickness, style);
+                        return;
+                    }
+                }
+            }
+        }
         for step in 0..segments {
             self.context.DrawLine(point(step), point(step + 1), brush, thickness, style);
         }
@@ -466,10 +539,21 @@ mod tests {
                 }
             }
             frame.appearance.size = 1.0;
+            for aa in ["off", "subpixel", "vector", "ssaa"] {
+                frame.appearance.antialias = aa.into();
+                frame.appearance.antialias_border = aa.into();
+                frame.appearance.antialias_internal = if aa == "vector" { "subpixel".into() } else { aa.into() };
+                for bt in [0.0, 1.0, 2.0] {
+                    frame.appearance.border_thickness = bt;
+                    renderer.draw(&frame, 1.0, Some(0), None, 1.8).unwrap();
+                }
+            }
+            frame.appearance.antialias = "off".into();
+            frame.appearance.border_thickness = 1.0;
             // Every built-in document is also submitted through DrawSvgDocument.
             frame.items = LOGOS.iter().enumerate().map(|(index, (provider, _))| Indicator {
                 id:format!("fixture-{index}"), provider:(*provider).into(), inner:None,
-                outer:Some(index as f32 / 6.0), text:format!("{}%", index * 16),
+                outer:Some((index as f32 / 9.0).min(1.0)), text:format!("{}%", (index * 11).min(100)),
                 work_state:"idle".into(), dimmed:index % 2 != 0, inner_weekly:false, outer_weekly:false,
             }).collect();
             renderer.resize(1120, 84).unwrap();

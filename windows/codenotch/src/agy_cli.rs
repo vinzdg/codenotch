@@ -96,11 +96,18 @@ fn sanitize_terminal_output(input: &str) -> String {
 /// Returns an error on invalid or unrecognized format; never returns dummy 0% quotas.
 fn parse_quota(text: &str) -> Result<Vec<LimitWindow>, String> {
     let clean = sanitize_terminal_output(text);
-    if !clean.lines().any(|line| line.trim() == "Quota:") {
+    let has_header = clean.lines().any(|line| line.trim() == "Quota:");
+    let has_tsv_rows = clean
+        .lines()
+        .any(|line| line.contains('\t') && (line.contains("Limit Remaining") || (line.contains("Argon") && line.contains("Limit"))));
+    if !has_header && !has_tsv_rows {
         return Err("CLI did not return a quota report".into());
     }
     let mut out = Vec::new();
-    for line in clean.lines().filter(|line| line.contains("Limit Remaining")) {
+    for line in clean
+        .lines()
+        .filter(|line| line.contains("Limit Remaining") || (line.contains("Argon") && line.contains("Limit")))
+    {
         let (left, reset) = line.rsplit_once('%').ok_or("Invalid CLI quota row")?;
         let (label, remaining_str) = left
             .trim()
@@ -117,6 +124,18 @@ fn parse_quota(text: &str) -> Result<Vec<LimitWindow>, String> {
             return Err("Invalid quota reset time".into());
         }
         let label = label.split_whitespace().collect::<Vec<_>>().join(" ");
+        if label.to_lowercase().contains("argon") {
+            out.push(LimitWindow {
+                label: "Argon".into(),
+                group: Some("Claude and GPT models".into()),
+                duration_ms: crate::antigravity::lane_duration_ms(&label).or(Some(crate::usage::SEVEN_DAYS_MS)),
+                id: "Claude and GPT models Argon Weekly Limit".into(),
+                used: ((100.0 - remaining) / 100.0).clamp(0.0, 1.0),
+                resets_at: Some(reset as u64),
+                ..Default::default()
+            });
+            continue;
+        }
         let label = label
             .strip_suffix(" Remaining")
             .ok_or("Unknown quota label")?
@@ -312,9 +331,8 @@ fn run_cmd_conpty(
     use std::io::Read;
     use std::os::windows::io::FromRawHandle;
     use windows::core::{PCWSTR, PWSTR};
-    use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0};
-    use windows::Win32::System::Console::{
-        ClosePseudoConsole, CreatePseudoConsole, COORD, HPCON,
+    use windows::Win32::Foundation::{
+        CloseHandle, SetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT, WAIT_OBJECT_0,
     };
     use windows::Win32::System::JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject,
@@ -323,12 +341,9 @@ fn run_cmd_conpty(
     };
     use windows::Win32::System::Pipes::CreatePipe;
     use windows::Win32::System::Threading::{
-        CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
-        InitializeProcThreadAttributeList, ResumeThread, UpdateProcThreadAttribute,
-        WaitForSingleObject, CREATE_SUSPENDED,
-        EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST,
-        PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, STARTUPINFOEXW,
-        STARTF_USESTDHANDLES,
+        CreateProcessW, GetExitCodeProcess, ResumeThread, WaitForSingleObject,
+        CREATE_NO_WINDOW, CREATE_SUSPENDED, PROCESS_INFORMATION, STARTF_USESHOWWINDOW,
+        STARTF_USESTDHANDLES, STARTUPINFOW,
     };
 
     if !program.is_file() {
@@ -373,37 +388,11 @@ fn run_cmd_conpty(
             let _ = CloseHandle(in_write);
             return Err(format!("CreatePipe(out) failed: {e}"));
         }
+        let _ = SetHandleInformation(in_read, HANDLE_FLAG_INHERIT.0, HANDLE_FLAG_INHERIT);
+        let _ = SetHandleInformation(out_write, HANDLE_FLAG_INHERIT.0, HANDLE_FLAG_INHERIT);
     }
 
-    let console_size = COORD { X: 160, Y: 60 };
-    let hpc_res = unsafe { CreatePseudoConsole(console_size, in_read, out_write, 0) };
-
-    unsafe {
-        let _ = CloseHandle(in_read);
-        let _ = CloseHandle(out_write);
-    }
-
-    let hpc = match hpc_res {
-        Ok(h) => h,
-        Err(e) => {
-            unsafe {
-                let _ = CloseHandle(in_write);
-                let _ = CloseHandle(out_read);
-            }
-            return Err(format!("CreatePseudoConsole failed: {e}"));
-        }
-    };
-
-    struct PseudoConsoleGuard(HPCON);
-    impl Drop for PseudoConsoleGuard {
-        fn drop(&mut self) {
-            unsafe {
-                ClosePseudoConsole(self.0);
-            }
-        }
-    }
     let _input_guard = Job(in_write);
-    let pty_guard = PseudoConsoleGuard(hpc);
     let mut file = unsafe { std::fs::File::from_raw_handle(out_read.0 as _) };
     let reader_thread = std::thread::spawn(move || {
         let mut buf = Vec::new();
@@ -416,47 +405,6 @@ fn run_cmd_conpty(
         buf
     });
 
-    let mut attr_size = 0usize;
-    let _ = unsafe {
-        InitializeProcThreadAttributeList(
-            LPPROC_THREAD_ATTRIBUTE_LIST(std::ptr::null_mut()),
-            1,
-            0,
-            &mut attr_size,
-        )
-    };
-
-    let mut attr_storage = vec![0u8; attr_size];
-    let attr_list = LPPROC_THREAD_ATTRIBUTE_LIST(attr_storage.as_mut_ptr() as *mut _);
-
-    struct AttrListGuard(LPPROC_THREAD_ATTRIBUTE_LIST);
-    impl Drop for AttrListGuard {
-        fn drop(&mut self) {
-            unsafe {
-                DeleteProcThreadAttributeList(self.0);
-            }
-        }
-    }
-
-    let _attr_guard = unsafe {
-        InitializeProcThreadAttributeList(attr_list, 1, 0, &mut attr_size)
-            .map_err(|e| format!("InitializeProcThreadAttributeList failed: {e}"))?;
-        AttrListGuard(attr_list)
-    };
-
-    unsafe {
-        UpdateProcThreadAttribute(
-            attr_list,
-            0,
-            PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE as usize,
-            Some(hpc.0 as *const core::ffi::c_void),
-            std::mem::size_of::<HPCON>(),
-            None,
-            None,
-        )
-        .map_err(|e| format!("UpdateProcThreadAttribute failed: {e}"))?;
-    }
-
     let mut cmd_line_str = quote_arg(program.to_str().unwrap_or_default());
     let program_u16: Vec<u16> = program.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
     for arg in args {
@@ -467,11 +415,13 @@ fn run_cmd_conpty(
 
     let cwd_u16: Option<Vec<u16>> = cwd.map(|p| p.as_os_str().encode_wide().chain(std::iter::once(0)).collect());
 
-    let mut si_ex = STARTUPINFOEXW::default();
-    si_ex.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
-    // Prevent inherited parent output handles from bypassing the pseudo console.
-    si_ex.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
-    si_ex.lpAttributeList = attr_list;
+    let mut si = STARTUPINFOW::default();
+    si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.wShowWindow = 0;
+    si.hStdInput = in_read;
+    si.hStdOutput = out_write;
+    si.hStdError = out_write;
 
     let mut proc_info = PROCESS_INFORMATION::default();
 
@@ -481,16 +431,19 @@ fn run_cmd_conpty(
             PWSTR(cmd_line_u16.as_mut_ptr()),
             None,
             None,
-            false,
-            // Not CREATE_NO_WINDOW: with it the child gets a hidden console of its own instead of the
-            // pseudoconsole, so nothing it prints is captured (test_bounded_runner_and_no_deadlock).
-            EXTENDED_STARTUPINFO_PRESENT | CREATE_SUSPENDED,
+            true,
+            CREATE_NO_WINDOW | CREATE_SUSPENDED,
             None,
             cwd_u16.as_ref().map_or(PCWSTR::null(), |v| PCWSTR(v.as_ptr())),
-            &si_ex.StartupInfo,
+            &si,
             &mut proc_info,
         )
     };
+
+    unsafe {
+        let _ = CloseHandle(in_read);
+        let _ = CloseHandle(out_write);
+    }
 
     if let Err(e) = spawn_res {
         return Err(format!("CreateProcessW failed: {e}"));
@@ -532,9 +485,7 @@ fn run_cmd_conpty(
         }
     }
 
-    // Stop our remaining descendants before closing their console.
     drop(job);
-    drop(pty_guard);
 
     let raw_bytes = reader_thread
         .join()
@@ -635,6 +586,15 @@ mod tests {
         assert_eq!(windows[3].group.as_deref(), Some("Claude and GPT models"));
         assert_eq!(windows[3].used, 0.0);
         assert!(windows[3].resets_at.is_some());
+
+        let argon_tsv = "Gemini Models\tWeekly Limit Remaining\t100%\t2026-10-31T21:02:20Z\nGemini Models\tFive Hour Limit Remaining\t100%\t2026-10-25T02:02:20Z\nClaude and GPT models\tWeekly Limit Remaining\t100%\t2026-10-31T22:31:55Z\nClaude and GPT models\tFive Hour Limit Remaining\t100%\t2026-10-25T03:31:55Z\nGemini 4 Argon\tGemini 4 Argon Weekly Limit\t64%\t2026-10-31T20:59:36Z\n";
+        let argon_windows = parse_quota(argon_tsv).expect("valid Argon TSV quota");
+        assert_eq!(argon_windows.len(), 5);
+        assert_eq!(argon_windows[4].id, "Claude and GPT models Argon Weekly Limit");
+        assert_eq!(argon_windows[4].label, "Argon");
+        assert_eq!(argon_windows[4].group.as_deref(), Some("Claude and GPT models"));
+        assert!((argon_windows[4].used - 0.36).abs() < 1e-5);
+        assert_eq!(argon_windows[4].duration_ms, Some(crate::usage::SEVEN_DAYS_MS));
 
         for bad in [
             "",

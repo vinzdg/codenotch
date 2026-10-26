@@ -21,6 +21,12 @@ pub struct Appearance {
     pub color_transition: String,
     pub size: f32,
     pub shows_remaining: bool,
+    pub antialias: String,
+    pub antialias_border: String,
+    pub antialias_internal: String,
+    pub border_thickness: f32,
+    pub border_color: String,
+    pub border_opacity: f32,
 }
 
 impl Appearance {
@@ -28,7 +34,13 @@ impl Appearance {
         Self { weekly_ring:config::weekly_ring_or_off(&cfg.weekly_ring),
             weekly_dashed:cfg.weekly_ring_dashed,
             color_transition:config::color_transition_or_step(&cfg.color_transition),
-            size:config::snap_scale(cfg.scale) as f32, shows_remaining:cfg.notch_shows_remaining }
+            size:config::snap_scale(cfg.scale) as f32, shows_remaining:cfg.notch_shows_remaining,
+            antialias:config::antialias_border_or_default(&cfg.antialias_border),
+            antialias_border:config::antialias_border_or_default(&cfg.antialias_border),
+            antialias_internal:config::antialias_internal_or_default(&cfg.antialias_internal),
+            border_thickness:config::clamp_border_thickness(cfg.border_thickness) as f32,
+            border_color:config::border_color_or_default(&cfg.border_color),
+            border_opacity:config::clamp_border_opacity(cfg.border_opacity) as f32 }
     }
 }
 
@@ -102,11 +114,13 @@ fn headline(item: &Item) -> Option<&LimitWindow> {
         provider => {
             let default = match provider {
                 "cursor" => Some("included"), "glm" => Some("session"), "opencode" => Some("rolling"),
-                "grok" => Some("credits"), "copilot" => Some("premium_interactions"), _ => None,
+                "grok" => Some("credits"), "copilot" => Some("premium_interactions"),
+                "deepseek" => Some("credits"), "commandcode" => Some("monthly"), "qoder" => Some("quota"),
+                _ => None,
             };
             item.headline_id.as_deref().filter(|id| !id.is_empty()).or(default)
                 .and_then(|id| by_id(windows, id))
-                .or_else(|| if provider == "cursor" { by_id(windows, "api") } else { None })
+                .or_else(|| if provider == "cursor" { by_id(windows, "api") } else if provider == "deepseek" { by_id(windows, "today") } else { None })
         }
     }
 }
@@ -154,7 +168,11 @@ pub fn from_items(items: &[Item], dark: bool, cfg: &Config) -> Frame {
             let dual = matches!(item.provider.as_str(), "claude" | "codex");
             let main = headline(item);
             let weekly = weekly(item,cfg);
-            let session = live_fraction(item,main,now);
+            let session = if item.provider == "gemini" {
+                crate::antigravity_composite_fraction(&item.snapshot.windows).map(|f| f as f32).or_else(|| live_fraction(item,main,now))
+            } else {
+                live_fraction(item,main,now)
+            };
             let week = live_fraction(item,weekly,now);
             let same = main.zip(weekly).is_some_and(|(a,b)| a.id == b.id);
             // The weekly option controls an additional ring. A sole available

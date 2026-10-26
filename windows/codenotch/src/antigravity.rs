@@ -58,8 +58,8 @@ pub fn request_refresh() {
     }
 }
 
+#[cfg(test)]
 pub fn request_hover_refresh() {
-    // Hover must not wake the legacy adapter's periodic poller.
     if let Some(sender) = REFRESH_CLI.lock().unwrap().as_ref() {
         let _ = sender.try_send(());
     }
@@ -290,6 +290,7 @@ pub fn windows_from_bridge(v: &serde_json::Value) -> Vec<LimitWindow> {
     let Some(groups) = v.pointer("/response/groups").and_then(|g| g.as_array()) else { return out };
     for g in groups {
         let gname = g.get("displayName").and_then(|x| x.as_str());
+        let is_argon_group = gname.is_some_and(|n| n.to_lowercase().contains("argon"));
         let Some(buckets) = g.get("buckets").and_then(|b| b.as_array()) else { continue };
         for b in buckets {
             let Some(rem) = b.get("remainingFraction").and_then(|x| x.as_f64()) else { continue };
@@ -297,11 +298,29 @@ pub fn windows_from_bridge(v: &serde_json::Value) -> Vec<LimitWindow> {
                 continue;
             }
             let bname = b.get("displayName").and_then(|x| x.as_str());
-            let id = b.get("bucketId").and_then(|x| x.as_str()).or(gname).unwrap_or("quota").to_string();
+            let raw_id = b.get("bucketId").and_then(|x| x.as_str()).or(gname).unwrap_or("quota");
+            let is_argon = is_argon_group
+                || raw_id.to_lowercase().contains("argon")
+                || bname.is_some_and(|n| n.to_lowercase().contains("argon"));
+            let id = if is_argon {
+                "Claude and GPT models Argon Weekly Limit".to_string()
+            } else {
+                raw_id.to_string()
+            };
+            let label = if is_argon {
+                "Argon".to_string()
+            } else {
+                lane_name(&id).or(gname).or(bname).unwrap_or("Usage").to_string()
+            };
+            let group = if is_argon {
+                Some("Claude and GPT models".to_string())
+            } else {
+                gname.map(String::from)
+            };
             out.push(LimitWindow {
-                label: lane_name(&id).or(gname).or(bname).unwrap_or("Usage").to_string(),
-                group: gname.map(String::from),
-                duration_ms: quota_duration_ms(b),
+                label,
+                group,
+                duration_ms: quota_duration_ms(b).or(if is_argon { Some(SEVEN_DAYS_MS) } else { None }),
                 id,
                 used: (1.0 - rem).clamp(0.0, 1.0),
                 resets_at: parse_iso(b.get("resetTime")),
@@ -362,10 +381,16 @@ pub(crate) fn order_lanes(windows: &mut [LimitWindow]) {
             groups.push(w.group.clone());
         }
     }
-    let rank = |w: &LimitWindow| match lane_name(&w.id) {
-        Some("5-hour Limit") => 0,
-        Some(_) => 1,
-        None => 2,
+    let rank = |w: &LimitWindow| {
+        if w.id.to_lowercase().contains("argon") || w.label.to_lowercase().contains("argon") {
+            2
+        } else {
+            match lane_name(&w.id) {
+                Some("5-hour Limit") => 0,
+                Some(_) => 1,
+                None => 3,
+            }
+        }
     };
     windows.sort_by_key(|w| (groups.iter().position(|g| *g == w.group), rank(w)));
 }
@@ -721,7 +746,11 @@ fn start_cli(app: AppHandle) {
 
         let mut last_attempt: Option<Instant> = None;
 
-        while receiver.recv().is_ok() {
+        loop {
+            match receiver.recv_timeout(CLI_TTL) {
+                Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            }
             if last_attempt.is_some_and(|last| last.elapsed() < CLI_TTL) {
                 continue;
             }
