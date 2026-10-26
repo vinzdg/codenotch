@@ -603,6 +603,7 @@ struct ProviderSnapshot: Identifiable, Equatable {
         case "apify":      return L10n.t("Run apify login in Terminal, or paste an Apify API token in Settings", locale: locale)
         case "kilo":       return L10n.t("Sign in with the Kilo CLI to read your usage", locale: locale)
         case "higgsfield": return L10n.t("Run hf auth login in Terminal, or paste a Higgsfield API key in Settings", locale: locale)
+        case "krea":       return L10n.t("Run krea auth login in Terminal, or paste a Krea API key in Settings", locale: locale)
         // Two Ollamas, and they are stuck for different reasons: the hosted
         // one wants a key, the local one wants the daemon running.
         case "ollama":       return L10n.t("Enter an Ollama API key in Settings, or export OLLAMA_API_KEY", locale: locale)

@@ -1653,7 +1653,7 @@ struct SettingsView: View {
     /// this, sees four blank rings and concludes it is broken — and the
     /// distinction that catches them out is Claude *Code*, not the Claude app.
     static var setupCopy: String {
-        L10n.t("Codenotch reads usage from tools already signed in on this Mac — it never asks for your password. Install and sign in to any of Claude Code (the terminal tool, not the Claude app), Cursor (the editor or cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, the Kilo CLI, Muse, Higgsfield or a Gemini API key (via Gemini CLI, OpenCode or Hermes), and its ring appears in the notch.")
+        L10n.t("Codenotch reads usage from tools already signed in on this Mac — it never asks for your password. Install and sign in to any of Claude Code (the terminal tool, not the Claude app), Cursor (the editor or cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, the Kilo CLI, Muse, Higgsfield, Krea or a Gemini API key (via Gemini CLI, OpenCode or Hermes), and its ring appears in the notch.")
     }
 
     /// Said before it happens rather than after. A system dialogue asking to
@@ -2257,6 +2257,9 @@ private struct AccountRow: View {
             if provider.id == "higgsfield" {
                 higgsfieldKeyEntry
             }
+            if provider.id == "krea" {
+                kreaKeyEntry
+            }
         }
     }
 
@@ -2364,6 +2367,41 @@ private struct AccountRow: View {
                 }
             }
             Text(L10n.t("Paste an API key or token from Higgsfield Console. Not needed after hf auth login, or with HIGGSFIELD_API_KEY exported. Stored in your login keychain."))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 2)
+    }
+
+    /// The API key input for Krea. Stored in the keychain on Save, then a
+    /// refresh is triggered so the ring picks up the new credential without a relaunch.
+    @State private var kreaKey = ""
+    @State private var kreaKeySaved = false
+
+    private var kreaKeyEntry: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(L10n.t("Krea API key"))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                SecureField(L10n.t("Paste your key"), text: $kreaKey)
+                    .textContentType(.password)
+                    .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
+                    .frame(maxWidth: 260)
+                Button(L10n.t("Save")) {
+                    guard !kreaKey.isEmpty else { return }
+                    KreaCredentials.store(kreaKey)
+                    kreaKey = ""
+                    kreaKeySaved = true
+                    _ = signIn(provider.id)
+                }
+                .disabled(kreaKey.isEmpty)
+                if kreaKeySaved {
+                    Text(L10n.t("Saved"))
+                        .foregroundStyle(.green)
+                }
+            }
+            Text(L10n.t("Paste an API token from Krea › Settings › API Tokens. Not needed after krea auth login, or with KREA_API_KEY exported. Stored in your login keychain."))
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
