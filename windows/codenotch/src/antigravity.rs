@@ -6,10 +6,10 @@
 //! Refreshes at startup and explicit/hover requests with a 5-minute TTL cache.
 //!
 //! Fallback path, when the CLI is absent (as upstream, most honest first):
-//!   1. Local bridge: find the `language_server*` process (its command line carries
-//!      `--csrf_token <t>`; the port is `--https_server_port 0`, i.e. random at runtime, and can
-//!      only be found in the listening table; it opens two ports and only one answers this RPC,
-//!      so both are tried),
+//!   1. Local bridge: find the IDE's `language_server*` process or, in newer builds and in VS Code's
+//!      Antigravity extension, `agy.exe --hub` (its command line carries `--csrf_token <t>` or
+//!      `--csrf_token=<t>`; the port is random at runtime, and can only be found in the listening
+//!      table; it opens two ports and only one answers this RPC, so both are tried),
 //!      POST `https://127.0.0.1:<port>/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary`
 //!      with header `x-codeium-csrf-token: <t>` (Antigravity sits on the Codeium stack; the header
 //!      name never changed) and body `{"forceRefresh":true}` (otherwise the server answers from
@@ -182,13 +182,10 @@ fn discover() -> Option<Endpoint> {
             "-NoProfile",
             "-NonInteractive",
             "-Command",
-            "Get-CimInstance Win32_Process -Filter \"Name LIKE '%language_server%'\" | ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }",
+            "Get-CimInstance Win32_Process -Filter \"Name LIKE '%language_server%' OR Name = 'agy.exe'\" | ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }",
         ],
     );
-    let line = table.lines().find(|l| l.contains("--csrf_token"))?;
-    let (pid_s, cmdline) = line.split_once('\t')?;
-    let pid: u32 = pid_s.trim().parse().ok()?;
-    let csrf = flag_value(cmdline, "--csrf_token")?;
+    let (pid, csrf) = server_in(&table)?;
     let ports = listening_ports(pid);
     if ports.is_empty() {
         return None;
@@ -213,10 +210,30 @@ fn discover() -> Option<Endpoint> {
     Some(Endpoint { ports, csrf })
 }
 
+/// The IDE's `language_server` first, as on the Mac, then `agy.exe --hub`. Only a server with a
+/// token: without one the hub answers 401.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn server_in(table: &str) -> Option<(u32, String)> {
+    let servers: Vec<&str> = table.lines().filter(|l| l.contains("--csrf_token")).collect();
+    let line = servers.iter().find(|l| l.contains("language_server")).or(servers.first())?;
+    let (pid, cmdline) = line.split_once('\t')?;
+    Some((pid.trim().parse().ok()?, flag_value(cmdline, "--csrf_token")?))
+}
+
+/// `--flag value` or `--flag=value`, which is how `agy.exe` gets its flags
 fn flag_value(line: &str, flag: &str) -> Option<String> {
-    let parts: Vec<&str> = line.split_whitespace().collect();
-    let i = parts.iter().position(|p| *p == flag)?;
-    parts.get(i + 1).map(|s| s.trim_matches('"').to_string())
+    let mut parts = line.split_whitespace();
+    while let Some(part) = parts.next() {
+        let value = if part == flag {
+            parts.next()?
+        } else if let Some(value) = part.strip_prefix(flag).and_then(|rest| rest.strip_prefix('=')) {
+            value
+        } else {
+            continue;
+        };
+        return Some(value.trim_matches('"').to_string());
+    }
+    None
 }
 
 /// netstat -ano: `TCP 127.0.0.1:PORT 0.0.0.0:0 LISTENING PID`
@@ -813,7 +830,7 @@ fn legacy_probe() -> String {
     let cred = read_credentials();
     let ep = discover();
     format!(
-        "Antigravity: state dirs {} | Credential Manager gemini:antigravity {} | language_server {}",
+        "Antigravity: state dirs {} | Credential Manager gemini:antigravity {} | local server {}",
         if roots.is_empty() {
             "none under ~/.gemini".to_string()
         } else {
@@ -998,5 +1015,24 @@ mod tests {
                 "Claude and GPT models › Weekly Limit (3p-weekly)",
             ]
         );
+    }
+
+    #[test]
+    fn a_flag_is_read_after_a_space_or_an_equals_sign() {
+        assert_eq!(super::flag_value("x --csrf_token abc --y", "--csrf_token").as_deref(), Some("abc"));
+        assert_eq!(super::flag_value("x --csrf_token=abc --y", "--csrf_token").as_deref(), Some("abc"));
+        assert_eq!(super::flag_value("x --csrf_token_file=abc", "--csrf_token"), None);
+        assert_eq!(super::flag_value("x --csrf_token", "--csrf_token"), None);
+    }
+
+    #[test]
+    fn the_ides_language_server_comes_first_then_agys_hub() {
+        // The hub's flags as VS Code's Antigravity extension passed them on a real machine
+        let hub = "9052\tC:\\Users\\me\\.gemini\\bin\\agy.exe --hub --hub-port=60487 --app_data_dir=antigravity --csrf_token=hub-token --add-dir=d:\\code";
+        let ide = "4410\tC:\\Antigravity\\resources\\bin\\language_server_windows_x64.exe --csrf_token ide-token --https_server_port 0";
+        let cli = "7000\tC:\\Users\\me\\AppData\\Local\\agy\\bin\\agy.exe --print /usage";
+        assert_eq!(super::server_in(&format!("{cli}\n{hub}")), Some((9052, "hub-token".into())));
+        assert_eq!(super::server_in(&format!("{hub}\n{ide}")), Some((4410, "ide-token".into())));
+        assert_eq!(super::server_in(cli), None);
     }
 }
