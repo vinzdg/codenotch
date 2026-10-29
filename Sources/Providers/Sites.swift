@@ -357,6 +357,17 @@ enum Sites {
         // authenticated state is confirmed on close instead — dependable, and it
         // keeps a request off the usage endpoint while a password is being typed.
         pollsDuringSignIn: false,
+        // A refused read here is the site retiring its own console session
+        // cookie, not the user signing out: the SSO session behind the page
+        // still answers, so reloading the console mints a fresh cookie with no
+        // credentials — the sign-in window opens "already logged in" the moment
+        // after the ring went dark, and closing it brought the percentage back.
+        // One 401 used to flip `hasSignedIn`, which every later refresh then
+        // short-circuits on without touching the network, so the ring stayed
+        // dark until that manual cycle by hand. One silent reload and one more
+        // read automate it; if the reload is refused too, the session is
+        // genuinely gone and it asks the user just as before.
+        reloadsSessionOnAuthFailure: true,
         // The coding-plan screen, under a real path — the origin alone lands on a
         // marketing page that never offers the sign-in, and `/console/balance` is
         // not where the Token Plan reports. Both the sign-in window and the

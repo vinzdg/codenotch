@@ -145,4 +145,21 @@ final class MiMoUsageTests: XCTestCase {
         XCTAssertEqual(ProviderGlyph.mimo.assetName, "glyph-mimo")
         XCTAssertEqual(ProviderGlyph.mimo.brandColor, Color(hex: 0xFF6900))
     }
+
+    /// A refused read reloads the page once — and only for the site whose
+    /// refusal has been shown to be the site retiring its own cookie rather
+    /// than the user signing out. Everywhere else a 401 has to end the session
+    /// immediately, exactly as it did before: DeepSeek's and MiniMax's
+    /// endpoints are the ones this app has been throttled on, and asking a
+    /// door that just closed a second time is how that happened.
+    func testOnlyMiMoReloadsARefusedSessionBeforeDeclaringItDead() {
+        XCTAssertTrue(Sites.mimo.reloadsSessionOnAuthFailure)
+        XCTAssertFalse(Sites.deepSeek.reloadsSessionOnAuthFailure)
+        XCTAssertFalse(Sites.qianwen.reloadsSessionOnAuthFailure)
+        XCTAssertFalse(Sites.qoder(region: .global).reloadsSessionOnAuthFailure)
+        XCTAssertFalse(Sites.perplexity.reloadsSessionOnAuthFailure)
+        for region in MiniMaxRegion.allCases {
+            XCTAssertFalse(Sites.minimax(region: region).reloadsSessionOnAuthFailure)
+        }
+    }
 }
