@@ -103,6 +103,21 @@ final class WebSessionProvider: NSObject, UsageProvider {
         /// endpoints that have throttled this app, and polling them while
         /// someone types a password is how that happened.
         let pollsDuringSignIn: Bool
+        /// Whether a refused usage read gets one silent page reload and one
+        /// more attempt before the provider reports `needsAuth`.
+        ///
+        /// Off unless a site asks for it, and on only where a refused read is
+        /// the site retiring its own console session rather than the user
+        /// signing out: the SSO session behind the page still answers, so
+        /// reloading the page mints a fresh cookie with no credentials at all.
+        /// Without it, one 401 flips `hasSignedIn` and the ring goes dark for
+        /// good — every later refresh short-circuits on that flag without
+        /// touching the network, so the only way back is the manual sign-in
+        /// window whose reload did the same thing. A site whose 401 means a
+        /// genuinely dead session (DeepSeek, MiniMax — the endpoints this app
+        /// has been throttled on) stays off: one reload there buys nothing
+        /// and asks a refused endpoint twice.
+        let reloadsSessionOnAuthFailure: Bool
         /// The page under `origin` where this account's plan or usage can be
         /// seen — what the settings row's manage link opens. A path rather
         /// than a whole URL because it is always a page on the site the user
@@ -130,6 +145,7 @@ final class WebSessionProvider: NSObject, UsageProvider {
              logsResponseBody: Bool = true,
              associatedHosts: [String] = [],
              pollsDuringSignIn: Bool = false,
+             reloadsSessionOnAuthFailure: Bool = false,
              managePath: String = "usage",
              initialPath: String = "",
              bootstrapScript: String? = nil,
@@ -149,6 +165,7 @@ final class WebSessionProvider: NSObject, UsageProvider {
             self.logsResponseBody = logsResponseBody
             self.associatedHosts = associatedHosts
             self.pollsDuringSignIn = pollsDuringSignIn
+            self.reloadsSessionOnAuthFailure = reloadsSessionOnAuthFailure
             self.managePath = managePath
             self.initialPath = initialPath
             self.bootstrapScript = bootstrapScript
@@ -352,78 +369,133 @@ final class WebSessionProvider: NSObject, UsageProvider {
     // MARK: - Fetching
 
     func fetchSnapshot() async throws -> ProviderSnapshot {
-        guard hasSignedIn else { throw UsageProviderError.needsAuth }
         let revision = contextRevision
-        try await ensureLoaded()
-        guard revision == contextRevision else { throw CancellationError() }
-        guard let webView else { throw UsageProviderError.needsAuth }
+        // One silent reload per read at most, and only ever while the session
+        // flag still stands: a reload that cannot restore the session leads to
+        // the same `needsAuth` this provider has always reported.
+        var reloadedForSession = false
 
-        // `callAsyncJavaScript`, not `evaluateJavaScript`. The latter returns
-        // whatever the last expression evaluates to and never awaits it, so an
-        // async body hands back an unresolved Promise — an unsupported type,
-        // which surfaces as an opaque failure instead of the response.
-        let result: Any?
-        do {
-            result = try await webView.callAsyncJavaScript(
-                site.script, arguments: [:], in: nil, contentWorld: .page
+        while true {
+            // Re-checked on every attempt, not once at the door: the reload
+            // below takes seconds, and a sign-out landing in them must not be
+            // followed by one more read through the session it just cleared.
+            guard hasSignedIn else { throw UsageProviderError.needsAuth }
+            try await ensureLoaded()
+            guard revision == contextRevision else { throw CancellationError() }
+            guard let webView else { throw UsageProviderError.needsAuth }
+
+            // `callAsyncJavaScript`, not `evaluateJavaScript`. The latter returns
+            // whatever the last expression evaluates to and never awaits it, so an
+            // async body hands back an unresolved Promise — an unsupported type,
+            // which surfaces as an opaque failure instead of the response.
+            let result: Any?
+            do {
+                result = try await webView.callAsyncJavaScript(
+                    site.script, arguments: [:], in: nil, contentWorld: .page
+                )
+            } catch {
+                Log.usage.error("\(self.site.id, privacy: .public) fetch script failed: \(error.localizedDescription, privacy: .public)")
+                throw UsageProviderError.badResponse(status: 0)
+            }
+
+            guard revision == contextRevision else { throw CancellationError() }
+            guard let text = result as? String,
+                  let data = text.data(using: .utf8),
+                  let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let status = envelope["status"] as? Int,
+                  let body = envelope["body"] as? String
+            else {
+                Log.usage.error("\(self.site.id, privacy: .public) response unreadable: \(String(describing: result), privacy: .public)")
+                throw UsageProviderError.badResponse(status: 0)
+            }
+
+            if let failure = Self.responseFailure(status: status, site: site) {
+                if case .needsAuth = failure {
+                    // The status, logged before anything gives up on it: a 401
+                    // (the site retired this session) and a 403 (the door shut
+                    // on this client outright) used to arrive as the same
+                    // undifferentiated "needsAuth", with nothing in the log to
+                    // tell them apart.
+                    Log.usage.notice("\(self.site.id, privacy: .public) read refused: HTTP \(status, privacy: .public)")
+                    if !reloadedForSession, await reloadToReestablishSession() {
+                        reloadedForSession = true
+                        continue
+                    }
+                    hasSignedIn = false
+                }
+                throw failure
+            }
+
+            // Recorded verbatim so a parser can be written against the real thing.
+            // Not for sites whose response carries account details beyond the
+            // numbers: DeepSeek's, and QianwenAI's console envelope, whose other
+            // fields are undocumented.
+            if !site.logsResponseBody || ["deepseek", "qianwenai"].contains(site.id) {
+                Log.usage.notice("\(self.site.id, privacy: .public) usage response received")
+            } else {
+                Log.usage.notice("\(self.site.id, privacy: .public) usage -> \(body.prefix(1200), privacy: .public)")
+            }
+            if let probes = envelope["probes"] as? String {
+                Log.usage.notice("\(self.site.id, privacy: .public) probes -> \(probes.prefix(2600), privacy: .public)")
+            }
+
+            let windows: [LimitWindow]
+            let usageDetail: ProviderUsageDetail?
+            do {
+                windows = try site.parse(body)
+                usageDetail = try site.detailParse?(body)
+            } catch UsageProviderError.needsAuth {
+                // HTTP 200 with a 1004 body that the page script missed: still a
+                // dead session, not a signed-in parse error.
+                if !reloadedForSession, await reloadToReestablishSession() {
+                    reloadedForSession = true
+                    continue
+                }
+                hasSignedIn = false
+                throw UsageProviderError.needsAuth
+            }
+
+            return ProviderSnapshot(
+                id: id,
+                displayName: displayName,
+                glyph: glyph,
+                fidelity: site.fidelity,
+                status: .ok,
+                windows: windows,
+                headlineID: site.headlineID,
+                weeklyID: site.weeklyID,
+                usageDetail: usageDetail
             )
-        } catch {
-            Log.usage.error("\(self.site.id, privacy: .public) fetch script failed: \(error.localizedDescription, privacy: .public)")
-            throw UsageProviderError.badResponse(status: 0)
         }
+    }
 
-        guard revision == contextRevision else { throw CancellationError() }
-        guard let text = result as? String,
-              let data = text.data(using: .utf8),
-              let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let status = envelope["status"] as? Int,
-              let body = envelope["body"] as? String
-        else {
-            Log.usage.error("\(self.site.id, privacy: .public) response unreadable: \(String(describing: result), privacy: .public)")
-            throw UsageProviderError.badResponse(status: 0)
-        }
-
-        if let failure = Self.responseFailure(status: status, site: site) {
-            if case .needsAuth = failure { hasSignedIn = false }
-            throw failure
-        }
-
-        // Recorded verbatim so a parser can be written against the real thing.
-        // Not for sites whose response carries account details beyond the
-        // numbers: DeepSeek's, and QianwenAI's console envelope, whose other
-        // fields are undocumented.
-        if !site.logsResponseBody || ["deepseek", "qianwenai"].contains(site.id) {
-            Log.usage.notice("\(self.site.id, privacy: .public) usage response received")
-        } else {
-            Log.usage.notice("\(self.site.id, privacy: .public) usage -> \(body.prefix(1200), privacy: .public)")
-        }
-        if let probes = envelope["probes"] as? String {
-            Log.usage.notice("\(self.site.id, privacy: .public) probes -> \(probes.prefix(2600), privacy: .public)")
-        }
-
-        let windows: [LimitWindow]
-        let usageDetail: ProviderUsageDetail?
+    /// Reloads the page once and reports whether the caller may read again.
+    ///
+    /// MiMo's console is the case this exists for: the site retires the
+    /// cookie the usage fetch is authorized by while the SSO session behind
+    /// the page still answers, so a refused read there does not mean the user
+    /// signed out. Loading the console again bounces through SSO and mints a
+    /// fresh cookie with no credentials at all — which is exactly why the
+    /// sign-in window opens "already logged in" the moment after the ring went
+    /// dark, and why closing it brought the percentage back. This is that
+    /// reload, done by the provider instead of by the user's hand.
+    ///
+    /// If the reload never settles, or the reloaded page is refused too, the
+    /// session really is gone and this returns false so the read ends in
+    /// `needsAuth` precisely as it did before — and for a site with the flag
+    /// off this function does nothing at all. One reload, one retry, then the
+    /// silence a dead session has always had: an endpoint that has throttled
+    /// this app is never asked twice on the way out.
+    private func reloadToReestablishSession() async -> Bool {
+        guard site.reloadsSessionOnAuthFailure else { return false }
+        isLoaded = false
         do {
-            windows = try site.parse(body)
-            usageDetail = try site.detailParse?(body)
-        } catch UsageProviderError.needsAuth {
-            // HTTP 200 with a 1004 body that the page script missed: still a
-            // dead session, not a signed-in parse error.
-            hasSignedIn = false
-            throw UsageProviderError.needsAuth
+            try await ensureLoaded()
+            return true
+        } catch {
+            Log.usage.error("\(self.site.id, privacy: .public) session re-load never settled")
+            return false
         }
-
-        return ProviderSnapshot(
-            id: id,
-            displayName: displayName,
-            glyph: glyph,
-            fidelity: site.fidelity,
-            status: .ok,
-            windows: windows,
-            headlineID: site.headlineID,
-            weeklyID: site.weeklyID,
-            usageDetail: usageDetail
-        )
     }
 
     /// Loads a page and reports the API calls it made. A discovery tool, not
