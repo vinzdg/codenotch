@@ -101,7 +101,10 @@
   .arc-spin{animation:spin 1.2s steps(12) infinite;transform-origin:center}
   .arc-pulse{animation:pulse 1.1s steps(6) infinite}
   /* Windows' Animation effects switch: a still arc and a solid ring, as on the Mac under Reduce Motion */
-  @media (prefers-reduced-motion: reduce){.arc-spin,.arc-pulse{animation:none}.ringwrap{transition:none}}
+  /* The Mac's NotchMotion.glide: an open card travels to the next cell as one object, its tail with it,
+     instead of jumping there. Only between cells; a card that opens appears where it belongs. */
+  #card.gliding,#tail.gliding{transition:top .3s cubic-bezier(.33,1,.68,1),left .3s cubic-bezier(.33,1,.68,1)}
+  @media (prefers-reduced-motion: reduce){.arc-spin,.arc-pulse{animation:none}.ringwrap{transition:none}#card.gliding,#tail.gliding{transition:none}}
 
   /* Hover card, shown to the left of the pill */
   #card{
@@ -128,6 +131,8 @@
   .c-head{display:flex;align-items:center;gap:8px;margin-bottom:4px}
   .c-title{font-size:14px;font-weight:700}
   .c-sub{font-size:11px;color:var(--ink-dim);margin-bottom:10px}
+  .c-account{overflow-wrap:anywhere}
+  .c-account + .c-sub{margin-top:-6px}
   .win{margin-top:10px}
   .w-row{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;flex-wrap:wrap;column-gap:8px}
   .w-label{color:var(--ink-2);font-weight:600;white-space:nowrap}
@@ -187,6 +192,15 @@
   body[data-edge="top"] #tail,body[data-edge="bottom"] #tail{right:auto;width:32.7px;height:28.2px}
   body[data-edge="top"] #tail{clip-path:path('M0 28.2C8.18 28.2 12.43 11.84 16.36 0C20.29 11.84 24.54 28.2 32.72 28.2Z')}
   body[data-edge="bottom"] #tail{clip-path:path('M0 0C8.18 0 12.43 16.36 16.36 28.2C20.29 16.36 24.54 0 32.72 0Z')}
+  /* The taskbar's hover card (CARD_ONLY): the card alone, with the bottom edge's tail under it
+     pointing down at the ring; turned over when the taskbar is at the top. Both are pinned to the
+     strip's side of the window, so the card grows away from the taskbar as the window does. */
+  html.card-only #root > :not(#card):not(#tail){display:none!important}
+  html.card-only #card{display:block;left:0;right:auto;transform:none;margin:0;width:100%;max-width:none;max-height:none;overflow:visible}
+  html.card-only #tail{display:block;right:auto;width:32.7px;height:28.2px;clip-path:path('M0 0C8.18 0 12.43 16.36 16.36 28.2C20.29 16.36 24.54 0 32.72 0Z')}
+  /* The tail moves with the card between rings, on the curve Rust moves the window on (GLIDE_MS) */
+  html.card-only #tail{transition:left .3s cubic-bezier(.33,1,.68,1)}
+  html.card-only.below #tail{clip-path:path('M0 28.2C8.18 28.2 12.43 11.84 16.36 0C20.29 11.84 24.54 28.2 32.72 28.2Z')}
 
   /* Show on hover, the Mac's .onHover: folded, the notch rests as a small pill at the edge. Its size is
      the Mac's NotchLayout.pillWidth × pillHeight, 26 × 210 of its design px — 10 × 79 of this page's,
@@ -345,6 +359,10 @@
 <script>
 const invoke = window.__TAURI__.core.invoke;
 const listen = window.__TAURI__.event.listen;
+// The taskbar's hover card is this page showing only its card, so the two cards are one design. The
+// strip stands in for the pill: in this mode nothing measures, folds or reports the notch's window.
+const CARD_ONLY=window.__CODENOTCH_TASKBAR_HOVER__===true;
+if(CARD_ONLY) document.documentElement.classList.add('card-only');
 const isLinux=/Linux/.test(navigator.platform);
 document.body.classList.toggle('linux-vector',isLinux);
 let pillContour=null, contourPath=null;
@@ -498,6 +516,7 @@ listen('notch_insets',e=>applyInsets(e.payload)).catch(()=>{});
 invoke('get_notch_insets').then(applyInsets).catch(()=>{});
 function edgeIsVertical(){ return notchEdge==='left'||notchEdge==='right'; }
 function applyEdge(e){
+  if(CARD_ONLY) return;
   const next=(e==='left'||e==='top'||e==='bottom')?e:'right';
   if(next===notchEdge) return;
   notchEdge=next;
@@ -1290,9 +1309,11 @@ function slotFor(id){
 // provider the cell belongs to (glyph, activity, slot choice); `id` is what makes the cell unique.
 function claudeCells(){
   if(Array.isArray(usage.accounts) && usage.accounts.length){
+    const several=usage.accounts.length>1;
     return usage.accounts.map(a=>({id:a.id==='default'?'claude':'claude@'+a.id,base:'claude',
       name:a.name==='default'?'Claude':a.name,glyph:'C',snap:{status:a.status,note:a.note,
-        fetched_at:a.fetched_at,windows:a.windows,backoff_until:a.backoff_until||0}}));
+        fetched_at:a.fetched_at,windows:a.windows,backoff_until:a.backoff_until||0},
+      account:several?accountLine(a):''}));
   }
   if(usage.status==='absent') return [];
   const ws=Array.isArray(usage.windows)?usage.windows:[];
@@ -1311,6 +1332,11 @@ function claudeCells(){
     snap:Object.assign({},usage,{windows:ws.filter(w=>(w.group||'')===a.g)
       .map(w=>Object.assign({},w,{id:String(w.id).split('@')[0]}))})
   }));
+}
+// Which account a card belongs to, said under its title: "someone@gmail.com · Max"
+function accountLine(a){
+  const plan=typeof a.plan==='string'&&a.plan?a.plan.charAt(0).toUpperCase()+a.plan.slice(1):'';
+  return [a.address||'',plan].filter(Boolean).join(' · ');
 }
 function providers(){
   const list=claudeCells();
@@ -1548,9 +1574,9 @@ function renderCard(){
   const p=providers().find(x=>x.id===hoverId)||providers()[0];
   const snap=p.snap;
   const headIcon=glyphHtml(p,true);
-  // p.name is no longer a constant: for a second account it is built from the home
-  // directory's slug and the subscriptionType read out of .credentials.json.
-  let html=`<div class="c-head">${headIcon}<span class="c-title">${esc(ui().title(p.name))}</span></div>`;
+  // Several Claude accounts share the provider's title, and the line under it says whose card it is
+  let html=`<div class="c-head">${headIcon}<span class="c-title">${esc(ui().title(p.account?'Claude':p.name))}</span></div>`;
+  if(p.account) html+=`<div class="c-sub c-account">${esc(p.account)}</div>`;
   if(staleOf(snap)&&snap.fetched_at) html+=`<div class="c-sub">${ui().updated(ago(snap.fetched_at))}</div>`;
   if(snap.status==='needsAuth'){
     const who={claude:'Sign in to Claude Code to see usage.',cursor:'Sign in to Cursor to see usage.',codex:'Sign in to Codex to see usage.',grok:'Run grok login to see usage.',copilot:'Run gh auth login to see usage.',opencode:'Run opencode auth login to see usage.',commandcode:'Sign in with the Command Code app to read your usage.',gemini:'Sign in to Antigravity to see usage.',qoder:'Sign in to qodercli to see usage.'}[p.base]||'';
@@ -1615,6 +1641,7 @@ function renderCard(){
 // The Mac's NotchLayout.tailGap and tailLength: the tail's tip stops short of the notch, as the CSS above has it
 const TAIL_GAP=10.5, TAIL_LENGTH=28.2;
 function placeCard(){
+  if(CARD_ONLY){ placeTaskbarCard(); return; }
   // Rects and the viewport come back zoomed when fitZoom has zoomed the page; offsetWidth/Height and
   // the styles written here are not, so the rects are brought back first, as placeHandles does. Mixed,
   // a page zoomed past 1 put the bottom edge's card down behind the pill, which then hid all but its top.
@@ -1648,12 +1675,46 @@ function placeCard(){
   }
 }
 
+// The taskbar's hover card: the tail at the window's edge nearest the strip, its point on the hovered
+// ring, and the card past it. Rust sizes the window to the two and puts it above the strip, or below
+// a top taskbar; until a new height is in, the card keeps its place and only its far edge moves.
+let cardTail=null, cardShownId=null, lastCardSize='', cardReady=false;
+function placeTaskbarCard(){
+  const below=!!(cardTail&&cardTail.below), k=window.devicePixelRatio||1, tw=tail.offsetWidth||33;
+  document.documentElement.classList.toggle('below',below);
+  card.style.top=below?TAIL_LENGTH+'px':'auto'; card.style.bottom=below?'auto':TAIL_LENGTH+'px';
+  tail.style.top=below?'0px':'auto'; tail.style.bottom=below?'auto':'0px';
+  const ch=card.offsetHeight, cw=card.offsetWidth;
+  const x=cardTail&&Number.isFinite(cardTail.x)?cardTail.x/k:cw/2;
+  // A card coming up fresh starts at its ring; only one already showing travels
+  tail.style.transition=cardTail&&cardTail.glide?'':'none';
+  tail.style.left=Math.round(Math.max(16,Math.min(cw-16-tw,x-tw/2)))+'px';
+  const height=Math.ceil(ch+TAIL_LENGTH), key=cardShownId+'|'+height+'|'+k;
+  if(!cardShownId||key===lastCardSize) return;
+  lastCardSize=key;
+  // Ready only once measured, so the first showing is already the card's own height
+  invoke('report_taskbar_hover_size',{id:cardShownId,height,dpr:k})
+    .then(()=>{ if(!cardReady){ cardReady=true; return invoke('taskbar_ready'); } })
+    .catch(()=>{lastCardSize='';});
+}
+
 function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}
 
 /* Hover: stays expanded while either the pill or the card is under the cursor; collapses after a 250 ms grace period (upstream motion rule) */
 const card=document.getElementById('card'), pill=document.getElementById('pill'), tail=document.getElementById('tail');
+// Rust lets clicks through everything outside the hot rectangles, so they travel with the card, frame
+// by frame, and settle where it stops. A card already where it is going gets no transitionend.
+let glideEnd=null;
+function glideCard(){
+  card.classList.add('gliding'); tail.classList.add('gliding');
+  clearTimeout(glideEnd); glideEnd=setTimeout(endGlide,400);
+  requestAnimationFrame(followGlide);
+}
+function followGlide(){ if(!card.classList.contains('gliding')) return; reportHot(); requestAnimationFrame(followGlide); }
+function endGlide(){ clearTimeout(glideEnd); card.classList.remove('gliding'); tail.classList.remove('gliding'); reportHot(); }
+card.addEventListener('transitionend',e=>{ if(e.target===card&&(e.propertyName==='top'||e.propertyName==='left')) endGlide(); });
 let hideTimer=null;
-function showCard(){clearTimeout(hideTimer);card.classList.add('show');renderCard();armWatchdog();refreshClock();} // show first, then render: placeCard needs offsetHeight
+function showCard(){clearTimeout(hideTimer);clearTimeout(glideEnd);card.classList.remove('gliding');tail.classList.remove('gliding');card.classList.add('show');renderCard();armWatchdog();refreshClock();} // show first, then render: placeCard needs offsetHeight
 // Nothing is broadcast when the Windows clock format changes, so ask again each time the card opens
 function refreshClock(){
   invoke('get_state').then(s=>{
@@ -1662,7 +1723,7 @@ function refreshClock(){
     if(card.classList.contains('show')) renderCard();
   }).catch(()=>{});
 }
-function hideCard(){card.classList.remove('show');reportHot();}
+function hideCard(){if(CARD_ONLY) return;card.classList.remove('show');reportHot();}
 function scheduleHide(){clearTimeout(hideTimer);hideTimer=setTimeout(hideCard,250);}
 // ===== Diagnostics + geometry =====
 function jslog(m){invoke('log_js',{msg:String(m)}).catch(()=>{});}
@@ -1685,6 +1746,7 @@ function tailReach(){
 /* Rust gates click-through on these, so they are reported whenever the pill or card moves, not only
    when the card opens: a stale pill rectangle is a pill that cannot be clicked. */
 function reportHot(){
+  if(CARD_ONLY) return;
   paintPillContour();
   if(folded){ callq('set_hot',{rects:[wakeRect()],expanded:false,probe:probeRect()}).catch(()=>{}); return; }
   const open=card.classList.contains('show');
@@ -1728,12 +1790,14 @@ function armWatchdog(){
 const DESIGN_W_UPRIGHT=360, DESIGN_W_FLAT=650;
 function designWidth(){ return edgeIsVertical()?DESIGN_W_UPRIGHT:DESIGN_W_FLAT; }
 function fitZoom(){
+  if(CARD_ONLY) return 1;
   const z=innerWidth/designWidth();
   document.documentElement.style.zoom=(Math.abs(z-1)>0.02)?String(z):'';
   return z;
 }
 // `settled` only from the end of a burst of resizes, which is what a landing waits for (land_on_another_screen)
 function reportDpr(settled){
+  if(CARD_ONLY) return;
   const z=fitZoom();
   jslog(`dpr=${window.devicePixelRatio} inner=${innerWidth}x${innerHeight} cssZoom=${z.toFixed(3)}`);
   callq('report_dpr',{dpr:window.devicePixelRatio||1,w:innerWidth,h:innerHeight,settled:settled===true}).catch(()=>{});
@@ -1747,10 +1811,12 @@ matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener('cha
 // invisible while it is resized and re-zoomed, and say so once that has painted — hiding the window
 // itself would pause the page, and the re-zoom would then happen in plain view
 listen('notch_landing',()=>{
+  if(CARD_ONLY) return;
   document.documentElement.style.visibility='hidden';
   requestAnimationFrame(()=>requestAnimationFrame(()=>invoke('notch_hidden').catch(()=>{})));
 }).catch(()=>{});
 listen('notch_reveal',()=>{
+  if(CARD_ONLY) return;
   document.documentElement.style.visibility='';
   if(carried){
     carried=false;
@@ -1779,6 +1845,7 @@ function pointerInHot(x,y){
 }
 let hideLogged=0;
 document.addEventListener('mousemove',e=>{
+  if(CARD_ONLY) return;
   if(isLinux){ pointerIn=true; clearTimeout(foldTimer); clearTimeout(tuckTimer); }
   // Folded, the page is sent events only over the pill, so any movement at all is the pointer reaching it
   if(folded){ pointerIn=true; unfold(); }
@@ -1789,12 +1856,13 @@ document.addEventListener('mousemove',e=>{
   if(hot){
     clearTimeout(hideTimer);
     const id=cellAt(e.clientX,e.clientY);
-    if(id&&id!==hoverId){ hoverId=id; if(card.classList.contains('show')){ renderCard(); armWatchdog(); } }
+    if(id&&id!==hoverId){ hoverId=id; if(card.classList.contains('show')){ glideCard(); renderCard(); armWatchdog(); } }
     if(!card.classList.contains('show')) showCard();
   }
   else if(card.classList.contains('show')){ if(hideLogged++<5) jslog(`mousemove left the hot area -> collapse at ${e.clientX},${e.clientY}`); scheduleHide(); }
 });
 document.addEventListener('mouseout',e=>{ // relatedTarget null = the cursor left the page
+  if(CARD_ONLY) return;
   if(isLinux&&!e.relatedTarget){ pointerIn=false; setHovered(null); scheduleFold(); }
   if(!e.relatedTarget && card.classList.contains('show')){ if(hideLogged++<5) jslog('mouseout left the page -> collapse'); scheduleHide(); }
 });
@@ -2293,7 +2361,7 @@ function holdOrb(){ release=null; orb.classList.remove('releasing'); runGrip(); 
 const FOLD_GRACE=450; // NotchWindowController.foldGrace
 function foldAllowed(){ return (onHover||fullScreen)&&!pointerIn&&!dragging&&!menuOpen; }
 function setFolded(f){
-  if(f===folded) return;
+  if(f===folded||CARD_ONLY) return;
   folded=f;
   if(f){ clearTimeout(hideTimer); hideCard(); arcIn(true); setHovered(null); } else arcOut();
   document.body.classList.toggle('folded',f);
@@ -2327,6 +2395,7 @@ if(isLinux) window.codenotchPointer = inside => {
 };
 // Off the notch is off the orb too: once the window is click-through the page may never see it leave
 listen('notch_pointer',e=>{
+  if(CARD_ONLY) return;
   pointerIn=e.payload===true;
   if(pointerIn) unfold(); else { if(!dragging) setHovered(null); scheduleFold(); }
 }).catch(()=>{});
@@ -2408,6 +2477,20 @@ setInterval(async()=>{
     }
   }catch(_){} // Local IPC only; no network requests and no automatic browser launch.
 },2000);
+// The taskbar's ids name the default Claude account claude@default, where this page calls it claude
+if(CARD_ONLY){
+  const cardId=id=>id==='claude@default'?'claude':id;
+  cardShownId=window.__CODENOTCH_TASKBAR_ITEM_ID__||null;
+  hoverId=cardId(cardShownId);
+  card.classList.add('show');
+  // Every reading that redraws the rings redraws the card, which measures it again
+  const drawRings=renderRing;
+  renderRing=function(){ drawRings(); if(providers().length) renderCard(); };
+  listen('taskbar_hover_item',e=>{ cardShownId=e.payload; hoverId=cardId(cardShownId); lastCardSize=''; renderRing(); }).catch(()=>{});
+  listen('taskbar_hover_tail',e=>{ cardTail=e.payload; placeCard(); }).catch(()=>{});
+  // Holding the card open while the pointer is on it is Rust's: it also lets clicks through the
+  // empty part of the window, and a page that is let through never hears the pointer leave.
+}
 </script>
 </body>
 </html>

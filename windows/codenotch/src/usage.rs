@@ -137,6 +137,8 @@ struct Profile {
     dir: PathBuf,
     slug: Option<String>,
     label: Option<String>,
+    /// Who is signed in, from Claude Code's `.claude.json`
+    address: Option<String>,
 }
 
 impl Profile {
@@ -154,13 +156,12 @@ impl Profile {
     }
 }
 
-/// Enabled accounts: the default, discovered signed-in folders, and explicitly registered
-/// profiles awaiting their first login. Pending accounts remain available in Settings.
+/// Enabled accounts: the default and every folder Claude Code has signed in to.
 fn profiles() -> Vec<Profile> {
     crate::claude_accounts::profiles(&crate::config::load()).into_iter()
         .filter(|p| p.enabled)
         .map(|p| Profile { dir: p.dir, slug: if p.id == "default" { None } else { Some(p.id) },
-            label: if p.name == "Claude" { None } else { Some(p.name) } }).collect()
+            label: if p.name == "Claude" { None } else { Some(p.name) }, address: p.address }).collect()
 }
 
 /// Every account directory, for anything that watches a profile's files (the session watcher)
@@ -206,6 +207,11 @@ pub struct ClaudeAccountUsage {
     pub last_rate_limit_at: u64,
     #[serde(default)]
     pub last_attempt_at: u64,
+    /// Who is signed in and on what plan, for the card's line under its title
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
     pub windows: Vec<LimitWindow>,
 }
 
@@ -778,6 +784,7 @@ fn aggregate(order: &[Profile], accounts: &HashMap<String, Account>) -> UsageSna
             status: a.status.clone(), note: a.note.clone(), fetched_at: a.fetched_at,
             backoff_until: a.backoff_until,
             consecutive_429: a.consecutive_429, last_rate_limit_at: a.last_rate_limit_at, last_attempt_at: a.last_fetch,
+            address: p.address.clone(), plan: read_credentials(&p.dir).and_then(|c| c.plan),
             windows: a.windows.iter().cloned().map(|mut w| {
                 if let Some(slug) = &p.slug { w.id = w.id.strip_suffix(&format!("@{slug}")).unwrap_or(&w.id).to_string(); }
                 w.group = None; w
@@ -1192,6 +1199,7 @@ mod tests {
             }),
             slug: slug.map(String::from),
             label: None,
+            address: None,
         }
     }
 

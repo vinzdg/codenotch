@@ -29,7 +29,7 @@ pub struct Glyph {
 pub const IDS: [&str; 10] = ["claude", "codex", "cursor", "grok", "copilot", "gemini", "opencode", "commandcode", "deepseek", "qoder"];
 
 /// Built-in artwork (@lobehub/icons-static-svg, MIT): the OpenAI mark for codex (matching upstream's glyph choice), the Antigravity mark for gemini
-const BUILTIN: [(&str, &str); 10] = [
+pub(crate) const BUILTIN: [(&str, &str); 10] = [
     ("claude", include_str!("../glyphs/claude.svg")),
     ("codex", include_str!("../glyphs/codex.svg")),
     ("cursor", include_str!("../glyphs/cursor.svg")),

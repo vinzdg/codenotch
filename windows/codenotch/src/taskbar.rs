@@ -2,7 +2,7 @@
 //! Only our window is parented; Explorer is never resized, subclassed, or injected into.
 use crate::{usage::UsageSnapshot, AppState};
 use serde::Serialize;
-use std::sync::{atomic::{AtomicBool, Ordering}, Mutex};
+use std::sync::{atomic::{AtomicBool, AtomicU64, Ordering}, Mutex};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 #[cfg(not(windows))]
@@ -109,18 +109,17 @@ pub(crate) fn native_destroyed(app: &AppHandle, hwnd: isize) {
 }
 
 #[derive(Clone, Serialize)]
-pub struct Options { mode: String, width: u32, supported: bool, status: String }
+pub struct Options { mode: String, supported: bool, status: String }
 
 #[tauri::command]
 pub fn get_taskbar_options(app: AppHandle) -> Options {
     let st = app.state::<AppState>();
     let cfg = st.cfg.lock().unwrap();
-    Options { mode: cfg.taskbar_mode.clone(), width: cfg.taskbar_width.clamp(144, 520),
-        supported: cfg!(windows), status: STATUS.lock().unwrap().clone() }
+    Options { mode: cfg.taskbar_mode.clone(), supported: cfg!(windows), status: STATUS.lock().unwrap().clone() }
 }
 
 #[tauri::command]
-pub fn set_taskbar_options(app: AppHandle, mode: String, width: u32) -> Result<Options, String> {
+pub fn set_taskbar_options(app: AppHandle, mode: String) -> Result<Options, String> {
     if !["off", "left", "right"].contains(&mode.as_str()) { return Err("Invalid taskbar position".into()); }
     if mode != "off" && !cfg!(windows) { return Err("Taskbar display requires Windows".into()); }
     {
@@ -130,7 +129,6 @@ pub fn set_taskbar_options(app: AppHandle, mode: String, width: u32) -> Result<O
         if mode != "off" { next.notch_visible = false; next.tray_visible = true; }
         else if next.taskbar_mode != "off" { next.notch_visible = true; }
         next.taskbar_mode = mode;
-        next.taskbar_width = width.clamp(144, 520);
         crate::config::save_checked(&next)?;
         *cfg = next;
     }
@@ -140,6 +138,9 @@ pub fn set_taskbar_options(app: AppHandle, mode: String, width: u32) -> Result<O
     let _ = app.emit("taskbar_options", &options);
     Ok(options)
 }
+
+/// The notch's `providers()`, after its Claude accounts.
+const NOTCH_ORDER: [&str; 10] = ["codex", "glm", "deepseek", "opencode", "commandcode", "cursor", "grok", "copilot", "gemini", "qoder"];
 
 #[derive(Serialize)]
 pub struct Item { pub(crate) id: String, pub(crate) name: String, pub(crate) provider: String, pub(crate) headline_id: Option<String>, pub(crate) work_state: String, pub(crate) snapshot: UsageSnapshot }
@@ -163,10 +164,10 @@ pub fn get_taskbar_items(app: AppHandle) -> Vec<Item> {
         } else { UsageSnapshot { status: "needsAuth".into(), ..Default::default() } };
         let headline_id = crate::ring_window("claude", &snapshot.windows, "automatic", "gemini").map(|w| w.id.clone());
         let work_state = crate::taskbar_activity::work_state(&app, "claude", Some(&p.id));
-        items.push(Item { id: format!("claude@{}", p.id), headline_id, work_state, name: if p.id == "default" && p.name == "Claude" { "Claude".into() } else { format!("Claude · {}", p.name) },
+        items.push(Item { id: format!("claude@{}", p.id), headline_id, work_state, name: p.name,
             provider: "claude".into(), snapshot });
     }
-    for id in crate::TRAY_PROVIDER_IDS.into_iter().filter(|id| *id != "claude") {
+    for id in NOTCH_ORDER {
         if !cfg.notch_slots.is_empty() && !cfg.notch_slots.iter().any(|s| s.provider == id) { continue; }
         let snapshot = crate::snapshot_of(&app, id);
         if snapshot.status == "absent" { continue; }
@@ -214,7 +215,6 @@ pub fn show_taskbar_hover(app: AppHandle, id: String, anchor_x: f64, anchor_widt
         let mut state = HOVER_STATE.lock().unwrap();
         state.epoch = state.epoch.wrapping_add(1);
         state.show_epoch = state.epoch;
-        if state.item_id.as_deref() != Some(&id) { state.content_height = None; }
         state.item_id = Some(id.clone());
         state.over_strip = true;
         state.held = false;
@@ -238,6 +238,42 @@ pub fn hide_taskbar_hover(app: AppHandle) {
     };
     schedule_hover_hide(app, epoch);
 }
+
+/// Where the card is in its window, in screen px: the part nearest the strip, as tall as the page
+/// measured it. The rest of the window is empty.
+fn card_rect(bounds: Rect, strip: Rect, content_height: f64) -> Rect {
+    let height = (content_height.round() as i32).clamp(0, bounds.bottom - bounds.top);
+    if bounds.top >= strip.bottom { Rect { bottom: bounds.top + height, ..bounds } }
+    else { Rect { top: bounds.bottom - height, ..bounds } }
+}
+
+/// The window is mostly empty, so only the card takes the pointer: elsewhere clicks go through to
+/// what is behind it. The pointer on the card also holds it open, as on the notch.
+fn watch_card_pointer(app: AppHandle) {
+    std::thread::spawn(move || {
+        let (mut shown, mut inside) = (false, false);
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+            let Some(window) = app.get_webview_window(HOVER) else { continue };
+            if !window.is_visible().unwrap_or(false) { shown = false; continue; }
+            let card = {
+                let state = HOVER_STATE.lock().unwrap();
+                state.bounds.zip(state.anchor).zip(state.content_height)
+                    .map(|((bounds, anchor), height)| card_rect(bounds, anchor.strip, height))
+            };
+            let now = card.zip(app.cursor_position().ok()).is_some_and(|(r, p)|
+                p.x >= r.left as f64 && p.x < r.right as f64 && p.y >= r.top as f64 && p.y < r.bottom as f64);
+            if shown && now == inside { continue; }
+            if shown || now { hold_taskbar_hover(app.clone(), now); }
+            shown = true;
+            inside = now;
+            let _ = window.set_ignore_cursor_events(!now);
+        }
+    });
+}
+
+/// A card is up or on its way, so moving to another ring switches it at once.
+pub(crate) fn hover_open() -> bool { HOVER_STATE.lock().unwrap().item_id.is_some() }
 
 /// Crossing the small gap into the card keeps it open without activating either window.
 #[tauri::command]
@@ -263,10 +299,10 @@ pub fn report_taskbar_hover_size(app: AppHandle, window: tauri::WebviewWindow, i
         if state.item_id.as_deref() != Some(&id) { return Ok(()); }
         state.content_height = Some(height);
         let Some(anchor) = state.anchor else { return Ok(()); };
-        let Some(bounds) = anchor.position(Some(height)) else { return Ok(()); };
-        if state.bounds == Some(bounds) { return Ok(()); }
+        let Some(bounds) = anchor.position() else { return Ok(()); };
+        let unchanged = state.bounds == Some(bounds);
         state.bounds = Some(bounds);
-        (state.show_epoch, bounds)
+        (state.show_epoch, bounds, unchanged)
     };
     let handle = app.clone();
     app.run_on_main_thread(move || {
@@ -277,7 +313,10 @@ pub fn report_taskbar_hover_size(app: AppHandle, window: tauri::WebviewWindow, i
         };
         let enabled = handle.state::<AppState>().cfg.lock().unwrap().taskbar_mode != "off";
         let strip_visible = strip_visible(&handle);
-        if let Some(w) = handle.get_webview_window(HOVER) { place_hover(&w, pending.1, show && enabled && strip_visible); }
+        if let Some(w) = handle.get_webview_window(HOVER) {
+            if pending.2 && w.is_visible().unwrap_or(false) { return; }
+            place_hover(&w, pending.1, show && enabled && strip_visible);
+        }
     }).map_err(|error| error.to_string())
 }
 
@@ -329,7 +368,7 @@ fn show_hover_on_main(app: &AppHandle, id: String, anchor_x: f64, anchor_width: 
     let bounds = {
         let mut state = HOVER_STATE.lock().unwrap();
         if state.show_epoch != epoch || (!state.over_strip && !state.held) { return; }
-        let Some(bounds) = anchor.position(state.content_height) else { return; };
+        let Some(bounds) = anchor.position() else { return; };
         state.anchor = Some(anchor);
         state.bounds = Some(bounds);
         bounds
@@ -337,18 +376,23 @@ fn show_hover_on_main(app: &AppHandle, id: String, anchor_x: f64, anchor_width: 
     if let Some(w) = app.get_webview_window(HOVER) {
         let _ = w.emit("taskbar_hover_item", &id);
         let ready = HOVER_STATE.lock().unwrap().ready;
-        place_hover(&w, bounds, ready);
+        // An open card travels to the new ring now. A hidden one shows once the page has measured
+        // the new account, so it never comes up for a frame with the last one's contents.
+        place_hover(&w, bounds, ready && w.is_visible().unwrap_or(false));
         return;
     }
     HOVER_STATE.lock().unwrap().ready = false;
     // JSON encoding prevents an account identifier from becoming executable script.
     let item_json = serde_json::to_string(&id).unwrap_or_else(|_| "null".into());
     let script = format!("window.__CODENOTCH_TASKBAR_HOVER__=true;window.__CODENOTCH_TASKBAR_ITEM_ID__={item_json};");
-    let result = WebviewWindowBuilder::new(app, HOVER, WebviewUrl::App("taskbar.html".into()))
-        .title("Codenotch · Uso da conta").inner_size(320.0, 360.0).resizable(false)
+    // The notch's own page, showing only its card: the taskbar's card is the notch's.
+    let result = WebviewWindowBuilder::new(app, HOVER, WebviewUrl::App("notch.html".into()))
+        .title("Codenotch").inner_size(CARD_WIDTH, 360.0).resizable(false)
         .decorations(false).transparent(true).shadow(false).skip_taskbar(true).always_on_top(true)
         .focused(false).focusable(false).visible(false).initialization_script(script).build();
     if let Ok(w) = result {
+        static WATCHING: AtomicBool = AtomicBool::new(false);
+        if !WATCHING.swap(true, Ordering::AcqRel) { watch_card_pointer(app.clone()); }
         place_hover(&w, bounds, false);
         w.on_window_event(|event| {
             if matches!(event, tauri::WindowEvent::Destroyed) { HOVER_STATE.lock().unwrap().ready = false; }
@@ -356,10 +400,55 @@ fn show_hover_on_main(app: &AppHandle, id: String, anchor_x: f64, anchor_width: 
     }
 }
 
+/// The Mac's `NotchMotion.glide`: the card is one object that travels between rings and resizes
+/// on the way, which reads far better than one card leaving and another arriving.
+const GLIDE_MS: f64 = 300.0;
+static GLIDE: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(windows)]
+fn glide(window: &tauri::WebviewWindow, from: i32, to: Rect) {
+    use windows::Win32::{Foundation::HWND, UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE}};
+    let epoch = GLIDE.fetch_add(1, Ordering::AcqRel).wrapping_add(1);
+    let window = window.clone();
+    std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(15));
+            let t = (started.elapsed().as_secs_f64() * 1000.0 / GLIDE_MS).min(1.0);
+            let left = from + ((to.left - from) as f64 * (1.0 - (1.0 - t).powi(3))).round() as i32;
+            let step = window.clone();
+            let posted = window.app_handle().run_on_main_thread(move || {
+                if GLIDE.load(Ordering::Acquire) != epoch { return; }
+                if let Ok(raw) = step.hwnd() { unsafe {
+                    let _ = SetWindowPos(HWND(raw.0 as _), HWND_TOPMOST, left, to.top, to.right - to.left, to.bottom - to.top, SWP_NOACTIVATE);
+                } }
+            });
+            if posted.is_err() || t >= 1.0 || GLIDE.load(Ordering::Acquire) != epoch { return; }
+        }
+    });
+}
+
 fn place_hover(window: &tauri::WebviewWindow, bounds: Rect, show: bool) {
+    // Where the hovered ring is, for the tail, in physical px from the card window's left edge
+    let anchor = HOVER_STATE.lock().unwrap().anchor;
+    if let Some(anchor) = anchor {
+        let ring = anchor.strip.left as f64 + (anchor.x + anchor.width / 2.0).clamp(0.0, (anchor.strip.right - anchor.strip.left) as f64);
+        let glide = window.is_visible().unwrap_or(false);
+        let _ = window.emit("taskbar_hover_tail", serde_json::json!({ "x": ring - bounds.left as f64, "below": bounds.top >= anchor.strip.bottom, "glide": glide }));
+    }
     #[cfg(windows)] {
-        use windows::Win32::{Foundation::HWND, UI::WindowsAndMessaging::{SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_SHOWWINDOW}};
+        use windows::Win32::{Foundation::{HWND, RECT}, UI::WindowsAndMessaging::{GetWindowRect, SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_SHOWWINDOW}};
         if let Ok(raw) = window.hwnd() { unsafe {
+            let mut current = RECT::default();
+            let visible = window.is_visible().unwrap_or(false);
+            if show && visible && GetWindowRect(HWND(raw.0 as _), &mut current).is_ok() && current.left != bounds.left {
+                // Its new height now, from where it is; then the way across
+                let _ = SetWindowPos(HWND(raw.0 as _), HWND_TOPMOST, current.left, bounds.top,
+                    bounds.right - bounds.left, bounds.bottom - bounds.top, SWP_NOACTIVATE);
+                glide(window, current.left, bounds);
+                return;
+            }
+            GLIDE.fetch_add(1, Ordering::AcqRel); // a placement that is not a glide ends any glide
             if show && !window.is_visible().unwrap_or(false) {
                 // Place while hidden, then let Tauri restore its native/webview visibility
                 // before reinforcing the non-activating placement. The window is unfocusable.
@@ -455,15 +544,24 @@ fn needs_child_placement(desired: Rect, actual: Option<Rect>, visible: bool) -> 
 struct HoverAnchor { strip: Rect, screen: Rect, x: f64, width: f64, scale: f64 }
 
 impl HoverAnchor {
-    fn position(self, content_height: Option<f64>) -> Option<Rect> {
-        hover_position(self.strip, self.screen, self.x, self.width, self.scale, content_height.unwrap_or(360.0 * self.scale))
+    /// As tall as the tallest card, whichever card it holds: a WebView redrawn at a new size shows
+    /// a frame of its old layout, which moving between rings of different heights made a flash.
+    fn position(self) -> Option<Rect> {
+        hover_position(self.strip, self.screen, self.x, self.width, self.scale, CARD_ROOM * self.scale)
     }
 }
 
 fn measured_hover_height(height: f64, dpr: f64) -> Option<f64> {
     if !height.is_finite() || height <= 0.0 || !dpr.is_finite() || !(0.5..=8.0).contains(&dpr) { return None; }
-    Some(height.clamp(120.0, 600.0) * dpr)
+    Some(height.clamp(40.0, 600.0) * dpr)
 }
+
+/// The tallest card and its tail, in logical px: what `measured_hover_height` lets a card measure.
+const CARD_ROOM: f64 = 600.0;
+/// The notch card's width on a flat edge, `body[data-edge="bottom"] #card` in notch.html.
+const CARD_WIDTH: f64 = 246.0;
+/// The notch's TAIL_GAP: the tail's point stops this far short of what it points at.
+const TAIL_GAP: f64 = 10.5;
 
 /// Popup geometry stays in physical pixels, including monitors left/above the primary.
 fn hover_position(strip: Rect, screen: Rect, anchor_x: f64, anchor_width: f64, scale: f64, content_height: f64) -> Option<Rect> {
@@ -471,16 +569,17 @@ fn hover_position(strip: Rect, screen: Rect, anchor_x: f64, anchor_width: f64, s
         return None;
     }
     let gap = (8.0 * scale).round().max(1.0) as i32;
+    let tail_gap = (TAIL_GAP * scale).round().max(1.0) as i32;
     let available_width = screen.right - screen.left - 2 * gap;
     let available_height = screen.bottom - screen.top - 2 * gap;
     if available_width <= 0 || available_height <= 0 || strip.right <= strip.left || strip.bottom <= strip.top { return None; }
-    let width = ((320.0 * scale).round() as i32).min(available_width);
+    let width = ((CARD_WIDTH * scale).round() as i32).min(available_width);
     let height = (content_height.round() as i32).max(1).min(available_height);
     // A partially clipped indicator anchors to its visible part of the strip.
     let center = strip.left as f64 + (anchor_x + anchor_width / 2.0).clamp(0.0, (strip.right - strip.left) as f64);
     let x = (center.round() as i32 - width / 2).clamp(screen.left + gap, screen.right - width - gap);
-    let above = strip.top - height - gap;
-    let y = if above >= screen.top + gap { above } else { strip.bottom + gap };
+    let above = strip.top - height - tail_gap;
+    let y = if above >= screen.top + gap { above } else { strip.bottom + tail_gap };
     let y = y.clamp(screen.top + gap, screen.bottom - height - gap);
     Some(Rect { left: x, top: y, right: x + width, bottom: y + height })
 }
@@ -729,6 +828,9 @@ mod native {
         let mut next_z_check = Instant::now();
         let mut next_frame = Instant::now();
         let mut last_frame = None;
+        // What the cells need, in physical px, from the last frame sent; 0 until there is one.
+        let mut wanted_width = 0;
+        let mut last_wanted = 0;
         loop {
             let now = Instant::now();
             let foreground = unsafe { GetForegroundWindow() };
@@ -779,7 +881,11 @@ mod native {
             } else { None };
             let position = if let Some((bar, bounds)) = layout {
                 let scale = unsafe { windows::Win32::UI::HiDpi::GetDpiForWindow(bar) }.max(96) as f64 / 96.0;
-                let key = (bar.0 as isize, bounds, cfg.taskbar_mode == "right", cfg.taskbar_width, scale.to_bits(), generation);
+                // The strip is as wide as its cells, so a figure gaining a digit resizes it. That
+                // rereads the free space but keeps the position it had until the reading is in.
+                let wanted = if wanted_width > 0 { wanted_width } else { (100.0 * scale) as i32 };
+                let key = (bar.0 as isize, bounds, cfg.taskbar_mode == "right", scale.to_bits(), generation);
+                if last_wanted != wanted { last_wanted = wanted; next_layout_read = now; }
                 if layout_key != Some(key) {
                     layout_key = Some(key);
                     cached_position = None;
@@ -791,7 +897,7 @@ mod native {
                 if now >= next_layout_read {
                     if let Some(blocks) = occupied(&uia, bar, bounds, HWND(child_hwnd as _)) {
                         let candidate = refresh_position(bounds, Some(&blocks), cached_position, cfg.taskbar_mode == "right",
-                            (cfg.taskbar_width.clamp(144, 520) as f64 * scale) as i32, (8.0 * scale) as i32, (100.0 * scale) as i32);
+                            wanted, (8.0 * scale) as i32, wanted.min((100.0 * scale) as i32));
                         last_verified = Some(now);
                         // Explorer may briefly report a complete but transitional layout during
                         // activation. Confirm a collision/no-space reading after 300 ms before
@@ -806,7 +912,7 @@ mod native {
                             cached_position = candidate;
                             pending_change = None;
                             next_layout_read = now + Duration::from_secs(if candidate.is_some() { 2 } else { 1 });
-                            layout_status = if candidate.is_none() { "No free space on the taskbar. Try the other side or a smaller width.".into() } else { String::new() };
+                            layout_status = if candidate.is_none() { "No free space on the taskbar. Try the other side.".into() } else { String::new() };
                             layout_reason = if candidate.is_some() { "visible" } else { "no_space" };
                         }
                     } else {
@@ -843,6 +949,9 @@ mod native {
                 if let Some(bar) = bar {
                     let scale = unsafe { windows::Win32::UI::HiDpi::GetDpiForWindow(bar) }.max(96) as f32 / 96.0;
                     let frame = native_frame(&app);
+                    // The strip's height is the taskbar's less the 3 px free_position leaves each side.
+                    let height = rect(bar).map(|r| r.bottom - r.top - 6).unwrap_or(0) as f32;
+                    wanted_width = crate::taskbar_model::content_width(&frame, height, scale) as i32;
                     let key = (generation,scale.to_bits(),frame.clone());
                     if last_frame.as_ref() != Some(&key) {
                         last_frame = Some(key);
@@ -963,14 +1072,14 @@ mod tests {
         let strip = Rect { left:800, top:1043, right:1080, bottom:1077 };
         let first = hover_position(strip, screen, 0.0, 40.0, 1.0, 360.0).unwrap();
         let next = hover_position(strip, screen, 48.0, 40.0, 1.0, 360.0).unwrap();
-        assert_eq!((first.left, first.top, first.right, first.bottom), (660, 675, 980, 1035));
+        assert_eq!((first.left, first.top, first.right, first.bottom), (697, 672, 943, 1032));
         assert_eq!(next.left - first.left, 48);
     }
     #[test]
     fn hover_clamps_at_both_edges_and_handles_a_top_taskbar() {
         let screen = Rect { left:0, top:0, right:1920, bottom:1080 };
         let left = hover_position(Rect { left:8, top:3, right:288, bottom:37 }, screen, 0.0, 40.0, 1.0, 360.0).unwrap();
-        assert_eq!((left.left, left.top), (8, 45));
+        assert_eq!((left.left, left.top), (8, 48));
         let right = hover_position(Rect { left:1632, top:1043, right:1912, bottom:1077 }, screen, 240.0, 40.0, 1.0, 360.0).unwrap();
         assert_eq!(right.right, 1912);
     }
@@ -979,14 +1088,14 @@ mod tests {
         let screen = Rect { left:-2880, top:-200, right:0, bottom:1420 };
         let strip = Rect { left:-1500, top:1360, right:-1080, bottom:1414 };
         let popup = hover_position(strip, screen, 72.0, 60.0, 1.5, 540.0).unwrap();
-        assert_eq!(popup, Rect { left:-1638, top:808, right:-1158, bottom:1348 });
+        assert_eq!(popup, Rect { left:-1582, top:804, right:-1213, bottom:1344 });
     }
     #[test]
     fn hover_shrinks_to_small_monitors_and_rejects_invalid_geometry() {
         let screen = Rect { left:0, top:0, right:280, bottom:250 };
         let strip = Rect { left:8, top:214, right:272, bottom:248 };
         let popup = hover_position(strip, screen, -50.0, 40.0, 1.0, 360.0).unwrap();
-        assert_eq!(popup, Rect { left:8, top:8, right:272, bottom:242 });
+        assert_eq!(popup, Rect { left:8, top:8, right:254, bottom:242 });
         assert!(hover_position(strip, screen, f64::NAN, 40.0, 1.0, 360.0).is_none());
         assert!(hover_position(strip, screen, 0.0, 0.0, 1.0, 360.0).is_none());
         assert!(hover_position(strip, screen, 0.0, 40.0, 0.0, 360.0).is_none());
@@ -1035,21 +1144,26 @@ mod tests {
         assert_eq!(refresh_position(BAR, Some(&[r(0,1920)]), Some(known), false,280,8,100), None);
     }
     #[test]
-    fn shorter_content_resizes_upward_while_preserving_the_taskbar_anchor_at_150_percent_dpi() {
+    fn the_card_window_keeps_its_size_and_the_card_sits_on_the_strips_side_of_it() {
         let anchor = HoverAnchor {
             strip: Rect { left:-1500, top:1360, right:-1080, bottom:1414 },
             screen: Rect { left:-2880, top:-200, right:0, bottom:1420 },
             x:72.0, width:60.0, scale:1.5,
         };
-        let old = anchor.position(None).unwrap();
-        let short = anchor.position(measured_hover_height(180.0,1.5)).unwrap();
-        assert_eq!((short.left,short.right,short.bottom), (old.left,old.right,old.bottom));
-        assert_eq!((short.top,short.bottom), (1078,1348));
-        assert_eq!(short.bottom-short.top, 270);
+        let window = anchor.position().unwrap();
+        assert_eq!(window, Rect { left:-1582, top:444, right:-1213, bottom:1344 }, "the tallest card's room, 16 px above the strip");
+        let card = card_rect(window, anchor.strip, measured_hover_height(180.0, 1.5).unwrap());
+        assert_eq!((card.left, card.top, card.right, card.bottom), (window.left, 1074, window.right, window.bottom));
+        assert_eq!(card_rect(window, anchor.strip, 5000.0), window, "never more than the window");
+        let top_strip = Rect { left:8, top:3, right:288, bottom:37 };
+        let below = HoverAnchor { strip: top_strip, screen: Rect { left:0, top:0, right:1920, bottom:1080 }, x:0.0, width:40.0, scale:1.0 }.position().unwrap();
+        assert_eq!((below.top, below.bottom), (48, 648));
+        assert_eq!(card_rect(below, top_strip, 200.0), Rect { bottom:248, ..below }, "under a top taskbar the card hangs from the window's top");
     }
     #[test]
     fn measured_content_is_bounded_and_invalid_sizes_are_rejected() {
-        assert_eq!(measured_hover_height(80.0,1.5),Some(180.0));
+        assert_eq!(measured_hover_height(80.0,1.5),Some(120.0));
+        assert_eq!(measured_hover_height(20.0,1.5),Some(60.0));
         assert_eq!(measured_hover_height(950.0,1.5),Some(900.0));
         for height in [0.0,-5.0,f64::NAN,f64::INFINITY] { assert!(measured_hover_height(height,1.0).is_none()); }
         for dpr in [0.0,0.1,8.1,f64::NAN,f64::INFINITY] { assert!(measured_hover_height(180.0,dpr).is_none()); }
@@ -1074,7 +1188,7 @@ mod tests {
         assert_eq!(local,Rect { left:210,top:3,right:490,bottom:37 });
         assert_eq!((local.right-local.left,local.bottom-local.top),(280,34));
         let popup = hover_position(screen,Rect { left:-1920,top:20,right:0,bottom:1100 },0.0,40.0,1.0,180.0).unwrap();
-        assert_eq!((popup.left,popup.bottom),(-1850,1055));
+        assert_eq!((popup.left,popup.bottom),(-1813,1052));
     }
     #[test]
     fn a_latest_order_callback_still_applies_geometry_if_the_earlier_placement_was_superseded() {
