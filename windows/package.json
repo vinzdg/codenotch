@@ -1,0 +1,10 @@
+{
+  "name": "codenotch-windows-ui-tests",
+  "private": true,
+  "scripts": {
+    "test:settings-layout": "node --test scripts/test-settings-layout.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

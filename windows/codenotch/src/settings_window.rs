@@ -28,13 +28,20 @@ fn open_now(app: &AppHandle) {
         let _ = w.set_focus();
         return;
     }
-    // The Mac's window: 680 × 520, centred, not resizable. `shadow` on an undecorated window is what
-    // gives it Windows 11's rounded corners.
+    let monitor = app.get_webview_window("notch")
+        .and_then(|w| w.current_monitor().ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten());
+    let (width, height) = monitor.map(|m| {
+        let area = m.work_area();
+        settings_size(area.size.width, area.size.height, m.scale_factor())
+    }).unwrap_or((800.0, 600.0));
+    // Use logical pixels and the work area, leaving the taskbar and high-DPI displays usable.
     let mut builder = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("settings.html".into()))
         .title("Codenotch Settings")
-        .inner_size(680.0, 520.0)
-        .resizable(false)
-        .maximizable(false)
+        .inner_size(width, height)
+        .min_inner_size(width.min(560.0), height.min(400.0))
+        .resizable(true)
+        .maximizable(true)
         .decorations(false)
         .shadow(true)
         .center()
@@ -63,6 +70,12 @@ fn open_now(app: &AppHandle) {
         }
         Err(e) => crate::applog(&format!("settings window: {e}")),
     }
+}
+
+fn settings_size(width: u32, height: u32, scale: f64) -> (f64, f64) {
+    let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+    ((width as f64 / scale - 32.0).clamp(1.0, 800.0),
+     (height as f64 / scale - 32.0).clamp(1.0, 600.0))
 }
 
 #[tauri::command]
@@ -197,6 +210,13 @@ fn reg_string(_key: &str, _value: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::palette;
+
+    #[test]
+    fn settings_fit_the_work_area_in_logical_pixels() {
+        assert_eq!(super::settings_size(1920, 1040, 1.25), (800.0, 600.0));
+        assert_eq!(super::settings_size(1280, 720, 2.0), (608.0, 328.0));
+        assert_eq!(super::settings_size(800, 600, 1.5), (800.0 / 1.5 - 32.0, 368.0));
+    }
 
     #[test]
     fn the_palette_reads_seven_colours_and_drops_the_alpha_byte() {

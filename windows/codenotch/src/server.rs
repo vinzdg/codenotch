@@ -4,17 +4,32 @@
 use crate::state::HookEvent;
 use crate::AppState;
 use std::io::Read;
+use std::net::TcpListener;
 use tauri::{AppHandle, Manager};
 
-pub fn start(app: AppHandle, port: u16) {
+/// Keep the listener bound while publishing the port: probing then rebinding races other apps.
+fn bind_listener(port: u16) -> std::io::Result<TcpListener> {
+    TcpListener::bind(("127.0.0.1", port)).or_else(|error| {
+        crate::applog(&format!("event server: port {port} unavailable ({error}); requesting a free loopback port"));
+        TcpListener::bind(("127.0.0.1", 0))
+    })
+}
+
+pub fn start(app: AppHandle, port: u16) -> Result<(), String> {
+    let listener = bind_listener(port).map_err(|e| format!("Unable to bind the local event server: {e}"))?;
+    let actual_port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    let server = tiny_http::Server::from_listener(listener, None).map_err(|e| e.to_string())?;
+    {
+        let state = app.state::<AppState>();
+        let mut config = state.cfg.lock().unwrap();
+        let mut next = config.clone();
+        next.port = actual_port;
+        // A listening server is useless to hooks unless they can discover its selected port.
+        crate::config::save_checked(&next)?;
+        *config = next;
+    }
+    crate::applog(&format!("event server: listening on 127.0.0.1:{actual_port}"));
     std::thread::spawn(move || {
-        let server = match tiny_http::Server::http(("127.0.0.1", port)) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("[codenotch] failed to bind port {port}: {e} (is another instance running?)");
-                return;
-            }
-        };
         for mut req in server.incoming_requests() {
             let url = req.url().to_string();
             if url.starts_with("/event") {
@@ -51,6 +66,7 @@ pub fn start(app: AppHandle, port: u16) {
             let _ = req.respond(tiny_http::Response::from_string("ok"));
         }
     });
+    Ok(())
 }
 
 fn query_param(url: &str, key: &str) -> String {
@@ -195,6 +211,27 @@ pub(crate) fn is_allowed_origin(origin: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn occupied_port_falls_back_and_keeps_the_selected_port_reserved() {
+        let occupied = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let requested = occupied.local_addr().unwrap().port();
+        let listener = bind_listener(requested).unwrap();
+        let selected = listener.local_addr().unwrap();
+        assert_ne!(selected.port(), requested);
+        assert!(selected.ip().is_loopback());
+        assert!(TcpListener::bind(selected).is_err());
+        let server = tiny_http::Server::from_listener(listener, None).unwrap();
+        assert_eq!(server.server_addr().to_ip().unwrap(), selected);
+    }
+
+    #[test]
+    fn free_preferred_port_is_preserved() {
+        let available = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = available.local_addr().unwrap().port();
+        drop(available);
+        assert_eq!(bind_listener(port).unwrap().local_addr().unwrap().port(), port);
+    }
 
     #[test]
     fn allowed_loopback_origins() {

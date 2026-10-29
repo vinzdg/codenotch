@@ -45,7 +45,7 @@ pub fn run() -> String {
 
     match std::net::TcpListener::bind(("127.0.0.1", cfg.port)) {
         Ok(_) => o += "port: free — no Codenotch instance is running\n",
-        Err(_) => o += "port: in use — an instance is already running (quit it from the tray before starting a new build)\n",
+        Err(e) => o += &format!("port: unavailable ({e}) — another listener or an OS reservation may own it; startup will select a free loopback port\n"),
     }
 
     for root in crate::watcher::roots() {

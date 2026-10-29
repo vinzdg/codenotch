@@ -270,7 +270,8 @@ configuration to the maintainer.
 Keep the private key. Losing it means no installed copy can be updated again, because every one of
 them checks against the public key it shipped with — they would all have to reinstall by hand.
 
-To build from source instead — prerequisites: Rust (MSVC toolchain), WebView2 runtime (ships with Windows 11).
+To build from source instead — prerequisites: Rust (MSVC toolchain), Visual Studio Build Tools with the
+Desktop development with C++ workload and Windows SDK, and WebView2 runtime (ships with Windows 11).
 
 ```powershell
 # from this directory (the repo root here; `windows/` inside the upstream repo)
@@ -287,6 +288,29 @@ cargo build --release --locked -p codenotch-hook --target-dir target/hook
 cd codenotch
 npx @tauri-apps/cli@2 build --config tauri.bundle.conf.json
 # → ..\target\release\bundle\nsis\Codenotch_<version>_x64-setup.exe
+```
+
+### Local event server and Settings
+
+The event server first binds the saved `port` on `127.0.0.1`. If it is occupied or reserved by
+Windows/WSL, it keeps an OS-selected free loopback port bound and atomically saves that port in
+`%APPDATA%\codenotch\config.json` before processing events. Hooks re-read the port during startup
+retries. `run.log` records the failed bind and the selected port; `doctor` does not mistake an OS
+reservation for a running instance. Provider API addresses belong to those providers and are unchanged.
+Hook retries share a two-second network deadline, and an automatic launch does not open Settings.
+
+Settings opens within the monitor's work area in logical pixels, can be resized, and scrolls its
+content independently of the header. Controls wrap when translated text or a smaller viewport needs
+more room. Account and taskbar controls use the Settings translation catalog and update immediately
+when the language changes, including status messages and accessible labels. English remains the fallback
+for untranslated strings. The browser regression test uses synthetic account data at 100%, 125%, 150% and 200%
+display scales, including Portuguese and narrow windows:
+
+```powershell
+cargo test --locked
+npm ci
+npx playwright install chromium
+npm run test:settings-layout
 ```
 
 ### Linux

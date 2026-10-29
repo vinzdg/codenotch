@@ -525,7 +525,26 @@ pub fn save_checked(cfg: &Config) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|_| "Unable to create the settings folder".to_string())?;
     }
     let txt = serde_json::to_string_pretty(cfg).map_err(|_| "Unable to serialize settings".to_string())?;
-    std::fs::write(path, txt).map_err(|_| "Unable to save settings".to_string())
+    write_atomic(&path, txt.as_bytes()).map_err(|_| "Unable to save settings".to_string())
+}
+
+/// Hooks read this file during startup and settings changes. Never expose a truncated JSON file.
+fn write_atomic(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let temporary = path.with_extension(format!("{}.{}.tmp", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&temporary)?;
+    let result = (|| {
+        file.write_all(contents)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&temporary, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
 }
 
 #[cfg(test)]
@@ -534,6 +553,19 @@ mod tests {
         carry_shared_position, clamp_critical_limit, clamp_watch_limit, color_transition_or_step,
         keep_open_on_upgrade, snap_scale, theme_or_system, weekly_ring_or_off, without_bom, Config,
     };
+
+    #[test]
+    fn atomic_save_replaces_existing_json_and_leaves_no_temporary_file() {
+        let dir = std::env::temp_dir().join(format!("codenotch-config-{}-{:?}", std::process::id(), std::thread::current().id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        super::write_atomic(&path, br#"{"port":48666}"#).unwrap();
+        super::write_atomic(&path, br#"{"port":39666}"#).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), r#"{"port":39666}"#);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
 
     #[test]
     fn reset_switches_default_on_and_round_trip_without_changing_other_settings() {

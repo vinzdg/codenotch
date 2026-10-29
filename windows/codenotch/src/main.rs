@@ -2020,7 +2020,10 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if args.iter().any(|arg| arg == "--hook-start") {
+                return;
+            }
             // Opening Codenotch again while it runs brings Settings forward, as on the Mac: with the
             // tray icon hidden it is the way back. Logged too, for a rebuild that was not picked up.
             applog(&format!("single instance: another launch was refused; the running instance is build={BUILD} — quit it from the tray first if you just rebuilt"));
@@ -2168,7 +2171,10 @@ fn main() {
             updater::check_on_launch(&handle);
             // Honours the saved switches: a notch hidden last time stays hidden.
             apply_visibility(&handle);
-            server::start(handle.clone(), port);
+            server::start(handle.clone(), port).map_err(|error| {
+                applog(&format!("event server: {error}"));
+                std::io::Error::other(error)
+            })?;
             watcher::start(handle.clone());
             usage::start(handle.clone());
             codex::start(handle.clone());

@@ -66,6 +66,18 @@ jobs:
       - name: Test Linux notch hover and contour
         run: node --test scripts/test-linux-notch.cjs
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+
+      - name: Test Settings layout at Windows display scales
+        run: |
+          npm ci
+          npx playwright install chromium
+          npm run test:settings-layout
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy

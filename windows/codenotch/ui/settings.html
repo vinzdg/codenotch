@@ -41,11 +41,11 @@
   #app{display:flex;height:100%;background:var(--pane)}
 
   /* ---- sidebar: a card inset from the window, as on the Mac ---- */
-  #side{width:196px;margin:4px;border-radius:14px;background:var(--side);border:1px solid var(--line);
+  #side{width:clamp(140px,25vw,196px);min-height:0;overflow-y:auto;margin:4px;border-radius:14px;background:var(--side);border:1px solid var(--line);
     box-shadow:inset 0 1px 0 var(--hi);display:flex;flex-direction:column;padding:0 8px 8px;flex:none}
   #side .band{height:48px;flex:none}
-  #side .grow{flex:1}
-  .row{position:relative;display:flex;align-items:center;gap:9px;width:100%;height:32px;padding:0 8px;margin-bottom:2px;
+  #side .grow{flex:1;min-height:12px}
+  .row{position:relative;display:flex;align-items:center;gap:9px;width:100%;min-height:32px;padding:5px 8px;margin-bottom:2px;
     border:0;border-radius:8px;background:transparent;text-align:left;font-size:13.5px}
   .row:hover{background:var(--hover)}
   .row.sel{background:var(--sel-soft)}
@@ -58,16 +58,15 @@
   .b-red{background:linear-gradient(#ff6d62,#dd3328)}
 
   /* ---- pane ---- */
-  #pane{flex:1;display:flex;flex-direction:column;min-width:0}
-  #head{height:52px;display:flex;align-items:center;padding-left:24px;position:relative;flex:none}
-  #head h1{font-size:22px;font-weight:600;margin:0}
+  #pane{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+  #head{min-height:52px;display:flex;align-items:center;padding:12px 52px 12px 20px;position:relative;flex:none}
+  #head h1{font-size:22px;font-weight:600;margin:0;overflow-wrap:anywhere}
   #close{position:absolute;top:0;right:0;width:46px;height:34px;border:0;background:transparent;color:var(--text2);
     display:grid;place-items:center;border-top-right-radius:8px}
   #close svg{width:10px;height:10px;stroke:currentColor;stroke-width:1.2}
   #close:hover{background:#c42b1c;color:#fff}
   #strip{margin:0 20px 8px;padding:7px 10px;border-radius:8px;background:var(--danger-bg);color:var(--danger);font-size:12px;overflow-wrap:anywhere}
-  #body{flex:1;overflow:auto;padding:0 20px 20px;scrollbar-width:none}
-  #body::-webkit-scrollbar{display:none}
+  #body{flex:1;min-height:0;min-width:0;overflow:auto;padding:0 20px 20px;scrollbar-width:thin;scrollbar-gutter:stable}
 
   .sec{font-size:13.5px;font-weight:600;margin:18px 12px 8px}
   .pane > .sec:first-child{margin-top:6px}
@@ -75,10 +74,10 @@
   .group + .group{margin-top:14px}
   .pane > .group:first-child{margin-top:6px}
   .group > * + *{border-top:1px solid var(--sep)}
-  .item{padding:9px 12px;min-height:40px;display:flex;align-items:center;justify-content:space-between;gap:12px}
-  /* A segmented control that does not fit beside its label (three Russian options do not) moves under it,
-     still on the right, rather than running out of the window */
-  .item:has(> .seg){flex-wrap:wrap;row-gap:8px}
+  .item{padding:9px 12px;min-height:40px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px}
+  /* Translations and Windows scaling can leave less room than the designed window. */
+  .item > span:first-child{min-width:0;overflow-wrap:anywhere}
+  .item:has(> .seg){row-gap:8px}
   .item > .seg{margin-left:auto}
   .item.cap{min-height:0;padding:8px 12px;font-size:12px;color:var(--text2);display:block}
   .item .hint{font-size:12px;color:var(--text2)}
@@ -104,21 +103,21 @@
   .switch.on::after{left:23px;background:var(--on-accent)}
   .switch:disabled,.switch.locked{opacity:.5}
   .booting .switch::after{transition:none}
-  .seg{display:inline-flex;background:var(--seg-bg);border-radius:7px;padding:2px;gap:2px;flex:none}
-  .seg button{border:0;background:transparent;font-size:13px;padding:3px 14px;border-radius:5px}
+  .seg{display:inline-flex;flex-wrap:wrap;max-width:100%;background:var(--seg-bg);border-radius:7px;padding:2px;gap:2px;flex:0 1 auto}
+  .seg button{min-width:0;flex:1 1 auto;overflow-wrap:anywhere;border:0;background:transparent;font-size:13px;padding:3px 14px;border-radius:5px}
   .seg button:hover:not(.on):not(:disabled){background:var(--hover)}
   .seg button.on{background:var(--accent);color:var(--on-accent)}
   .seg button:disabled{opacity:.45}
   .btn{border:0;background:var(--btn);font-size:13px;padding:5px 12px;border-radius:6px;flex:none}
   .btn:hover{background:var(--btn-hover)}
   /* As wide as the Colour transition control above (--slider-w is measured from it), so they line up */
-  .item.slider > .value{margin-left:auto;min-width:4ch;text-align:right;font-variant-numeric:tabular-nums}
-  .item.slider > input.range{-webkit-appearance:none;appearance:none;flex:none;width:var(--slider-w,180px);height:16px;margin:0;background:transparent}
+  .item.slider > .value{margin-left:auto;flex:none;min-width:4ch;text-align:right;font-variant-numeric:tabular-nums}
+  .item.slider > input.range{-webkit-appearance:none;appearance:none;flex:1 1 160px;min-width:0;max-width:var(--slider-w,180px);width:100%;height:16px;margin:0;background:transparent}
   .item.slider > input.range::-webkit-slider-runnable-track{height:4px;border-radius:2px;
     background:linear-gradient(var(--accent),var(--accent)) 0 0/calc(6px + (100% - 12px) * var(--f,.5)) 100% no-repeat,var(--btn-hover)}
   .item.slider > input.range::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;margin-top:-4px;border:0;border-radius:50%;background:var(--accent)}
   .item.slider > input.range:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
-  select{font:inherit;font-size:13px;color:var(--text);background:var(--seg-bg);border:0;border-radius:6px;padding:4px 8px}
+  select{min-width:0;max-width:100%;font:inherit;font-size:13px;color:var(--text);background:var(--seg-bg);border:0;border-radius:6px;padding:4px 8px}
   select option{color:#000}
   .link{border:0;background:none;padding:0;color:var(--accent);cursor:pointer;font-size:12px}
   .link:hover{text-decoration:underline}
@@ -151,7 +150,7 @@
       <section class="pane" id="pane-accounts" role="tabpanel" aria-labelledby="tab-accounts" hidden>
         <div class="sec" id="claude-profiles-title" data-dynamic>Claude accounts</div>
         <div class="group" id="claude-profiles" data-dynamic></div>
-        <form class="group profile-add" id="claude-add-form">
+        <form class="group profile-add" id="claude-add-form" data-dynamic>
           <label for="claude-account-name" id="claude-name-label">New account name</label>
           <div class="profile-add-line"><input id="claude-account-name" maxlength="40" required autocomplete="off" placeholder="Example: Work"><button class="btn" id="claude-add-button" type="submit">Add account</button></div>
           <p id="claude-login-help">Each account uses the official Claude CLI sign-in in a separate folder.</p>
@@ -168,8 +167,8 @@
       <section class="pane" id="pane-appearance" role="tabpanel" aria-labelledby="tab-appearance" hidden>
         <div class="sec" id="taskbar-title" data-dynamic>Taskbar</div>
         <div class="group">
-          <div class="item"><label id="taskbar-position-label" for="taskbar-position">Display</label><select id="taskbar-position"><option value="off">Original notch</option><option value="left">Left side</option><option value="right">Before system tray</option></select></div>
-          <div class="item slider"><label id="taskbar-width-label" for="taskbar-width">Width</label><span class="value" id="taskbar-width-value" data-dynamic>280 px</span><input id="taskbar-width" class="range" type="range" min="144" max="520" step="8"></div>
+          <div class="item" data-dynamic><label id="taskbar-position-label" for="taskbar-position">Display</label><select id="taskbar-position"><option value="off">Original notch</option><option value="left">Left side</option><option value="right">Before system tray</option></select></div>
+          <div class="item slider" data-dynamic><label id="taskbar-width-label" for="taskbar-width">Width</label><span class="value" id="taskbar-width-value" data-dynamic>280 px</span><input id="taskbar-width" class="range" type="range" min="144" max="520" step="8"></div>
           <div class="item cap" id="taskbar-help" data-dynamic>Use free space on the primary taskbar. Hover for account limits; click to refresh that account.</div>
           <div class="item cap" id="taskbar-status" role="status" data-dynamic hidden></div>
         </div>
@@ -408,6 +407,52 @@ const PT_BR_STATIC = {
   'App designed and developed by':'App projetado e desenvolvido por',
   'Saved':'Salvo'
 };
+// Accounts and taskbar controls share the same English keys and language selection.
+Object.assign(PT_BR_STATIC, {
+  "Install the standalone Claude Code CLI to connect an account.": "Instale o Claude Code CLI para conectar uma conta.",
+  "Finish signing in through the browser or terminal window.": "Conclua o login na janela do navegador ou terminal.",
+  "Sign-in complete. Waiting for the usage reading…": "Login concluído. Aguardando a leitura de uso…",
+  "Sign-in cancelled, failed or timed out. Try again.": "Login cancelado, não concluído ou expirado. Tente novamente.",
+  "Monitoring paused": "Monitoramento pausado",
+  "Signing in…": "Conectando…",
+  "Usage checks limited · retry in ": "Consulta limitada · nova tentativa em ",
+  "Waiting for the next automatic usage check": "Aguardando a próxima consulta automática",
+  "Sign in again": "Entrar novamente",
+  "Could not update usage": "Não foi possível atualizar o uso",
+  "Saved reading · waiting for update": "Leitura anterior · aguardando atualização",
+  "Waiting for the first reading": "Aguardando a primeira leitura",
+  "No Claude Code sign-in was found.": "Nenhum login do Claude Code foi encontrado.",
+  "Claude rejected the credential. Sign in again.": "O Claude recusou a credencial. Entre novamente.",
+  "Claude Code sign-in expired. Reconnect this account.": "O login do Claude Code expirou. Reconecte esta conta.",
+  "Account name": "Nome da conta",
+  "Monitor": "Monitorar",
+  "Save name": "Salvar nome",
+  "Connect": "Conectar",
+  "Finish signing in through the browser.": "Conclua o login no navegador.",
+  "Available on Windows.": "Disponível no Windows.",
+  "Claude accounts": "Contas Claude",
+  "New account name": "Nome da nova conta",
+  "Add account": "Adicionar conta",
+  "Example: Work": "Ex.: Trabalho",
+  "Each account uses the official Claude CLI sign-in in a separate folder. Switching monitoring off keeps its login.": "Cada conta usa o login oficial do Claude CLI em uma pasta separada. Pausar o monitoramento mantém o login.",
+  "Taskbar": "Barra de tarefas",
+  "Display": "Exibição",
+  "Width": "Largura",
+  "Original notch": "Formato atual",
+  "Left side": "À esquerda",
+  "Before system tray": "Antes da bandeja",
+  "The panel uses free space on the primary taskbar. Hover for account limits; click to refresh that account. It hides when space is unavailable, the taskbar is hidden, or an app is full screen. The system tray icon stays available.": "A faixa ocupa espaço livre na barra principal. Passe o mouse para ver os limites; clique para atualizar aquela conta. Ela se oculta sem espaço, com a barra oculta ou em tela cheia. O ícone perto do relógio continua disponível.",
+  "No free space on the taskbar. Try the other side or a smaller width.": "Sem espaço livre na barra. Tente o outro lado ou uma largura menor.",
+  "Windows did not expose the taskbar buttons. Use the tray to open Settings.": "Não foi possível identificar os botões da barra. Abra as configurações pelo ícone perto do relógio.",
+  "Waiting for the Windows taskbar": "Aguardando a barra de tarefas do Windows",
+  "Waiting for the taskbar child window": "Preparando a exibição na barra de tarefas",
+  "Windows taskbar accessibility is unavailable": "Não foi possível acessar a barra de tarefas do Windows",
+  "Unable to create the taskbar panel": "Não foi possível abrir a faixa na barra de tarefas",
+  "Taskbar integration is unavailable because Windows DPI contexts differ. Use the tray to open Settings.": "O Windows não permitiu a exibição na barra devido às configurações de escala. Abra as configurações pelo ícone perto do relógio.",
+  "Windows did not expose the taskbar child window.": "Não foi possível acessar a exibição na barra de tarefas do Windows.",
+  "Unable to create the taskbar child window. Use the tray to open Settings.": "Não foi possível abrir a exibição na barra. Abra as configurações pelo ícone perto do relógio.",
+  "Unable to schedule taskbar child creation.": "Não foi possível iniciar a exibição na barra de tarefas."
+});
 const RU_STATIC = {
   'Colour transition':'Переход цвета',
   'Hard step':'Резкая смена',
@@ -1198,6 +1243,7 @@ function applyStaticUi(){
     node.nodeValue = raw.replace(key, translated || key);
   }
   for(const el of document.querySelectorAll('[aria-label],[title]')){
+    if(el.closest('[data-dynamic]')) continue;
     for(const attr of ['aria-label','title']){
       if(!el.hasAttribute(attr)) continue;
       const marker = '__en_' + attr.replace('-', '_');
@@ -1224,6 +1270,7 @@ function setUiLanguage(lang){
   document.documentElement.lang = uiLang === 'zh' ? 'zh-Hans' : uiLang === 'zh-Hant' ? 'zh-Hant' : uiLang;
   applyStaticUi();
   renderAll();
+  window.dispatchEvent(new Event('settings-language-changed'));
 }
 function setUiLanguageFromRaw(raw){
   if(raw !== 'auto'){ setUiLanguage(raw); return Promise.resolve(); }

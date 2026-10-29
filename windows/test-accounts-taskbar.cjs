@@ -442,10 +442,14 @@ test('Hover reports its natural content height and resizes only when its content
   const strip=await taskbarView([item]);assert.equal(strip.calls.some(call=>call.command==='report_taskbar_hover_size'),false);
 });
 const accountSettings=readFileSync(join(__dirname,'codenotch/ui/accounts-taskbar.js'),'utf8');
+const settingsHtml=readFileSync(join(__dirname,'codenotch/ui/settings.html'),'utf8');
+const settingsCopy=vm.createContext({});
+vm.runInContext(settingsHtml.slice(settingsHtml.indexOf('const PT_BR_STATIC ='),settingsHtml.indexOf('const RU_STATIC ='))+'\nthis.pt=PT_BR_STATIC;',settingsCopy);
+const settingsUi=(key,fallback)=>settingsCopy.pt[key]||fallback;
 function settingsStatusFns(auth={}){
   const begin='// BEGIN TESTABLE CLAUDE ACCOUNT STATUS',end='// END TESTABLE CLAUDE ACCOUNT STATUS';
   assert.equal(accountSettings.split(begin).length,2);assert.equal(accountSettings.split(end).length,2);
-  const ctx=vm.createContext({auth,uiLang:'pt-BR',t:(_en,pt)=>pt});
+  const ctx=vm.createContext({auth,uiLang:'pt-BR',t:key=>settingsUi(key,key)});
   vm.runInContext(accountSettings.split(begin)[1].split(end)[0],ctx);return ctx;
 }
 test('Settings show the same real retry countdown and deadline for each individual account',()=>{
@@ -455,7 +459,7 @@ test('Settings show the same real retry countdown and deadline for each individu
   assert.match(ctx.stateLabel(a,now+170000),/5m 10s.*16:08/);
   assert.equal(ctx.stateNote(a),'','the historical 480s note must not contradict the countdown');
   assert.match(ctx.stateLabel(a,now+480000),/Aguardando a próxima consulta automática/);
-  assert.equal(ctx.stateLabel({...a,id:'pessoal',status:'ok',fetched_at:now,backoff_until:0,note:''},now),'Conectada');
+  assert.equal(ctx.stateLabel({...a,id:'pessoal',status:'ok',fetched_at:now,backoff_until:0,note:''},now),'Conectado');
   assert.equal(ctx.stateLabel({...a,enabled:false},now),'Monitoramento pausado');
   assert.equal(a.backoff_until,now+480000);
 });
@@ -465,7 +469,7 @@ async function settingsView(fixtures,status=''){
     return nodes.get(id);
   };
   const ctx=vm.createContext({
-    document:{getElementById:node,activeElement:null,hidden:false},window:{addEventListener(){}},uiLang:'pt-BR',
+    document:{getElementById:node,activeElement:null,hidden:false},window:{addEventListener(){}},uiLang:'pt-BR',ui:settingsUi,
     esc:panelFns().escapeHtml,errText:String,toast(){},setInterval(){},
     invoke:async command=>command==='get_claude_accounts'?fixtures:command==='get_claude_auth'?{}:command==='get_taskbar_options'?{mode:'off',width:280,supported:true,status}:undefined,
   });
