@@ -492,6 +492,15 @@ public struct CustomEndpointPreset: Identifiable, Sendable {
             defaultModel: "",
             iconPreset: "ollama-local",
             accentColorHex: "#14B8A6"
+        ),
+        CustomEndpointPreset(
+            id: "xiaomimimo",
+            name: "Xiaomi MiMo",
+            baseURL: "https://token-plan-sgp.xiaomimimo.com/v1",
+            headerKey: "Authorization",
+            defaultModel: "mimo-v2.6-flash",
+            iconPreset: "openai",
+            accentColorHex: "#F97316"
         )
     ]
 }
