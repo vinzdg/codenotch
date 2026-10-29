@@ -11,11 +11,16 @@ documented behaviour and the wire formats.
 
 ## Claude accounts
 
-Settings → Accounts can add, name, reconnect and pause Claude accounts. Each account
-uses the official Claude Code CLI sign-in in its own `~/.claude-<slug>` directory;
-the standalone CLI must be installed. Existing profiles in that layout are detected.
-Pausing monitoring retains the tool's sign-in. Authentication, cached readings and
-retry deadlines stay separate, including after rate limiting or reconnection.
+Settings → Accounts lists every Claude account as a provider row of its own, as the Mac
+does: `~/.claude` and each `~/.claude-<slug>` Claude Code has signed in to. A row is named
+from its sign-in (Claude Gmail, Claude Acme), from its folder until it has one
+(Claude (work)), and is plain Claude when it is the only account. A folder Claude Code
+has not signed in to is not an account. Add a Claude account creates the next
+`~/.claude-<n>` folder and opens the official Claude Code CLI sign-in in it, counting
+down five minutes; a sign-in that does not finish removes the folder again. The
+standalone CLI must be installed. Switching a row off stops reading that
+account and keeps its sign-in. Authentication, cached readings and retry deadlines stay
+separate, including after rate limiting or reconnection.
 
 ## Taskbar display
 

@@ -20,6 +20,14 @@ test('Claude account status and timestamps stay independent',()=>{
   assert.equal(result[1].snap.fetched_at,100);assert.equal(result[1].snap.windows[0].used,.8);
   assert.equal(result[1].id,'claude@work');
 });
+test('Only a card among several Claude accounts says whose it is, under its title',()=>{
+  const two=cells({accounts:[
+    {id:'default',name:'Claude Gmail',address:'someone@gmail.com',plan:'max',status:'ok',windows:[]},
+    {id:'work',name:'Claude Acme',address:'someone@acme.com',status:'ok',windows:[]},
+  ]});
+  assert.deepEqual(two.map(c=>c.account),['someone@gmail.com · Max','someone@acme.com']);
+  assert.equal(cells({accounts:[{id:'default',name:'default',address:'someone@gmail.com',plan:'pro',status:'ok',windows:[]}]})[0].account,'');
+});
 test('A secondary account works when the default account is disabled',()=>{
   const result=cells({accounts:[{id:'work',name:'Trabalho',status:'ok',fetched_at:10,windows:[{id:'session',used:.6}]}]});
   assert.equal(result.length,1);assert.equal(result[0].id,'claude@work');assert.equal(result[0].snap.windows[0].id,'session');
@@ -442,48 +450,52 @@ test('Hover reports its natural content height and resizes only when its content
   const strip=await taskbarView([item]);assert.equal(strip.calls.some(call=>call.command==='report_taskbar_hover_size'),false);
 });
 const accountSettings=readFileSync(join(__dirname,'codenotch/ui/accounts-taskbar.js'),'utf8');
-function settingsStatusFns(auth={}){
-  const begin='// BEGIN TESTABLE CLAUDE ACCOUNT STATUS',end='// END TESTABLE CLAUDE ACCOUNT STATUS';
-  assert.equal(accountSettings.split(begin).length,2);assert.equal(accountSettings.split(end).length,2);
-  const ctx=vm.createContext({auth,uiLang:'pt-BR',t:(_en,pt)=>pt});
-  vm.runInContext(accountSettings.split(begin)[1].split(end)[0],ctx);return ctx;
+const settingsPage=readFileSync(join(__dirname,'codenotch/ui/settings.html'),'utf8');
+function claudeRowFns(claudeAuth={}){
+  const begin='// BEGIN TESTABLE CLAUDE ROW',end='// END TESTABLE CLAUDE ROW';
+  assert.equal(settingsPage.split(begin).length,2);assert.equal(settingsPage.split(end).length,2);
+  const words={needsAuth:'not signed in',stale:'last reading is old',ok:''};
+  const ctx=vm.createContext({claudeAuth,SIGNING_IN:'Finish signing in',ui:(_key,fallback)=>fallback,statusText:p=>words[p.status]??''});
+  vm.runInContext(settingsPage.split(begin)[1].split(end)[0],ctx);return ctx;
 }
-test('Settings show the same real retry countdown and deadline for each individual account',()=>{
-  const ctx=settingsStatusFns(),now=new Date(2026,9,13,16,0).getTime();
-  const a={id:'limited',enabled:true,connected:true,status:'stale',fetched_at:now-900000,backoff_until:now+480000,note:'Rate limited, retrying in 480s'};
-  assert.match(ctx.stateLabel(a,now),/Consulta limitada.*8m 00s.*16:08/);
-  assert.match(ctx.stateLabel(a,now+170000),/5m 10s.*16:08/);
-  assert.equal(ctx.stateNote(a),'','the historical 480s note must not contradict the countdown');
-  assert.match(ctx.stateLabel(a,now+480000),/Aguardando a próxima consulta automática/);
-  assert.equal(ctx.stateLabel({...a,id:'pessoal',status:'ok',fetched_at:now,backoff_until:0,note:''},now),'Conectada');
-  assert.equal(ctx.stateLabel({...a,enabled:false},now),'Monitoramento pausado');
-  assert.equal(a.backoff_until,now+480000);
+test('A Claude account row says who it is, and what it needs only while it is on',()=>{
+  const ctx=claudeRowFns();
+  const a={id:'work',address:'me@acme.com',connected:true,status:'ok'};
+  assert.equal(ctx.claudeDetail(a,true),'me@acme.com');
+  assert.equal(ctx.claudeDetail({...a,status:'stale'},true),'me@acme.com · last reading is old');
+  assert.equal(ctx.claudeDetail({...a,status:'needsAuth'},true),'not signed in');
+  assert.equal(ctx.claudeDetail({...a,connected:false,address:null},true),'not signed in');
+  assert.equal(ctx.claudeDetail({...a,status:'needsAuth'},false),'me@acme.com','a switched-off account is not read, so it claims nothing about its sign-in');
+  assert.equal(claudeRowFns({busy:true,profile_id:'other'}).claudeDetail({...a,connected:false},true),'not signed in');
 });
-async function settingsView(fixtures,status=''){
+test('A sign-in in progress counts down to the moment it is given up on',()=>{
+  const now=1_800_000_000_000,signing=claudeRowFns({busy:true,profile_id:'2',deadline:now+245_000});
+  const added={id:'2',address:null,connected:false,status:'needsAuth'};
+  assert.equal(signing.claudeDetail(added,true,now),'Finish signing in · 4:05');
+  assert.equal(signing.claudeDetail(added,true,now+244_100),'Finish signing in · 0:01');
+  assert.equal(signing.claudeDetail(added,true,now+245_000),'Finish signing in','no 0:00 or negative time once it is due');
+  assert.equal(claudeRowFns({busy:true,profile_id:'2'}).claudeDetail(added,true,now),'Finish signing in');
+});
+test('Claude accounts are rows in the provider list, not a block of their own',()=>{
+  assert.doesNotMatch(settingsPage,/claude-profiles|claude-add-form|profile-name/);
+  assert.doesNotMatch(accountSettings,/claude|profile/i);
+});
+async function settingsView(status=''){
   const nodes=new Map(),node=id=>{
     if(!nodes.has(id))nodes.set(id,{dataset:{},options:[{},{},{}],innerHTML:'',textContent:'',value:'',classList:{contains:()=>false},addEventListener(){}});
     return nodes.get(id);
   };
   const ctx=vm.createContext({
     document:{getElementById:node,activeElement:null,hidden:false},window:{addEventListener(){}},uiLang:'pt-BR',
-    esc:panelFns().escapeHtml,errText:String,toast(){},setInterval(){},
-    invoke:async command=>command==='get_claude_accounts'?fixtures:command==='get_claude_auth'?{}:command==='get_taskbar_options'?{mode:'off',width:280,supported:true,status}:undefined,
+    errText:String,toast(){},strip(){},setInterval(){},
+    invoke:async command=>command==='get_taskbar_options'?{mode:'off',width:280,supported:true,status}:undefined,
   });
   vm.runInContext(accountSettings,ctx);for(let i=0;i<20;i++)await Promise.resolve();return node;
 }
-test('Settings expose escaped account errors and replace the frozen rate-limit note with live status',async()=>{
-  const node=await settingsView([
-    {id:'limited',name:'Limited account',enabled:true,connected:true,status:'stale',fetched_at:Date.now()-900000,backoff_until:Date.now()+480000,note:'Rate limited, retrying in 480s',path:'fixture'},
-    {id:'work',name:'Trabalho',enabled:true,connected:true,status:'error',note:'<img onerror="run()">',path:'fixture'},
-  ]);
-  assert.match(node('claude-profiles').innerHTML,/Consulta limitada.*nova tentativa em/);
-  assert.doesNotMatch(node('claude-profiles').innerHTML,/480s|<img/);
-  assert.match(node('claude-profiles').innerHTML,/&lt;img onerror=&quot;run\(\)&quot;&gt;/);
-});
 test('Taskbar integration failures use Portuguese without showing implementation terms in Settings',async()=>{
   for(const status of ['Taskbar integration is unavailable because Windows DPI contexts differ. Use the tray to open Settings.','Windows did not expose the taskbar child window.','Unable to create the taskbar child window. Use the tray to open Settings.','Unable to schedule taskbar child creation.','Waiting for the taskbar child window']){
-    const node=await settingsView([],status);
+    const node=await settingsView(status);
     assert.notEqual(node('taskbar-status').textContent,status);assert.doesNotMatch(node('taskbar-status').textContent,/DPI|child/i);
   }
-  const normal=await settingsView([]);assert.equal(normal('taskbar-status').hidden,true);
+  const normal=await settingsView();assert.equal(normal('taskbar-status').hidden,true);
 });
