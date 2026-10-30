@@ -30,6 +30,17 @@ pub fn find_agy() -> Option<PathBuf> {
     None
 }
 
+/// The copy Antigravity IDE and VS Code's extension install, and run as `--hub`. Not part of
+/// `find_agy`: an install it finds reads through the CLI alone, and this one has a live server to
+/// read from whenever Antigravity is open.
+pub fn bundled_agy() -> Option<PathBuf> {
+    bundled_agy_in(&dirs::home_dir()?)
+}
+
+fn bundled_agy_in(home: &Path) -> Option<PathBuf> {
+    Some(home.join(".gemini").join("bin").join("agy.exe")).filter(|p| p.is_file())
+}
+
 /// Helper for testing discovery in explicit directories without touching environment.
 fn find_agy_in(dirs: &[PathBuf]) -> Option<PathBuf> {
     for dir in dirs {
@@ -569,10 +580,13 @@ fn run_cmd_conpty(
 
 /// Executes official `agy --print /usage` via native ConPTY.
 pub fn read_quota() -> Result<Vec<LimitWindow>, String> {
-    let agy = find_agy().ok_or("Antigravity CLI is not installed")?;
+    read_quota_with(&find_agy().ok_or("Antigravity CLI is not installed")?)
+}
+
+pub fn read_quota_with(agy: &Path) -> Result<Vec<LimitWindow>, String> {
     let dir = crate::config::config_path().with_file_name("quota-work");
     std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create CLI working directory: {e}"))?;
-    let output = run_cmd_conpty(&agy, &["--sandbox", "--print-timeout", "30s", "--print", "/usage"], Some(&dir), Duration::from_secs(70))?;
+    let output = run_cmd_conpty(agy, &["--sandbox", "--print-timeout", "30s", "--print", "/usage"], Some(&dir), Duration::from_secs(70))?;
     parse_quota(&output)
 }
 
@@ -586,6 +600,28 @@ mod tests {
         assert_eq!(windows[0].duration_ms, None);
     }
 
+
+    #[test]
+    fn the_bundled_copy_is_found_under_gemini_bin() {
+        let home = std::env::temp_dir().join(format!("codenotch-agy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        assert_eq!(bundled_agy_in(&home), None);
+        let bin = home.join(".gemini").join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("agy.exe"), "").unwrap();
+        assert_eq!(bundled_agy_in(&home), Some(bin.join("agy.exe")));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    #[ignore = "Runs Antigravity's own signed-in copy; opt in for integration verification"]
+    fn live_bundled_quota() {
+        let windows = read_quota_with(&bundled_agy().expect("bundled agy")).expect("bundled quota");
+        for w in &windows {
+            println!("{:?} / {}: used {:.2}", w.group, w.label, w.used);
+        }
+        assert!(!windows.is_empty());
+    }
 
     #[test]
     fn quoted_paths_keep_backslashes() {
