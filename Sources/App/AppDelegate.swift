@@ -655,6 +655,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak fleet] in fleet?.apply(deepSeekPricingSchedule: $0) }
                 .store(in: &cancellables)
 
+            preferences.$deepSeekDisplayMode
+                .dropFirst()
+                .removeDuplicates()
+                .receive(on: RunLoop.main)
+                .sink { [weak store] _ in
+                    store?.refresh(providerID: "deepseek")
+                }
+                .store(in: &cancellables)
+
             preferences.$qoderRegion
                 .dropFirst()
                 .removeDuplicates()

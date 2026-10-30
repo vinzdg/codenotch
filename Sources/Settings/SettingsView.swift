@@ -79,7 +79,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .accounts:      return L10n.t("Choose which providers the notch reads.")
         case .phone:         return L10n.t("See your usage on your phone.")
-        case .deepseek:      return L10n.t("Peak and off-peak pricing for your DeepSeek spend.")
+        case .deepseek:      return L10n.t("Display options and peak/off-peak pricing for your DeepSeek spend.")
         case .ollama:        return L10n.t("Models running in Ollama on this Mac.")
         case .lmstudio:      return L10n.t("Models loaded in LM Studio on this Mac.")
         case .omlx:          return L10n.t("Models loaded in oMLX on this Mac.")
@@ -2218,6 +2218,31 @@ private struct AccountRow: View {
                 .padding(.top, 2)
                 .foregroundStyle(.secondary)
                 .help(L10n.t("Fills the ring against a ceiling you choose; Google publishes none for an API key."))
+            }
+
+            if isConnected, provider.id == "deepseek" {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text(L10n.t("Indicator reads"))
+                            .foregroundStyle(.secondary)
+                        Picker(L10n.t("Indicator reads"), selection: $preferences.deepSeekDisplayMode) {
+                            ForEach(DeepSeekDisplayMode.allCases) { mode in
+                                Text(mode.title).tag(mode)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(width: 170)
+                    }
+                    Text(preferences.deepSeekDisplayMode.explanation)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 2)
+                .onChange(of: preferences.deepSeekDisplayMode) { _ in
+                    refresh(provider.id)
+                }
             }
             // Ollama owns its credential: the user enters an API key here, stored
             // in the keychain. The env var OLLAMA_API_KEY is checked first, so a

@@ -16,6 +16,19 @@ struct DeepSeekPricingSettingsView: View {
 
     var body: some View {
         Form {
+            Section(L10n.t("Indicator display")) {
+                Picker(L10n.t("Indicator reads"), selection: $preferences.deepSeekDisplayMode) {
+                    ForEach(DeepSeekDisplayMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+
+                Text(preferences.deepSeekDisplayMode.explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Section(L10n.t("Peak/off-peak pricing")) {
                 Toggle(L10n.t("Show DeepSeek pricing"),
                        isOn: $preferences.deepSeekPricingEnabled)

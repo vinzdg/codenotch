@@ -115,20 +115,8 @@ enum Sites {
         parse: { json in
             let payload = try DeepSeekUsage.payload(fromJSON: json)
             let reading = try DeepSeekUsage.reading(fromJSON: payload.summary)
-            var windows = [LimitWindow(
-                id: "spend",
-                label: L10n.t("Account usage (\(reading.currency))"),
-                usedFraction: reading.usedFraction,
-                money: UsageMoneyBreakdown(currency: reading.currency,
-                                           spent: reading.spent,
-                                           remaining: reading.balance)
-            )]
-            if let availableTokens = reading.availableTokens {
-                windows.append(LimitWindow(id: "available-tokens",
-                                           label: "Available tokens (estimate)",
-                                           detail: "\(LimitWindow.compact(availableTokens)) available"))
-            }
-            return windows
+            let displayMode = Preferences.storedDeepSeekDisplayMode()
+            return DeepSeekUsage.windows(from: reading, displayMode: displayMode)
         }
     )
 
