@@ -54,4 +54,10 @@ struct AgentSession: Identifiable, Equatable {
         self.since = since
         self.processID = processID
     }
+
+    /// The same session under a better name than the one it was found with.
+    func named(_ name: String) -> AgentSession {
+        AgentSession(id: id, name: name, detail: detail, state: state,
+                     waitingFor: waitingFor, since: since, processID: processID)
+    }
 }

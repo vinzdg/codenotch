@@ -202,6 +202,56 @@ final class ClaudeSessionStateSourceTests: XCTestCase {
         XCTAssertEqual(session.waitingFor, "permission")
     }
 
+    // MARK: - The name
+
+    /// The real shape of a VS Code session's file, trimmed: the name is the
+    /// folder and two characters, and Claude Code says that is all it is.
+    private let vscode = """
+    { "pid": 49648, "sessionId": "8ccc1572", "cwd": "/Users/vinz/nikat",
+      "kind": "interactive", "entrypoint": "claude-vscode", "name": "nikat-49",
+      "nameSource": "derived", "status": "busy" }
+    """
+
+    private let titled = #"{"type":"ai-title","aiTitle":"SMS OTP rate limit","sessionId":"8ccc1572"}"#
+
+    func testAFolderNameGivesWayToTheTranscriptsTitle() throws {
+        try writeTranscript(titled, session: "8ccc1572", cwd: "/Users/vinz/nikat")
+        let session = ClaudeSessionMonitor.state(of: try record(vscode), transcripts: reader)
+        XCTAssertEqual(session.name, "SMS OTP rate limit")
+        // Everything else is the record's, as before: the folder stays on the
+        // second line, and the terminal interface's own state stands.
+        XCTAssertEqual(session.detail, "VS Code · nikat")
+        XCTAssertEqual(session.state, .busy)
+        XCTAssertEqual(session.id, "claude.49648")
+    }
+
+    /// A build that writes no `nameSource` wrote the folder name too.
+    func testARecordThatDoesNotSayWhereItsNameCameFromIsTitled() throws {
+        try writeTranscript(titled, session: "0b24b489", cwd: "/Users/vinz/app")
+        XCTAssertEqual(
+            ClaudeSessionMonitor.state(of: try record(desktop), transcripts: reader).name,
+            "SMS OTP rate limit"
+        )
+    }
+
+    /// The desktop app names its sessions itself, and that name is kept.
+    func testANameChosenOnPurposeStays() throws {
+        let chosen = try record("""
+        { "pid": 7, "sessionId": "8ccc1572", "cwd": "/Users/vinz/nikat",
+          "entrypoint": "claude-desktop", "name": "Contract MCP", "nameSource": "user" }
+        """)
+        try writeTranscript(titled, session: "8ccc1572", cwd: "/Users/vinz/nikat")
+        XCTAssertEqual(ClaudeSessionMonitor.state(of: chosen, transcripts: reader).name,
+                       "Contract MCP")
+    }
+
+    func testWithNoTitleTheFolderNameStands() throws {
+        XCTAssertEqual(ClaudeSessionMonitor.state(of: try record(vscode), transcripts: reader).name,
+                       "nikat-49")
+        XCTAssertEqual(ClaudeSessionMonitor.state(of: try record(vscode), transcripts: nil).name,
+                       "nikat-49")
+    }
+
     // MARK: - Deduplication
 
     /// Resuming after a crash registers a new pid while the old process is
