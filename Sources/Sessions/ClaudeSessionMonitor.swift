@@ -244,8 +244,21 @@ final class ClaudeSessionMonitor: ObservableObject, AgentActivityMonitor {
     /// not. Desktop sessions always take the second path; terminal ones never
     /// do, which is what keeps their `waiting` state — the one thing only the
     /// terminal interface knows — exactly as it was.
+    ///
+    /// The name follows the same rule: the record's, unless it is only the
+    /// folder stand-in and the transcript has a title for it.
     static func state(of record: ClaudeSessionRecord,
                       transcripts: ClaudeTranscriptReader?) -> AgentSession {
+        let session = activity(of: record, transcripts: transcripts)
+        guard record.hasDerivedName,
+              let sessionID = record.sessionID,
+              let title = transcripts?.title(sessionID: sessionID, cwd: record.cwd)
+        else { return session }
+        return session.named(title)
+    }
+
+    private static func activity(of record: ClaudeSessionRecord,
+                                 transcripts: ClaudeTranscriptReader?) -> AgentSession {
         guard !record.reportsStatus,
               let sessionID = record.sessionID,
               let activity = transcripts?.activity(sessionID: sessionID, cwd: record.cwd)

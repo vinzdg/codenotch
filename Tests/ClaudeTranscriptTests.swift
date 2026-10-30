@@ -113,6 +113,56 @@ final class ClaudeTranscriptTests: XCTestCase {
         XCTAssertNil(turn(#"{"type":"bridge-session"}"#))
         XCTAssertNil(ClaudeTranscript.turn(inTail: Data()))
     }
+
+    // MARK: - What it is called
+
+    private func title(_ lines: String...) -> String? {
+        ClaudeTranscript.title(inTail: Data(lines.joined(separator: "\n").utf8))
+    }
+
+    func testTheGeneratedTitleNamesTheSession() {
+        XCTAssertEqual(title(
+            #"{"type":"user","message":{"content":"set up conversions"}}"#,
+            #"{"type":"ai-title","aiTitle":"Configure lead conversion event","sessionId":"f0c3227c"}"#,
+            #"{"type":"assistant","message":{"stop_reason":"end_turn"}}"#
+        ), "Configure lead conversion event")
+    }
+
+    /// The title is rewritten as the conversation moves on; the last one is
+    /// the current one.
+    func testTheLatestGeneratedTitleWins() {
+        XCTAssertEqual(title(
+            #"{"type":"ai-title","aiTitle":"Fix login","sessionId":"a"}"#,
+            #"{"type":"ai-title","aiTitle":"SMS OTP rate limit","sessionId":"a"}"#
+        ), "SMS OTP rate limit")
+    }
+
+    /// Claude Code goes on writing generated titles after a `/rename`, and the
+    /// name somebody chose is the one they will look for.
+    func testARenameBeatsANewerGeneratedTitle() {
+        XCTAssertEqual(title(
+            #"{"type":"custom-title","customTitle":"Billing bug","sessionId":"a"}"#,
+            #"{"type":"ai-title","aiTitle":"Stripe webhook retries","sessionId":"a"}"#
+        ), "Billing bug")
+    }
+
+    func testABlankTitleIsNoTitle() {
+        XCTAssertNil(title(#"{"type":"ai-title","aiTitle":"  ","sessionId":"a"}"#))
+        XCTAssertEqual(title(
+            #"{"type":"ai-title","aiTitle":"Real title","sessionId":"a"}"#,
+            #"{"type":"custom-title","customTitle":"","sessionId":"a"}"#
+        ), "Real title")
+    }
+
+    /// Conversation that only mentions the word is not a title line, and the
+    /// half line at the front of the tail is skipped like it is for `turn`.
+    func testOnlyTitleLinesAreRead() {
+        XCTAssertNil(title(
+            #"tle","aiTitle":"Cut in half"}"#,
+            #"{"type":"user","message":{"content":"what is an \"ai-title\" line?"}}"#
+        ))
+        XCTAssertNil(ClaudeTranscript.title(inTail: Data()))
+    }
 }
 
 /// The reader that puts the state machine on a timer.
@@ -196,6 +246,29 @@ final class ClaudeTranscriptReaderTests: XCTestCase {
 
         try Data((working + done).utf8).write(to: url)
         XCTAssertEqual(reader.activity(sessionID: "abc", cwd: "/Users/vinz/app")?.turn, .finished)
+    }
+
+    /// The title comes out of the same read as the turn, and follows the file
+    /// as it grows.
+    func testReadsTheTitleAndFollowsIt() throws {
+        let named = #"{"type":"ai-title","aiTitle":"Fix login","sessionId":"abc"}"# + "\n"
+        let renamed = #"{"type":"ai-title","aiTitle":"Fix login redirect","sessionId":"abc"}"# + "\n"
+        let url = try write(working + named, folder: "-Users-vinz-app", session: "abc")
+        let reader = ClaudeTranscriptReader(projects: projects)
+        XCTAssertEqual(reader.title(sessionID: "abc", cwd: "/Users/vinz/app"), "Fix login")
+        XCTAssertEqual(reader.activity(sessionID: "abc", cwd: "/Users/vinz/app")?.turn, .inFlight)
+
+        try Data((working + named + done + renamed).utf8).write(to: url)
+        XCTAssertEqual(reader.title(sessionID: "abc", cwd: "/Users/vinz/app"), "Fix login redirect")
+    }
+
+    func testNoTitleWithoutATranscriptOrALine() throws {
+        let reader = ClaudeTranscriptReader(projects: projects)
+        XCTAssertNil(reader.title(sessionID: "abc", cwd: "/Users/vinz/app"))
+
+        try write(working, folder: "-Users-vinz-app", session: "abc")
+        XCTAssertNil(ClaudeTranscriptReader(projects: projects)
+            .title(sessionID: "abc", cwd: "/Users/vinz/app"))
     }
 }
 
