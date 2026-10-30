@@ -488,6 +488,38 @@ final class ClaudeSessionOwnershipTests: XCTestCase {
         XCTAssertNil(index().account(forHostSession: ""))
     }
 
+    /// The app signed in to an account no profile here is. It has no ring,
+    /// and that is what the lone ring has to be told apart from (#509).
+    func testAnAccountOnlyTheAppKnowsIsUntracked() throws {
+        try host("local-1", account: personalAccount)
+        try host("local-2", account: workAccount)
+        let profiles = [try defaultProfile(account: personalAccount)]
+
+        XCTAssertEqual(index().untrackedAccounts(among: profiles), [workAccount])
+    }
+
+    func testAnAccountWithAProfileIsTracked() throws {
+        try host("local-1", account: personalAccount)
+        let profiles = [try defaultProfile(account: personalAccount)]
+
+        XCTAssertEqual(index().untrackedAccounts(among: profiles), [])
+    }
+
+    /// No Claude Desktop, nothing to tell apart.
+    func testWithoutTheAppNothingIsUntracked() throws {
+        let missing = ClaudeDesktopSessionIndex(root: root.appendingPathComponent("missing"))
+        XCTAssertEqual(missing.untrackedAccounts(among: [try defaultProfile(account: personalAccount)]),
+                       [])
+    }
+
+    /// `~/.claude` under `root`, signed in to `account`. Its `.claude.json`
+    /// sits beside the directory, as Claude Code keeps it.
+    private func defaultProfile(account: String) throws -> ClaudeProfile {
+        let json = #"{"oauthAccount":{"accountUuid":"\#(account)"}}"#
+        try Data(json.utf8).write(to: root.appendingPathComponent(".claude.json"))
+        return ClaudeProfile.default(home: root)
+    }
+
     // MARK: - Who claims a record
 
     func testADesktopSessionGoesToTheAccountThatHostsIt() throws {

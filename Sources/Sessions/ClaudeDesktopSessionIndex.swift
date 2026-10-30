@@ -62,6 +62,23 @@ final class ClaudeDesktopSessionIndex {
         return found
     }
 
+    /// The accounts the app has hosted Claude Code sessions for that none of
+    /// `profiles` is signed in to.
+    ///
+    /// Such an account has no `~/.claude-<slug>` and so no ring of its own
+    /// (#509). It is still worth knowing about: with one in use, a lone ring
+    /// is no longer the only Claude account on the Mac, and has to say which
+    /// one it is. See `ClaudeProfile.displayNames(for:anotherAccountInUse:)`.
+    ///
+    /// One directory listing, read once at launch. A profile whose
+    /// `.claude.json` names no account cannot be matched, so its account is
+    /// counted here too: the cost of that is a ring named after its address,
+    /// which is never wrong.
+    func untrackedAccounts(among profiles: [ClaudeProfile]) -> [String] {
+        let tracked = Set(profiles.compactMap { $0.accountID() })
+        return children(of: root).filter { !tracked.contains($0) }
+    }
+
     private func search(_ id: String) -> String? {
         // A path component from a file written by another program: a `..` or a
         // slash in it would walk out of the directory being searched, so the id

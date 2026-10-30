@@ -186,8 +186,15 @@ struct ClaudeProfile: Equatable, Hashable {
     /// And a lone account is just `Claude`. The label is there to tell one ring
     /// from another; with nothing to tell it from, `Claude Gmail Usage` over
     /// the only Claude card reads as a product that does not exist.
-    static func displayNames(for profiles: [ClaudeProfile]) -> [String: String] {
-        if profiles.count == 1, let only = profiles.first {
+    ///
+    /// Unless `anotherAccountInUse`: Claude Desktop signed in to an account no
+    /// profile here is (`ClaudeDesktopSessionIndex.untrackedAccounts`). That
+    /// account has no ring, so the lone one is not the only Claude account on
+    /// the Mac, and a bare `Claude` left nobody able to tell which of the two
+    /// it was showing (#509).
+    static func displayNames(for profiles: [ClaudeProfile],
+                             anotherAccountInUse: Bool = false) -> [String: String] {
+        if profiles.count == 1, let only = profiles.first, !anotherAccountInUse {
             return [only.id: "Claude"]
         }
 

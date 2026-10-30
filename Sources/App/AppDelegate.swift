@@ -173,7 +173,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // signed-in address can collide with another profile's, and a lone
             // profile needs no name beyond "Claude" — only a caller holding
             // every profile can see either.
-            let claudeNames = ClaudeProfile.displayNames(for: claudeProfiles)
+            //
+            // Claude Desktop can be signed in to an account that has no
+            // profile here, and so no ring (#509). Then the lone ring is not
+            // the only account in use, and is named for its own.
+            let desktopOnly = ClaudeDesktopSessionIndex().untrackedAccounts(among: claudeProfiles)
+            if !desktopOnly.isEmpty {
+                Log.usage.info("claude desktop: \(desktopOnly.count, privacy: .public) account(s) with no profile, so no ring; `CLAUDE_CONFIG_DIR=~/.claude-<name> claude` adds one")
+            }
+            let claudeNames = ClaudeProfile.displayNames(for: claudeProfiles,
+                                                         anotherAccountInUse: !desktopOnly.isEmpty)
             let claudeProviders = claudeProfiles.map {
                 ClaudeOAuthProvider(profile: $0, displayName: claudeNames[$0.id])
             }
