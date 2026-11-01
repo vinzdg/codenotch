@@ -76,8 +76,9 @@ final class CostModel: ObservableObject {
         reload()
     }
 
-    /// Called when a usage reading changes, and once a minute while none does
-    /// (see `CostReadingGate`). Samples the limit and attributes any increase.
+    /// Called when a usage reading changes, and at the pace of a usage poll
+    /// while none does (see `CostReadingGate`). Samples the limit and attributes
+    /// any increase.
     /// Codenotch's windows carry ids: "session"/"primary" are the rolling
     /// session, "weekly_all"/"secondary" the week, anything named credits the
     /// credit cap of a Business seat.

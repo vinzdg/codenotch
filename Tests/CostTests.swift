@@ -77,7 +77,7 @@ final class CostTests: XCTestCase {
         var gate = CostReadingGate()
         let start = Date(timeIntervalSince1970: 1_000)
         XCTAssertTrue(gate.admits([usage(0.1), runtime(0)], at: start))
-        for second in 1...30 {
+        for second in 1..<Int(CostReadingGate.heartbeat) {
             XCTAssertFalse(gate.admits([usage(0.1), runtime(second % 3)],
                                        at: start.addingTimeInterval(TimeInterval(second))))
         }
@@ -95,6 +95,8 @@ final class CostTests: XCTestCase {
 
     /// `currentPeriod` reads the latest sample's time, so a quiet reading still
     /// has to be sampled now and then, counted from the last one that passed.
+    /// There is no timer behind this: whichever update comes next carries it,
+    /// and with a runtime connected that is usually the runtime's.
     func testGateLetsAnUnchangedReadingThroughOnTheHeartbeat() {
         var gate = CostReadingGate()
         let start = Date(timeIntervalSince1970: 1_000)
@@ -103,5 +105,7 @@ final class CostTests: XCTestCase {
         let beat = start.addingTimeInterval(CostReadingGate.heartbeat)
         XCTAssertTrue(gate.admits([usage(0.1)], at: beat))
         XCTAssertFalse(gate.admits([usage(0.1)], at: beat.addingTimeInterval(1)))
+        let next = beat.addingTimeInterval(CostReadingGate.heartbeat)
+        XCTAssertTrue(gate.admits([usage(0.1), runtime(1)], at: next))
     }
 }

@@ -2,20 +2,21 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// Which changes to the usage store's snapshots the cost layer acts on.
+/// Which updates to the usage store's snapshots the cost layer acts on.
 ///
 /// `snapshots` is republished whenever any provider lands, which for a local
 /// runtime is once a second, reading or no reading. Acting on each of those
-/// wrote a row to every account's database and re-ran its queries, for numbers
-/// that had not moved: a quarter of a core and about 700,000 rows a day with
-/// two runtimes connected. Only a quota can feed the cost layer, so only a
-/// change among the usage providers counts.
+/// wrote a row per window to every account's database and re-ran its queries,
+/// for numbers that had not moved. Only a quota can feed the cost layer, so
+/// only a change among the usage providers counts as one.
 ///
 /// The heartbeat is there for `CostStore.currentPeriod`, which spreads what it
-/// cannot attribute over the turns up to the latest sample: without a recent
-/// one, the turns since the percentage last moved would drop out of that.
+/// cannot attribute over the turns up to the latest sample, and for anything
+/// else that waits on the next pass: a changed price, a new profile. It keeps
+/// them at the pace of a usage poll. It is not a timer: the first update after
+/// it has elapsed passes, whichever provider that update came from.
 struct CostReadingGate {
-    static let heartbeat: TimeInterval = 60
+    static let heartbeat: TimeInterval = 15
 
     private var last: [ProviderSnapshot]?
     private var passedAt = Date.distantPast
