@@ -24,12 +24,12 @@ struct GrokCredentials {
 
     var isExpired: Bool { expiresAt <= Date() }
 
-    static func account(from url: URL = authURL) -> ProviderAccount? {
+    static func account(from url: URL = authURL, source: String = "Grok") -> ProviderAccount? {
         guard let stored = (try? load(from: url)) else { return nil }
         return ProviderAccount(
             label: stored.email,
             plan: nil,
-            source: "Grok",
+            source: source,
             manageURL: URL(string: "https://grok.com/?_s=usage")
         )
     }
