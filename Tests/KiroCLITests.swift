@@ -129,6 +129,16 @@ final class KiroCLITests: XCTestCase {
         XCTAssertNil(KiroCLI.usageText(stdout: "", stderr: " \n"))
     }
 
+    func testNonEstimatedUsageCardInStderrWinsOverWarningsInStdout() {
+        let card = """
+        | KIRO FREE |
+        ████████████████ 25%
+        (12.50 of 50 covered in plan), resets on 01/15
+        """
+        XCTAssertEqual(KiroCLI.usageText(stdout: "warning: new version available\n", stderr: card), card)
+        XCTAssertEqual(KiroCLI.usageText(stdout: card, stderr: "warning: new version available\n"), card)
+    }
+
     // MARK: - Fixtures
 
     private func makeTemp() throws -> URL {
