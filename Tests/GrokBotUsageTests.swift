@@ -50,7 +50,8 @@ final class GrokBotUsageTests: XCTestCase {
     }
 
     func testTheWeeklyWindowCarriesTheReset() throws {
-        let reading = try GrokBotCache.reading(from: Data(Self.cache().utf8), fallbackDate: .distantPast)
+        let reading = try GrokBotCache.reading(
+            from: Data(Self.cache(nextResetMs: Self.recordedResetMs).utf8), fallbackDate: .distantPast)
         let windows = GrokBotUsage.windows(from: reading)
         let weekly = try XCTUnwrap(windows.first { $0.id == "weekly" })
         XCTAssertEqual(weekly.label, "Weekly usage")
@@ -86,6 +87,19 @@ final class GrokBotUsageTests: XCTestCase {
         let snapshot = try await GrokBotProvider(persistenceDir: directory).fetchSnapshot()
         XCTAssertEqual(snapshot.status, .stale(since: Date(timeIntervalSince1970: 1)))
         XCTAssertEqual(snapshot.usedFraction ?? -1, 0.85898948, accuracy: 0.000001)
+    }
+
+    /// Grok Bot only rewrites the cache when it fetches, and it can sit
+    /// running for hours past a reset without doing so. A reading whose reset
+    /// has passed describes a week that is over, so it reads stale even while
+    /// Grok Bot's own day-long expiry has not.
+    func testAReadingPastItsResetReadsStale() async throws {
+        let now = Int(Date().timeIntervalSince1970 * 1000)
+        try writeBlobs(cache: Self.cache(nextResetMs: now - 3_600_000,
+                                         readAtMs: now - 7_200_000))
+        let snapshot = try await GrokBotProvider(persistenceDir: directory).fetchSnapshot()
+        XCTAssertEqual(snapshot.status,
+                       .stale(since: Date(timeIntervalSince1970: Double(now - 7_200_000) / 1000)))
     }
 
     /// Anything but `kind: "present"` with a usage in it is not a reading —
@@ -153,6 +167,19 @@ final class GrokBotUsageTests: XCTestCase {
         XCTAssertEqual(snapshot.usedFraction ?? -1, 0.10, accuracy: 0.0001)
     }
 
+    /// Observed on a real Mac: the slot blob names the account as
+    /// `auth0|user_…`, while the cache key spells the same slot URL-encoded as
+    /// `auth0%7Cuser_…`. The two must still match.
+    func testTheActiveSlotMatchesItsURLEncodedCacheKey() async throws {
+        try writeBlobs(cache: Self.cache(percentUsed: 10), slot: "auth0%7Cuser_active")
+        try writeBlobs(cache: Self.cache(percentUsed: 90), slot: "auth0%7Cuser_other")
+        try selectSlot("auth0|user_active")
+        try touch(weeklyURL(slot: "auth0%7Cuser_other"), daysFromNow: 1)
+
+        let snapshot = try await GrokBotProvider(persistenceDir: directory).fetchSnapshot()
+        XCTAssertEqual(snapshot.usedFraction ?? -1, 0.10, accuracy: 0.0001)
+    }
+
     /// Without a selected slot the freshest cache answers — a file Grok Bot
     /// wrote moments ago over one from a version that kept no slot.
     func testTheFreshestCacheWinsWithoutASelectedSlot() async throws {
@@ -179,14 +206,19 @@ final class GrokBotUsageTests: XCTestCase {
 
     /// The recorded shape. `readAtMs`/`expiresAtMs` default to a reading taken
     /// now, good for another day — the way a running Grok Bot leaves it.
+    /// The recorded reset (2026-10-13 UTC) is kept for the test that pins it;
+    /// every other reading resets three days out, so it stays current.
+    private static let recordedResetMs = 1791876398146
+
     private static func cache(percentUsed: Double = 85.898948,
                               onDemand: String? = nil,
+                              nextResetMs: Int? = nil,
                               readAtMs: Int? = nil, expiresAtMs: Int? = nil) -> String {
         let now = Int(Date().timeIntervalSince1970 * 1000)
         return """
         {"schemaVersion":2,"value":{"kind":"present","selectedTeamId":null,\
         "reading":{"usage":{"percentUsed":\(percentUsed),\
-        "nextResetMs":1791876398146,"isSandTrial":false,\
+        "nextResetMs":\(nextResetMs ?? (now + 3 * 86_400_000)),"isSandTrial":false,\
         "hasNonZeroIncludedLimit":true,"isTeamSeat":false,\
         "onDemand":\(onDemand ?? "null"),"grokPlanLabel":"SuperGrok Plus"},\
         "readAtMs":\(readAtMs ?? now)},"expiresAtMs":\(expiresAtMs ?? (now + 86_400_000))}}
