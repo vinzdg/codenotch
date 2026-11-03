@@ -368,7 +368,7 @@ final class PiSessionTailReader {
 
 enum PiProviderMapping {
     static func usageProviderID(provider: String) -> String? {
-        ["openai-codex": "codex", "xai": "grok"][provider]
+        ["openai-codex": "codex", "xai": "grok", "kimi-coding": "kimi", "moonshot": "kimi"][provider]
     }
 
     static func activityProviderID(provider: String, model: String) -> String? {
@@ -398,6 +398,7 @@ enum PiProviderMapping {
             ("gpt", "codex"),
             ("grok", "grok"),
             ("kimi", "kimi"),
+            ("k3", "kimi"),
             ("minimax", "minimax"),
         ]
         return families.first { name.contains($0.0) }?.1

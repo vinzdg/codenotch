@@ -1,0 +1,67 @@
+{
+  "user": {
+    "userId": "usr_c3f8e12a9b4d",
+    "region": "REGION_OVERSEA",
+    "membership": {
+      "level": "LEVEL_ADVANCED"
+    }
+  },
+  "usage": {
+    "limit": "100",
+    "used": "12",
+    "remaining": "88",
+    "resetTime": "2026-09-15T19:39:34.389610Z"
+  },
+  "limits": [
+    {
+      "window": {
+        "duration": 300,
+        "timeUnit": "TIME_UNIT_MINUTE"
+      },
+      "detail": {
+        "limit": "100",
+        "used": "18",
+        "remaining": "82",
+        "resetTime": "2026-09-11T16:39:34.389610Z"
+      }
+    },
+    {
+      "model": "kimi-k",
+      "window": {
+        "duration": 300,
+        "timeUnit": "TIME_UNIT_MINUTE"
+      },
+      "detail": {
+        "limit": "50",
+        "used": "5",
+        "remaining": "45",
+        "resetTime": "2026-09-11T16:39:34.389610Z"
+      }
+    }
+  ],
+  "usages": {
+    "limit_5h": {
+      "used_ratio": 0.18,
+      "reset_time": "2026-09-11T16:39:34Z"
+    },
+    "limit_7d": {
+      "used_ratio": 0.12,
+      "reset_time": "2026-09-15T19:39:34Z"
+    },
+    "limit_month_total": {
+      "used_ratio": 0.05,
+      "reset_time": "2026-10-01T00:00:00Z"
+    },
+    "limit_month_code": {
+      "used_ratio": 0.04,
+      "reset_time": "2026-10-01T00:00:00Z"
+    }
+  },
+  "boosterWallet": {
+    "balance": "1000",
+    "currency": "CNY"
+  },
+  "parallel": {
+    "limit": "30"
+  }
+}

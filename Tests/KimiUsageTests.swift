@@ -162,6 +162,81 @@ final class KimiUsageTests: XCTestCase {
         }
     }
 
+    func testReadsKimiKModelQuotasInLimits() throws {
+        let json = """
+        {"usage":{"limit":"100","used":"2","remaining":"98"},\
+        "limits":[\
+        {"window":{"duration":300,"timeUnit":"TIME_UNIT_MINUTE"},"detail":{"limit":"100","used":"8","remaining":"92"}},\
+        {"model":"kimi-k","window":{"duration":300,"timeUnit":"TIME_UNIT_MINUTE"},"detail":{"limit":"50","used":"5","remaining":"45"}}\
+        ]}
+        """
+        let read = try KimiUsage.read(fromJSON: json)
+        XCTAssertEqual(read.windows.map(\.id), ["weekly", "rolling", "kimi-k-rolling"])
+        XCTAssertEqual(read.windows.map(\.group), [nil, nil, "Kimi K"])
+        let kWindow = try XCTUnwrap(read.windows.first { $0.id == "kimi-k-rolling" })
+        XCTAssertEqual(kWindow.usedFraction ?? -1, 0.1, accuracy: 0.0001)
+    }
+
+    func testReadsRecordedKimiKFixture() throws {
+        let fixtureData: Data
+        let fixtureURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/kimi-k-usages.json")
+        if let data = try? Data(contentsOf: fixtureURL) {
+            fixtureData = data
+        } else if let bundleURL = Bundle(for: type(of: self)).url(forResource: "kimi-k-usages", withExtension: "json", subdirectory: "Fixtures")
+                    ?? Bundle(for: type(of: self)).url(forResource: "kimi-k-usages", withExtension: "json"),
+                  let data = try? Data(contentsOf: bundleURL) {
+            fixtureData = data
+        } else {
+            throw XCTSkip("Fixture kimi-k-usages.json not found")
+        }
+
+        let json = try XCTUnwrap(String(data: fixtureData, encoding: .utf8))
+        let read = try KimiUsage.read(fromJSON: json)
+
+        XCTAssertEqual(read.plan, "Advanced")
+        XCTAssertEqual(read.windows.map(\.id), [
+            "weekly",
+            "rolling",
+            "kimi-k-rolling",
+            "monthly-total",
+            "monthly-code",
+        ])
+        XCTAssertEqual(read.windows.map(\.group), [
+            nil,
+            nil,
+            "Kimi K",
+            nil,
+            nil,
+        ])
+        XCTAssertEqual(read.windows.map(\.label), [
+            "Weekly limit",
+            "5h limit",
+            "5h limit",
+            "Monthly limit",
+            "Monthly code limit",
+        ])
+
+        let weekly = try XCTUnwrap(read.windows.first { $0.id == "weekly" })
+        let rolling = try XCTUnwrap(read.windows.first { $0.id == "rolling" })
+        let kimiK = try XCTUnwrap(read.windows.first { $0.id == "kimi-k-rolling" })
+        let monthlyTotal = try XCTUnwrap(read.windows.first { $0.id == "monthly-total" })
+        let monthlyCode = try XCTUnwrap(read.windows.first { $0.id == "monthly-code" })
+
+        XCTAssertEqual(weekly.usedFraction ?? -1, 0.12, accuracy: 0.0001)
+        XCTAssertEqual(rolling.usedFraction ?? -1, 0.18, accuracy: 0.0001)
+        XCTAssertEqual(kimiK.usedFraction ?? -1, 0.1, accuracy: 0.0001)
+        XCTAssertEqual(monthlyTotal.usedFraction ?? -1, 0.05, accuracy: 0.0001)
+        XCTAssertEqual(monthlyCode.usedFraction ?? -1, 0.04, accuracy: 0.0001)
+
+        XCTAssertEqual(weekly.duration, 7 * 86400)
+        XCTAssertEqual(rolling.duration, 18000)
+        XCTAssertEqual(kimiK.duration, 18000)
+        XCTAssertNil(monthlyTotal.duration)
+        XCTAssertNil(monthlyCode.duration)
+    }
+
     func testGarbageIsABadResponse() {
         XCTAssertThrowsError(try KimiUsage.read(fromJSON: "not json")) { error in
             guard case UsageProviderError.badResponse = error else {

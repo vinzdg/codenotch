@@ -36,6 +36,13 @@ actor KimiProvider: UsageProvider {
         Log.usage.debug("kimi usages -> \(body.prefix(400), privacy: .public)")
         let read = try KimiUsage.read(fromJSON: body)
 
+        let headlineID = read.windows.first(where: { $0.id == "rolling" })?.id
+            ?? read.windows.first(where: { $0.isFiveHour })?.id
+            ?? read.windows.first?.id
+        let weeklyID = read.windows.first(where: { $0.id == "weekly" })?.id
+            ?? read.windows.first(where: { $0.duration == 7 * 86400 })?.id
+            ?? read.windows.dropFirst().first?.id
+
         return ProviderSnapshot(
             id: id,
             displayName: displayName,
@@ -43,8 +50,8 @@ actor KimiProvider: UsageProvider {
             fidelity: .official,
             status: .ok,
             windows: read.windows,
-            headlineID: "rolling",
-            weeklyID: "weekly",
+            headlineID: headlineID,
+            weeklyID: weeklyID,
             plan: read.plan
         )
     }
