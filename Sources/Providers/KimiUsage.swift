@@ -43,12 +43,46 @@ enum KimiUsage {
         }
         for entry in root["limits"] as? [[String: Any]] ?? [] {
             guard let detail = entry["detail"] as? [String: Any],
-                  let (id, label, duration) = windowKind(from: entry["window"])
+                  let (baseId, label, duration) = windowKind(from: entry["window"])
             else { continue }
-            if let window = row(id: id, label: label, from: detail, duration: duration) {
+            let rawModel = modelName(from: entry, detail: detail)
+            let group = rawModel.map(formatModelGroup)
+            let id = rawModel != nil ? "\(modelSlug(rawModel!))-\(baseId)" : baseId
+            if let window = row(id: id, group: group, label: label, from: detail, duration: duration) {
                 windows.append(window)
             }
         }
+
+        // Support Kimi K models and dedicated sections (e.g. `kimi_k`, `kimiK`, `models`, `model_limits`).
+        if let kSection = (root["kimi_k"] as? [String: Any]) ?? (root["kimiK"] as? [String: Any]) {
+            parseModelSection(kSection, modelName: "Kimi K", into: &windows)
+        }
+        if let modelsMap = root["models"] as? [String: Any] {
+            for (key, val) in modelsMap {
+                if let dict = val as? [String: Any] {
+                    parseModelSection(dict, modelName: key, into: &windows)
+                }
+            }
+        } else if let modelsList = root["models"] as? [[String: Any]] {
+            for item in modelsList {
+                let name = (item["name"] as? String) ?? (item["model"] as? String) ?? "Kimi K"
+                parseModelSection(item, modelName: name, into: &windows)
+            }
+        }
+        if let modelLimits = (root["model_limits"] as? [[String: Any]]) ?? (root["modelLimits"] as? [[String: Any]]) {
+            for entry in modelLimits {
+                guard let detail = entry["detail"] as? [String: Any],
+                      let (baseId, label, duration) = windowKind(from: entry["window"])
+                else { continue }
+                let rawModel = modelName(from: entry, detail: detail) ?? "Kimi K"
+                let group = formatModelGroup(rawModel)
+                let id = "\(modelSlug(rawModel))-\(baseId)"
+                if let window = row(id: id, group: group, label: label, from: detail, duration: duration) {
+                    windows.append(window)
+                }
+            }
+        }
+
         guard !windows.isEmpty else {
             throw UsageProviderError.nothingMetered(L10n.t("No Kimi Code usage limits on this account"))
         }
@@ -56,10 +90,63 @@ enum KimiUsage {
         return Read(windows: windows, plan: plan(from: root))
     }
 
+    private static func parseModelSection(
+        _ dict: [String: Any],
+        modelName: String,
+        into windows: inout [LimitWindow]
+    ) {
+        let group = formatModelGroup(modelName)
+        let prefix = modelSlug(modelName)
+        if let summary = dict["usage"] as? [String: Any],
+           let window = row(id: "\(prefix)-weekly", group: group, label: L10n.t("Weekly limit"),
+                            from: summary, duration: 7 * 86400) {
+            windows.append(window)
+        }
+        for entry in dict["limits"] as? [[String: Any]] ?? [] {
+            guard let detail = entry["detail"] as? [String: Any],
+                  let (baseId, label, duration) = windowKind(from: entry["window"])
+            else { continue }
+            if let window = row(id: "\(prefix)-\(baseId)", group: group, label: label, from: detail, duration: duration) {
+                windows.append(window)
+            }
+        }
+    }
+
+    static func modelName(from entry: [String: Any], detail: [String: Any]) -> String? {
+        for key in ["model", "modelName", "modelId", "name", "agent", "agentModel", "group"] {
+            if let value = (entry[key] as? String) ?? (detail[key] as? String), !value.isEmpty {
+                return value
+            }
+        }
+        return nil
+    }
+
+    static func formatModelGroup(_ model: String) -> String {
+        let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        if lower == "kimi-k" || lower == "k" || lower == "kimi_k" || lower == "kimik" {
+            return "Kimi K"
+        }
+        if lower.hasPrefix("kimi-k") || lower.hasPrefix("kimi_k") {
+            let suffix = trimmed.dropFirst("kimi-k".count).trimmingCharacters(in: CharacterSet(charactersIn: "-_ "))
+            return suffix.isEmpty ? "Kimi K" : "Kimi K \(suffix.uppercased())"
+        }
+        if lower.hasPrefix("k3") {
+            return "Kimi \(trimmed.uppercased())"
+        }
+        return trimmed
+    }
+
+    static func modelSlug(_ model: String) -> String {
+        model.lowercased()
+            .replacingOccurrences(of: " ", with: "-")
+            .replacingOccurrences(of: "_", with: "-")
+    }
+
     /// One metered row. Counts are decimal strings in the wire format, but
     /// numbers are accepted too. When Kimi omits `used`, a valid limit and
     /// remaining pair still identifies the quota exactly.
-    private static func row(id: String, label: String,
+    private static func row(id: String, group: String? = nil, label: String,
                             from detail: [String: Any], duration: TimeInterval) -> LimitWindow? {
         let limit = count(detail["limit"])
         let used: Int
@@ -73,10 +160,10 @@ enum KimiUsage {
         }
         let resetsAt = (detail["resetTime"] as? String).flatMap(date(from:))
         guard let limit, limit > 0 else {
-            return LimitWindow(id: id, label: label, used: used,
+            return LimitWindow(id: id, group: group, label: label, used: used,
                                resetsAt: resetsAt, duration: duration)
         }
-        return LimitWindow(id: id, label: label,
+        return LimitWindow(id: id, group: group, label: label,
                            usedFraction: Double(used) / Double(limit),
                            resetsAt: resetsAt, duration: duration)
     }

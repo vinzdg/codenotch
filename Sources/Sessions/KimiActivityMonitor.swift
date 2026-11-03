@@ -59,8 +59,9 @@ enum KimiActivity {
     /// Everything the monitor reads lives under the CLI's data root.
     static var root: URL {
         let override = ProcessInfo.processInfo.environment["KIMI_CODE_HOME"]
-            .flatMap { value -> String? in value.isEmpty ? nil : value }
-        return override.map { URL(fileURLWithPath: $0) }
+            ?? ProcessInfo.processInfo.environment["KIMI_K_HOME"]
+        let nonOverridden = override.flatMap { value -> String? in value.isEmpty ? nil : value }
+        return nonOverridden.map { URL(fileURLWithPath: $0) }
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".kimi-code")
     }
 
@@ -68,7 +69,12 @@ enum KimiActivity {
     /// the last wire record says — thinking streams deltas, tools report when
     /// they finish, so silence means the CLI is gone or wedged.
     static func read(root: URL, staleAfter: TimeInterval, now: Date = Date()) -> [AgentSession] {
-        let byWorkDir = index(root: root)
+        var roots = [root]
+        let kRoot = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".kimi-k")
+        if root != kRoot, FileManager.default.fileExists(atPath: kRoot.path) {
+            roots.append(kRoot)
+        }
+        let byWorkDir = index(roots: roots)
         // Newest process first, so when two TUIs share a directory the newer
         // one is paired with the newer session.
         let live = processes()
@@ -89,10 +95,24 @@ enum KimiActivity {
                         workDir: String, staleAfter: TimeInterval, now: Date) -> AgentSession? {
         guard ProcessLiveness.isAlive(pid: pid, startedAt: startedAt) else { return nil }
 
-        let wire = sessionDir
-            .appendingPathComponent("agents/main/wire.jsonl")
-        let modified = (try? FileManager.default.attributesOfItem(atPath: wire.path))?[.modificationDate] as? Date
-        let turn = tail(of: wire).flatMap { KimiActivity.turn(inTail: $0) }
+        let wireURL: URL
+        let modified: Date?
+        let activeAgent: String?
+        if let found = activeAgentWire(in: sessionDir) {
+            wireURL = found.url
+            modified = found.modified
+            activeAgent = found.agentName
+        } else {
+            let defaultWire = sessionDir.appendingPathComponent("agents/main/wire.jsonl")
+            wireURL = defaultWire
+            modified = (try? FileManager.default.attributesOfItem(atPath: defaultWire.path))?[.modificationDate] as? Date
+            activeAgent = "main"
+        }
+
+        let wireTail = tail(of: wireURL)
+        let turn = wireTail.flatMap { KimiActivity.turn(inTail: $0) }
+        let model = wireTail.flatMap { KimiActivity.model(inTail: $0) }
+            ?? (activeAgent != nil && isKimiKAgent(activeAgent!) ? "Kimi K" : nil)
 
         /// Two levels, not one: `repos/personal` says something where
         /// `personal` could be any folder on the machine.
@@ -105,6 +125,7 @@ enum KimiActivity {
         /// owning app is the same answer `SessionFocus` jumps to on a peek
         /// click; a CLI nobody claims is a terminal one.
         let surface = SessionFocus.owningApp(of: pid)?.localizedName ?? L10n.t("Terminal")
+        let detail = model != nil ? "\(surface) · \(model!)" : surface
 
         let state: AgentSession.State
         var waitingFor: String?
@@ -133,12 +154,42 @@ enum KimiActivity {
         return AgentSession(
             id: "kimi.\(sessionDir.lastPathComponent)",
             name: name,
-            detail: surface,
+            detail: detail,
             state: state,
             waitingFor: waitingFor,
             since: since,
             processID: pid
         )
+    }
+
+    static func activeAgentWire(in sessionDir: URL) -> (url: URL, modified: Date?, agentName: String)? {
+        let agentsDir = sessionDir.appendingPathComponent("agents")
+        let subdirs = (try? FileManager.default.contentsOfDirectory(at: agentsDir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        let agentCandidates = subdirs.filter { url in
+            FileManager.default.fileExists(atPath: url.appendingPathComponent("wire.jsonl").path)
+        }
+        if agentCandidates.isEmpty {
+            let mainWire = agentsDir.appendingPathComponent("main/wire.jsonl")
+            guard FileManager.default.fileExists(atPath: mainWire.path) else { return nil }
+            let mod = (try? FileManager.default.attributesOfItem(atPath: mainWire.path))?[.modificationDate] as? Date
+            return (mainWire, mod, "main")
+        }
+        let sorted = agentCandidates.sorted { a, b in
+            let aIsK = isKimiKAgent(a.lastPathComponent)
+            let bIsK = isKimiKAgent(b.lastPathComponent)
+            if aIsK != bIsK { return aIsK }
+            let aWire = a.appendingPathComponent("wire.jsonl")
+            let bWire = b.appendingPathComponent("wire.jsonl")
+            let aDate = ((try? FileManager.default.attributesOfItem(atPath: aWire.path))?[.modificationDate] as? Date) ?? .distantPast
+            let bDate = ((try? FileManager.default.attributesOfItem(atPath: bWire.path))?[.modificationDate] as? Date) ?? .distantPast
+            return aDate > bDate
+        }
+        if let best = sorted.first {
+            let wire = best.appendingPathComponent("wire.jsonl")
+            let mod = (try? FileManager.default.attributesOfItem(atPath: wire.path))?[.modificationDate] as? Date
+            return (wire, mod, best.lastPathComponent)
+        }
+        return nil
     }
 
     /// The last 64 KB of the wire is enough: turn boundaries are one line
@@ -191,7 +242,7 @@ enum KimiActivity {
                let event = record["event"] as? [String: Any] {
                 record = event
             }
-            if let agent = record["agentId"] as? String, agent != "main" { continue }
+            if let agent = record["agentId"] as? String, !isSessionAgent(agent) { continue }
             guard let type = record["type"] as? String else { continue }
             let time = (record["time"] as? NSNumber)
                 .map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
@@ -214,6 +265,51 @@ enum KimiActivity {
         return nil
     }
 
+    static func isSessionAgent(_ agent: String) -> Bool {
+        agent == "main" || isKimiKAgent(agent)
+    }
+
+    static func isKimiKAgent(_ agent: String) -> Bool {
+        let lower = agent.lowercased()
+        return lower == "kimi-k" || lower == "k" || lower == "k-agent" || lower.hasPrefix("kimi-k") || lower.hasPrefix("k-")
+    }
+
+    static func model(inTail data: Data) -> String? {
+        guard let text = String(data: data, encoding: .utf8) else { return nil }
+        for line in text.split(separator: "\n").reversed() {
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+            else { continue }
+            var record = object
+            if record["type"] as? String == "context.append_loop_event",
+               let event = record["event"] as? [String: Any] {
+                record = event
+            }
+            for key in ["model", "modelId", "model_id", "selectedModel"] {
+                if let raw = record[key] as? String, !raw.isEmpty {
+                    return formatModelName(raw)
+                }
+            }
+            if let agent = record["agentId"] as? String, isKimiKAgent(agent) {
+                return "Kimi K"
+            }
+        }
+        return nil
+    }
+
+    static func formatModelName(_ model: String) -> String {
+        let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        if lower == "kimi-k" || lower == "k" { return "Kimi K" }
+        if lower == "kimi-k3" || lower == "k3" { return "Kimi K3" }
+        if lower == "kimi-k3.1" || lower == "k3.1" { return "Kimi K3.1" }
+        if lower == "kimi-k3.1-pro" || lower == "k3.1-pro" { return "Kimi K3.1 Pro" }
+        if lower.hasPrefix("kimi-k") {
+            let suffix = trimmed.dropFirst("kimi-k".count).trimmingCharacters(in: CharacterSet(charactersIn: "-_ "))
+            return suffix.isEmpty ? "Kimi K" : "Kimi K \(suffix.uppercased())"
+        }
+        return trimmed
+    }
+
     /// What an approval is asking about, in whichever field the CLI put it.
     private static func summary(of record: [String: Any]) -> String? {
         for key in ["tool", "toolName", "name", "command", "summary"] {
@@ -224,18 +320,24 @@ enum KimiActivity {
 
     /// workDir → newest session directory, from the CLI's own index.
     /// `/private` prefixes are resolved on both sides before comparing.
-    static func index(root: URL) -> [String: URL] {
-        let indexURL = root.appendingPathComponent("session_index.jsonl")
-        guard let text = try? String(contentsOf: indexURL, encoding: .utf8) else { return [:] }
+    static func index(roots: [URL]) -> [String: URL] {
         var byWorkDir: [String: URL] = [:]
-        for line in text.split(separator: "\n") {
-            guard let record = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
-                  let workDir = record["workDir"] as? String,
-                  let sessionDir = record["sessionDir"] as? String
-            else { continue }
-            byWorkDir[resolve(workDir)] = URL(fileURLWithPath: sessionDir)
+        for root in roots {
+            let indexURL = root.appendingPathComponent("session_index.jsonl")
+            guard let text = try? String(contentsOf: indexURL, encoding: .utf8) else { continue }
+            for line in text.split(separator: "\n") {
+                guard let record = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                      let workDir = record["workDir"] as? String,
+                      let sessionDir = record["sessionDir"] as? String
+                else { continue }
+                byWorkDir[resolve(workDir)] = URL(fileURLWithPath: sessionDir)
+            }
         }
         return byWorkDir
+    }
+
+    static func index(root: URL) -> [String: URL] {
+        index(roots: [root])
     }
 
     /// Spelled the same on both sides without touching the disk. Resolving
@@ -290,12 +392,19 @@ enum KimiActivity {
                 String(cString: $0)
             }
         }
-        guard comm == "kimi-code" || comm == "kimi" || executablePath(of: pid) else {
+        guard isKimiProcess(comm: comm, pid: pid) else {
             return nil
         }
         let startedAt = Date(timeIntervalSince1970:
             Double(info.pbi_start_tvsec) + Double(info.pbi_start_tvusec) / 1_000_000)
         return Process(pid: pid, startedAt: startedAt, cwd: SessionFocus.currentDirectory(of: pid))
+    }
+
+    static func isKimiProcess(comm: String, pid: pid_t) -> Bool {
+        if comm == "kimi-code" || comm == "kimi" || comm == "kimi-k" || comm == "kimi-k-agent" || comm == "kimik" {
+            return true
+        }
+        return executablePath(of: pid)
     }
 
     /// True when the executable is the managed binary — covers a comm the
@@ -304,6 +413,12 @@ enum KimiActivity {
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
         let read = proc_pidpath(pid, &buffer, UInt32(buffer.count))
         guard read > 0 else { return false }
-        return String(cString: buffer).hasSuffix("/.kimi-code/bin/kimi")
+        let path = String(cString: buffer)
+        return path.hasSuffix("/.kimi-code/bin/kimi")
+            || path.hasSuffix("/.kimi-k/bin/kimi")
+            || path.hasSuffix("/.kimi-k/bin/kimi-k")
+            || path.hasSuffix("/bin/kimi-k")
+            || path.hasSuffix("/bin/kimi-k-agent")
+            || path.hasSuffix("/bin/kimi")
     }
 }
