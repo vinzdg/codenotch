@@ -108,9 +108,16 @@ struct ClaudeSessionRecord {
     /// `waitingFor` is dropped on purpose: the only states that reach here come
     /// from the transcript, and the transcript cannot see a permission prompt.
     /// The pid stays: the registry file still names the process to jump to.
-    func session(state: AgentSession.State, since: Date) -> AgentSession {
-        AgentSession(id: session.id, name: session.name, detail: session.detail,
+    func session(name: String? = nil, state: AgentSession.State, since: Date) -> AgentSession {
+        AgentSession(id: session.id, name: name ?? session.name, detail: session.detail,
                      state: state, waitingFor: nil, since: since,
+                     processID: session.processID)
+    }
+
+    /// The same session, updated with a title read from its transcript.
+    func session(name: String) -> AgentSession {
+        AgentSession(id: session.id, name: name, detail: session.detail,
+                     state: session.state, waitingFor: session.waitingFor, since: session.since,
                      processID: session.processID)
     }
 

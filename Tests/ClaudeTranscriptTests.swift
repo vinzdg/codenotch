@@ -113,6 +113,92 @@ final class ClaudeTranscriptTests: XCTestCase {
         XCTAssertNil(turn(#"{"type":"bridge-session"}"#))
         XCTAssertNil(ClaudeTranscript.turn(inTail: Data()))
     }
+
+    // MARK: - Title Parsing
+
+    private func title(_ lines: String...) -> String? {
+        ClaudeTranscript.title(in: Data(lines.joined(separator: "\n").utf8))
+    }
+
+    func testTitleReturnsNilWhenNoTitleLines() {
+        XCTAssertNil(title(#"{"type":"user","message":{"content":"hello"}}"#))
+        XCTAssertNil(title())
+    }
+
+    func testTitleExtractsAITitle() {
+        XCTAssertEqual(
+            title(#"{"type":"ai-title","aiTitle":"Configure lead conversion event","sessionId":"f0c3"}"#),
+            "Configure lead conversion event"
+        )
+    }
+
+    func testTitlePrefersLatestAITitle() {
+        XCTAssertEqual(
+            title(
+                #"{"type":"ai-title","aiTitle":"First AI Title"}"#,
+                #"{"type":"user","message":{"content":"update something"}}"#,
+                #"{"type":"ai-title","aiTitle":"Refined AI Title"}"#
+            ),
+            "Refined AI Title"
+        )
+    }
+
+    func testTitleExtractsCustomTitle() {
+        XCTAssertEqual(
+            title(#"{"type":"custom-title","customTitle":"My Custom Task","sessionId":"f0c3"}"#),
+            "My Custom Task"
+        )
+    }
+
+    func testTitlePrefersCustomTitleOverAITitle() {
+        // Custom title set first, subsequent ai-title line appended: custom title still wins
+        XCTAssertEqual(
+            title(
+                #"{"type":"custom-title","customTitle":"Manual Title"}"#,
+                #"{"type":"ai-title","aiTitle":"Auto Generated Title"}"#
+            ),
+            "Manual Title"
+        )
+
+        // AI title set first, user manually renamed afterwards: custom title wins
+        XCTAssertEqual(
+            title(
+                #"{"type":"ai-title","aiTitle":"Auto Generated Title"}"#,
+                #"{"type":"custom-title","customTitle":"Manual Title"}"#
+            ),
+            "Manual Title"
+        )
+    }
+
+    func testTitlePrefersLatestCustomTitle() {
+        XCTAssertEqual(
+            title(
+                #"{"type":"custom-title","customTitle":"Initial Rename"}"#,
+                #"{"type":"custom-title","customTitle":"Final Rename"}"#
+            ),
+            "Final Rename"
+        )
+    }
+
+    func testTitleIgnoresSidechains() {
+        XCTAssertEqual(
+            title(
+                #"{"type":"custom-title","customTitle":"Subagent Title","isSidechain":true}"#,
+                #"{"type":"ai-title","aiTitle":"Parent AI Title"}"#
+            ),
+            "Parent AI Title"
+        )
+    }
+
+    func testTitleTrimsWhitespaceAndIgnoresEmpty() {
+        XCTAssertEqual(
+            title(
+                #"{"type":"custom-title","customTitle":"   "}"#,
+                #"{"type":"ai-title","aiTitle":"  Valid AI Title  \n"}"#
+            ),
+            "Valid AI Title"
+        )
+    }
 }
 
 /// The reader that puts the state machine on a timer.
@@ -233,5 +319,23 @@ extension ClaudeTranscriptReaderTests {
         let after = reader.activity(sessionID: "abc", cwd: "/Users/vinz/app")
         XCTAssertEqual(after?.turn, .finished)
         XCTAssertEqual(after?.since, ended)
+    }
+
+    func testReaderReturnsTitleFromTranscript() throws {
+        let titleLine = #"{"type":"ai-title","aiTitle":"Refactor Authentication"}"# + "\n"
+        try write(titleLine, folder: "-Users-vinz-app", session: "abc")
+        let reader = ClaudeTranscriptReader(projects: projects)
+        XCTAssertEqual(reader.title(sessionID: "abc", cwd: "/Users/vinz/app"), "Refactor Authentication")
+    }
+
+    func testReaderPrefersCustomTitleOverAITitle() throws {
+        let lines = [
+            #"{"type":"ai-title","aiTitle":"Initial Topic"}"#,
+            #"{"type":"custom-title","customTitle":"User Renamed Session"}"#,
+            #"{"type":"ai-title","aiTitle":"Subsequent AI Title"}"#
+        ].joined(separator: "\n") + "\n"
+        try write(lines, folder: "-Users-vinz-app", session: "abc")
+        let reader = ClaudeTranscriptReader(projects: projects)
+        XCTAssertEqual(reader.title(sessionID: "abc", cwd: "/Users/vinz/app"), "User Renamed Session")
     }
 }

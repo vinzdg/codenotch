@@ -142,6 +142,62 @@ enum ClaudeTranscript {
             return false
         }
     }
+
+    // MARK: - Title
+
+    private static let customTitlePattern = Data("\"custom-title\"".utf8)
+    private static let customTitleUnderscorePattern = Data("\"custom_title\"".utf8)
+    private static let aiTitlePattern = Data("\"ai-title\"".utf8)
+    private static let aiTitleUnderscorePattern = Data("\"ai_title\"".utf8)
+
+    /// What the session is called, read from its transcript.
+    ///
+    /// Prefers the user's manual `/rename` (`custom-title`), falls back to the
+    /// latest auto-generated `ai-title`, or nil if neither is present.
+    static func title(at url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return title(in: data)
+    }
+
+    /// The session title state machine, kept pure so it can be tested without a file.
+    static func title(in data: Data) -> String? {
+        let hasCustom = data.range(of: customTitlePattern) != nil || data.range(of: customTitleUnderscorePattern) != nil
+        let hasAI = data.range(of: aiTitlePattern) != nil || data.range(of: aiTitleUnderscorePattern) != nil
+        guard hasCustom || hasAI else { return nil }
+
+        let lines = data.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: true)
+        var latestAITitle: String?
+
+        for line in lines.reversed() {
+            let lineData = Data(line)
+            guard let json = (try? JSONSerialization.jsonObject(with: lineData)) as? [String: Any]
+            else { continue }
+
+            if json["isSidechain"] as? Bool == true { continue }
+
+            let type = json["type"] as? String
+            if type == "custom-title" || type == "custom_title" {
+                let candidate = (json["customTitle"] as? String) ?? (json["title"] as? String)
+                if let custom = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !custom.isEmpty {
+                    return custom
+                }
+            } else if type == "ai-title" || type == "ai_title" {
+                let candidate = (json["aiTitle"] as? String) ?? (json["title"] as? String)
+                if let ai = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !ai.isEmpty {
+                    if !hasCustom {
+                        return ai
+                    }
+                    if latestAITitle == nil {
+                        latestAITitle = ai
+                    }
+                }
+            }
+        }
+
+        return latestAITitle
+    }
 }
 
 /// Reads transcripts on a timer, and remembers enough not to read them twice.
@@ -154,6 +210,7 @@ final class ClaudeTranscriptReader {
         let modified: Date
         let size: UInt64
         let turn: ClaudeTranscript.Turn?
+        let title: String?
     }
 
     private let projects: URL
@@ -181,31 +238,44 @@ final class ClaudeTranscriptReader {
         self.fileManager = fileManager
     }
 
+    /// What the session is called according to its transcript. Nil when there
+    /// is no transcript, or neither a custom nor an AI title has been recorded.
+    func title(sessionID: String, cwd: String) -> String? {
+        entry(sessionID: sessionID, cwd: cwd)?.title
+    }
+
     /// What the session is doing, and when it last moved. Nil when there is no
     /// transcript to read, or nothing said in it yet.
     func activity(sessionID: String, cwd: String) -> (turn: ClaudeTranscript.Turn, since: Date)? {
+        guard let cached = entry(sessionID: sessionID, cwd: cwd),
+              let turn = cached.turn
+        else { return nil }
+
+        if let previous = entered[sessionID], previous.turn == turn {
+            return (turn, previous.at)
+        }
+        // First sight of a change, so the file's own timestamp is the closest
+        // thing there is to when it happened.
+        entered[sessionID] = (turn, cached.modified)
+        return (turn, cached.modified)
+    }
+
+    private func entry(sessionID: String, cwd: String) -> Cached? {
         guard let url = path(sessionID: sessionID, cwd: cwd),
               let attributes = try? fileManager.attributesOfItem(atPath: url.path),
               let modified = attributes[.modificationDate] as? Date
         else { return nil }
         let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
 
-        let turn: ClaudeTranscript.Turn?
         if let cached = cache[sessionID], cached.modified == modified, cached.size == size {
-            turn = cached.turn
-        } else {
-            turn = ClaudeTranscript.turn(at: url)
-            cache[sessionID] = Cached(modified: modified, size: size, turn: turn)
+            return cached
         }
 
-        guard let turn else { return nil }
-        if let previous = entered[sessionID], previous.turn == turn {
-            return (turn, previous.at)
-        }
-        // First sight of a change, so the file's own timestamp is the closest
-        // thing there is to when it happened.
-        entered[sessionID] = (turn, modified)
-        return (turn, modified)
+        let turn = ClaudeTranscript.turn(at: url)
+        let title = ClaudeTranscript.title(at: url)
+        let cached = Cached(modified: modified, size: size, turn: turn, title: title)
+        cache[sessionID] = cached
+        return cached
     }
 
     private func path(sessionID: String, cwd: String) -> URL? {

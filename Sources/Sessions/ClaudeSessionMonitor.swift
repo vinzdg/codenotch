@@ -244,13 +244,21 @@ final class ClaudeSessionMonitor: ObservableObject, AgentActivityMonitor {
     /// not. Desktop sessions always take the second path; terminal ones never
     /// do, which is what keeps their `waiting` state — the one thing only the
     /// terminal interface knows — exactly as it was.
+    ///
+    /// Both surfaces look to the transcript for the session's title (custom or
+    /// AI-generated), falling back to the record's folder-based name when none has
+    /// been assigned.
     static func state(of record: ClaudeSessionRecord,
                       transcripts: ClaudeTranscriptReader?) -> AgentSession {
+        let title = record.sessionID.flatMap { transcripts?.title(sessionID: $0, cwd: record.cwd) }
         guard !record.reportsStatus,
               let sessionID = record.sessionID,
               let activity = transcripts?.activity(sessionID: sessionID, cwd: record.cwd)
-        else { return record.session }
-        return record.session(state: activity.turn == .inFlight ? .busy : .idle,
+        else {
+            return title.map { record.session(name: $0) } ?? record.session
+        }
+        return record.session(name: title,
+                              state: activity.turn == .inFlight ? .busy : .idle,
                               since: activity.since)
     }
 

@@ -202,6 +202,43 @@ final class ClaudeSessionStateSourceTests: XCTestCase {
         XCTAssertEqual(session.waitingFor, "permission")
     }
 
+    func testADesktopSessionUsesTranscriptTitle() throws {
+        try writeTranscript("""
+        {"type":"ai-title","aiTitle":"Configure lead conversion event"}
+        {"type":"assistant","message":{"stop_reason":"tool_use"}}
+        """, session: "0b24b489", cwd: "/Users/vinz/app")
+        let session = ClaudeSessionMonitor.state(of: try record(desktop), transcripts: reader)
+        XCTAssertEqual(session.name, "Configure lead conversion event")
+        XCTAssertEqual(session.state, .busy)
+        XCTAssertEqual(session.detail, "Desktop · app")
+    }
+
+    func testATerminalSessionUsesTranscriptTitleWhilePreservingStateAndWaitingFor() throws {
+        let waiting = try record("""
+        { "pid": 7, "sessionId": "0b24b489", "cwd": "/Users/vinz/app", "name": "app-4a",
+          "status": "waiting", "waitingFor": "permission" }
+        """)
+        try writeTranscript("""
+        {"type":"ai-title","aiTitle":"Old AI Title"}
+        {"type":"custom-title","customTitle":"User Renamed Chat"}
+        """, session: "0b24b489", cwd: "/Users/vinz/app")
+        let session = ClaudeSessionMonitor.state(of: waiting, transcripts: reader)
+        XCTAssertEqual(session.name, "User Renamed Chat")
+        XCTAssertEqual(session.state, .waiting)
+        XCTAssertEqual(session.waitingFor, "permission")
+    }
+
+    func testSessionFallsBackToRecordNameWhenTranscriptHasNoTitle() throws {
+        let terminal = try record("""
+        { "pid": 1, "sessionId": "0b24b489", "cwd": "/Users/vinz/app",
+          "name": "app-e0", "status": "busy" }
+        """)
+        try writeTranscript(#"{"type":"assistant","message":{"stop_reason":"tool_use"}}"#,
+                            session: "0b24b489", cwd: "/Users/vinz/app")
+        let session = ClaudeSessionMonitor.state(of: terminal, transcripts: reader)
+        XCTAssertEqual(session.name, "app-e0")
+    }
+
     // MARK: - Deduplication
 
     /// Resuming after a crash registers a new pid while the old process is
