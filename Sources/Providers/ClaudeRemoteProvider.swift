@@ -30,6 +30,13 @@ actor ClaudeRemoteProvider: UsageProvider {
     /// How many 429s in a row. The endpoint answers `Retry-After: 0`, which
     /// is no guidance at all, so the wait doubles each time instead.
     private var consecutiveRateLimits = 0
+    /// The last good reading, reused until `minEndpointInterval` has passed.
+    /// The endpoint's limit is per login, and a remote login is usually busy:
+    /// every Claude Code session on that machine reads the same endpoint with
+    /// the same token. Asking once per store tick left this ring answered by
+    /// 429 every other time.
+    private var lastSnapshot: (snapshot: ProviderSnapshot, at: Date)?
+    private let minEndpointInterval: TimeInterval
 
     private let archive: UsageArchive
     /// How this host's token is obtained. Injected for the same reason the
@@ -49,8 +56,10 @@ actor ClaudeRemoteProvider: UsageProvider {
          session: URLSession = .shared,
          archive: UsageArchive = UsageArchive(),
          loadCredentials: (@Sendable () throws -> ClaudeCredentials)? = nil,
-         runRenewal: (@Sendable () throws -> RemoteSSH.CommandResult)? = nil) {
+         runRenewal: (@Sendable () throws -> RemoteSSH.CommandResult)? = nil,
+         minEndpointInterval: TimeInterval = 5 * 60) {
         self.host = host
+        self.minEndpointInterval = minEndpointInterval
         self.id = host.providerID
         self.displayName = host.displayName
         self.session = session
@@ -72,6 +81,14 @@ actor ClaudeRemoteProvider: UsageProvider {
     private let backoffSlack: TimeInterval = 1
 
     func fetchSnapshot() async throws -> ProviderSnapshot {
+        let now = Date()
+        // The local provider's allowance, kept the same way: a window that has
+        // rolled over since is the one reason to ask early.
+        if let last = lastSnapshot,
+           now.timeIntervalSince(last.at) < minEndpointInterval,
+           !ClaudeOAuthProvider.hasExpiredWindow(last.snapshot.windows, at: now) {
+            return last.snapshot
+        }
         if ClaudeOAuthProvider.shouldHoldOff(until: retryNoEarlierThan, slack: backoffSlack),
            let retryNoEarlierThan {
             let remaining = retryNoEarlierThan.timeIntervalSinceNow
@@ -80,6 +97,7 @@ actor ClaudeRemoteProvider: UsageProvider {
         }
         do {
             let snapshot = try await fetch(retryingOnUnauthorized: true)
+            lastSnapshot = (snapshot, Date())
             retryNoEarlierThan = nil
             consecutiveRateLimits = 0
             archive.saveBackoffUntil(nil, providerID: id)

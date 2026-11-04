@@ -459,6 +459,16 @@ final class ClaudeRemoteProviderTests: XCTestCase {
         XCTAssertEqual(RemoteClaudeEndpoint.bearers, ["remote-token"])
     }
 
+    func testReusesAReadingInsteadOfAskingEveryTick() async throws {
+        let current = usage.replacingOccurrences(of: "2026-", with: "2099-")
+        let provider = makeProvider(answers: [(200, current), (429, "")])
+        let first = try await provider.fetchSnapshot()
+        let second = try await provider.fetchSnapshot()
+        XCTAssertEqual(second.headlineText, first.headlineText)
+        XCTAssertEqual(RemoteClaudeEndpoint.requestCount, 1,
+                       "a tick inside the allowance must not reach the endpoint")
+    }
+
     func testUnauthorizedReReadsOnceThenNeedsAuth() async throws {
         var loads = 0
         let provider = makeProvider(answers: [(401, ""), (401, "")]) { _, _ in
