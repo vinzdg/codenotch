@@ -52,7 +52,19 @@ actor MuseLocalProvider: UsageProvider {
     func fetchSnapshot() async throws -> ProviderSnapshot {
         // A Deny is honoured before anything else is touched.
         if keychain.isRefused { throw UsageProviderError.accessDenied }
-        let quota = try await fetchQuota(apiKey: keychain.load())
+        let rawQuota = try await fetchQuota(apiKey: keychain.load())
+        // A quota that is effectively exhausted (about 1% left or less) is,
+        // in practice, already empty: the final percent never reaches 100%
+        // in the meter, and the account rejects new calls at that point.
+        // Reflect 0% left rather than a stuck 1%.
+        let quota = rawQuota.map { window in
+            guard let used = window.usedFraction, used >= 0.99 else { return window }
+            return LimitWindow(id: window.id, group: window.group, label: window.label,
+                               usedFraction: 1, remaining: window.remaining, used: window.used,
+                               usedText: window.usedText, detail: window.detail, money: window.money,
+                               resetsAt: window.resetsAt, duration: window.duration,
+                               bandOverride: window.bandOverride, prefersUsedText: window.prefersUsedText)
+        }
         let now = Date()
         let samples = log.scan(at: sessionsURL, now: now)
         return ProviderSnapshot(

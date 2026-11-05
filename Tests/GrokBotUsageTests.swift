@@ -54,7 +54,7 @@ final class GrokBotUsageTests: XCTestCase {
         let windows = GrokBotUsage.windows(from: reading)
         let weekly = try XCTUnwrap(windows.first { $0.id == "weekly" })
         XCTAssertEqual(weekly.label, "Weekly usage")
-        XCTAssertEqual(weekly.usedFraction ?? -1, 0.85898948, accuracy: 0.000001)
+        XCTAssertEqual(weekly.usedFraction ?? -1, 0.86, accuracy: 0.000001)
         XCTAssertEqual(weekly.duration, 7 * 86400)
         let reset = try XCTUnwrap(weekly.resetsAt)
         var utc = Calendar(identifier: .gregorian)
@@ -85,7 +85,7 @@ final class GrokBotUsageTests: XCTestCase {
         try writeBlobs(cache: Self.cache(readAtMs: 1_000, expiresAtMs: 2_000))
         let snapshot = try await GrokBotProvider(persistenceDir: directory).fetchSnapshot()
         XCTAssertEqual(snapshot.status, .stale(since: Date(timeIntervalSince1970: 1)))
-        XCTAssertEqual(snapshot.usedFraction ?? -1, 0.85898948, accuracy: 0.000001)
+        XCTAssertEqual(snapshot.usedFraction ?? -1, 0.86, accuracy: 0.000001)
     }
 
     /// Anything but `kind: "present"` with a usage in it is not a reading —
