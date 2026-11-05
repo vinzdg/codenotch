@@ -92,6 +92,8 @@
   .acct.off .glyph{opacity:.5}
   .acct-detail{margin:4px 0 0 26px;font-size:12px;color:var(--text2)}
   .acct-sub{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 0 26px;font-size:13px}
+  .acct-end{display:flex;align-items:center;gap:10px;flex:none}
+  .acct-end .btn{padding:3px 10px;font-size:12px}
   .glyph{width:16px;height:16px;display:inline-grid;place-items:center;flex:none;color:var(--text)}
   .glyph svg{width:16px;height:16px;fill:currentColor}
   .glyph img{width:16px;height:16px;border-radius:4px;display:block}
@@ -149,14 +151,6 @@
     <div id="body">
 
       <section class="pane" id="pane-accounts" role="tabpanel" aria-labelledby="tab-accounts" hidden>
-        <div class="sec" id="claude-profiles-title" data-dynamic>Claude accounts</div>
-        <div class="group" id="claude-profiles" data-dynamic></div>
-        <form class="group profile-add" id="claude-add-form">
-          <label for="claude-account-name" id="claude-name-label">New account name</label>
-          <div class="profile-add-line"><input id="claude-account-name" maxlength="40" required autocomplete="off" placeholder="Example: Work"><button class="btn" id="claude-add-button" type="submit">Add account</button></div>
-          <p id="claude-login-help">Each account uses the official Claude CLI sign-in in a separate folder.</p>
-        </form>
-        <p id="claude-profile-message" class="profile-message" role="status" aria-live="polite" data-dynamic></p>
         <div class="sec">Connected</div>
         <div class="group" id="acc-on" data-dynamic></div>
         <div id="acc-off-wrap" hidden>
@@ -1155,6 +1149,21 @@ const ES_STATIC = {
   'The figure under each ring reads what is left — 87% instead of 13% used, the same number the card prints beside it. The rings themselves still fill by what is spent.':'La cifra bajo cada anillo muestra lo que queda: 87% en lugar de 13% usado, el mismo número que la tarjeta muestra al lado. Los anillos se siguen llenando según lo gastado.'
 };
 const STATIC_TEXT = { 'pt-BR': PT_BR_STATIC, ru: RU_STATIC, zh: ZH_STATIC, 'zh-Hant': ZH_HANT_STATIC, ja: JA_STATIC, ko: KO_STATIC, uk: UK_STATIC, es: ES_STATIC };
+// "Sign in" takes the verb the Mac catalog uses in "Sign in to %@"
+const CLAUDE_ROW_COPY = {
+  'pt-BR':['Entrar','Adicionar…','Adicionar uma conta Claude','Cada conta entra pelo Claude Code em uma pasta própria e ganha seu próprio anel. Desligar uma para de lê-la e mantém o login.','Conclua o login no navegador ou na janela do terminal.','Instale o Claude Code CLI para adicionar uma conta ou entrar nela.','O login foi cancelado, não terminou ou expirou. Tente novamente.','A conta não foi adicionada: o login não foi concluído.'],
+  ru:['Войти','Добавить…','Добавить аккаунт Claude','Каждый аккаунт входит через Claude Code в собственной папке и получает своё кольцо. Если выключить аккаунт, он перестаёт считываться, а вход сохраняется.','Завершите вход в браузере или в окне терминала.','Установите отдельный Claude Code CLI, чтобы добавить аккаунт или войти в него.','Вход отменён, не завершён или истекло время ожидания. Попробуйте ещё раз.','Аккаунт не добавлен: вход не был завершён.'],
+  zh:['登录','添加…','添加 Claude 账号','每个账号都在自己的文件夹中通过 Claude Code 登录，并拥有自己的圆环。关闭某个账号会停止读取，但保留其登录。','请在浏览器或终端窗口中完成登录。','请先安装独立版 Claude Code CLI，才能添加或登录账号。','登录已取消、未完成或已超时。请重试。','账号未添加：登录没有完成。'],
+  'zh-Hant':['登入','新增…','新增 Claude 帳號','每個帳號都在自己的資料夾中透過 Claude Code 登入，並有自己的圓環。關閉某個帳號會停止讀取，但保留其登入。','請在瀏覽器或終端機視窗中完成登入。','請先安裝獨立版 Claude Code CLI，才能新增或登入帳號。','登入已取消、未完成或已逾時。請再試一次。','帳號未新增：登入沒有完成。'],
+  ja:['サインイン','追加…','Claude アカウントを追加','各アカウントは専用のフォルダで Claude Code にサインインし、それぞれのリングを持ちます。オフにすると読み取りを止めますが、サインインは保持されます。','ブラウザーまたはターミナルウィンドウでサインインを完了してください。','アカウントの追加やサインインには、単体版の Claude Code CLI をインストールしてください。','サインインはキャンセルされたか、完了しなかったか、タイムアウトしました。もう一度お試しください。','サインインが完了しなかったため、アカウントは追加されませんでした。'],
+  ko:['로그인','추가…','Claude 계정 추가','각 계정은 자체 폴더에서 Claude Code로 로그인하며 고유한 링을 갖습니다. 끄면 읽기를 멈추지만 로그인은 유지됩니다.','브라우저나 터미널 창에서 로그인을 완료하세요.','계정을 추가하거나 로그인하려면 독립 실행형 Claude Code CLI를 설치하세요.','로그인이 취소되었거나 완료되지 않았거나 시간이 초과되었습니다. 다시 시도하세요.','로그인이 완료되지 않아 계정이 추가되지 않았습니다.'],
+  uk:['Увійти','Додати…','Додати акаунт Claude','Кожен акаунт входить через Claude Code у власній теці й отримує власне кільце. Якщо вимкнути акаунт, він більше не зчитується, а вхід зберігається.','Завершіть вхід у браузері або у вікні термінала.','Установіть окремий Claude Code CLI, щоб додати акаунт або увійти в нього.','Вхід скасовано, не завершено або час очікування минув. Спробуйте ще раз.','Акаунт не додано: вхід не завершено.'],
+  es:['Iniciar sesión','Añadir…','Añadir una cuenta de Claude','Cada cuenta inicia sesión con Claude Code en su propia carpeta y tiene su propio anillo. Al desactivar una se deja de leer y se conserva su sesión.','Termina de iniciar sesión en el navegador o en la ventana del terminal.','Instala la CLI independiente de Claude Code para añadir una cuenta o iniciar sesión en ella.','El inicio de sesión se canceló, no terminó o caducó. Inténtalo de nuevo.','La cuenta no se añadió: el inicio de sesión no terminó.']
+};
+const CLAUDE_ROW_KEYS = ['Sign in', 'Add…', 'Add a Claude account', 'Each account signs in with Claude Code in a folder of its own and gets its own ring. Switching one off stops reading it and keeps its sign-in.', 'Finish signing in in the browser or terminal window.', 'Install the standalone Claude Code CLI to add or sign in to an account.', 'Sign-in was cancelled, did not finish or timed out. Try again.', 'The account was not added: its sign-in did not finish.'];
+for(const [lang, values] of Object.entries(CLAUDE_ROW_COPY)){
+  CLAUDE_ROW_KEYS.forEach((key, index) => { STATIC_TEXT[lang][key] = values[index]; });
+}
 const RESET_COPY = {
   'pt-BR':['Notificações de reset','Mostrar um cartão quando o Claude, Codex, Cursor ou outro provedor ativo renovar uma janela após pelo menos 10% de uso. O cartão também aparece com a notch oculta.','Som de notificação','Prévia do cartão de reset','Ver prévia','Notificações'],
   ru:['Уведомления о сбросе','Показывать карточку, когда Claude, Codex, Cursor или другой активный провайдер обновляет окно, если использовано не менее 10%. Карточка видна и при скрытой панели.','Звук уведомления','Предпросмотр карточки','Показать','Уведомления'],
@@ -1170,15 +1179,15 @@ for(const [lang, values] of Object.entries(RESET_COPY)){
   RESET_KEYS.forEach((key, index) => { STATIC_TEXT[lang][key] = values[index]; });
 }
 const STATUS_TEXT = {
-  en:{ ok:'', stale:'last reading is old', needsAuth:'not signed in', absent:'not installed', none:'nothing to report', error:'not reachable' },
-  'pt-BR':{ ok:'', stale:'última leitura desatualizada', needsAuth:'não autenticado', absent:'não instalado', none:'nada para exibir', error:'indisponível' },
-  ru:{ ok:'', stale:'данные устарели', needsAuth:'не выполнен вход', absent:'не установлен', none:'нет данных', error:'недоступен' },
-  zh:{ ok:'', stale:'上次读数已过期', needsAuth:'未登录', absent:'未安装', none:'暂无报告', error:'无法连接' },
-  'zh-Hant':{ ok:'', stale:'上次讀數已過期', needsAuth:'未登入', absent:'未安裝', none:'暫無報告', error:'無法連線' },
-  ja:{ ok:'', stale:'最後の読み取りが古いです', needsAuth:'サインインしていません', absent:'インストールされていません', none:'報告するものがありません', error:'到達できません' },
-  ko:{ ok:'', stale:'마지막 측정값이 오래되었습니다', needsAuth:'로그인되지 않음', absent:'설치되지 않음', none:'보고할 내용 없음', error:'연결할 수 없음' },
-  es:{ ok:'', stale:'última lectura desactualizada', needsAuth:'sin sesión iniciada', absent:'no instalado', none:'nada que mostrar', error:'inaccesible' },
-  uk:{ ok:'', stale:'останній показник застарів', needsAuth:'не виконано вхід', absent:'не встановлено', none:'немає даних', error:'недоступний' }
+  en:{ ok:'', stale:'last reading is old', needsAuth:'not signed in', absent:'not installed', none:'nothing to report', error:'not reachable', backoff:'rate limited, trying again soon' },
+  'pt-BR':{ ok:'', stale:'última leitura desatualizada', needsAuth:'não autenticado', absent:'não instalado', none:'nada para exibir', error:'indisponível', backoff:'consultas limitadas, nova tentativa em breve' },
+  ru:{ ok:'', stale:'данные устарели', needsAuth:'не выполнен вход', absent:'не установлен', none:'нет данных', error:'недоступен', backoff:'лимит запросов, скоро повторим' },
+  zh:{ ok:'', stale:'上次读数已过期', needsAuth:'未登录', absent:'未安装', none:'暂无报告', error:'无法连接', backoff:'请求受限，稍后重试' },
+  'zh-Hant':{ ok:'', stale:'上次讀數已過期', needsAuth:'未登入', absent:'未安裝', none:'暫無報告', error:'無法連線', backoff:'請求受限，稍後重試' },
+  ja:{ ok:'', stale:'最後の読み取りが古いです', needsAuth:'サインインしていません', absent:'インストールされていません', none:'報告するものがありません', error:'到達できません', backoff:'リクエスト制限中、まもなく再試行します' },
+  ko:{ ok:'', stale:'마지막 측정값이 오래되었습니다', needsAuth:'로그인되지 않음', absent:'설치되지 않음', none:'보고할 내용 없음', error:'연결할 수 없음', backoff:'요청 제한됨, 곧 다시 시도합니다' },
+  es:{ ok:'', stale:'última lectura desactualizada', needsAuth:'sin sesión iniciada', absent:'no instalado', none:'nada que mostrar', error:'inaccesible', backoff:'consultas limitadas, se reintentará pronto' },
+  uk:{ ok:'', stale:'останній показник застарів', needsAuth:'не виконано вхід', absent:'не встановлено', none:'немає даних', error:'недоступний', backoff:'ліміт запитів, невдовзі спробуємо знову' }
 };
 let uiLang = 'en';
 function ui(key, fallback){ const table = STATIC_TEXT[uiLang]; return (table && table[key]) || fallback; }
@@ -1438,22 +1447,149 @@ function accountBlock(p, isOn, locked){
       + '<div class="acct-sub"><span>' + esc(ui('Model data', 'Model data')) + '</span>' + agSelect('model', AG_MODELS, agPrefs.model) + '</div>';
   }
   if(p.id === 'claude'){
-    h += '<div class="acct-sub"><span>' + esc(ui('Let Claude Code notify Codenotch', 'Let Claude Code notify Codenotch')) + '</span>'
-      + '<button class="switch' + (hooks.value ? ' on' : '') + '" role="switch" aria-checked="' + hooks.value + '" data-remote="hooks"'
-      + (hooks.busy ? ' disabled' : '') + ' aria-label="' + esc(ui('Let Claude Code notify Codenotch', 'Let Claude Code notify Codenotch')) + '"></button></div>'
-      + '<div class="acct-detail">' + esc(ui(HOOKS_WHY, HOOKS_WHY)) + '</div>';
+    h += hooksHtml();
   }
   return h + '</div>';
 }
+function hooksHtml(){
+  return '<div class="acct-sub"><span>' + esc(ui('Let Claude Code notify Codenotch', 'Let Claude Code notify Codenotch')) + '</span>'
+    + '<button class="switch' + (hooks.value ? ' on' : '') + '" role="switch" aria-checked="' + hooks.value + '" data-remote="hooks"'
+    + (hooks.busy ? ' disabled' : '') + ' aria-label="' + esc(ui('Let Claude Code notify Codenotch', 'Let Claude Code notify Codenotch')) + '"></button></div>'
+    + '<div class="acct-detail">' + esc(ui(HOOKS_WHY, HOOKS_WHY)) + '</div>';
+}
+
+/* ---- Accounts: a row per Claude account ----------------------------------
+   As the Mac lists each ~/.claude-<slug> profile: the provider's own row, named from the account's
+   sign-in (Claude Gmail, Claude Acme, or Claude (2) before it has one), with a switch for that
+   account alone. An account is on when Claude has a ring and the account itself is switched on. */
+let claudeAccounts = [];   // [{id,name,address,enabled,connected,status}] from get_claude_accounts
+let claudeAuth = {};       // {busy,profile_id,message} from get_claude_auth
+let claudeWatch = 0, claudeWatchUntil = 0, claudeAdding = null;
+const ADD_CLAUDE = 'Add a Claude account';
+const NOT_ADDED = 'The account was not added: its sign-in did not finish.';
+const ADD_CLAUDE_WHY = 'Each account signs in with Claude Code in a folder of its own and gets its own ring. Switching one off stops reading it and keeps its sign-in.';
+const SIGNING_IN = 'Finish signing in in the browser or terminal window.';
+// The failures worth translating; anything else is shown as it was reported
+const CLAUDE_ERRORS = {
+  'Claude Code CLI not found. Install the standalone CLI first.': 'Install the standalone Claude Code CLI to add or sign in to an account.',
+  'Sign-in cancelled, failed or timed out. Try again.': 'Sign-in was cancelled, did not finish or timed out. Try again.'
+};
+function claudeError(text){ const key = CLAUDE_ERRORS[text]; return key ? ui(key, key) : text; }
+// BEGIN TESTABLE CLAUDE ROW
+function claudeSigningIn(a){ return !!claudeAuth.busy && claudeAuth.profile_id === a.id; }
+function claudeNeedsSignIn(a){ return !a.connected || a.status === 'needsAuth'; }
+// The time left before the sign-in window is given up on, as 4:05
+function claudeCountdown(now){
+  const left = Math.ceil(((claudeAuth.deadline || 0) - now) / 1000);
+  return left > 0 ? Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') : '';
+}
+// A switched-off account is not being read, so only who it belongs to is still worth saying
+function claudeDetail(a, isOn, now = Date.now()){
+  if(!isOn) return a.address || '';
+  if(claudeSigningIn(a)) return [ui(SIGNING_IN, SIGNING_IN), claudeCountdown(now)].filter(Boolean).join(' · ');
+  if(claudeNeedsSignIn(a)) return statusText({ status:'needsAuth' });
+  return [a.address || '', statusText({ status:a.status })].filter(Boolean).join(' · ');
+}
+// END TESTABLE CLAUDE ROW
+function claudeBlock(a, isOn, locked){
+  const signIn = isOn && claudeNeedsSignIn(a) && !claudeSigningIn(a);
+  let h = '<div class="acct' + (isOn ? '' : ' off') + '">'
+    + '<div class="acct-line"><span class="acct-name">' + glyphHtml({ id:'claude', label:a.name }) + '<span>' + esc(a.name) + '</span></span>'
+    + '<span class="acct-end">'
+    + (signIn ? '<button class="btn" data-claude-sign-in="' + esc(a.id) + '"' + (claudeAuth.busy ? ' disabled' : '') + '>' + esc(ui('Sign in', 'Sign in')) + '</button>' : '')
+    + '<button class="switch' + (isOn ? ' on' : '') + (locked ? ' locked' : '') + '" role="switch" aria-checked="' + isOn + '"'
+    + ' data-claude="' + esc(a.id) + '" aria-label="' + esc(a.name) + '"></button></span></div>';
+  const detail = claudeDetail(a, isOn);
+  if(detail) h += '<div class="acct-detail">' + esc(detail) + '</div>';
+  if(a.id === 'default') h += hooksHtml();
+  return h + '</div>';
+}
+function addClaudeBlock(){
+  return '<div class="acct"><div class="acct-line"><span class="acct-name"><span class="glyph letter">+</span><span>' + esc(ui(ADD_CLAUDE, ADD_CLAUDE)) + '</span></span>'
+    + '<span class="acct-end"><button class="btn" data-claude-add' + (claudeAuth.busy ? ' disabled' : '') + '>' + esc(ui('Add…', 'Add…')) + '</button></span></div>'
+    + '<div class="acct-detail">' + esc(ui(ADD_CLAUDE_WHY, ADD_CLAUDE_WHY)) + '</div></div>';
+}
+function refreshClaude(){
+  return Promise.all([call('get_claude_accounts', undefined, null), call('get_claude_auth', undefined, null)]).then(([accounts, auth]) => {
+    if(Array.isArray(accounts)) claudeAccounts = accounts.filter(a => a && typeof a.id === 'string');
+    const wasBusy = !!claudeAuth.busy;
+    claudeAuth = auth && typeof auth === 'object' ? auth : {};
+    if(wasBusy && !claudeAuth.busy){
+      if(claudeAdding && !claudeAccounts.some(a => a.id === claudeAdding)) strip(ui(NOT_ADDED, NOT_ADDED));
+      else if(/^Sign-in cancelled/.test(claudeAuth.message || '')) strip(claudeError(claudeAuth.message));
+      claudeAdding = null;
+    }
+    renderAccounts();
+  });
+}
+// A sign-in runs in another window: its row is asked about every second until it ends, so the
+// countdown moves, and a little after, while the first reading arrives and the Sign in button can go.
+function watchClaude(){
+  clearTimeout(claudeWatch);
+  return refreshClaude().then(() => {
+    if(claudeAuth.busy) claudeWatchUntil = Date.now() + 10000;
+    if(claudeAuth.busy || Date.now() < claudeWatchUntil) claudeWatch = setTimeout(watchClaude, 1000);
+  });
+}
+function claudeSignIn(id){
+  return invoke('connect_claude_account', { id })
+    .then(() => watchClaude())
+    .catch(e => { strip(claudeError(errText(e))); refreshClaude(); });
+}
+// The account exists only while its sign-in runs; one that does not finish is taken away again
+function addClaude(){
+  invoke('add_claude_account')
+    .then(id => { claudeAdding = id; return watchClaude(); })
+    .catch(e => { strip(claudeError(errText(e))); refreshClaude(); });
+}
+function setClaudeEnabled(id, enabled){
+  return invoke('set_claude_account_enabled', { id, enabled })
+    .then(() => { toast(); return refreshClaude(); })
+    .catch(e => { strip('set_claude_account_enabled failed: ' + errText(e)); refreshClaude(); });
+}
+function toggleClaude(id){
+  const a = claudeAccounts.find(x => x.id === id);
+  if(!a) return;
+  const claudeOn = notchOn().some(sl => sl.provider === 'claude');
+  if(claudeOn && a.enabled){
+    // The last Claude account switched off takes Claude off the notch, as the provider's own switch did
+    if(!claudeAccounts.some(x => x.id !== id && x.enabled)){
+      if(notchOn().length <= 1){ toast(ui('At least one provider stays on the notch', 'At least one provider stays on the notch')); return; }
+      toggleNotch('claude');
+    }
+    setClaudeEnabled(id, false);
+  } else {
+    (a.enabled ? Promise.resolve() : setClaudeEnabled(id, true)).then(() => { if(!claudeOn) toggleNotch('claude'); });
+  }
+}
+
 function renderAccounts(){
   const list = providerList();
   const onIds = notchOn().map(sl => sl.provider);
-  const connected = list.filter(p => onIds.indexOf(p.id) >= 0);
-  const off = list.filter(p => onIds.indexOf(p.id) < 0);
-  document.getElementById('acc-on').innerHTML = connected.map(p => accountBlock(p, true, connected.length === 1)).join('')
+  const claudeOn = onIds.indexOf('claude') >= 0;
+  const rows = [];
+  for(const p of list){
+    if(p.id === 'claude' && claudeAccounts.length){
+      for(const a of claudeAccounts){
+        const isOn = claudeOn && a.enabled;
+        rows.push({ on:isOn, claude:true, html:locked => claudeBlock(a, isOn, locked) });
+      }
+    } else {
+      const isOn = onIds.indexOf(p.id) >= 0;
+      rows.push({ on:isOn, html:locked => accountBlock(p, isOn, locked) });
+    }
+  }
+  const connected = rows.filter(r => r.on), off = rows.filter(r => !r.on);
+  // The add row follows the Claude accounts, in whichever group the last of them is listed
+  if(claudeAccounts.length){
+    const group = connected.some(r => r.claude) ? connected : off;
+    group.splice(group.map(r => !!r.claude).lastIndexOf(true) + 1, 0, { html:addClaudeBlock });
+  }
+  const locked = connected.filter(r => r.on).length === 1;
+  document.getElementById('acc-on').innerHTML = connected.map(r => r.html(!!r.on && locked)).join('')
     + '<div class="item cap">' + esc(ui(ONE_STAYS, ONE_STAYS)) + '</div>';
   document.getElementById('acc-off-wrap').hidden = !off.length;
-  document.getElementById('acc-off').innerHTML = off.map(p => accountBlock(p, false, false)).join('')
+  document.getElementById('acc-off').innerHTML = off.map(r => r.html(false)).join('')
     + '<div class="item cap">' + esc(ui(NO_RING, NO_RING)) + '</div>';
 }
 function saveNotch(next){
@@ -1484,6 +1620,12 @@ const accountsPane = document.getElementById('pane-accounts');
 accountsPane.addEventListener('click', e => {
   const np = e.target.closest('[data-np]');
   if(np){ toggleNotch(np.dataset.np); return; }
+  const account = e.target.closest('[data-claude]');
+  if(account){ toggleClaude(account.dataset.claude); return; }
+  const signIn = e.target.closest('[data-claude-sign-in]');
+  if(signIn){ signIn.disabled = true; claudeSignIn(signIn.dataset.claudeSignIn); return; }
+  const add = e.target.closest('[data-claude-add]');
+  if(add){ add.disabled = true; addClaude(); return; }
   if(e.target.closest('[data-remote="hooks"]')) hooks.toggle();
 });
 accountsPane.addEventListener('change', e => {
@@ -1937,6 +2079,7 @@ function boot(){
   const first = [
     loadLook(),
     refreshOptions(),
+    refreshClaude(),
     call('get_notch_slots', undefined, []).then(v => {
       notchSlots = Array.isArray(v) ? v.filter(x => x && typeof x.provider === 'string').map(x => ({ provider:x.provider })) : [];
       renderAccounts();
@@ -1970,6 +2113,7 @@ function boot(){
     hooks.refresh()
   ];
   try { window.__TAURI__.event.listen('glyphs', e => { if(e.payload){ glyphs = e.payload; renderAccounts(); } }); } catch(e) { /* the letters stay */ }
+  try { window.__TAURI__.event.listen('claude_accounts_changed', () => refreshClaude()); } catch(e) { /* read again on focus */ }
   // The window stays hidden until this first state is drawn (settings_window.rs), so it opens already
   // translated and with every switch where it belongs. A read that hangs holds it back 1.5 s at most.
   Promise.race([Promise.allSettled(first), new Promise(r => setTimeout(r, 1500))])
@@ -1982,6 +2126,7 @@ function boot(){
 window.addEventListener('focus', () => {
   loadLook();
   refreshOptions();
+  refreshClaude();
   // A screen can be plugged in, and the notch carried to another edge, while this window sits behind
   call('get_notch_edge', undefined, null).then(v => { if(typeof v === 'string') notchEdge = v; renderEdge(); });
   refreshScreens();

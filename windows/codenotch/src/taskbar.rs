@@ -163,7 +163,7 @@ pub fn get_taskbar_items(app: AppHandle) -> Vec<Item> {
         } else { UsageSnapshot { status: "needsAuth".into(), ..Default::default() } };
         let headline_id = crate::ring_window("claude", &snapshot.windows, "automatic", "gemini").map(|w| w.id.clone());
         let work_state = crate::taskbar_activity::work_state(&app, "claude", Some(&p.id));
-        items.push(Item { id: format!("claude@{}", p.id), headline_id, work_state, name: if p.id == "default" && p.name == "Claude" { "Claude".into() } else { format!("Claude · {}", p.name) },
+        items.push(Item { id: format!("claude@{}", p.id), headline_id, work_state, name: p.name,
             provider: "claude".into(), snapshot });
     }
     for id in crate::TRAY_PROVIDER_IDS.into_iter().filter(|id| *id != "claude") {

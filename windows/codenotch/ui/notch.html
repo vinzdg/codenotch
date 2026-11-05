@@ -128,6 +128,8 @@
   .c-head{display:flex;align-items:center;gap:8px;margin-bottom:4px}
   .c-title{font-size:14px;font-weight:700}
   .c-sub{font-size:11px;color:var(--ink-dim);margin-bottom:10px}
+  .c-account{overflow-wrap:anywhere}
+  .c-account + .c-sub{margin-top:-6px}
   .win{margin-top:10px}
   .w-row{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;flex-wrap:wrap;column-gap:8px}
   .w-label{color:var(--ink-2);font-weight:600;white-space:nowrap}
@@ -1290,9 +1292,11 @@ function slotFor(id){
 // provider the cell belongs to (glyph, activity, slot choice); `id` is what makes the cell unique.
 function claudeCells(){
   if(Array.isArray(usage.accounts) && usage.accounts.length){
+    const several=usage.accounts.length>1;
     return usage.accounts.map(a=>({id:a.id==='default'?'claude':'claude@'+a.id,base:'claude',
       name:a.name==='default'?'Claude':a.name,glyph:'C',snap:{status:a.status,note:a.note,
-        fetched_at:a.fetched_at,windows:a.windows,backoff_until:a.backoff_until||0}}));
+        fetched_at:a.fetched_at,windows:a.windows,backoff_until:a.backoff_until||0},
+      account:several?accountLine(a):''}));
   }
   if(usage.status==='absent') return [];
   const ws=Array.isArray(usage.windows)?usage.windows:[];
@@ -1311,6 +1315,11 @@ function claudeCells(){
     snap:Object.assign({},usage,{windows:ws.filter(w=>(w.group||'')===a.g)
       .map(w=>Object.assign({},w,{id:String(w.id).split('@')[0]}))})
   }));
+}
+// Which account a card belongs to, said under its title: "someone@gmail.com · Max"
+function accountLine(a){
+  const plan=typeof a.plan==='string'&&a.plan?a.plan.charAt(0).toUpperCase()+a.plan.slice(1):'';
+  return [a.address||'',plan].filter(Boolean).join(' · ');
 }
 function providers(){
   const list=claudeCells();
@@ -1548,9 +1557,9 @@ function renderCard(){
   const p=providers().find(x=>x.id===hoverId)||providers()[0];
   const snap=p.snap;
   const headIcon=glyphHtml(p,true);
-  // p.name is no longer a constant: for a second account it is built from the home
-  // directory's slug and the subscriptionType read out of .credentials.json.
-  let html=`<div class="c-head">${headIcon}<span class="c-title">${esc(ui().title(p.name))}</span></div>`;
+  // Several Claude accounts share the provider's title, and the line under it says whose card it is
+  let html=`<div class="c-head">${headIcon}<span class="c-title">${esc(ui().title(p.account?'Claude':p.name))}</span></div>`;
+  if(p.account) html+=`<div class="c-sub c-account">${esc(p.account)}</div>`;
   if(staleOf(snap)&&snap.fetched_at) html+=`<div class="c-sub">${ui().updated(ago(snap.fetched_at))}</div>`;
   if(snap.status==='needsAuth'){
     const who={claude:'Sign in to Claude Code to see usage.',cursor:'Sign in to Cursor to see usage.',codex:'Sign in to Codex to see usage.',grok:'Run grok login to see usage.',copilot:'Run gh auth login to see usage.',opencode:'Run opencode auth login to see usage.',commandcode:'Sign in with the Command Code app to read your usage.',gemini:'Sign in to Antigravity to see usage.',qoder:'Sign in to qodercli to see usage.'}[p.base]||'';
