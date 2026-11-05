@@ -11,10 +11,19 @@ import Foundation
 struct KimiCredentials {
     static var authURL: URL {
         let override = ProcessInfo.processInfo.environment["KIMI_CODE_HOME"]
-            .flatMap { value -> String? in value.isEmpty ? nil : value }
-        let root = override.map { URL(fileURLWithPath: $0) }
+            ?? ProcessInfo.processInfo.environment["KIMI_K_HOME"]
+        let nonOverridden = override.flatMap { value -> String? in value.isEmpty ? nil : value }
+        let root = nonOverridden.map { URL(fileURLWithPath: $0) }
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".kimi-code")
-        return root.appendingPathComponent("credentials/kimi-code.json")
+        let defaultPath = root.appendingPathComponent("credentials/kimi-code.json")
+        if FileManager.default.fileExists(atPath: defaultPath.path) {
+            return defaultPath
+        }
+        let kPath = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".kimi-k/credentials/kimi-k.json")
+        if FileManager.default.fileExists(atPath: kPath.path) {
+            return kPath
+        }
+        return defaultPath
     }
 
     let accessToken: String

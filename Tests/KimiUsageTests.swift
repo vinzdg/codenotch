@@ -93,6 +93,47 @@ final class KimiUsageTests: XCTestCase {
         }
     }
 
+    func testReadsKimiKModelQuotasInLimits() throws {
+        let json = """
+        {"usage":{"limit":"100","used":"2","remaining":"98"},\
+        "limits":[\
+        {"window":{"duration":300,"timeUnit":"TIME_UNIT_MINUTE"},"detail":{"limit":"100","used":"8","remaining":"92"}},\
+        {"model":"kimi-k","window":{"duration":300,"timeUnit":"TIME_UNIT_MINUTE"},"detail":{"limit":"50","used":"5","remaining":"45"}}\
+        ]}
+        """
+        let read = try KimiUsage.read(fromJSON: json)
+        XCTAssertEqual(read.windows.map(\.id), ["weekly", "rolling", "kimi-k-rolling"])
+        XCTAssertEqual(read.windows.map(\.group), [nil, nil, "Kimi K"])
+        let kWindow = try XCTUnwrap(read.windows.first { $0.id == "kimi-k-rolling" })
+        XCTAssertEqual(kWindow.usedFraction ?? -1, 0.1, accuracy: 0.0001)
+    }
+
+    func testReadsDedicatedKimiKSection() throws {
+        let json = """
+        {"usage":{"limit":"100","used":"2","remaining":"98"},\
+        "limits":[{"window":{"duration":300,"timeUnit":"TIME_UNIT_MINUTE"},"detail":{"limit":"100","used":"8","remaining":"92"}}],\
+        "kimi_k":{\
+        "usage":{"limit":"60","used":"6","remaining":"54"},\
+        "limits":[{"window":{"duration":300,"timeUnit":"TIME_UNIT_MINUTE"},"detail":{"limit":"30","used":"3","remaining":"27"}}]\
+        }}
+        """
+        let read = try KimiUsage.read(fromJSON: json)
+        XCTAssertEqual(read.windows.map(\.id), ["weekly", "rolling", "kimi-k-weekly", "kimi-k-rolling"])
+        XCTAssertEqual(read.windows.map(\.group), [nil, nil, "Kimi K", "Kimi K"])
+    }
+
+    func testReadsOnlyKimiKQuotasWhenTopLevelEmpty() throws {
+        let json = """
+        {"kimi_k":{\
+        "usage":{"limit":"50","used":"10","remaining":"40"},\
+        "limits":[{"window":{"duration":300,"timeUnit":"TIME_UNIT_MINUTE"},"detail":{"limit":"50","used":"5","remaining":"45"}}]\
+        }}
+        """
+        let read = try KimiUsage.read(fromJSON: json)
+        XCTAssertEqual(read.windows.map(\.id), ["kimi-k-weekly", "kimi-k-rolling"])
+        XCTAssertEqual(read.windows.map(\.group), ["Kimi K", "Kimi K"])
+    }
+
     func testGarbageIsABadResponse() {
         XCTAssertThrowsError(try KimiUsage.read(fromJSON: "not json")) { error in
             guard case UsageProviderError.badResponse = error else {
