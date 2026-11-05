@@ -4438,6 +4438,17 @@
         }
       }
     },
+    "Monthly code limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Месячный лимит кода"
+          }
+        }
+      }
+    },
     "Monthly limit": {
       "extractionState": "manual",
       "localizations": {

@@ -20,6 +20,9 @@ import Foundation
 /// 300-minute window is the 5-hour one — minute durations divisible by 60 are
 /// normalised to hours, as the CLI does. The Extra Usage wallet
 /// (`boosterWallet`) is money, not a window, and is left out here.
+///
+/// Новый `usages` передаёт `used_ratio` и `reset_time` для пятичасовой,
+/// недельной и месячных квот. Длина месячного цикла не указана в ответе.
 enum KimiUsage {
     static let endpoint = URL(string: "https://api.kimi.com/coding/v1/usages")!
 
@@ -49,11 +52,49 @@ enum KimiUsage {
                 windows.append(window)
             }
         }
+        if let usages = root["usages"] as? [String: Any] {
+            let quotas: [(key: String, id: String, label: String, duration: TimeInterval?)] = [
+                ("limit_5h", "rolling", L10n.t("5h limit"), 5 * 3600),
+                ("limit_7d", "weekly", L10n.t("Weekly limit"), 7 * 86400),
+                ("limit_month_total", "monthly-total", L10n.t("Monthly limit"), nil),
+                ("limit_month_code", "monthly-code", L10n.t("Monthly code limit"), nil),
+            ]
+            for quota in quotas {
+                guard let detail = usages[quota.key] as? [String: Any],
+                      let window = quotaRow(id: quota.id, label: quota.label,
+                                            from: detail, duration: quota.duration)
+                else { continue }
+                // Новый формат точнее целочисленных legacy-счётчиков и может приходить вместе с ними.
+                if let index = windows.firstIndex(where: { $0.id == quota.id }) {
+                    windows.removeAll { $0.id == quota.id }
+                    windows.insert(window, at: index)
+                } else {
+                    windows.append(window)
+                }
+            }
+        }
         guard !windows.isEmpty else {
             throw UsageProviderError.nothingMetered(L10n.t("No Kimi Code usage limits on this account"))
         }
 
         return Read(windows: windows, plan: plan(from: root))
+    }
+
+    private static func quotaRow(id: String, label: String,
+                                 from detail: [String: Any], duration: TimeInterval?) -> LimitWindow? {
+        let fraction: Double?
+        if let number = detail["used_ratio"] as? NSNumber {
+            guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+            fraction = number.doubleValue
+        } else if let text = detail["used_ratio"] as? String {
+            fraction = Double(text)
+        } else {
+            return nil
+        }
+        guard let fraction, fraction.isFinite, fraction >= 0 else { return nil }
+        let resetsAt = (detail["reset_time"] as? String).flatMap(date(from:))
+        return LimitWindow(id: id, label: label, usedFraction: fraction,
+                           resetsAt: resetsAt, duration: duration)
     }
 
     /// One metered row. Counts are decimal strings in the wire format, but
