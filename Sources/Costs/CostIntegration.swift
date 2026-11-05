@@ -2,12 +2,41 @@ import AppKit
 import Combine
 import SwiftUI
 
+/// Which updates to the usage store's snapshots the cost layer acts on.
+///
+/// `snapshots` is republished whenever any provider lands, which for a local
+/// runtime is once a second, reading or no reading. Acting on each of those
+/// wrote a row per window to every account's database and re-ran its queries,
+/// for numbers that had not moved. Only a quota can feed the cost layer, so
+/// only a change among the usage providers counts as one.
+///
+/// The heartbeat is there for `CostStore.currentPeriod`, which spreads what it
+/// cannot attribute over the turns up to the latest sample, and for anything
+/// else that waits on the next pass: a changed price, a new profile. It keeps
+/// them at the pace of a usage poll. It is not a timer: the first update after
+/// it has elapsed passes, whichever provider that update came from.
+struct CostReadingGate {
+    static let heartbeat: TimeInterval = 15
+
+    private var last: [ProviderSnapshot]?
+    private var passedAt = Date.distantPast
+
+    mutating func admits(_ snapshots: [ProviderSnapshot], at now: Date = Date()) -> Bool {
+        let readings = snapshots.filter { $0.kind == .usage }
+        guard readings != last || now.timeIntervalSince(passedAt) >= Self.heartbeat else { return false }
+        last = readings
+        passedAt = now
+        return true
+    }
+}
+
 /// Where the cost layer plugs into the app: the cost models watch the usage
 /// store's snapshots, a Claude card borrows the token chart the Codex card
 /// has, and the Activity window opens from the menu.
 @MainActor
 enum Costs {
     private static var subscription: AnyCancellable?
+    private static var gate = CostReadingGate()
     private static var activityWindow: NSWindow?
 
     /// What a Claude login's card gains before the notch draws it: the daily
@@ -30,6 +59,7 @@ enum Costs {
         subscription = store.$snapshots
             .receive(on: RunLoop.main)
             .sink { snapshots in
+                guard gate.admits(snapshots) else { return }
                 CostAccountStore.shared.rediscover()
                 CostModels.all.forEach { $0.observe(snapshots) }
             }
