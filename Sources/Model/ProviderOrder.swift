@@ -204,67 +204,6 @@ enum ProviderOrder {
             .map(\.element)
     }
 
-    // Aliases, so whichever spelling a caller reaches for resolves.
-    static func byExpiring(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
-    static func byExpiresFirst(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
-    static func byExpiringSoon(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
-    static func bySoonestReset(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
-    static func byClosestReset(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
-    static func bySoonestExpiry(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
-    static func byExpiryFirst(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
-    static func byResetFirst(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
-    static func byResetsFirst(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
-    static func byEarliestReset(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
-    static func byNextReset(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
-    static func byExpiringSoonest(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
-    static func byClosestResetFirst(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
-    static func byExpiringUsage(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
-    static func byUsageExpiring(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
-    static func byExpiringReset(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
-    static func byEarliestExpiry(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
-    static func bySoonestDeadline(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
-    static func byNextExpiry(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
-    static func byExpiry(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        byExpiringFirst(snapshots, now: now)
-    }
 
     /// (tier, reset of the leading window, headline-remaining): 0 timed
     /// usable (main ring has a reset and is not spent), 1 timeless usable,
