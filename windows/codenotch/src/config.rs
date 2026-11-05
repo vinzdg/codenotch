@@ -41,8 +41,6 @@ pub struct Config {
     /// off | left | right; an owned child window on the primary Windows taskbar.
     #[serde(default = "default_taskbar_mode")]
     pub taskbar_mode: String,
-    #[serde(default = "default_taskbar_width")]
-    pub taskbar_width: u32,
     #[serde(default = "default_port")]
     pub port: u16,
     /// "auto" | "zh" | "zh-Hant" | "en" | "ja" | "ko" | "pt-BR" | "ru" | "uk" | "es"
@@ -173,7 +171,6 @@ pub struct Config {
 }
 
 fn default_taskbar_mode() -> String { "off".into() }
-fn default_taskbar_width() -> u32 { 280 }
 
 fn default_notch_y() -> f64 {
     0.5
@@ -321,7 +318,6 @@ impl Default for Config {
         Self {
             claude_profiles: Vec::new(),
             taskbar_mode: default_taskbar_mode(),
-            taskbar_width: default_taskbar_width(),
             port: default_port(),
             lang: default_lang(),
             bar_x: None,

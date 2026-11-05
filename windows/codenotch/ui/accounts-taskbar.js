@@ -1,6 +1,6 @@
 /* Settings extension: the taskbar display. Status text is always rendered as text. */
 (() => {
-  let busy = false, taskbar = {mode:'off',width:280,supported:true};
+  let busy = false, taskbar = {mode:'off',supported:true};
   const el = id => document.getElementById(id);
   const t = (en, pt) => typeof uiLang !== 'undefined' && uiLang === 'pt-BR' ? pt : en;
   async function refresh(){
@@ -10,11 +10,8 @@
   function drawTaskbar(){
     if(typeof applyTaskbarAppearance==='function')applyTaskbarAppearance(taskbar.mode);
     el('taskbar-position').value=taskbar.mode;el('taskbar-position').disabled=!taskbar.supported||busy;
-    if(document.activeElement!==el('taskbar-width'))el('taskbar-width').value=taskbar.width;
-    el('taskbar-width-value').textContent=taskbar.width+' px';
-    el('taskbar-width').disabled=!taskbar.supported||taskbar.mode==='off'||busy;
     const statusMessages={
-      'No free space on the taskbar. Try the other side or a smaller width.':'Sem espaço livre na barra. Tente o outro lado ou uma largura menor.',
+      'No free space on the taskbar. Try the other side.':'Sem espaço livre na barra. Tente o outro lado.',
       'Windows did not expose the taskbar buttons. Use the tray to open Settings.':'Não foi possível identificar os botões da barra. Abra as configurações pelo ícone perto do relógio.',
       'Waiting for the Windows taskbar':'Aguardando a barra de tarefas do Windows',
       'Waiting for the taskbar child window':'Preparando a exibição na barra de tarefas',
@@ -28,20 +25,18 @@
     const status=taskbar.status||'';
     const text=!taskbar.supported?t('Available on Windows.','Disponível no Windows.'):(typeof uiLang!=='undefined'&&uiLang==='pt-BR'?(statusMessages[status]||status):status);
     el('taskbar-status').hidden=!text;el('taskbar-status').textContent=text;
-    el('taskbar-title').textContent=t('Taskbar','Barra de tarefas');el('taskbar-position-label').textContent=t('Display','Exibição');el('taskbar-width-label').textContent=t('Width','Largura');
-    const labels=[t('Original notch','Formato atual'),t('Left side','À esquerda'),t('Before system tray','Antes da bandeja')];
+    el('taskbar-title').textContent=t('Taskbar','Barra de tarefas');el('taskbar-position-label').textContent=t('Show rings in','Mostrar os anéis em');
+    const labels=[t('Notch','Notch'),t('Taskbar, left','Barra de tarefas, à esquerda'),t('Taskbar, right','Barra de tarefas, à direita')];
     [...el('taskbar-position').options].forEach((o,i)=>o.textContent=labels[i]);
-    el('taskbar-help').textContent=t('The panel uses free space on the primary taskbar. Hover for account limits; click to refresh that account. It hides when space is unavailable, the taskbar is hidden, or an app is full screen. The system tray icon stays available.','A faixa ocupa espaço livre na barra principal. Passe o mouse para ver os limites; clique para atualizar aquela conta. Ela se oculta sem espaço, com a barra oculta ou em tela cheia. O ícone perto do relógio continua disponível.');
+    el('taskbar-help').textContent=t('On the taskbar, the rings use its free space: hover one for its card, click it to refresh, right-click for Settings. They hide when there is no room, the taskbar is hidden or an app is full screen.','Na barra de tarefas, os anéis usam o espaço livre: passe o mouse sobre um para ver o cartão, clique para atualizar e clique com o botão direito para abrir as configurações. Eles somem quando falta espaço, quando a barra está oculta ou quando um app está em tela cheia.');
   }
   async function saveTaskbar(){
     busy=true;
-    try{taskbar=await invoke('set_taskbar_options',{mode:el('taskbar-position').value,width:Number(el('taskbar-width').value)});toast();}
+    try{taskbar=await invoke('set_taskbar_options',{mode:el('taskbar-position').value});toast();}
     catch(error){strip(errText(error));}
     finally{busy=false;await refresh();}
   }
   el('taskbar-position').addEventListener('change',saveTaskbar);
-  el('taskbar-width').addEventListener('input',()=>el('taskbar-width-value').textContent=el('taskbar-width').value+' px');
-  el('taskbar-width').addEventListener('change',saveTaskbar);
   window.addEventListener('focus',refresh);
   refresh();setInterval(()=>{if(!document.hidden&&!busy)refresh();},2500);
 })();

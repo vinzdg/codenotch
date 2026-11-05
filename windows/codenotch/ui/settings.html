@@ -10,6 +10,7 @@
      a soft fill with an accent bar for the selected section, outlined toggles, the system accent.
      The panel is translucent so Mica shows through; without Mica, body.solid draws the same tones. */
   :root{
+    color-scheme:dark;
     --accent:#0a7aff; --on-accent:#ffffff;
     --text:#f2f2f4; --text2:rgba(235,235,245,.62); --text3:rgba(235,235,245,.38);
     --pane:rgba(255,255,255,.13); --side:rgba(0,0,0,.40); --group:rgba(255,255,255,.06);
@@ -21,6 +22,7 @@
   /* Rust says which appearance this is (get_theme_resolved), so a forced Light or Dark lands here
      whatever Windows is set to — WebView2's own scheme does not follow a live theme change. */
   :root[data-theme="light"]{
+      color-scheme:light;
       --text:#1d1d1f; --text2:rgba(60,60,67,.70); --text3:rgba(60,60,67,.45);
       --pane:rgba(255,255,255,.50); --side:rgba(0,0,0,.06); --group:rgba(255,255,255,.72);
       --line:rgba(0,0,0,.07); --hi:rgba(255,255,255,.80); --sep:rgba(0,0,0,.07);
@@ -121,7 +123,9 @@
   .item.slider > input.range::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;margin-top:-4px;border:0;border-radius:50%;background:var(--accent)}
   .item.slider > input.range:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
   select{font:inherit;font-size:13px;color:var(--text);background:var(--seg-bg);border:0;border-radius:6px;padding:4px 8px}
-  select option{color:#000}
+  /* The list a dropdown opens is drawn by Windows on an opaque surface, so it gets solid colours */
+  select option{color:#f2f2f4;background:#2b2b2e}
+  :root[data-theme="light"] select option{color:#1d1d1f;background:#ffffff}
   .link{border:0;background:none;padding:0;color:var(--accent);cursor:pointer;font-size:12px}
   .link:hover{text-decoration:underline}
 
@@ -162,9 +166,8 @@
       <section class="pane" id="pane-appearance" role="tabpanel" aria-labelledby="tab-appearance" hidden>
         <div class="sec" id="taskbar-title" data-dynamic>Taskbar</div>
         <div class="group">
-          <div class="item"><label id="taskbar-position-label" for="taskbar-position">Display</label><select id="taskbar-position"><option value="off">Original notch</option><option value="left">Left side</option><option value="right">Before system tray</option></select></div>
-          <div class="item slider"><label id="taskbar-width-label" for="taskbar-width">Width</label><span class="value" id="taskbar-width-value" data-dynamic>280 px</span><input id="taskbar-width" class="range" type="range" min="144" max="520" step="8"></div>
-          <div class="item cap" id="taskbar-help" data-dynamic>Use free space on the primary taskbar. Hover for account limits; click to refresh that account.</div>
+          <div class="item"><label id="taskbar-position-label" for="taskbar-position">Show rings in</label><select id="taskbar-position"><option value="off">Notch</option><option value="left">Taskbar, left</option><option value="right">Taskbar, right</option></select></div>
+          <div class="item cap" id="taskbar-help" data-dynamic>On the taskbar, the rings use its free space: hover one for its card, click it to refresh, right-click for Settings. They hide when there is no room, the taskbar is hidden or an app is full screen.</div>
           <div class="item cap" id="taskbar-status" role="status" data-dynamic hidden></div>
         </div>
         <div class="sec" id="appearance-indicators-title" data-dynamic>Notch</div>

@@ -488,7 +488,7 @@ async function settingsView(status=''){
   const ctx=vm.createContext({
     document:{getElementById:node,activeElement:null,hidden:false},window:{addEventListener(){}},uiLang:'pt-BR',
     errText:String,toast(){},strip(){},setInterval(){},
-    invoke:async command=>command==='get_taskbar_options'?{mode:'off',width:280,supported:true,status}:undefined,
+    invoke:async command=>command==='get_taskbar_options'?{mode:'off',supported:true,status}:undefined,
   });
   vm.runInContext(accountSettings,ctx);for(let i=0;i<20;i++)await Promise.resolve();return node;
 }

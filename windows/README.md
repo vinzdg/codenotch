@@ -24,28 +24,25 @@ separate, including after rate limiting or reconnection.
 
 ## Taskbar display
 
-Settings → Appearance → Taskbar can place compact usage indicators in free space
-on the left side of the primary taskbar or before the system tray. This is opt-in;
+Settings → Appearance → Taskbar can place the notch's rings in free space on the
+left side of the primary taskbar or before the system tray. This is opt-in;
 Original notch restores the screen-edge display. Hover shows account limits and
 reset times, left-click requests a refresh of that account, and right-click opens
-Settings. The width control adjusts the space used by the indicators.
+Settings.
 
-Claude and Codex display the weekly percentage. Available 5-hour and weekly quotas
-have independent arcs; a weekly-only Codex plan has one outer arc, even when the
-provider calls that bucket `primary`. Claude Enterprise accounts publishing only a
-spend limit display that limit. Activity is assigned only to an identified
-account; unknown ownership never animates a different account's indicator.
+Each cell is a notch cell turned on its side: the same ring, reading, weekly ring,
+activity arc and glyph, drawn in the notch's 56-unit box, with the notch's figure
+beside the ring instead of under it. Every provider the notch shows is there, in the
+notch's order, reading the same window. The strip is as wide as its cells; when the
+free space is narrower, the whole row shrinks rather than dropping an account.
 
 Size, theme, warning thresholds, colour transition, remaining/used display and weekly-ring position/style
-reuse the existing appearance settings. The weekly option controls an additional
-ring; an account with only a weekly quota keeps its one primary ring. Floating-notch
-visibility, adaptive pill, edge and screen controls are disabled in taskbar mode.
-Changes apply while the app runs. Large indicators are bounded by the taskbar height
-and available width. Use Outside to keep the weekly arc around the 5-hour arc.
-Remaining mode reverses meter fill and numbers; warning colours still reflect used
-quota. Claude indicators hide stale or expired quota arcs; details retain dated
-historical readings and the last reported reset. Clicks respect the existing
-five-minute attempt floor, reset-boundary exception and each account's backoff.
+reuse the existing appearance settings. Floating-notch visibility, adaptive pill,
+edge and screen controls are disabled in taskbar mode. Changes apply while the app
+runs. Large indicators are bounded by the taskbar height. Claude indicators hide
+stale or expired quota arcs, as the notch does; details retain dated historical
+readings and the last reported reset. Clicks respect the existing five-minute
+attempt floor, reset-boundary exception and each account's backoff.
 
 The strip uses an owned native child window and DirectComposition. It does not
 inject code, subclass Explorer or alter its controls. UI Automation finds free

@@ -163,9 +163,10 @@ pub fn update(frame: Frame, scale: f32) {
     if state.closed.get() || state.closing.get() { return; }
     let reset_hover = {
         let mut data = state.data.borrow_mut();
-        let changed_layout = data.scale != scale || data.frame.appearance.size != frame.appearance.size
-            || data.frame.items.iter().map(|item| &item.id)
-            .ne(frame.items.iter().map(|item| &item.id));
+        // Cells are packed to their figures, so a new figure can move the ones after it.
+        let changed_layout = data.scale != scale || data.frame.appearance != frame.appearance
+            || data.frame.items.iter().map(|item| (&item.id, &item.text))
+            .ne(frame.items.iter().map(|item| (&item.id, &item.text)));
         data.refreshing.retain(|id, until| *until > Instant::now() && frame.items.iter().any(|item| &item.id == id));
         data.frame = frame;
         data.scale = scale;
@@ -190,9 +191,10 @@ pub fn hwnd() -> Option<HWND> {
 
 fn target(data: &Data, x: f32, y: f32) -> Option<(usize, f32, f32)> {
     if y < 0.0 || y >= data.height as f32 || !x.is_finite() || !y.is_finite() { return None; }
-    taskbar_model::layout(data.frame.items.len(), data.width as f32, data.height as f32, data.scale, data.frame.appearance.size)
+    taskbar_model::layout(&data.frame, data.width as f32, data.height as f32, data.scale)
         .into_iter().find(|slot| slot.contains(x, y, data.height as f32))
-        .map(|slot| (slot.index, slot.x, slot.width))
+        // The card centres on the ring and its tail points at it, not at the whole cell.
+        .map(|slot| (slot.index, slot.center_x - slot.unit * taskbar_model::UNITS / 2.0, slot.unit * taskbar_model::UNITS))
 }
 
 fn bump_hover(state: &NativeState) -> u64 {
@@ -210,7 +212,8 @@ fn defer(state: &Rc<NativeState>, action: Action) {
     let Some(app) = state.app.clone() else { return; };
     let generation = state.generation;
     std::thread::spawn(move || {
-        if matches!(action, Action::Hover { .. }) { std::thread::sleep(Duration::from_millis(140)); }
+        // The delay keeps a pass over the strip from opening a card; one already open just moves.
+        if matches!(action, Action::Hover { .. }) && !crate::taskbar::hover_open() { std::thread::sleep(Duration::from_millis(140)); }
         let handle = app.clone();
         let _ = app.run_on_main_thread(move || {
             let Some(current) = current_state() else { return; };
@@ -266,7 +269,8 @@ fn reconcile_timers(state: &Rc<NativeState>) {
         if wanted == running { continue; }
         unsafe {
             if wanted {
-                if SetTimer(window, id, if id == ANIMATION_TIMER { 34 } else { 500 }, None) == 0 {
+                // The notch steps its spin and pulse about ten times a second; 50 ms catches every step.
+                if SetTimer(window, id, if id == ANIMATION_TIMER { 50 } else { 500 }, None) == 0 {
                     critical_close(state, "start drawing timer", &windows::core::Error::from_win32());
                     return;
                 }
@@ -282,25 +286,23 @@ fn draw(state: &Rc<NativeState>, recreate: bool) -> windows::core::Result<()> {
     struct Drawing<'a>(&'a Cell<bool>);
     impl Drop for Drawing<'_> { fn drop(&mut self) { self.0.set(false); } }
     let _drawing = Drawing(&state.drawing);
-    let (renderer, renderer_size, frame, scale, width, height, hover, pressed) = {
+    let (renderer, renderer_size, frame, scale, width, height, pressed) = {
         let mut data = state.data.borrow_mut();
         if data.width == 0 || data.height == 0 { return Ok(()); }
         let now = Instant::now();
         data.refreshing.retain(|_, until| *until > now);
-        let mut frame = data.frame.clone();
-        for item in &mut frame.items {
-            if item.work_state == "idle" && data.refreshing.contains_key(&item.id) { item.work_state = "busy".into(); }
-        }
-        let hovered = data.input.hovered.as_deref().and_then(|id| frame.items.iter().position(|item| item.id == id));
-        let pressed = data.input.pressed.as_deref().or(data.input.right_pressed.as_deref())
-            .and_then(|id| frame.items.iter().position(|item| item.id == id));
-        (data.renderer.take(), data.renderer_size, frame, data.scale, data.width, data.height, hovered, pressed)
+        // A click refreshes as the notch's does: the ring presses in while the reading is fetched.
+        let held = data.input.pressed.as_deref().or(data.input.right_pressed.as_deref());
+        let pressed: Vec<usize> = data.frame.items.iter().enumerate()
+            .filter(|(_, item)| data.refreshing.contains_key(&item.id) || held == Some(item.id.as_str()))
+            .map(|(index, _)| index).collect();
+        (data.renderer.take(), data.renderer_size, data.frame.clone(), data.scale, data.width, data.height, pressed)
     };
     let Some(mut renderer) = renderer else {
         if !recreate { return Ok(()); }
         let mut renderer = Renderer::new(state.hwnd.get(), width, height)?;
         if state.closed.get() || state.closing.get() { return Ok(()); }
-        renderer.draw(&frame, scale, hover, pressed, state.started.elapsed().as_secs_f32())?;
+        renderer.draw(&frame, scale, &pressed, state.started.elapsed().as_secs_f32())?;
         if !state.closed.get() && !state.closing.get() {
             crate::applog(&format!("Native taskbar: renderer {}", renderer.driver()));
             let mut data = state.data.borrow_mut();
@@ -312,7 +314,7 @@ fn draw(state: &Rc<NativeState>, recreate: bool) -> windows::core::Result<()> {
     };
     if renderer_size != Some((width, height)) { renderer.resize(width, height)?; }
     if state.closed.get() || state.closing.get() { return Ok(()); }
-    renderer.draw(&frame, scale, hover, pressed, state.started.elapsed().as_secs_f32())?;
+    renderer.draw(&frame, scale, &pressed, state.started.elapsed().as_secs_f32())?;
     if !state.closed.get() && !state.closing.get() {
         let mut data = state.data.borrow_mut();
         data.renderer = Some(renderer);
@@ -515,8 +517,8 @@ mod tests {
 
     fn frame() -> Frame {
         Frame { dark: true, watch: 0.5, critical: 0.7, appearance:crate::taskbar_model::Appearance::from_config(&crate::config::Config::default()), items: ["claude@home", "claude@work"].into_iter().map(|id| Indicator {
-            id: id.into(), provider: "claude".into(), inner: Some(0.12), outer: Some(0.28),
-            text: "28%".into(), work_state: "idle".into(), dimmed: false, inner_weekly:false, outer_weekly:true,
+            id: id.into(), provider: "claude".into(), headline: Some(0.28), weekly: Some(0.12),
+            text: "28%".into(), work_state: "idle".into(), stale: false, spent: false,
         }).collect() }
     }
 
