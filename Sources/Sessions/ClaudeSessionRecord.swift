@@ -29,6 +29,15 @@ struct ClaudeSessionRecord {
     /// to tell which account a desktop session belongs to. See
     /// `ClaudeDesktopSessionIndex`.
     let hostSessionID: String?
+    /// Whether `session.name` is only Claude Code's stand-in — the folder and
+    /// two characters, `nikat-49` — so a title from the transcript should
+    /// replace it. See `ClaudeTranscript.title(inTail:)`.
+    ///
+    /// Claude Code says so itself with `nameSource: "derived"`. A record with
+    /// no `nameSource` comes from a build that did not say, and its name was
+    /// the stand-in too. Any other source chose the name on purpose, and it
+    /// stays.
+    let hasDerivedName: Bool
     let session: AgentSession
 
     /// Whether the Claude desktop app is what started this session.
@@ -78,6 +87,8 @@ struct ClaudeSessionRecord {
         self.reportsStatus = reportsStatus
         self.entrypoint = entrypoint
         self.hostSessionID = json["hostSessionId"] as? String
+        let nameSource = json["nameSource"] as? String
+        self.hasDerivedName = nameSource == nil || nameSource == "derived"
         if let started = (json["startedAt"] as? NSNumber)?.doubleValue {
             self.startedAt = Date(timeIntervalSince1970: started / 1000)
         } else {
