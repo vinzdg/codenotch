@@ -71524,6 +71524,28 @@
         }
       }
     },
+    "Codex on %@ signs in through %@ at %@, not with a login of its own, so there is no account here to read limits from.": {
+      "extractionState": "manual",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex en %@ inicia sesión a través de %@ en %@, no con una sesión propia, así que aquí no hay ninguna cuenta de la que leer límites."
+          }
+        }
+      }
+    },
+    "a proxy": {
+      "extractionState": "manual",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "un proxy"
+          }
+        }
+      }
+    },
     "Grok Bot has nothing metered on this account yet": {
       "extractionState": "manual",
       "localizations": {

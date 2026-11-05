@@ -20,6 +20,11 @@ actor CodexRemoteProvider: UsageProvider {
     /// Set when the endpoint returns 429. Until it passes, refreshes are
     /// skipped without touching the network.
     private var retryNoEarlierThan: Date?
+    /// A host whose Codex signs in through a proxy, as last found and until
+    /// when that finding is trusted. Without it every tick sshed twice — the
+    /// missing login, then the config — to learn the same thing again.
+    private var proxied: (why: String, until: Date)?
+    private let proxyRecheckInterval: TimeInterval = 10 * 60
 
     private let archive: UsageArchive
     /// How this host's session is obtained. Injected for the same reason the
@@ -42,9 +47,18 @@ actor CodexRemoteProvider: UsageProvider {
     }
 
     func fetchSnapshot() async throws -> ProviderSnapshot {
+        try await fetchSnapshot(freshness: .standard)
+    }
+
+    func fetchSnapshot(freshness: UsageFreshness) async throws -> ProviderSnapshot {
         let now = Date()
+        // Refresh now looks again: the host may have been signed in since.
+        if freshness == .fromSource { proxied = nil }
         if let retryNoEarlierThan, retryNoEarlierThan > now {
             throw UsageProviderError.rateLimited(retryAfter: retryNoEarlierThan.timeIntervalSince(now))
+        }
+        if let proxied, proxied.until > now {
+            throw UsageProviderError.nothingMetered(proxied.why)
         }
         do {
             let snapshot = try await fetch(retryingOnUnauthorized: true)
@@ -123,7 +137,15 @@ actor CodexRemoteProvider: UsageProvider {
         // rule is the loader's own: a token with no `exp` claim is trusted
         // and left for the server to validate.
         if let credential, !Self.isExpired(credential, now: now) { return credential }
-        let fresh = try loadCredential()
+        let fresh: CodexCredentials.Credential
+        do {
+            fresh = try loadCredential()
+        } catch UsageProviderError.nothingMetered(let why) {
+            // Only the loader's finding is held: the usage endpoint says
+            // `nothingMetered` too, and that one must not stall a real login.
+            proxied = (why, now.addingTimeInterval(proxyRecheckInterval))
+            throw UsageProviderError.nothingMetered(why)
+        }
         Log.usage.debug("\(self.id, privacy: .public): read remote codex session")
         credential = fresh
         return fresh
