@@ -21,8 +21,8 @@ import Foundation
 /// normalised to hours, as the CLI does. The Extra Usage wallet
 /// (`boosterWallet`) is money, not a window, and is left out here.
 ///
-/// Новый `usages` передаёт `used_ratio` и `reset_time` для пятичасовой,
-/// недельной и месячных квот. Длина месячного цикла не указана в ответе.
+/// The current `usages` object reports `used_ratio` and `reset_time` for
+/// five-hour, weekly and monthly quotas. It does not report monthly cycle lengths.
 enum KimiUsage {
     static let endpoint = URL(string: "https://api.kimi.com/coding/v1/usages")!
 
@@ -64,7 +64,7 @@ enum KimiUsage {
                       let window = quotaRow(id: quota.id, label: quota.label,
                                             from: detail, duration: quota.duration)
                 else { continue }
-                // Новый формат точнее целочисленных legacy-счётчиков и может приходить вместе с ними.
+                // Prefer precise ratios when the response also includes rounded legacy counts.
                 if let index = windows.firstIndex(where: { $0.id == quota.id }) {
                     windows.removeAll { $0.id == quota.id }
                     windows.insert(window, at: index)
