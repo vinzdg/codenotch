@@ -17,20 +17,35 @@ fn main() {
     let _ = std::io::stdin().take(MAX_STDIN).read_to_string(&mut body);
 
     let port = read_port();
+    let mut token = read_token();
     let ppid = parent_pid();
 
-    if send(port, &event, ppid, &body).is_ok() {
+    if send(port, &token, &event, ppid, &body).is_ok() {
         return;
     }
     // Main app not running: launch it detached, then retry briefly
     spawn_main();
     for _ in 0..20 {
         std::thread::sleep(Duration::from_millis(100));
-        if send(port, &event, ppid, &body).is_ok() {
+        if token.is_empty() {
+            token = read_token();
+        }
+        if send(port, &token, &event, ppid, &body).is_ok() {
             return;
         }
     }
     // Give up quietly — never affect Claude Code
+}
+
+/// Pulls auth token out of %APPDATA%\codenotch\auth_token (hand-rolled scan, no dependency)
+fn read_token() -> String {
+    let path = match std::env::var("APPDATA") {
+        Ok(a) => format!("{a}\\codenotch\\auth_token"),
+        Err(_) => return String::new(),
+    };
+    std::fs::read_to_string(path)
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default()
 }
 
 /// Pulls "port": N out of %APPDATA%\codenotch\config.json (hand-rolled scan, no dependency)
@@ -55,18 +70,28 @@ fn read_port() -> u16 {
     DEFAULT_PORT
 }
 
-fn send(port: u16, event: &str, ppid: u32, body: &str) -> std::io::Result<()> {
+fn build_request(event: &str, ppid: u32, token: &str, body: &str) -> String {
+    let auth_header = if !token.is_empty() {
+        format!("X-Codenotch-Token: {}\r\n", token)
+    } else {
+        String::new()
+    };
+    format!(
+        "POST /event?e={}&ppid={} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{}Connection: close\r\n\r\n{}",
+        event,
+        ppid,
+        body.len(),
+        auth_header,
+        body
+    )
+}
+
+fn send(port: u16, token: &str, event: &str, ppid: u32, body: &str) -> std::io::Result<()> {
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     let mut s = TcpStream::connect_timeout(&addr, Duration::from_millis(300))?;
     s.set_write_timeout(Some(Duration::from_millis(700)))?;
     s.set_read_timeout(Some(Duration::from_millis(700)))?;
-    let req = format!(
-        "POST /event?e={}&ppid={} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        event,
-        ppid,
-        body.len(),
-        body
-    );
+    let req = build_request(event, ppid, token, body);
     s.write_all(req.as_bytes())?;
     let mut buf = [0u8; 64];
     let _ = s.read(&mut buf); // wait for a response fragment to confirm delivery; failure does not matter
@@ -137,4 +162,24 @@ fn parent_pid() -> u32 {
 #[cfg(not(windows))]
 fn parent_pid() -> u32 {
     std::os::unix::process::parent_id()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_request_with_token() {
+        let req = build_request("session_start", 1234, "secret123", "{}");
+        assert!(req.contains("POST /event?e=session_start&ppid=1234 HTTP/1.1\r\n"));
+        assert!(req.contains("X-Codenotch-Token: secret123\r\n"));
+        assert!(req.contains("Content-Length: 2\r\n"));
+    }
+
+    #[test]
+    fn test_build_request_without_token() {
+        let req = build_request("running", 5678, "", "{}");
+        assert!(req.contains("POST /event?e=running&ppid=5678 HTTP/1.1\r\n"));
+        assert!(!req.contains("X-Codenotch-Token"));
+    }
 }

@@ -167,6 +167,9 @@ pub struct Config {
     /// Mac's usage pace setting. Off by default, as on the Mac.
     #[serde(default)]
     pub show_usage_pace: bool,
+    /// Require X-Codenotch-Token on /event requests (defense-in-depth, #165)
+    #[serde(default = "yes")]
+    pub require_event_token: bool,
 }
 
 fn default_taskbar_mode() -> String { "off".into() }
@@ -354,6 +357,7 @@ impl Default for Config {
             fold_for_full_screen: true,
             notch_shows_remaining: false,
             show_usage_pace: false,
+            require_event_token: true,
         }
     }
 }
