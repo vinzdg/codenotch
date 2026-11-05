@@ -178,6 +178,16 @@ Any `~/.claude-<slug>` directory Claude Code has run against is found at launch;
 the default `~/.claude` always comes first, the rest in alphabetical order, so the
 rings never swap places.
 
+An account you only use in the Claude desktop app has no directory of its own,
+so it has no ring yet. While one is in use, the ring that is shown is named for
+its own account (**Claude Gmail**, not just **Claude**), so you can tell which
+one it is. To give the desktop account a ring, sign in to it once from Terminal
+and restart Codenotch:
+
+```sh
+CLAUDE_CONFIG_DIR=~/.claude-desktop claude
+```
+
 Codex accounts work the same way: `~/.codex` stays the **Codex** ring, and each
 used `~/.codex-<slug>` directory adds a **Codex (slug)** ring with its own limits,
 activity and Settings row. Profiles are discovered at launch, default first,
