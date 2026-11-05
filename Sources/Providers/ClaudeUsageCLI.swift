@@ -318,10 +318,13 @@ struct ClaudeUsageCLI: Sendable {
             ))
         }
 
-        // Without the session window there is no headline, and the caller asks
-        // for one by id. Better to fall back to the token path than to draw a
-        // ring with a hole in it.
-        guard windows.contains(where: { $0.id == "session" }) else {
+        // A plan with no five-hour window prints only the weeks, and that is a
+        // whole answer: the snapshot still declares the session as its headline
+        // and the cell shows a dash, as it does when the endpoint leaves the
+        // window out. Refusing it sent every poll to the endpoint, whose 429s
+        // then froze the ring on an old reading (#519). An answer with no limit
+        // line in it at all is still refused, and the token path asked instead.
+        guard !windows.isEmpty else {
             throw UsageProviderError.badResponse(status: 0)
         }
         return windows.sorted(by: UsageResponse.displayOrder)
