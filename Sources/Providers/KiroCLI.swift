@@ -29,7 +29,14 @@ struct KiroCLI: Sendable {
 
     /// Non-interactive chat, one `/usage` prompt. `--no-interactive` is what
     /// stops it waiting on a TTY this app does not have.
-    static let arguments = ["chat", "--no-interactive", "/usage"]
+    ///
+    /// The engine is named because the V3 engine does not run `/usage` itself
+    /// in a headless chat: it hands it to the model as a prompt, and every poll
+    /// then spends credits until the timeout kills it (#520). A saved
+    /// `chat.agentEngine v3`, which kiro-cli's own upgrade prompt writes, is
+    /// enough to get there. `--agent-engine` outranks that setting for this one
+    /// call without changing it, and is accepted on `chat` only, not before it.
+    static let arguments = ["chat", "--agent-engine", "v2", "--no-interactive", "/usage"]
 
     // MARK: - Finding the binary
 
@@ -193,8 +200,19 @@ struct KiroCLI: Sendable {
 
         guard process.terminationStatus == 0 else {
             Log.usage.debug("kiro-cli /usage exited \(process.terminationStatus)")
-            // A non-zero exit is the CLI declining to answer, which in
-            // practice means it has no login of its own.
+            let said = (String(data: collected.value, encoding: .utf8) ?? "")
+                + (String(data: collectedErrors.value, encoding: .utf8) ?? "")
+            // A CLI that does not take the engine pin says so by name before
+            // it runs anything. That is not a missing login, and asking again
+            // without the pin is not safe: that is the call a V3 engine sends
+            // to the model.
+            if said.contains("--agent-engine") {
+                throw UsageProviderError.apiError(
+                    L10n.t("Kiro CLI rejected --agent-engine v2. Update kiro-cli to read usage.")
+                )
+            }
+            // Otherwise a non-zero exit is the CLI declining to answer, which
+            // in practice means it has no login of its own.
             throw UsageProviderError.needsAuth
         }
         guard let text = usageText(
