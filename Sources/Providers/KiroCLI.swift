@@ -35,7 +35,8 @@ struct KiroCLI: Sendable {
 
     private static let systemPaths = [
         "/opt/homebrew/bin/kiro-cli",
-        "/usr/local/bin/kiro-cli"
+        "/usr/local/bin/kiro-cli",
+        "/usr/bin/kiro-cli"
     ]
 
     /// Nil means kiro-cli is not installed in any of the places it installs
@@ -67,8 +68,10 @@ struct KiroCLI: Sendable {
         let home = environment["HOME"].map { URL(fileURLWithPath: $0) }
             ?? fileManager.homeDirectoryForCurrentUser
 
-        let candidates = [home.appendingPathComponent(".local/bin/kiro-cli")]
-            + systemPaths.map { URL(fileURLWithPath: $0) }
+        let candidates = [
+            home.appendingPathComponent(".local/bin/kiro-cli"),
+            home.appendingPathComponent(".cargo/bin/kiro-cli")
+        ] + systemPaths.map { URL(fileURLWithPath: $0) }
         if let found = candidates.first(where: { isRunnable($0.path, fileManager: fileManager) }) {
             return found
         }
@@ -203,13 +206,34 @@ struct KiroCLI: Sendable {
         return text
     }
 
+    private static let cardMarkers = [
+        "Estimated Usage",
+        "covered in plan",
+        "usage breakdown",
+        "Bonus credits",
+        "Overages:",
+        "KIRO",
+        "Kiro",
+        "Plan:"
+    ]
+
+    private static func hasCardMarkers(in text: String) -> Bool {
+        cardMarkers.contains { text.contains($0) }
+    }
+
     /// Whichever stream carries the card. Older CLIs print it to stdout and
     /// newer ones to stderr; either may also hold stray warnings, so the one
     /// with the card's heading wins, and otherwise whatever was said at all.
     static func usageText(stdout: String, stderr: String) -> String? {
         let marker = "Estimated Usage"
-        if stdout.contains(marker) { return stdout }
-        if stderr.contains(marker) { return stderr }
+        if stdout.contains(marker) && !stderr.contains(marker) { return stdout }
+        if stderr.contains(marker) && !stdout.contains(marker) { return stderr }
+
+        let stdoutCard = hasCardMarkers(in: stdout)
+        let stderrCard = hasCardMarkers(in: stderr)
+        if stdoutCard && !stderrCard { return stdout }
+        if stderrCard && !stdoutCard { return stderr }
+
         let said = stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? stderr : stdout
         return said.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : said
     }
