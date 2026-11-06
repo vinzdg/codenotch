@@ -302,6 +302,12 @@ final class Preferences: ObservableObject {
         deepSeekPricingSchedule = .current
     }
 
+    /// How DeepSeek's indicator is displayed: current usable credit balance
+    /// directly without lifetime spend percentage, or lifetime spend percentage.
+    @Published var deepSeekDisplayMode: DeepSeekDisplayMode {
+        didSet { defaults.set(deepSeekDisplayMode.rawValue, forKey: Keys.deepSeekDisplayMode) }
+    }
+
     /// Whether the weekly limit gets a ring of its own, and where it sits.
     /// Whether each ring carries its percentage under it, on every edge.
     ///
@@ -821,11 +827,21 @@ final class Preferences: ObservableObject {
         static let antigravityHeadlineModel = "antigravityHeadlineModel"
         static let deepSeekPricingEnabled = "deepSeekPricingEnabled"
         static let deepSeekPricingSchedule = "deepSeekPricingSchedule"
+        static let deepSeekDisplayMode = "deepSeekDisplayMode"
         static let showCodexExtraLimits = "showCodexExtraLimits"
         static let planCeilingMode = "planCeilingMode"
         static let ceilingWarningThreshold = "ceilingWarningThreshold"
         static let manualPlanCeilings = "manualPlanCeilings"
         static let observedPeakUsage = "observedPeakUsage"
+    }
+
+    nonisolated static func storedDeepSeekDisplayMode(
+        defaults: UserDefaults = .standard
+    ) -> DeepSeekDisplayMode {
+        guard let value = defaults.string(forKey: Keys.deepSeekDisplayMode),
+              let mode = DeepSeekDisplayMode(rawValue: value)
+        else { return .balance }
+        return mode
     }
 
     /// The budget read straight from disk, off the main actor.
@@ -1223,6 +1239,7 @@ final class Preferences: ObservableObject {
         } else {
             self.deepSeekPricingSchedule = .current
         }
+        self.deepSeekDisplayMode = Self.storedDeepSeekDisplayMode(defaults: defaults)
         // Absent means never chosen. Main display only, because that is what a
         // single-panel setup always did — all-displays on a fresh install
         // would put notches where none were expected.
