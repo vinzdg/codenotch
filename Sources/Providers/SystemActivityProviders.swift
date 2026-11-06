@@ -414,12 +414,22 @@ public actor EnergyProvider: UsageProvider {
             statusString = "\(percent)% · " + powerSource
         }
 
+        let batteryBand: UsageBand
+        if batteryLevel >= 0.50 {
+            batteryBand = .ample
+        } else if batteryLevel >= 0.20 {
+            batteryBand = .watch
+        } else {
+            batteryBand = .critical
+        }
+
         let primaryWindow = LimitWindow(
             id: "energy-status",
             label: L10n.t("Battery Level"),
             usedFraction: batteryLevel,
             usedText: "\(percent)%",
-            detail: statusString
+            detail: statusString,
+            bandOverride: batteryBand
         )
 
         let powerSourceWindow = LimitWindow(
@@ -442,6 +452,155 @@ public actor EnergyProvider: UsageProvider {
             status: .ok,
             windows: [primaryWindow, powerSourceWindow, chargingWindow],
             headlineID: "energy-status"
+        )
+    }
+}
+
+// MARK: - SMC Helper for Fan Speed
+private struct SMCKeyData {
+    struct Version {
+        var major: UInt8 = 0
+        var minor: UInt8 = 0
+        var build: UInt8 = 0
+        var reserved: UInt8 = 0
+    }
+    struct LimitData {
+        var version: UInt16 = 0
+        var length: UInt16 = 0
+        var cpuPLimit: UInt32 = 0
+        var gpuPLimit: UInt32 = 0
+        var memPLimit: UInt32 = 0
+    }
+    struct KeyInfo {
+        var dataSize: UInt32 = 0
+        var dataType: UInt32 = 0
+        var dataAttributes: UInt8 = 0
+    }
+
+    var key: UInt32 = 0
+    var vers = Version()
+    var pLimitData = LimitData()
+    var keyInfo = KeyInfo()
+    var padding: UInt8 = 0
+    var result: UInt8 = 0
+    var status: UInt8 = 0
+    var data8: UInt8 = 0
+    var data32: UInt32 = 0
+    var bytes: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
+                UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
+                UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
+                UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8) =
+        (0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0)
+}
+
+private enum SMCSpeedReader {
+    private static func fourCharKey(_ key: String) -> UInt32 {
+        var result: UInt32 = 0
+        for char in key.utf8 {
+            result = (result << 8) | UInt32(char)
+        }
+        return result
+    }
+
+    static func getFanRPM() -> Int {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSMC"))
+        guard service != 0 else { return 0 }
+        defer { IOObjectRelease(service) }
+
+        var conn: io_connect_t = 0
+        guard IOServiceOpen(service, mach_task_self_, 0, &conn) == kIOReturnSuccess else {
+            return 0
+        }
+        defer { IOServiceClose(conn) }
+
+        func readKey(_ keyStr: String) -> Double? {
+            let keyNum = fourCharKey(keyStr)
+            var input = SMCKeyData()
+            var output = SMCKeyData()
+            input.key = keyNum
+            input.data8 = 9 // kSMCGetKeyInfo
+
+            let inputSize = MemoryLayout<SMCKeyData>.stride
+            var outputSize = MemoryLayout<SMCKeyData>.stride
+
+            let status = IOConnectCallStructMethod(conn, 2, &input, inputSize, &output, &outputSize)
+            guard status == kIOReturnSuccess else { return nil }
+
+            input.keyInfo = output.keyInfo
+            input.data8 = 5 // kSMCReadKey
+
+            let readStatus = IOConnectCallStructMethod(conn, 2, &input, inputSize, &output, &outputSize)
+            guard readStatus == kIOReturnSuccess else { return nil }
+
+            let bytes = output.bytes
+            let size = output.keyInfo.dataSize
+            let type = output.keyInfo.dataType
+
+            if type == 0x666C7420 && size == 4 { // flt
+                var floatVal: Float = 0
+                var rawBytes = (bytes.0, bytes.1, bytes.2, bytes.3)
+                withUnsafeBytes(of: &rawBytes) { ptr in
+                    if let base = ptr.baseAddress {
+                        floatVal = base.assumingMemoryBound(to: Float.self).pointee
+                    }
+                }
+                return Double(floatVal)
+            } else if size >= 2 {
+                let val = (UInt16(bytes.0) << 8) | UInt16(bytes.1)
+                if type == 0x66706532 { // fpe2
+                    return Double(val) / 4.0
+                }
+                return Double(val)
+            }
+            return nil
+        }
+
+        let fan0 = readKey("F0Ac") ?? 0
+        let fan1 = readKey("F1Ac") ?? 0
+        let maxFan = max(fan0, fan1)
+        return Int(maxFan.rounded())
+    }
+}
+
+// MARK: - Fan Speed Provider
+public actor FanProvider: UsageProvider {
+    public let id = "system-fan"
+    public let displayName = "Fan Speed"
+    public let glyph = ProviderGlyph.fan
+    public let signInRoute = SignInRoute.guidance(L10n.t("System Activity Monitor"))
+
+    public init() {}
+
+    public func account() -> ProviderAccount? {
+        return ProviderAccount(id: id, displayName: "Fan Speed RPM", manageURL: nil)
+    }
+
+    public func signOut() async {}
+    public func forgetCachedCredential() {}
+
+    public func fetchSnapshot() async throws -> ProviderSnapshot {
+        let rpm = SMCSpeedReader.getFanRPM()
+        let maxExpectedRPM = 6000.0
+        let fraction = min(max(Double(rpm) / maxExpectedRPM, 0), 1)
+
+        let labelText = rpm > 0 ? "\(rpm) RPM" : L10n.t("0 RPM")
+
+        let primaryWindow = LimitWindow(
+            id: "fan-speed",
+            label: L10n.t("Fan Speed"),
+            usedFraction: fraction,
+            usedText: labelText,
+            detail: labelText
+        )
+
+        return ProviderSnapshot(
+            id: id,
+            displayName: displayName,
+            glyph: glyph,
+            fidelity: .official,
+            status: .ok,
+            windows: [primaryWindow],
+            headlineID: "fan-speed"
         )
     }
 }

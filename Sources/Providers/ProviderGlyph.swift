@@ -50,6 +50,7 @@ enum ProviderGlyph: String, Codable, Equatable {
     case thermals = "system-thermals"
     case network = "system-network"
     case energy = "system-energy"
+    case fan = "system-fan"
 
     var systemSymbolName: String? {
         switch self {
@@ -58,6 +59,7 @@ enum ProviderGlyph: String, Codable, Equatable {
         case .thermals: return "thermometer.medium"
         case .network: return "network"
         case .energy: return "bolt.fill"
+        case .fan: return "fanblades.fill"
         default: return nil
         }
     }
@@ -108,7 +110,7 @@ enum ProviderGlyph: String, Codable, Equatable {
         // the same scale brings this ink to the same extent.
         case .qianwenAI, .qoder: return 0.97
         case .devin, .qwen, .gemma, .meta, .deepseek, .mistral,
-             .ram, .cpu, .thermals, .network, .energy: return 1.0
+             .ram, .cpu, .thermals, .network, .energy, .fan: return 1.0
         }
     }
 
@@ -161,10 +163,54 @@ struct GlyphShape: Shape {
     }
 }
 
+struct SpiderShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let midX = rect.midX
+        let midY = rect.midY
+        let w = rect.width
+        let h = rect.height
+
+        // Abdomen & Cephalothorax
+        let abdomenRect = CGRect(x: midX - w * 0.16, y: midY - h * 0.05, width: w * 0.32, height: h * 0.36)
+        path.addEllipse(in: abdomenRect)
+
+        let headRect = CGRect(x: midX - w * 0.11, y: midY - h * 0.28, width: w * 0.22, height: h * 0.20)
+        path.addEllipse(in: headRect)
+
+        // 8 Curved Legs
+        let legOffsets: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (-0.08, -0.20, -0.40, -0.42),
+            (-0.10, -0.12, -0.46, -0.20),
+            (-0.10, -0.02, -0.46, 0.12),
+            (-0.08, 0.08, -0.40, 0.36)
+        ]
+
+        for (sx, sy, kx, ky) in legOffsets {
+            // Left leg
+            path.move(to: CGPoint(x: midX + sx * w, y: midY + sy * h))
+            path.addLine(to: CGPoint(x: midX + kx * w, y: midY + ky * h))
+            path.addLine(to: CGPoint(x: midX + (kx - 0.04) * w, y: midY + (ky + 0.10) * h))
+
+            // Right leg
+            path.move(to: CGPoint(x: midX - sx * w, y: midY + sy * h))
+            path.addLine(to: CGPoint(x: midX - kx * w, y: midY + ky * h))
+            path.addLine(to: CGPoint(x: midX - (kx - 0.04) * w, y: midY + (ky + 0.10) * h))
+        }
+
+        return path
+    }
+}
+
 struct ProviderGlyphView: View {
     let glyph: ProviderGlyph
     var customIconFilename: String? = nil
     var size: CGFloat = Design.px(46)
+
+    @State private var fanDegrees: Double = 0
+    @State private var globeAngle: Double = 0
+    @State private var thermometerOffset: CGFloat = 0
+    @State private var gradientOffset: CGFloat = 0
 
     var body: some View {
         Group {
@@ -173,6 +219,68 @@ struct ProviderGlyphView: View {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFit()
+            } else if glyph == .ram {
+                ZStack {
+                    SpiderShape()
+                        .stroke(Palette.textPrimary, lineWidth: 1.8)
+                    SpiderShape()
+                        .fill(Palette.textPrimary)
+                }
+            } else if glyph == .fan {
+                Image(systemName: "fanblades.fill")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .rotationEffect(.degrees(fanDegrees))
+                    .onAppear {
+                        withAnimation(.linear(duration: 2.0).repeatForever(autoreverses: false)) {
+                            fanDegrees = 360
+                        }
+                    }
+            } else if glyph == .cpu {
+                Image(systemName: "cpu")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .overlay(
+                        LinearGradient(
+                            colors: [Color.green, Color.red, Color.green],
+                            startPoint: UnitPoint(x: 0 - gradientOffset, y: 0),
+                            endPoint: UnitPoint(x: 1 + gradientOffset, y: 1)
+                        )
+                        .mask(
+                            Image(systemName: "cpu")
+                                .resizable()
+                                .scaledToFit()
+                        )
+                    )
+                    .onAppear {
+                        withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                            gradientOffset = 0.8
+                        }
+                    }
+            } else if glyph == .network {
+                Image(systemName: "globe")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .rotation3DEffect(.degrees(globeAngle), axis: (x: 0, y: 1, z: 0))
+                    .onAppear {
+                        withAnimation(.linear(duration: 3.0).repeatForever(autoreverses: false)) {
+                            globeAngle = 360
+                        }
+                    }
+            } else if glyph == .thermals {
+                Image(systemName: "thermometer.medium")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .offset(y: thermometerOffset)
+                    .onAppear {
+                        withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
+                            thermometerOffset = -3
+                        }
+                    }
             } else if let systemSymbol = glyph.systemSymbolName {
                 Image(systemName: systemSymbol)
                     .renderingMode(.template)

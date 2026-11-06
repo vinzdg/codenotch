@@ -128,7 +128,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 CPUProvider(),
                 ThermalsProvider(),
                 NetworkProvider(),
-                EnergyProvider()
+                EnergyProvider(),
+                FanProvider()
             ]
             let allProviders: [UsageProvider] = systemProviders
             preferences.reconcile(discoveredIDs: allProviders.map(\.id))

@@ -486,7 +486,15 @@ final class UsageStore: ObservableObject {
     /// least excusable — and spaced by `onLookInterval`, because attention is
     /// not a budget. Nothing here waits for the answer: the card opens on what
     /// is known now, and redraws when the fetch lands a moment later.
+    /// Force updates all system activity providers immediately, bypassing the onLookInterval throttle.
+    func forceRefreshSystemProviders() {
+        for provider in providers where provider.id.hasPrefix("system-") && !disconnected.contains(provider.id) {
+            refresh(providerID: provider.id, freshness: .live)
+        }
+    }
+
     func refreshBecauseSomeoneIsLooking() {
+        forceRefreshSystemProviders()
         let waited = lastAttempt.map { pollingNow().timeIntervalSince($0) } ?? .greatestFiniteMagnitude
         guard Self.shouldRefreshOnEvent(sinceLastRefresh: waited, spacing: onLookInterval) else { return }
         // The spacing is not relaxed for `.fromSource`, and not tightened

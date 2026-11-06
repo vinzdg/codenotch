@@ -460,10 +460,9 @@ struct NotchRootView: View {
                 // edge that is the ring alone — the label sits below it, in the
                 // notch's depth, and claims nothing here.
                 .frame(width: model.edge.isVertical ? nil : NotchLayout.cellAlong(for: model.edge))
+                .scaleEffect(model.isExpanded ? 1 : 0.6)
+                .rotationEffect(model.isExpanded ? .degrees(0) : .degrees(-15))
                 .opacity(model.isExpanded ? 1 : 0)
-                // A short slide toward the edge, no scaling: the clip is
-                // already doing the concealing, and scaling on top of it
-                // reads as two effects fighting.
                 .offset(
                     x: model.isExpanded ? 0 : model.edge.outward.x * Design.px(28),
                     y: model.isExpanded ? 0 : model.edge.outward.y * Design.px(28)
