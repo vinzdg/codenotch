@@ -348,11 +348,29 @@ final class WebSessionProvider: NSObject, UsageProvider {
         let webView = makeWebViewIfNeeded()
         if isLoaded, Self.matchesOrigin(webView.url, expected: site.origin) { return }
         webView.load(URLRequest(url: site.initialPath.isEmpty ? site.origin : site.origin.appendingPathComponent(site.initialPath)))
-        for _ in 0..<40 {
+        // Settled is a state the page has to *stay* in, not a moment it passes
+        // through. These consoles commit their HTML and hand off to SSO a beat
+        // later from script, so the first instant of "same origin, not
+        // loading" is often the gap *before* that hop — and a read fired there
+        // goes out on the cookie the site is in the middle of retiring: the
+        // 401 that took the ring down, and the reload's retry that followed it
+        // straight back into the same gap 345 ms later. Four quiet ticks (a
+        // second) before the page is believed; any navigation in them starts
+        // the count again, so a redirecting page is followed *through* its
+        // redirects — the SSO round trip included — rather than sampled ahead
+        // of them. The budget covers the round trip: eighty ticks, twenty
+        // seconds, well inside the store's own deadline for one pass.
+        var settledTicks = 0
+        for _ in 0..<80 {
             try await Task.sleep(nanoseconds: 250_000_000)
             if Self.matchesOrigin(webView.url, expected: site.origin), !webView.isLoading {
-                isLoaded = true
-                return
+                settledTicks += 1
+                if settledTicks >= 4 {
+                    isLoaded = true
+                    return
+                }
+            } else {
+                settledTicks = 0
             }
         }
         Log.usage.error("\(self.site.id, privacy: .public) page never reached a same-origin state")
