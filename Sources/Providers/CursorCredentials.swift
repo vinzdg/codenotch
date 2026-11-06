@@ -138,10 +138,9 @@ struct CursorCredentials {
         if editorInstalled {
             return .openApp(bundleID: bundleID, name: "Cursor")
         }
-        return .guidance(
-            "Run `cursor-agent login` once — the notch reads that session. "
-            + "The Cursor editor works the same way, if you have it."
-        )
+        return .guidance(L10n.t(
+            "Run `cursor-agent login` once — the notch reads that session. The Cursor editor works the same way, if you have it."
+        ))
     }
 
     static func forgetCachedAgent() { CursorAgentKeychain.forgetCached() }

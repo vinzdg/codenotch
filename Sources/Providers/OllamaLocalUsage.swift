@@ -59,13 +59,13 @@ enum OllamaError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidEndpoint:
-            return "Use an HTTP address on this Mac, such as http://127.0.0.1:11434."
+            return L10n.t("Use an HTTP address on this Mac, such as http://127.0.0.1:11434.")
         case .unavailable:
-            return "Ollama server unavailable. Open Ollama and check the server address."
+            return L10n.t("Ollama server unavailable. Open Ollama and check the server address.")
         case .invalidResponse:
-            return "This server did not return an Ollama model listing."
+            return L10n.t("This server did not return an Ollama model listing.")
         case .http(let code):
-            return "Ollama returned HTTP \(code). Check the server address and configuration."
+            return L10n.t("Ollama returned HTTP \(code). Check the server address and configuration.")
         }
     }
 }
