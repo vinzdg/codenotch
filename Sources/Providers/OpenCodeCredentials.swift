@@ -69,12 +69,25 @@ enum OpenCodeCredentials {
     /// app reading as signed out. The file is only asked when the database has
     /// no answer: missing, unreadable, or carrying no OpenCode row.
     static func load(in directory: URL = dataDirectory) -> Credential? {
-        if let stored = loadFromDatabase(directory.appendingPathComponent("opencode.db")) {
-            return stored
-        }
+        candidates(in: directory).first
+    }
+
+    /// **Every sign-in on file, in the order they are worth trying**: the Go
+    /// key first, then the OAuth sign-in, from the database when it has either
+    /// and from `auth.json` only otherwise — the same precedence as `load`,
+    /// whose answer is the first of these.
+    ///
+    /// More than one, because the first is not always good. OpenCode 2.x keeps
+    /// the Go key it imported from `auth.json` in the database beside the
+    /// OAuth sign-in it now makes, and when that key has expired at the console
+    /// it answers 401 while the sign-in next to it answers 200. The server is
+    /// the only judge of that, so the provider asks it credential by
+    /// credential rather than this loader guessing from the rows.
+    static func candidates(in directory: URL = dataDirectory) -> [Credential] {
+        let stored = candidatesFromDatabase(directory.appendingPathComponent("opencode.db"))
+        if !stored.isEmpty { return stored }
         let auth = directory.appendingPathComponent("auth.json")
-        if let go = loadGoKey(from: auth) { return go }
-        return loadOAuth(from: auth)
+        return [loadGoKey(from: auth), loadOAuth(from: auth)].compactMap { $0 }
     }
 
     // MARK: - Sources
@@ -105,7 +118,14 @@ enum OpenCodeCredentials {
     /// OpenCode has already rotated. `SQLiteStore` opens `mode=ro` first for
     /// that reason.
     static func loadFromDatabase(_ url: URL = databaseURL) -> Credential? {
-        guard let db = SQLiteStore.open(url) else { return nil }
+        candidatesFromDatabase(url).first
+    }
+
+    /// The database's sign-ins, one per integration id: the newest live Go
+    /// key, then the newest live OAuth sign-in. Empty when the database is
+    /// missing, unreadable, or holds no OpenCode row.
+    static func candidatesFromDatabase(_ url: URL = databaseURL) -> [Credential] {
+        guard let db = SQLiteStore.open(url) else { return [] }
         defer { sqlite3_close(db) }
 
         // Newest first, so a rotated sign-in beats the one it replaced. The
@@ -122,16 +142,20 @@ enum OpenCodeCredentials {
             columns: 2
         )
         // Go key first, then the OAuth sign-in: same order as the file sources,
-        // so a machine holding both reads the same account either way.
+        // so a machine holding both reads the same account either way. One
+        // of each — the newest — because an older row of the same id is the
+        // one the newer replaced, not a second account.
+        var found: [Credential] = []
         for wanted in ["opencode-go", "opencode"] {
             for row in rows where row[0] == wanted {
                 guard let value = try? JSONSerialization.jsonObject(with: Data(row[1].utf8)),
-                      let found = credential(from: value, source: "OpenCode")
+                      let parsed = credential(from: value, source: "OpenCode")
                 else { continue }
-                return found
+                found.append(parsed)
+                break
             }
         }
-        return nil
+        return found
     }
 
     // MARK: - Shapes

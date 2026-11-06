@@ -27,15 +27,22 @@ actor OpenCodeProvider: UsageProvider {
 
     private let session: URLSession
     private let archive: UsageArchive
+    /// Every sign-in OpenCode has on file, best first — see
+    /// `OpenCodeCredentials.candidates`. Injected so a test can hand the
+    /// provider a dead key beside a live sign-in without a database.
+    private let credentials: @Sendable () -> [OpenCodeCredentials.Credential]
     /// Set when the endpoint returns 429. Until it passes, refreshes are
     /// skipped without touching the network — the same bargain Claude's and
     /// GLM's make.
     private var retryNoEarlierThan: Date?
     private var consecutiveRateLimits = 0
 
-    init(session: URLSession = .shared, archive: UsageArchive = UsageArchive()) {
+    init(session: URLSession = .shared, archive: UsageArchive = UsageArchive(),
+         credentials: @escaping @Sendable () -> [OpenCodeCredentials.Credential]
+            = { OpenCodeCredentials.candidates() }) {
         self.session = session
         self.archive = archive
+        self.credentials = credentials
         self.retryNoEarlierThan = archive.loadBackoffUntil(providerID: id)
     }
 
@@ -67,12 +74,13 @@ actor OpenCodeProvider: UsageProvider {
 
         // Re-read on every fetch. This is an ordinary file, not a keychain
         // item: reading it puts no prompt in front of anyone.
-        guard let credential = OpenCodeCredentials.load() else {
+        let candidates = credentials()
+        guard !candidates.isEmpty else {
             throw UsageProviderError.needsAuth
         }
 
         do {
-            let data = try await fetch(credential)
+            let data = try await fetch(firstAcceptedOf: candidates)
             guard let text = String(data: data, encoding: .utf8) else {
                 throw UsageProviderError.badResponse(status: 0)
             }
@@ -102,6 +110,43 @@ actor OpenCodeProvider: UsageProvider {
             Log.usage.notice("opencode: rate limited (\(self.consecutiveRateLimits)x), next attempt in \(retryAfter, format: .fixed(precision: 0))s")
             throw UsageProviderError.rateLimited(retryAfter: retryAfter)
         }
+    }
+
+    /// **The usage, from the first credential the server accepts.**
+    ///
+    /// OpenCode 2.x keeps the Go key it imported from `auth.json` in its
+    /// database beside the OAuth sign-in it now makes, and the loader hands
+    /// the key over first. Once that key has expired at the console it answers
+    /// 401 while the sign-in beside it answers 200 — and a 401 on a key cannot
+    /// be told from a sign-out, so the ring read "connect the Go plan" on a
+    /// machine that was signed in and wiped the last good reading with it.
+    ///
+    /// So a credential the server turns away is not the verdict while there is
+    /// another to try. Only a turning-away moves on — a sign-out or an expiry;
+    /// a rate limit, a planless account or a broken response is an answer about
+    /// the account, and stands. With every credential refused, the last
+    /// refusal is the verdict: that is the OAuth sign-in's, which carries an
+    /// expiry hint of its own and so tells "sign in again" from "open
+    /// OpenCode, it will renew this".
+    private func fetch(firstAcceptedOf candidates: [OpenCodeCredentials.Credential])
+    async throws -> Data {
+        var refusal: UsageProviderError = .needsAuth
+        for (index, credential) in candidates.enumerated() {
+            do {
+                return try await fetch(credential)
+            } catch let error as UsageProviderError {
+                switch error {
+                case .needsAuth, .credentialExpired:
+                    refusal = error
+                    if index < candidates.count - 1 {
+                        Log.usage.debug("opencode: credential \(index + 1) of \(candidates.count) refused, trying the next")
+                    }
+                default:
+                    throw error
+                }
+            }
+        }
+        throw refusal
     }
 
     /// The route this credential is for. Not a preference: each refuses the
