@@ -32,6 +32,36 @@ enum ReleaseNotes {
     static var all: [ReleaseNote] {
         [
             ReleaseNote(
+                version: "1.25.0",
+                headline: L10n.t("Claude sessions named by their title, a lighter cost indexer, Krea, Japanese brought up to date, and a Windows taskbar strip drawn like the notch."),
+                changes: [
+                    ReleaseNote.Change(
+                        title: L10n.t("Sessions by title"),
+                        detail: L10n.t("Claude Code sessions carry their own title instead of the folder name.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("Lighter on big histories"),
+                        detail: L10n.t("The cost indexer checks each transcript far more cheaply, and costs react only when a usage reading changes.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("Krea and Xiaomi MiMo"),
+                        detail: L10n.t("A Krea AI ring, and a MiMo preset for Custom Endpoints.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("Several Grok accounts"),
+                        detail: L10n.t("One ring per Grok home directory.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("日本語"),
+                        detail: L10n.t("The Japanese translation is up to date.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("More"),
+                        detail: L10n.t("Claude plans with only weekly limits read again, the lone Claude ring is named when Claude Desktop uses another account, remote Claude readings are reused for five minutes, Kiro never sends /usage to the model, Kimi monthly quotas, MiniMax China keys, and Grok Bot readings dim past their reset. Rings in deficit sort by the soonest expiry.")
+                    ),
+                ]
+            ),
+            ReleaseNote(
                 version: "1.24.0",
                 headline: L10n.t("A menu bar that does more: provider cards, a waiting dot, your choice of width, order and click. Plus Spanish, Higgsfield, and rings ordered by what is about to expire."),
                 changes: [
