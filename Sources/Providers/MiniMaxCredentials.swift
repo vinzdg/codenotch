@@ -3,13 +3,13 @@ import Foundation
 /// Which MiniMax console a key or cookie belongs to.
 ///
 /// The two regions do not share accounts: a China key asked of api.minimax.io
-/// (or an international session cookie sent to www.minimaxi.com) answers as an
+/// (or an international session cookie sent to www.minimax.cn) answers as an
 /// auth failure, which would read as a signed-out plan that is merely pointed
 /// at the other country.
 enum MiniMaxRegion: String, Codable, CaseIterable {
     /// api.minimax.io / platform.minimax.io
     case international
-    /// api.minimaxi.com / platform.minimaxi.com
+    /// api.minimaxi.com / platform.minimax.cn
     case china
 
     var apiBase: URL {
@@ -19,21 +19,27 @@ enum MiniMaxRegion: String, Codable, CaseIterable {
         }
     }
 
+    /// China's console moved to minimax.cn: platform.minimaxi.com now answers
+    /// 302 to platform.minimax.cn. The sign-in sheet only probes a page on
+    /// this exact origin, so the old host left a finished sign-in unconfirmed
+    /// (#516).
     var platformOrigin: URL {
         switch self {
         case .international: return URL(string: "https://platform.minimax.io")!
-        case .china:         return URL(string: "https://platform.minimaxi.com")!
+        case .china:         return URL(string: "https://platform.minimax.cn")!
         }
     }
 
     /// The console host the coding-plan remains JSON is served from. A session
-    /// cookie is origin-scoped, so this is www rather than the API host.
+    /// cookie is origin-scoped, so this is www rather than the API host, and it
+    /// has to sit under the console's cookie domain: China's console sets its
+    /// cookies on .minimax.cn, so www.minimaxi.com would never receive them.
     var remainsURL: URL {
         switch self {
         case .international:
             return URL(string: "https://www.minimax.io/v1/api/openplatform/coding_plan/remains")!
         case .china:
-            return URL(string: "https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains")!
+            return URL(string: "https://www.minimax.cn/v1/api/openplatform/coding_plan/remains")!
         }
     }
 
