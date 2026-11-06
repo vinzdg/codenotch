@@ -69,13 +69,8 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .accounts:      return "gauge.with.dots.needle.bottom.50percent"
         case .phone:         return "iphone"
-        case .deepseek:      return "chart.line.uptrend.xyaxis"
-        case .ollama:        return "desktopcomputer"
-        case .lmstudio:      return "cpu"
-        case .customEndpoints: return "network"
         case .appearance:    return "paintbrush.fill"
         case .notifications: return "bell.badge.fill"
-        case .costs:         return "banknote.fill"
         case .general:       return "gearshape.fill"
         }
     }
@@ -432,8 +427,6 @@ struct SettingsView: View {
     let resetPosition: () -> Void
     let quit: () -> Void
     @ObservedObject var updater: Updater
-    var ollamaRelay: OllamaActivityRelay? = nil
-    var lmstudioMetrics: LMStudioMetrics? = nil
     var usageStore: UsageStore? = nil
     var previewResetAlert: (() -> Void)? = nil
     var previewSessionLimitAlert: (() -> Void)? = nil
@@ -543,9 +536,6 @@ struct SettingsView: View {
                 let choices = MenuBarChoice.listed(in: snapshots)
                 if choices != menuBarChoices { menuBarChoices = choices }
             }
-        .onReceive(preferences.$customEndpoints.receive(on: RunLoop.main)) { _ in
-            accounts = providers()
-        }
     }
 
     /// The subject list: a full-height column on a shade lighter than the

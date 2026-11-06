@@ -21,8 +21,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let switchAccount: (String) -> Bool
     private let retry: (String) -> Void
     private let updater: Updater
-    private let ollamaRelay: OllamaActivityRelay?
-    private let lmstudioMetrics: LMStudioMetrics?
     private let usageStore: UsageStore?
     let phoneLinkPairing: PhoneLinkPairing?
     let phoneLinkRegistry: PhoneLinkRegistry?
@@ -48,10 +46,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
          previewWeeklyLimitAlert: (() -> Void)? = nil,
          sendTestNotification: (() -> Void)? = nil,
          usageStore: UsageStore? = nil,
-         ollamaRelay: OllamaActivityRelay? = nil,
-         lmstudioMetrics: LMStudioMetrics? = nil, phoneLinkPairing: PhoneLinkPairing? = nil, phoneLinkRegistry: PhoneLinkRegistry? = nil, phoneLinkServerStatus: PhoneLinkServerStatus? = nil) {
-        self.ollamaRelay = ollamaRelay
-        self.lmstudioMetrics = lmstudioMetrics
+         phoneLinkPairing: PhoneLinkPairing? = nil, phoneLinkRegistry: PhoneLinkRegistry? = nil, phoneLinkServerStatus: PhoneLinkServerStatus? = nil) {
         self.usageStore = usageStore
         self.phoneLinkPairing = phoneLinkPairing
         self.phoneLinkRegistry = phoneLinkRegistry
@@ -267,7 +262,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                                    resetPosition: resetPosition,
                                    quit: quit,
                                    updater: updater,
-                                   ollamaRelay: ollamaRelay, lmstudioMetrics: lmstudioMetrics,
                                    usageStore: usageStore,
                                    previewResetAlert: previewResetAlert,
                                    previewSessionLimitAlert: previewSessionLimitAlert,

@@ -1045,11 +1045,9 @@ final class Preferences: ObservableObject {
         menuBarProviders = menuBarLimits.choosing(shown, providerID, among: listed).chosen
     }
 
-    /// System providers, Claude, and Codex stay on by default.
+    /// System providers stay on by default.
     nonisolated static func isDefaultOnFamily(_ providerID: String) -> Bool {
         providerID.hasPrefix("system-")
-            || ClaudeProfile.isClaude(providerID: providerID)
-            || CodexProfile.isCodex(providerID: providerID)
     }
 
     /// Model cells are `providerID:model:…`. A new loaded model is not a new
@@ -1093,7 +1091,7 @@ final class Preferences: ObservableObject {
         }
         if defaults.object(forKey: Keys.connected) == nil {
             // First install: persist system metrics as on.
-            connectedProviders = ["system-ram", "system-cpu", "system-thermals", "system-network", "system-energy"]
+            connectedProviders = ["system-ram", "system-cpu", "system-thermals", "system-network", "system-energy", "system-fan"]
         }
         if connected {
             connectedProviders.insert(providerID)
