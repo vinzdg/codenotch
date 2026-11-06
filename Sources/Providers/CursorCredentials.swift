@@ -9,8 +9,10 @@ import SQLite3
 /// token: the owning tool mints and refreshes it, we borrow the current value.
 /// The editor database is opened read-only and never `immutable`, so a running
 /// editor is not blocked and a rotated token is not served from a stale
-/// checkpoint. The agent token lives in the login keychain; that read is
-/// cached, because every data fetch can raise a prompt.
+/// checkpoint. Recent editor builds seal `cursorAuth/accessToken` as
+/// `cursor-safe-storage:v1:…`; `CursorSafeStorage` opens that envelope before
+/// the cookie is built. The agent token lives in the login keychain; that
+/// read is cached, because every data fetch can raise a prompt.
 ///
 /// The two sessions are the same cookie. `/api/usage-summary` wants
 /// `WorkosCursorSessionToken={accountID}::{accessToken}`. The editor stores
@@ -102,8 +104,14 @@ struct CursorCredentials {
         guard let db = SQLiteStore.open(url) else { throw UsageProviderError.needsAuth }
         defer { sqlite3_close(db) }
 
-        guard let token = value(forKey: "cursorAuth/accessToken", in: db),
-              !token.isEmpty
+        guard let stored = value(forKey: "cursorAuth/accessToken", in: db),
+              !stored.isEmpty
+        else { throw UsageProviderError.needsAuth }
+
+        // Recent Cursor builds seal the token as `cursor-safe-storage:v1:…`.
+        // Posting that blob as the session cookie is what the notch reported as
+        // "Sign in to Cursor to see usage" while the editor was still signed in.
+        guard let token = CursorSafeStorage.decodeAccessToken(stored), !token.isEmpty
         else { throw UsageProviderError.needsAuth }
 
         // Prefer the editor's cached WorkOS id when present. Recent Cursor

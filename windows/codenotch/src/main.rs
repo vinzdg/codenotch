@@ -26,6 +26,7 @@ mod codex;
 mod reset_watch;
 mod reset_alert;
 mod cursor;
+mod cursor_safe_storage;
 mod deepseek_harness;
 mod grok;
 mod copilot;

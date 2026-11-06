@@ -23,6 +23,10 @@
 //! then `immutable=1` (once the editor has exited and the -shm is gone, mode=ro fails to open; by
 //! then the WAL has been checkpointed, so ignoring it costs nothing).
 //! Read only, never written; token values never reach logs, events or the UI.
+//!
+//! Recent Cursor builds seal `cursorAuth/accessToken` as `cursor-safe-storage:v1:…`
+//! (Chromium OSCrypt). See `cursor_safe_storage` — posting the sealed blob as the
+//! session cookie is what produced "Sign in to Cursor to see usage" while signed in.
 
 use crate::usage::{duration_between_ms, LimitWindow, UsageSnapshot};
 use crate::AppState;
@@ -121,7 +125,10 @@ struct Creds {
 fn read_credentials() -> Option<Creds> {
     let path = store_url()?;
     let conn = open_ro(&path)?;
-    let token = item(&conn, "cursorAuth/accessToken")?;
+    let stored = item(&conn, "cursorAuth/accessToken")?;
+    // Sealed values must be opened; treating ciphertext as a JWT yields a 401 that
+    // the UI reports as "Sign in to Cursor to see usage."
+    let token = crate::cursor_safe_storage::decode_access_token(&stored)?;
     let auth_id = item(&conn, "cursorAuth/stripeMembershipAuthId")?;
     let plan = item(&conn, "cursorAuth/stripeMembershipType");
     Some(Creds { cookie: format!("WorkosCursorSessionToken={auth_id}::{token}"), plan })
