@@ -339,6 +339,22 @@ final class ClaudeOAuthProviderTests: XCTestCase {
         XCTAssertEqual(StubEndpoint.requestCount, 0, "the endpoint was called even though the CLI answered")
     }
 
+    /// #519: a plan with no five-hour window. Its weekly-only answer is the
+    /// reading, not a reason to ask an endpoint that was answering it with
+    /// 429s, so the weekly ring keeps moving.
+    func testAWeeklyOnlyCLIAnswerIsTheReading() async throws {
+        StubEndpoint.reset([.init(status: 429)])
+        let source = CredentialSource(readable: true)
+        let provider = makeProvider(source: source, cli: Self.cli(answering: Self.cliWeeklyOnlyUsage))
+
+        let snapshot = try await provider.fetchSnapshot()
+
+        XCTAssertEqual(snapshot.windows.map(\.id), ["weekly_all", "weekly_fable"])
+        XCTAssertEqual(snapshot.weeklyLimitWindow?.usedFraction, 0.15)
+        XCTAssertEqual(source.reads, 0, "a weekly-only answer still fell back to the keychain")
+        XCTAssertEqual(StubEndpoint.requestCount, 0, "a weekly-only answer still fell back to the endpoint")
+    }
+
     /// A CLI that cannot answer is a reason to ask the endpoint, never a reason
     /// to fail the refresh — otherwise installing Claude Code and signing out
     /// of it would take the ring down on a machine whose token is fine.
@@ -796,6 +812,15 @@ final class ClaudeOAuthProviderTests: XCTestCase {
         return """
         Current session: 38% used · resets \(jakarta(now.addingTimeInterval(3 * 3600))) (Asia/Jakarta)
         Current week (all models): 4% used · resets \(jakarta(now.addingTimeInterval(6 * 86_400))) (Asia/Jakarta)
+        """
+    }
+
+    /// What a plan without a five-hour window prints (#519): the weeks only.
+    private static var cliWeeklyOnlyUsage: String {
+        let reset = jakarta(Date().addingTimeInterval(6 * 86_400))
+        return """
+        Current week (all models): 15% used · resets \(reset) (Asia/Jakarta)
+        Current week (Fable): 0% used · resets \(reset) (Asia/Jakarta)
         """
     }
 
