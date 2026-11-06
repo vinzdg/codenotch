@@ -36,6 +36,7 @@ actor RAMProvider: UsageProvider {
         var appGB = 0.0
         var wiredGB = 0.0
         var compressedGB = 0.0
+        var freeGB = 0.0
 
         if result == KERN_SUCCESS {
             let pageSize = Double(vm_kernel_page_size)
@@ -43,6 +44,7 @@ actor RAMProvider: UsageProvider {
             let wired = Double(vmStats.wire_count) * pageSize
             let compressed = Double(vmStats.compressor_page_count) * pageSize
             let purgeable = Double(vmStats.purgeable_count) * pageSize
+            let free = Double(vmStats.free_count) * pageSize
 
             let usedBytes = active + wired + compressed - purgeable
             usedFraction = min(max(usedBytes / totalBytes, 0), 1)
@@ -50,6 +52,17 @@ actor RAMProvider: UsageProvider {
             appGB = (active - purgeable) / 1_073_741_824.0
             wiredGB = wired / 1_073_741_824.0
             compressedGB = compressed / 1_073_741_824.0
+            freeGB = free / 1_073_741_824.0
+        }
+
+        // Query swap memory usage via sysctl
+        var swapUsage = xsw_usage()
+        var swapSize = MemoryLayout<xsw_usage>.size
+        var swapUsedGB = 0.0
+        var swapTotalGB = 0.0
+        if sysctlbyname("vm.swapusage", &swapUsage, &swapSize, nil, 0) == 0 {
+            swapUsedGB = Double(swapUsage.xsu_used) / 1_073_741_824.0
+            swapTotalGB = Double(swapUsage.xsu_total) / 1_073_741_824.0
         }
 
         let totalGBNum = totalBytes / 1_073_741_824.0
@@ -82,13 +95,28 @@ actor RAMProvider: UsageProvider {
             usedText: String(format: "%.1f GB", max(0, compressedGB))
         )
 
+        let freeWindow = LimitWindow(
+            id: "ram-free",
+            label: L10n.t("Free Memory"),
+            usedText: String(format: "%.1f GB", max(0, freeGB))
+        )
+
+        let swapDetail = swapTotalGB > 0
+            ? String(format: "%.1f GB / %.1f GB", swapUsedGB, swapTotalGB)
+            : String(format: "%.1f GB", swapUsedGB)
+        let swapWindow = LimitWindow(
+            id: "ram-swap",
+            label: L10n.t("Swap Used"),
+            usedText: swapDetail
+        )
+
         return ProviderSnapshot(
             id: id,
             displayName: displayName,
             glyph: glyph,
             fidelity: .official,
             status: .ok,
-            windows: [primaryWindow, appWindow, wiredWindow, compressedWindow],
+            windows: [primaryWindow, appWindow, wiredWindow, compressedWindow, freeWindow, swapWindow],
             headlineID: "ram-usage"
         )
     }
@@ -170,13 +198,29 @@ actor CPUProvider: UsageProvider {
             usedText: "\(coreCount)"
         )
 
+        // System Load Averages (1m, 5m, 15m)
+        var loadavg = [Double](repeating: 0.0, count: 3)
+        let loadCount = getloadavg(&loadavg, 3)
+        let loadText: String
+        if loadCount > 0 {
+            loadText = String(format: "%.2f, %.2f, %.2f", loadavg[0], loadavg[1], loadavg[2])
+        } else {
+            loadText = L10n.t("Unavailable")
+        }
+
+        let loadWindow = LimitWindow(
+            id: "cpu-loadavg",
+            label: L10n.t("Load Average (1/5/15m)"),
+            usedText: loadText
+        )
+
         return ProviderSnapshot(
             id: id,
             displayName: displayName,
             glyph: glyph,
             fidelity: .official,
             status: .ok,
-            windows: [primaryWindow, userWindow, sysWindow, coresWindow],
+            windows: [primaryWindow, userWindow, sysWindow, coresWindow, loadWindow],
             headlineID: "cpu-usage"
         )
     }
@@ -330,13 +374,28 @@ actor NetworkProvider: UsageProvider {
             usedText: ulText
         )
 
+        let totalInText = formatBytes(bytesIn)
+        let totalOutText = formatBytes(bytesOut)
+
+        let totalInWindow = LimitWindow(
+            id: "network-total-in",
+            label: L10n.t("Total Received"),
+            usedText: totalInText
+        )
+
+        let totalOutWindow = LimitWindow(
+            id: "network-total-out",
+            label: L10n.t("Total Sent"),
+            usedText: totalOutText
+        )
+
         return ProviderSnapshot(
             id: id,
             displayName: displayName,
             glyph: glyph,
             fidelity: .official,
             status: .ok,
-            windows: [primaryWindow, downloadWindow, uploadWindow],
+            windows: [primaryWindow, downloadWindow, uploadWindow, totalInWindow, totalOutWindow],
             headlineID: "network-speed"
         )
     }
@@ -348,6 +407,19 @@ actor NetworkProvider: UsageProvider {
             return "\(Int((bytesPerSec / 1024.0).rounded())) KB/s"
         } else {
             return String(format: "%.1f MB/s", bytesPerSec / 1_048_576.0)
+        }
+    }
+
+    private func formatBytes(_ bytes: UInt64) -> String {
+        let b = Double(bytes)
+        if b < 1024 {
+            return "\(bytes) B"
+        } else if b < 1_048_576 {
+            return String(format: "%.1f KB", b / 1024.0)
+        } else if b < 1_073_741_824 {
+            return String(format: "%.1f MB", b / 1_048_576.0)
+        } else {
+            return String(format: "%.2f GB", b / 1_073_741_824.0)
         }
     }
 }
@@ -380,6 +452,8 @@ actor EnergyProvider: UsageProvider {
         var isCharging = false
         var powerSource = L10n.t("AC Power")
         var hasBattery = false
+        var timeRemainingMinutes: Int? = nil
+        var isCharged = false
 
         if let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
            let sources = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [CFTypeRef] {
@@ -400,6 +474,14 @@ actor EnergyProvider: UsageProvider {
                     if let charging = description[kIOPSIsChargingKey] as? Bool {
                         isCharging = charging
                     }
+                    if let charged = description[kIOPSIsChargedKey] as? Bool {
+                        isCharged = charged
+                    }
+                    if let timeToEmpty = description[kIOPSTimeToEmptyKey] as? Int, timeToEmpty > 0 {
+                        timeRemainingMinutes = timeToEmpty
+                    } else if let timeToFull = description[kIOPSTimeToFullChargeKey] as? Int, timeToFull > 0 {
+                        timeRemainingMinutes = timeToFull
+                    }
                 }
             }
         }
@@ -408,10 +490,26 @@ actor EnergyProvider: UsageProvider {
         let statusString: String
         if !hasBattery {
             statusString = L10n.t("AC Power")
+        } else if isCharged {
+            statusString = "\(percent)% · " + L10n.t("Fully Charged")
         } else if isCharging {
-            statusString = "\(percent)% · " + L10n.t("Charging")
+            if let mins = timeRemainingMinutes {
+                let hrs = mins / 60
+                let remMins = mins % 60
+                let timeStr = hrs > 0 ? "\(hrs)h \(remMins)m" : "\(remMins)m"
+                statusString = "\(percent)% · \(timeStr) until full"
+            } else {
+                statusString = "\(percent)% · " + L10n.t("Charging")
+            }
         } else {
-            statusString = "\(percent)% · " + powerSource
+            if let mins = timeRemainingMinutes {
+                let hrs = mins / 60
+                let remMins = mins % 60
+                let timeStr = hrs > 0 ? "\(hrs)h \(remMins)m" : "\(remMins)m"
+                statusString = "\(percent)% · \(timeStr) remaining"
+            } else {
+                statusString = "\(percent)% · " + powerSource
+            }
         }
 
         let batteryBand: UsageBand
@@ -441,8 +539,23 @@ actor EnergyProvider: UsageProvider {
         let chargingWindow = LimitWindow(
             id: "energy-charging",
             label: L10n.t("State"),
-            usedText: isCharging ? L10n.t("Charging") : (hasBattery ? L10n.t("Discharging") : L10n.t("Connected"))
+            usedText: isCharging ? L10n.t("Charging") : (hasBattery ? (isCharged ? L10n.t("Fully Charged") : L10n.t("Discharging")) : L10n.t("Connected"))
         )
+
+        var windows = [primaryWindow, powerSourceWindow, chargingWindow]
+
+        if let mins = timeRemainingMinutes {
+            let hrs = mins / 60
+            let remMins = mins % 60
+            let formattedTime = hrs > 0 ? "\(hrs)h \(remMins)m" : "\(remMins)m"
+            let timeLabel = isCharging ? L10n.t("Time to Full") : L10n.t("Time Remaining")
+            let timeWindow = LimitWindow(
+                id: "energy-time",
+                label: timeLabel,
+                usedText: formattedTime
+            )
+            windows.append(timeWindow)
+        }
 
         return ProviderSnapshot(
             id: id,
@@ -450,7 +563,7 @@ actor EnergyProvider: UsageProvider {
             glyph: glyph,
             fidelity: .official,
             status: .ok,
-            windows: [primaryWindow, powerSourceWindow, chargingWindow],
+            windows: windows,
             headlineID: "energy-status"
         )
     }

@@ -440,15 +440,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak fleet] in fleet?.apply(foldsForFullScreen: $0) }
                 .store(in: &cancellables)
 
-            preferences.$deepSeekPricingEnabled
-                .receive(on: RunLoop.main)
-                .sink { [weak fleet] in fleet?.apply(deepSeekPricingEnabled: $0) }
-                .store(in: &cancellables)
-
-            preferences.$deepSeekPricingSchedule
-                .receive(on: RunLoop.main)
-                .sink { [weak fleet] in fleet?.apply(deepSeekPricingSchedule: $0) }
-                .store(in: &cancellables)
 
 
 
@@ -777,8 +768,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fleet.apply(weeklyReading: preferences.weeklyReading)
         fleet.apply(foldsForFullScreen: preferences.foldsForFullScreen)
         fleet.apply(surfaceStyle: preferences.notchSurfaceStyle)
-        fleet.apply(deepSeekPricingEnabled: preferences.deepSeekPricingEnabled)
-        fleet.apply(deepSeekPricingSchedule: preferences.deepSeekPricingSchedule)
         fleet.show()
     }
 
@@ -868,10 +857,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         if preferences.sessionEndSound { SessionChime.play(preferences.sessionEndSoundName) }
-        var notice = UsageResetEvent(providerID: "codenotch", providerName: "Sys Notch",
+        var notice = UsageResetEvent(providerID: "sysnotch", providerName: "Sys Notch",
                                      windowLabel: "", glyph: .ram,
                                      previousFraction: 0, currentFraction: 0, resetsAt: nil)
-        notice.noticeTitle = L10n.t("Codenotch test")
+        notice.noticeTitle = L10n.t("Sys Notch test")
         notice.noticeSubtitle = L10n.t("This is what one looks like.")
         notice.noticeStatus = ""
         fleet.showResetAlert(notice, duration: 5.0)
