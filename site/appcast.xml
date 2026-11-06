@@ -3,23 +3,22 @@
     <channel>
         <title>Codenotch</title>
         <item>
-            <title>1.24.0</title>
-            <pubDate>Sat, 24 Oct 2026 12:20:33 +0700</pubDate>
-            <sparkle:version>26</sparkle:version>
-            <sparkle:shortVersionString>1.24.0</sparkle:shortVersionString>
+            <title>1.25.0</title>
+            <pubDate>Fri, 06 Nov 2026 20:41:01 +0700</pubDate>
+            <sparkle:version>27</sparkle:version>
+            <sparkle:shortVersionString>1.25.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<p>A menu bar that does more: provider cards, a waiting dot, your choice of width, order and click. Plus Spanish, Higgsfield, and rings ordered by what is about to expire.</p>
+            <description><![CDATA[<p>Claude sessions named by their title, a lighter cost indexer, Krea, Japanese brought up to date, and a Windows taskbar strip drawn like the notch.</p>
 <ul>
-<li><b>Provider cards in the menu</b>, with a Detail switch per card.</li>
-<li><b>Waiting and done in the menu bar</b>: a red dot when an agent waits for you, a blink when it finishes, and a deeper working pulse.</li>
-<li><b>The menu bar, your way</b>: show what is left, choose how much each reading prints, sort by what is left, and pick what a click does.</li>
-<li><b>Order rings by burn deficit</b>: quota that would expire unused comes first.</li>
-<li><b>Español</b> on the Mac and on Windows, and a <b>Higgsfield</b> ring.</li>
-<li>Antigravity reads the quota group you chose, Ollama's cloud usage, OpenCode 2.x keys, whole tokens per second under local rings, and even bar thickness.</li>
-<li><b>Windows</b>: Claude accounts and an optional taskbar display, Command Code, Qoder, DeepSeek Harness, OpenCode sessions, and an optional usage pace line.</li>
+<li><b>Sessions by title</b>: Claude Code sessions carry their own title instead of the folder name.</li>
+<li><b>Lighter on big histories</b>: the cost indexer checks each transcript far more cheaply, and costs react only when a reading changes.</li>
+<li><b>Krea</b> ring, a <b>Xiaomi MiMo</b> preset for Custom Endpoints, and one ring per <b>Grok</b> home directory.</li>
+<li><b>日本語</b> is up to date.</li>
+<li>Claude plans with only weekly limits read again, remote Claude readings are reused for five minutes, Kiro never sends /usage to the model, Kimi monthly quotas, MiniMax China keys, and deficit rings sort by the soonest expiry.</li>
+<li><b>Windows</b>: the taskbar strip and its card drawn as the notch, Claude accounts as rows in the provider list, Antigravity read through agy.exe, and hook events that must carry a local token.</li>
 </ul>
 ]]></description>
-            <enclosure url="https://hivinz.com/Codenotch-1.24.0.dmg" length="13615778" type="application/octet-stream" sparkle:edSignature="hLrTXm3V7GA0wjQqR6wJUQL5rSgQpwElp28pNEBpIgu/TzHliDQCgWCxwY7dVMlmTjUi3n8W7um0bcgj7Ro+AQ=="/>
+            <enclosure url="https://hivinz.com/Codenotch-1.25.0.dmg" length="13851246" type="application/octet-stream" sparkle:edSignature="sEWE9gYa6xh+1FwD9QYdJ5W+74ySMkymqxK21Sj6wIIgsxbMCP9gry6fC1TWSSe8XUs8TnZXCb2cDpt+yiOgBQ=="/>
         </item>
     </channel>
 </rss>
