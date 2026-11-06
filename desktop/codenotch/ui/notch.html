@@ -1908,9 +1908,16 @@ function settle(id){
 // a press on the pill is only ever a click — a ring refreshes (#244) — so one that slips can no
 // longer carry the notch off (#251).
 pill.addEventListener('mousedown',e=>{ if(e.button!==0||folded)return; press={x:e.clientX,y:e.clientY,id:cellAt(e.clientX,e.clientY)||hoverId,alt:e.altKey}; });
+// Linux: the same Alt-drag and the move handle slide along the current edge. They do not
+// open carry.html, so the page must not arm the overlay or wait for carry_hold.
+function beginEdgeSlide(){
+  dragging=true; clearTimeout(hideTimer); hideCard();
+  invoke('begin_carry',{shape:{}}).catch(err=>{notice('begin_carry failed: '+err);dragging=false;});
+}
 document.addEventListener('mousemove',e=>{
   if(!press||dragging||!press.alt)return;
   if(Math.abs(e.clientY-press.y)>4||Math.abs(e.clientX-press.x)>4){
+    if(isLinux){ beginEdgeSlide(); return; }
     dragging=true; clearTimeout(hideTimer); hideCard();
     const handle=beginHandleCarry(false);
     invoke('begin_carry',{shape:{...carryShape(),handle}}).catch(err=>{notice('begin_carry failed: '+err);dragging=false;endHandleCarry();});
@@ -1932,7 +1939,10 @@ function carryShape(){
 // Emptied once the overlay has this notch drawn, and shown again where it was put down, after which
 // the overlay can go — so between them there is never a frame with neither
 let carried=false;
-listen('carry_hold',()=>{ carried=true; document.documentElement.style.visibility='hidden'; }).catch(()=>{});
+listen('carry_hold',()=>{
+  if(isLinux) return;
+  carried=true; document.documentElement.style.visibility='hidden';
+}).catch(()=>{});
 document.addEventListener('mouseup',e=>{
   if(e.button!==0)return;
   if(press&&!dragging&&press.id) refreshRing(press.id);
@@ -2213,6 +2223,7 @@ grip.parentElement.addEventListener('mousedown',e=>{
   e.stopPropagation(); e.preventDefault();
   dragging=true; clearTimeout(hideTimer); hideCard();
   document.body.style.cursor='grabbing';
+  if(isLinux){ beginEdgeSlide(); return; }
   const handle=beginHandleCarry(true);
   invoke('begin_carry',{shape:{...carryShape(),handle}}).catch(err=>{ notice('begin_carry failed: '+err); dragging=false; endHandleCarry(); });
 },true);

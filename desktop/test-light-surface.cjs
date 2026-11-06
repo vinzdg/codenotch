@@ -1,4 +1,4 @@
-// Run with node --test test-light-surface.cjs from windows/.
+// Run with node --test test-light-surface.cjs from desktop/.
 // Keeps all Windows pages on the same appearance contract: a light choice has a complete palette,
 // SVG colours follow it, and windows that are only briefly visible get it before their first frame.
 const { readFileSync } = require('node:fs');

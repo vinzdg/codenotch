@@ -1,4 +1,4 @@
-// Run with node --test test-qoder-usage.cjs from windows/.
+// Run with node --test test-qoder-usage.cjs from desktop/.
 // The sidecar's contract with qoder.rs: exactly one JSON object on stdout, exit 0 with {usage} or
 // exit 1 with {error, message}. Auth-shaped failures must arrive as needsAuth, never as a stack.
 const { spawnSync } = require('node:child_process');

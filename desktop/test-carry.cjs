@@ -1,4 +1,4 @@
-// Run with node --test test-carry.cjs from windows/.
+// Run with node --test test-carry.cjs from desktop/.
 // The carry overlay's own arithmetic: the spring the notch follows the hand on, and the border it
 // travels. The Mac's FollowSpringTests and BorderTrackTests, against carry.html's script.
 const { readFileSync } = require('node:fs');
