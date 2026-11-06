@@ -89,14 +89,14 @@ actor MiniMaxProvider: UsageProvider {
         MiniMaxCredentials.forgetCached()
     }
 
-    nonisolated func presentSignIn() {
+    @MainActor func presentSignIn() {
         guard let web else { return }
-        Task { @MainActor in web.presentSignIn() }
+        web.presentSignIn()
     }
 
-    nonisolated func presentAccountSwitch() {
+    @MainActor func presentAccountSwitch() {
         guard let web else { return }
-        Task { @MainActor in web.presentAccountSwitch() }
+        web.presentAccountSwitch()
     }
 
     func signOut() async {

@@ -138,6 +138,7 @@ enum ProviderGlyph: String, Codable, Equatable {
         // A fallback only: glyph-minimax in the asset catalogue is drawn instead.
         case .minimax: return GlyphOutline.minimax
         case .ollama, .ollamaLocal: return GlyphOutline.ollama
+        case .ram, .cpu, .thermals, .network, .energy, .fan: return []
         }
     }
 }

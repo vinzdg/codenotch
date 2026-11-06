@@ -115,7 +115,7 @@ extension UsageProvider {
 
     /// No modal of our own to show, by default — `UsageStore.signIn` falls back
     /// to the route.
-    func presentSignIn() {}
+    @MainActor func presentSignIn() {}
 
     /// Providers that hold nothing in memory have nothing to drop.
     func forgetCachedCredential() {}

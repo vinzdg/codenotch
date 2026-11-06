@@ -598,7 +598,7 @@ actor CustomEndpointProvider: UsageProvider {
         }
     }
 
-    nonisolated func presentSignIn() {}
+    @MainActor func presentSignIn() {}
 
     nonisolated func forgetCachedCredential() {}
 

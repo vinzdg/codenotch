@@ -427,6 +427,8 @@ struct SettingsView: View {
     let resetPosition: () -> Void
     let quit: () -> Void
     @ObservedObject var updater: Updater
+    var ollamaRelay: OllamaActivityRelay? = nil
+    var lmstudioMetrics: LMStudioMetrics? = nil
     var usageStore: UsageStore? = nil
     var previewResetAlert: (() -> Void)? = nil
     var previewSessionLimitAlert: (() -> Void)? = nil
@@ -536,6 +538,9 @@ struct SettingsView: View {
                 let choices = MenuBarChoice.listed(in: snapshots)
                 if choices != menuBarChoices { menuBarChoices = choices }
             }
+        .onReceive(preferences.$customEndpoints.receive(on: RunLoop.main)) { _ in
+            accounts = providers()
+        }
     }
 
     /// The subject list: a full-height column on a shade lighter than the

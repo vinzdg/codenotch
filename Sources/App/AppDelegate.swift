@@ -10,6 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var phoneLinkPairing: PhoneLinkPairing?
     var phoneLinkRegistry: PhoneLinkRegistry?
     private var activityCoordinator: ActivityCoordinator?
+    private var piResponseMonitor: PiResponseMonitor?
+    private var ollamaRelay: OllamaActivityRelay?
+    private var lmstudioMetrics: LMStudioMetrics?
     private var preferences: Preferences?
     private var settings: SettingsWindowController?
     private var whatsNew: WhatsNewWindowController?
@@ -19,6 +22,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var resetWatcher: UsageResetWatcher?
     private var limitWatcher: UsageLimitWatcher?
     private var statusItem: StatusItemController?
+    /// Keeps the Claude keychain token from ageing out on a Mac where the CLI
+    /// is never run by hand. See `ClaudeTokenRefresher`.
+    private var tokenRefresher: ClaudeTokenRefresher?
     private var cancellables = Set<AnyCancellable>()
     /// Turns the monitors' running commentary into the one event worth
     /// interrupting for: an agent that has just stopped working.
@@ -72,6 +78,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DailyPace.apply(to: WeeklyHeadline.apply(to: snapshots, enabled: weekly), enabled: paced)
     }
 
+    /// Every Claude Code configuration directory on this Mac — `~/.claude` and
+    /// any `~/.claude-<slug>` — found once at launch. Each gets a usage
+    /// provider and a session monitor of its own, keyed by the same id, so a
+    /// work login's sessions spin the work ring and nobody else's.
+    private let claudeProfiles = ClaudeProfile.discover()
+    private let codexProfiles = CodexProfile.discover()
+    private let antigravityProfiles = AntigravityProfile.discover()
+    private let commandCodeProfiles = CommandCodeProfile.discover()
+    /// Held as concrete providers, not just handed to the store: the token
+    /// refresher needs to ask one of them how long its token has left, and the
+    /// protocol has no business carrying that.
+    private var claudeProviders: [ClaudeOAuthProvider] = []
+    /// MiniMax Platform sign-in sheet. Not a UsageProvider — that is MiniMaxProvider.
+    private var miniMaxWeb: WebSessionProvider?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set here, not in the Info.plist: this call is applied at launch and
         // overrides `LSUIElement` either way. Removing the plist key alone left
@@ -117,6 +138,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 disconnected: preferences.disconnectedIDs(among: allProviders.map(\.id)),
                 order: preferences.providerOrder
             )
+            preferences.$customEndpoints
+                .map { endpoints in
+                    endpoints.filter(\.isEnabled).map {
+                        "\($0.id):\($0.name):\($0.baseURL):\($0.apiType.rawValue):\($0.trackingUnit.rawValue):\($0.monthlyBudgetUSD ?? -1):\($0.currentSpendUSD ?? -1):\($0.monthlyBudgetTokensM ?? -1):\($0.currentTokensUsedM ?? -1):\($0.displayRemaining):\($0.showCurrency):\($0.iconPreset ?? ""):\($0.customIconFilename ?? ""):\($0.accentColorHex):\($0.selectedModel):\($0.usageSource.rawValue):\($0.usagePreset?.rawValue ?? ""):\($0.usageURL ?? ""):\($0.usageRecordsPath ?? ""):\($0.usageModelField ?? ""):\($0.usageTokenField ?? ""):\($0.usageModelFilter ?? ""):\($0.usageAuthentication.rawValue)"
+                    }
+                }
+                .removeDuplicates()
+                .receive(on: RunLoop.main)
+                .sink { [weak store] _ in
+                    let stored = Preferences.storedCustomEndpoints()
+                    let active = stored.filter(\.isEnabled)
+                    let providers: [UsageProvider] = active.map { CustomEndpointProvider(endpoint: $0) }
+                    store?.registerCustomProviders(providers)
+                }
+                .store(in: &cancellables)
             let updater = Updater()
             self.updater = updater
             // An update is offered in the notch, and installed there — see
@@ -135,6 +171,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak fleet] in fleet?.apply(updatePending: $0) }
                 .store(in: &cancellables)
             if !isRunningTests { updater.start() }
+
+            let relay = OllamaActivityRelay()
+            self.ollamaRelay = relay
+            // A single publisher chain exceeds Swift's type-checking time limit.
+            let relayPreferences = Publishers.CombineLatest3(
+                preferences.$connectedProviders,
+                preferences.$ollamaEndpoint,
+                preferences.$ollamaMetricsEnabled)
+            let relayConfiguration = relayPreferences.map { values in
+                (enabled: values.0.contains("ollama-local") && values.2, endpoint: values.1)
+            }.eraseToAnyPublisher()
+            relayConfiguration
+                .removeDuplicates { $0.enabled == $1.enabled && $0.endpoint == $1.endpoint }
+                .receive(on: RunLoop.main)
+                .sink { [weak relay, weak fleet] configuration in
+                    fleet?.setLocalMetricsEnabled(configuration.enabled)
+                    relay?.configure(enabled: configuration.enabled, endpoint: configuration.endpoint)
+                }
+                .store(in: &cancellables)
+            relay.$thinkingModels
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet, weak store] models in
+                    let previous = fleet?.thinkingModels ?? [:]
+                    fleet?.setThinkingModels(models)
+                    if models.keys.contains(where: { previous[$0] == nil }) { store?.refresh(providerID: "ollama-local") }
+                }
+                .store(in: &cancellables)
+
+            relay.$performances
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet, weak store] measurements in
+                    fleet?.setPerformances(measurements)
+                    if !measurements.isEmpty { store?.refresh(providerID: "ollama-local") }
+                }
+                .store(in: &cancellables)
+
+            // LM Studio needs no relay: its own socket says what each model is
+            // doing and its own log says what every request cost. Monitoring
+            // follows the provider's switch, and the address follows Settings.
+            let lmstudio = LMStudioMetrics()
+            self.lmstudioMetrics = lmstudio
+            // Split like the relay's chain above, and for the same reason.
+            let lmstudioPreferences = Publishers.CombineLatest(
+                preferences.$connectedProviders, preferences.$lmstudioEndpoint)
+            let lmstudioConfiguration = lmstudioPreferences.map { values in
+                (enabled: values.0.contains(LMStudioMetrics.providerID), endpoint: values.1)
+            }.eraseToAnyPublisher()
+            lmstudioConfiguration
+                .removeDuplicates { $0.enabled == $1.enabled && $0.endpoint == $1.endpoint }
+                .receive(on: RunLoop.main)
+                .sink { [weak lmstudio] configuration in
+                    lmstudio?.configure(enabled: configuration.enabled, endpoint: configuration.endpoint)
+                }
+                .store(in: &cancellables)
+            lmstudio.$activities
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet] in fleet?.setLocalActivities($0) }
+                .store(in: &cancellables)
+            lmstudio.$performances
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet, weak store] measurements in
+                    fleet?.setPerformances(measurements, source: LMStudioMetrics.providerID)
+                    if !measurements.isEmpty { store?.refresh(providerID: LMStudioMetrics.providerID) }
+                }
+                .store(in: &cancellables)
+            lmstudio.$ledger
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet] in fleet?.setLedger($0) }
+                .store(in: &cancellables)
 
             let dir: URL
             if NSClassFromString("XCTestCase") != nil {
@@ -237,7 +342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 sendTestNotification: { [weak self] in
                     self?.sendTestNotification()
                 },
-                usageStore: store,
+                usageStore: store, ollamaRelay: relay, lmstudioMetrics: lmstudio,
                 phoneLinkPairing: phonePairing, phoneLinkRegistry: phoneRegistry, phoneLinkServerStatus: serverStatus
             )
             // The gear toggles; everything else that opens settings opens it.
@@ -334,6 +439,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .receive(on: RunLoop.main)
                 .sink { [weak fleet] in fleet?.apply(foldsForFullScreen: $0) }
                 .store(in: &cancellables)
+
+            preferences.$deepSeekPricingEnabled
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet] in fleet?.apply(deepSeekPricingEnabled: $0) }
+                .store(in: &cancellables)
+
+            preferences.$deepSeekPricingSchedule
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet] in fleet?.apply(deepSeekPricingSchedule: $0) }
+                .store(in: &cancellables)
+
+
 
             preferences.$notchEdge
                 .receive(on: RunLoop.main)
@@ -472,9 +589,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak store] in store?.nicknames = $0 }
                 .store(in: &cancellables)
 
+            preferences.$ollamaEndpoint
+                .receive(on: RunLoop.main)
+                .sink { [weak store] address in
+                    guard let endpoint = try? OllamaEndpoint.parse(address) else { return }
+                    store?.updateOllamaEndpoint(endpoint)
+                }
+                .store(in: &cancellables)
+
+            preferences.$lmstudioEndpoint
+                .receive(on: RunLoop.main)
+                .sink { [weak store] address in
+                    guard let endpoint = try? LMStudioEndpoint.parse(address) else { return }
+                    store?.updateLMStudioEndpoint(endpoint)
+                }
+                .store(in: &cancellables)
+
             preferences.$providerOrder
                 .receive(on: RunLoop.main)
                 .sink { [weak store] in store?.order = $0 }
+                .store(in: &cancellables)
+
+            // Redraw the Gemini API ring against the new ceiling.
+            //
+            // `dropFirst` because `@Published` publishes the value it is given
+            // at init, and a refresh there would race the store's first poll.
+            // `receive(on:)` because `@Published` emits in `willSet` — the hop
+            // to the next run loop pass is what lets the `didSet` persist the
+            // number before the provider's closure goes looking for it.
+            preferences.$geminiAPIMonthlyTokenBudget
+                .dropFirst()
+                .receive(on: RunLoop.main)
+                .sink { [weak store] _ in store?.refresh(providerID: "gemini-api") }
                 .store(in: &cancellables)
 
             // Limit crossings become notifications here rather than inside
@@ -549,6 +695,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .receive(on: RunLoop.main)
                 .sink { [weak fleet] ids in fleet?.setRefreshing(ids) }
                 .store(in: &cancellables)
+
+
             self.store = store
         }
 
@@ -629,6 +777,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fleet.apply(weeklyReading: preferences.weeklyReading)
         fleet.apply(foldsForFullScreen: preferences.foldsForFullScreen)
         fleet.apply(surfaceStyle: preferences.notchSurfaceStyle)
+        fleet.apply(deepSeekPricingEnabled: preferences.deepSeekPricingEnabled)
+        fleet.apply(deepSeekPricingSchedule: preferences.deepSeekPricingSchedule)
         fleet.show()
     }
 
@@ -856,9 +1006,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        ollamaRelay?.configure(enabled: false, endpoint: OllamaEndpoint.defaultAddress)
+        lmstudioMetrics?.stop()
+        tokenRefresher?.stop()
+        piResponseMonitor?.stop()
         store?.stop()
         activityCoordinator?.stop()
         notchFleet?.stop()
+        // A language server this app started, if any. Left running it would
+        // outlive the reason it exists and keep answering on loopback to
+        // nothing.
+        AntigravityBridge.owned.stop()
         Task { await phoneLinkServer?.stop() }
     }
 }
