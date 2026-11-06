@@ -385,7 +385,7 @@ final class MiniMaxUsageTests: XCTestCase {
         XCTAssertEqual(requests.first?.value(forHTTPHeaderField: "Authorization"), "Bearer sk-api-test-only")
         let cookieRequest = try XCTUnwrap(requests.last)
         XCTAssertEqual(cookieRequest.url?.absoluteString,
-                       "https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains")
+                       "https://www.minimax.cn/v1/api/openplatform/coding_plan/remains")
         XCTAssertEqual(cookieRequest.value(forHTTPHeaderField: "Cookie"), "session=test-only")
         XCTAssertNil(cookieRequest.value(forHTTPHeaderField: "Authorization"))
     }

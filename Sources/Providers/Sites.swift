@@ -323,7 +323,10 @@ enum Sites {
                 return JSON.stringify({ authenticated: true, fingerprint });
             } catch (_) { return JSON.stringify({ authenticated: false }); }
             """,
-            associatedHosts: [region.remainsURL.host].compactMap { $0 },
+            // China's console lived on minimaxi.com before it moved to
+            // minimax.cn; a session from then is still cleared on sign-out.
+            associatedHosts: [region.remainsURL.host].compactMap { $0 }
+                + (region == .china ? ["platform.minimaxi.com", "www.minimaxi.com"] : []),
             parse: { try MiniMaxUsage.windows(fromJSON: $0) }
         )
     }
