@@ -151,15 +151,15 @@ enum LMStudioError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .invalidEndpoint:
-            return "Use an HTTP address on this Mac, such as http://127.0.0.1:1234."
+            return L10n.t("Use an HTTP address on this Mac, such as http://127.0.0.1:1234.")
         case .unavailable:
-            return "LM Studio server unavailable. Start the server in LM Studio's Developer tab and check the address."
+            return L10n.t("LM Studio server unavailable. Start the server in LM Studio's Developer tab and check the address.")
         case .invalidResponse:
-            return "This server did not return an LM Studio model listing."
+            return L10n.t("This server did not return an LM Studio model listing.")
         case .needsToken:
-            return "LM Studio requires an API token. Create one in LM Studio → Developer → Server Settings and paste it in Settings → LM Studio."
+            return L10n.t("LM Studio requires an API token. Create one in LM Studio → Developer → Server Settings and paste it in Settings → LM Studio.")
         case .http(let code):
-            return "LM Studio returned HTTP \(code). Check the server address and configuration."
+            return L10n.t("LM Studio returned HTTP \(code). Check the server address and configuration.")
         }
     }
 }

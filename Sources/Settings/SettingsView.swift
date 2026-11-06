@@ -734,7 +734,7 @@ struct SettingsView: View {
         case .lmstudio:
             if let usageStore {
                 Form {
-                    Section("Connection") {
+                    Section(L10n.t("Connection")) {
                         LMStudioSettingsRow(preferences: preferences, store: usageStore, metrics: lmstudioMetrics)
                     }
                 }
@@ -743,7 +743,7 @@ struct SettingsView: View {
         case .omlx:
             if let usageStore {
                 Form {
-                    Section("Connection") {
+                    Section(L10n.t("Connection")) {
                         OMLXSettingsRow(preferences: preferences, store: usageStore, metrics: omlxMetrics)
                     }
                 }
@@ -2738,7 +2738,7 @@ extension SettingsView {
         if let pairing = phoneLinkPairing, let registry = phoneLinkRegistry, let status = phoneLinkServerStatus {
             PhoneSettingsPane(preferences: preferences, pairing: pairing, registry: registry, serverStatus: status)
         } else {
-            Text("Phone linking is not available.")
+            Text(L10n.t("Phone linking is not available."))
         }
     }
 }
