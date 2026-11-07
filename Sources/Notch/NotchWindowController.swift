@@ -14,6 +14,10 @@ final class NotchWindowController {
     /// What AppKit settled on, for tests that need to see the panel move and
     /// fade rather than take our word for it.
     var panelFrameForTesting: CGRect? { panel?.frame }
+    #if DEBUG
+    /// Counts actual resize/reposition requests, excluding panel construction.
+    private(set) var panelFrameSetCount = 0
+    #endif
     var panelAlphaForTesting: CGFloat { panel?.alphaValue ?? 0 }
     /// Whether the panel is answering AppKit's private active-appearance
     /// question with yes — see `NotchPanel.claimsActiveAppearance`.
@@ -465,10 +469,12 @@ final class NotchWindowController {
 
     func relocate(on screen: NSScreen, cellCount: Int? = nil) {
         model.adopt(screen: screen)
-        let size = model.panelSize(cellCount: cellCount ?? model.snapshots.count)
+        let looseLayout = model.looseLayoutMetrics
+        let size = model.panelSize(cellCount: cellCount ?? model.snapshots.count, looseLayout: looseLayout)
         let frame = NotchGeometry.panelFrame(
             for: screen, panelSize: size, edge: model.edge,
-            alongOffset: model.alongOffset, slack: model.slack,
+            alongOffset: model.alongOffset,
+            slack: model.slack(cellCount: model.snapshots.count, looseLayout: looseLayout),
             // In the hand, right up to the screen's end: the room kept for the
             // handles past the notch's ends held it short of each corner, and
             // the passage round the corner — drawn from the corner — started a
@@ -480,7 +486,12 @@ final class NotchWindowController {
         )
 
         if let panel {
-            panel.setFrame(frame, display: true)
+            if panel.frame != frame {
+                #if DEBUG
+                panelFrameSetCount += 1
+                #endif
+                panel.setFrame(frame, display: true)
+            }
         } else {
             let panel = NotchPanel(contentRect: frame)
             // Held at once so its style is on it before SwiftUI first draws.

@@ -345,17 +345,19 @@ final class NotchViewModel: ObservableObject {
         return (along - wing.lead) / max(sizeScale, 0.0001)
     }
 
-    func tooltipAlong(index: Int, length: CGFloat) -> CGFloat {
-        cardAlong(centredOn: ringAlong(index: index, in: cellWing(index: index)), length: length)
+    func tooltipAlong(index: Int, length: CGFloat, in wings: [Wing]? = nil) -> CGFloat {
+        cardAlong(centredOn: ringAlong(index: index, in: cellWing(index: index, in: wings)), length: length)
     }
 
     /// The notch's middle, along the panel — what the update card hangs from.
-    var notchMiddleAlong: CGFloat {
+    var notchMiddleAlong: CGFloat { notchMiddleAlong(in: wings) }
+
+    func notchMiddleAlong(in wings: [Wing]) -> CGFloat {
         if splitsCellsAcrossCutout {
-            let pair = wings
-            return ((pair.first?.lead ?? slack) + (pair.last.map { $0.lead + $0.length } ?? slack)) / 2
+            return ((wings.first?.lead ?? slack) + (wings.last.map { $0.lead + $0.length } ?? slack)) / 2
         }
-        return cellWing.lead + cellWing.length / 2
+        let primary = cellWing(in: wings)
+        return primary.lead + primary.length / 2
     }
 
     /// A card `length` long centred on `centre`, kept on the screen.
@@ -523,20 +525,37 @@ final class NotchViewModel: ObservableObject {
     /// margin; the weekly overhang is not added there a second time. Pay back
     /// the bezel bleed here: unlike the bezel, the hole's bottom is a visible
     /// edge for the outermost stroke to land on at every size.
-    var looseBodyInset: CGFloat {
-        guard looseHole != nil else { return 0 }
+    var looseBodyInset: CGFloat { looseLayoutMetrics.bodyInset }
+
+    /// An immutable reading for one view, cursor callback or panel sizing pass.
+    /// Pass it through nested geometry helpers so outside-ring availability is
+    /// scanned once. Nothing is retained on the model between evaluations.
+    struct LooseLayoutMetrics {
+        let band: CGFloat
+        let bodyInset: CGFloat
+        let expandedDepth: CGFloat
+    }
+
+    var looseLayoutMetrics: LooseLayoutMetrics {
+        #if DEBUG
+        looseLayoutEvaluationCount += 1
+        #endif
+        let body = NotchLayout.bodyDepth(for: edge)
+        guard looseHole != nil else {
+            return LooseLayoutMetrics(band: 0, bodyInset: 0, expandedDepth: body)
+        }
+        let band = looseBand
         let q = (NotchLayout.cellExtent - NotchLayout.ringDiameter) / 2
-        return looseBand - NotchLayout.ringMargin(for: edge)
+        let inset = band - NotchLayout.ringMargin(for: edge)
             + ringOverhang - (showsCellReading ? 0 : q)
             + NotchRootView.bezelBleed / max(sizeScale, 0.0001)
+        return LooseLayoutMetrics(band: band, bodyInset: inset, expandedDepth: inset + body)
     }
 
     /// The open depth shared by the shape, the panel and the card's budget.
     /// The cell and its lower margin move together when the housing replaces
     /// the upper margin, even while the shape folds over them.
-    var expandedDepth: CGFloat {
-        looseBodyInset + NotchLayout.bodyDepth(for: edge)
-    }
+    var expandedDepth: CGFloat { looseLayoutMetrics.expandedDepth }
 
     /// **What each end of the bar spends on its own ending**, before the body
     /// with the rings in it begins.
@@ -607,17 +626,22 @@ final class NotchViewModel: ObservableObject {
     // They are absent from Release builds and never cache model values.
     private(set) var wingEvaluationCount = 0
     private(set) var cardHeightEvaluationCount = 0
+    private(set) var looseLayoutEvaluationCount = 0
     #endif
 
-    var wings: [Wing] {
+    var wings: [Wing] { wings(looseLayout: looseLayoutMetrics) }
+
+    func wings(looseLayout: LooseLayoutMetrics) -> [Wing] {
         #if DEBUG
         wingEvaluationCount += 1
         #endif
         let drawn = notchLength * sizeScale
+        let slack = slack(cellCount: snapshots.count, looseLayout: looseLayout)
+        let depth = notchDepth(looseLayout: looseLayout)
         guard let cutout else {
             return [Wing(id: 0, lead: slack + (shapeLength * sizeScale - drawn) / 2,
                          onTheLeft: false, cellIndices: snapshots.indices,
-                         length: drawn, depth: notchDepth)]
+                         length: drawn, depth: depth)]
         }
         // Measured out from the hole's own centre, which is the panel's centre
         // too — see `NotchGeometry.panelFrame`. Each copy is welded to a wall
@@ -646,7 +670,7 @@ final class NotchViewModel: ObservableObject {
                             lead: lead(onTheLeft: carryingLeft, overlap: cutout.overlap,
                                        length: carryingLength),
                             onTheLeft: carryingLeft, cellIndices: carryingIndices,
-                            length: carryingLength, depth: notchDepth)
+                            length: carryingLength, depth: depth)
 
         // **And the notch widening on the other side** — always exactly the
         // hole's depth, ending in the same curve as the side with the readings,
@@ -877,11 +901,13 @@ final class NotchViewModel: ObservableObject {
     /// right now — the hit region that wakes it has to know where it will be.
     var restingAlongLead: CGFloat { restingAlongLead(in: cutout == nil ? [] : wings) }
 
-    func restingAlongLead(in wings: [Wing]) -> CGFloat {
+    func restingAlongLead(in wings: [Wing], looseLayout: LooseLayoutMetrics? = nil) -> CGFloat {
         guard cutout == nil else {
-            return wings.first { $0.length > 0 }?.lead ?? slack
+            return wings.first { $0.length > 0 }?.lead
+                ?? slack(cellCount: snapshots.count, looseLayout: looseLayout)
         }
-        return slack + (shapeLength - restingLength) * sizeScale / 2
+        return slack(cellCount: snapshots.count, looseLayout: looseLayout)
+            + (shapeLength - restingLength) * sizeScale / 2
     }
 
     /// How far the drawn notch reaches along the panel, from the first copy's
@@ -1257,10 +1283,12 @@ final class NotchViewModel: ObservableObject {
     /// The loose top replaces the upper margin with the housing's band; the
     /// reading's lower margin stays the same.
     /// Above the cell is toward the bezel on top, away from it on the bottom.
-    var ringAcross: CGFloat {
+    var ringAcross: CGFloat { ringAcross(looseLayout: looseLayoutMetrics) }
+
+    func ringAcross(looseLayout: LooseLayoutMetrics) -> CGFloat {
         let reading = !edge.isVertical && showsCellReading
             ? (NotchLayout.cellExtent - NotchLayout.ringDiameter) / 2 : 0
-        return looseBodyInset + contentDepth / 2 + (edge == .bottom ? reading : -reading)
+        return looseLayout.bodyInset + contentDepth / 2 + (edge == .bottom ? reading : -reading)
     }
 
     /// The points the settings handle answers around: the button you are
@@ -1312,8 +1340,10 @@ final class NotchViewModel: ObservableObject {
     /// Where the tooltip's tail tip sits, measured in from the bezel: just off
     /// the inner face of a shape that the extension has made deeper. A
     /// floating slab's inner face is the gap further in.
-    var tooltipInset: CGFloat {
-        notchDrawnDepth + edgeGap + NotchLayout.tailGap
+    var tooltipInset: CGFloat { tooltipInset(looseLayout: looseLayoutMetrics) }
+
+    func tooltipInset(looseLayout: LooseLayoutMetrics) -> CGFloat {
+        notchDrawnDepth(looseLayout: looseLayout) + edgeGap + NotchLayout.tailGap
     }
 
     /// How deep the notch body reaches on screen — the design-frame depth at
@@ -1322,8 +1352,10 @@ final class NotchViewModel: ObservableObject {
     /// Where the notch ends is where the tooltip begins, and the tooltip is not
     /// drawn at that size, so this is the seam between the two spaces rather
     /// than a measurement either of them owns.
-    var notchDrawnDepth: CGFloat {
-        expandedDepth * sizeScale
+    var notchDrawnDepth: CGFloat { notchDrawnDepth(looseLayout: looseLayoutMetrics) }
+
+    func notchDrawnDepth(looseLayout: LooseLayoutMetrics) -> CGFloat {
+        looseLayout.expandedDepth * sizeScale
     }
 
     /// The straight part of the shape, flares excluded.
@@ -1432,9 +1464,9 @@ final class NotchViewModel: ObservableObject {
     /// Room at each end of the stack, for this edge.
     var slack: CGFloat { slack(cellCount: snapshots.count) }
 
-    func slack(cellCount: Int) -> CGFloat {
+    func slack(cellCount: Int, looseLayout: LooseLayoutMetrics? = nil) -> CGFloat {
         NotchLayout.slack(for: edge,
-                          maxCardHeight: maxCardHeight(cellCount: cellCount),
+                          maxCardHeight: maxCardHeight(cellCount: cellCount, looseLayout: looseLayout),
                           notchScale: sizeScale)
     }
 
@@ -1454,9 +1486,10 @@ final class NotchViewModel: ObservableObject {
         snapshots.contains(where: \.hasAvailableResetCredits)
     }
 
-    func sessionCap(cellCount: Int) -> Int {
+    func sessionCap(cellCount: Int, looseLayout: LooseLayoutMetrics? = nil) -> Int {
         guard screenSize != .zero else { return NotchLayout.defaultSessionCap }
-        return NotchLayout.sessionsFitting(cardBudget: cardBudget(cellCount: cellCount),
+        return NotchLayout.sessionsFitting(cardBudget: cardBudget(cellCount: cellCount,
+                                                               looseLayout: looseLayout ?? looseLayoutMetrics),
                                            windowCount: NotchLayout.maxWindowCount,
                                            hasTokenUsage: hasTokenUsage,
                                            hasPlan: hasPlan,
@@ -1496,8 +1529,8 @@ final class NotchViewModel: ObservableObject {
         }.max() ?? 0
     }
 
-    func maxCardHeight(cellCount: Int) -> CGFloat {
-        let cap = sessionCap(cellCount: cellCount)
+    func maxCardHeight(cellCount: Int, looseLayout: LooseLayoutMetrics? = nil) -> CGFloat {
+        let cap = sessionCap(cellCount: cellCount, looseLayout: looseLayout)
         return snapshots.isEmpty
             ? NotchLayout.maxCardHeight(sessionCap: cap, hasTokenUsage: hasTokenUsage, hasPlan: hasPlan,
                                         hasResetCredits: hasResetCredits)
@@ -1516,14 +1549,14 @@ final class NotchViewModel: ObservableObject {
     /// rather than scaling the four constants below it: at `large` a card sized
     /// against the raw height would be drawn a quarter taller than it was
     /// budgeted for, and run off the bottom of a small display.
-    private func cardBudget(cellCount: Int) -> CGFloat {
+    private func cardBudget(cellCount: Int, looseLayout: LooseLayoutMetrics) -> CGFloat {
         if edge.isVertical {
             return screenSize.height / sizeScale
                 - shapeLength(cellCount: cellCount)
                 - 2 * NotchLayout.cardCorner
         }
         return screenSize.height / sizeScale
-            - expandedDepth
+            - looseLayout.expandedDepth
             - edgeGap / sizeScale
             - NotchLayout.tailLength
             - NotchLayout.tailGap
@@ -1540,9 +1573,11 @@ final class NotchViewModel: ObservableObject {
     ///
     /// Growing out of the hole, open, it is the band the hole takes plus the
     /// body below it, sharing the band's top margin; folded it is the hole itself.
-    var notchDepth: CGFloat {
+    var notchDepth: CGFloat { notchDepth(looseLayout: looseLayoutMetrics) }
+
+    func notchDepth(looseLayout: LooseLayoutMetrics) -> CGFloat {
         if mergesWithCutout { return contentDepth }
-        return isExpanded ? expandedDepth : restingDepth
+        return isExpanded ? looseLayout.expandedDepth : restingDepth(looseLayout: looseLayout)
     }
 
     /// What the notch folds away to, whether or not it is open right now —
@@ -1562,9 +1597,11 @@ final class NotchViewModel: ObservableObject {
         if let looseHole { return looseHole.width / max(sizeScale, 0.0001) }
         return NotchLayout.pillHeight + cutoutBleed
     }
-    var restingDepth: CGFloat {
+    var restingDepth: CGFloat { restingDepth(looseLayout: looseLayoutMetrics) }
+
+    func restingDepth(looseLayout: LooseLayoutMetrics) -> CGFloat {
         if mergesWithCutout { return contentDepth }
-        return looseHole == nil ? NotchLayout.pillWidth : looseBand
+        return looseHole == nil ? NotchLayout.pillWidth : looseLayout.band
     }
 
     /// What wakes the folded notch, in panel points: the resting shape and a
@@ -1578,8 +1615,10 @@ final class NotchViewModel: ObservableObject {
     /// against the centre of the screen, whose close, minimise and zoom
     /// buttons then opened the notch on approach and disappeared under it.
     var wakeLength: CGFloat { max(restingLength * sizeScale, wakeBand) }
-    var wakeDepth: CGFloat {
-        restingDepth * sizeScale + edgeGap + (mergesWithCutout ? 0 : wakeBand)
+    var wakeDepth: CGFloat { wakeDepth(looseLayout: looseLayoutMetrics) }
+
+    func wakeDepth(looseLayout: LooseLayoutMetrics) -> CGFloat {
+        restingDepth(looseLayout: looseLayout) * sizeScale + edgeGap + (mergesWithCutout ? 0 : wakeBand)
     }
     private var wakeBand: CGFloat { NotchLayout.pillHotZone }
 
@@ -1615,13 +1654,14 @@ final class NotchViewModel: ObservableObject {
     /// So the notch's share scales and the card's share does not. Scaling the
     /// whole panel instead left the card cropped at the small end, where the
     /// panel had shrunk around a card that had not.
-    func panelSize(cellCount: Int) -> CGSize {
-        let card = maxCardHeight(cellCount: cellCount)
+    func panelSize(cellCount: Int, looseLayout: LooseLayoutMetrics? = nil) -> CGSize {
+        let looseLayout = looseLayout ?? looseLayoutMetrics
+        let card = maxCardHeight(cellCount: cellCount, looseLayout: looseLayout)
         return NotchPlacement.panelSize(
             edge: edge,
             length: cutoutSpan(cellCount: cellCount)
                 + 2 * NotchLayout.slack(for: edge, maxCardHeight: card, notchScale: sizeScale),
-            depth: notchDrawnDepth + edgeGap
+            depth: notchDrawnDepth(looseLayout: looseLayout) + edgeGap
                 + NotchLayout.tooltipDepth(for: edge, maxCardHeight: card)
         )
     }
