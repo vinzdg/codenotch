@@ -19,6 +19,12 @@ enum ElapsedCopy {
         if minutes < 60 { return L10n.t("\(max(1, minutes)) min", locale: locale) }
 
         let hours = minutes / 60
+        // Past a day the hours stop being useful, and "81 hr 9 min ago" no
+        // longer fits a card header.
+        if hours >= 24 {
+            let days = hours / 24
+            return days == 1 ? L10n.t("\(days) day", locale: locale) : L10n.t("\(days) days", locale: locale)
+        }
         let rest = minutes % 60
         if rest == 0 { return L10n.t("\(hours) hr", locale: locale) }
         return L10n.t("\(hours) hr \(rest) min", locale: locale)
