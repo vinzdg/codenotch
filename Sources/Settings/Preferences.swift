@@ -3,6 +3,13 @@ import Foundation
 import ServiceManagement
 import os
 
+/// Which wing gets the extra cell when a merged row has an odd count.
+enum NotchCutoutOddSide: String, CaseIterable, Identifiable {
+    case left, right
+    var id: String { rawValue }
+    var title: String { self == .left ? L10n.t("Left") : L10n.t("Right") }
+}
+
 /// What the user has chosen, kept in `UserDefaults`.
 @MainActor
 final class Preferences: ObservableObject {
@@ -381,6 +388,36 @@ final class Preferences: ObservableObject {
     /// The material the expanded notch, tooltip and settings orb are painted with.
     @Published var notchSurfaceStyle: NotchSurfaceStyle {
         didSet { defaults.set(notchSurfaceStyle.rawValue, forKey: Keys.notchSurfaceStyle) }
+    }
+
+    /// Whether the top edge's notch is merged into a MacBook's own cutout, or
+    /// grows out of it as a bar of its own — see `NotchViewModel.joinsCutout`.
+    /// On by default: it is how the top edge has drawn since 1.18.
+    @Published var notchJoinsCutout: Bool {
+        didSet { defaults.set(notchJoinsCutout, forKey: Keys.notchJoinsCutout) }
+    }
+
+    /// A merged bar pays for readings by shrinking its rings, so hide them on
+    /// entry. Keep the earlier choice across relaunches, and restore it on exit
+    /// without undoing readings switched on while merged. The top nudge changes
+    /// meaning between joined and plain placement and starts from centre in
+    /// either direction. Programmatic writes still restore each key independently.
+    func setNotchJoinsCutoutFromSettings(_ on: Bool) {
+        guard on != notchJoinsCutout else { return }
+        setOffset(0, for: .top)
+        if on {
+            defaults.set(showsNotchReadings, forKey: Keys.showsNotchReadingsBeforeMerge)
+            showsNotchReadings = false
+        } else if let before = defaults.object(forKey: Keys.showsNotchReadingsBeforeMerge) as? Bool {
+            showsNotchReadings = showsNotchReadings || before
+            defaults.removeObject(forKey: Keys.showsNotchReadingsBeforeMerge)
+        }
+        notchJoinsCutout = on
+    }
+
+    /// The extra ring's side when a merged row has an odd count.
+    @Published var notchCutoutOddSide: NotchCutoutOddSide {
+        didSet { defaults.set(notchCutoutOddSide.rawValue, forKey: Keys.notchCutoutOddSide) }
     }
 
     @Published var watchLimit: Double {
@@ -778,6 +815,7 @@ final class Preferences: ObservableObject {
         static let weeklyRing = "weeklyRing"
         static let weeklyRingDashed = "weeklyRingDashed"
         static let showsNotchReadings = "showsNotchReadings"
+        static let showsNotchReadingsBeforeMerge = "showsNotchReadingsBeforeMerge"
         static let weeklyReading = "weeklyReading"
         static let shutRingsWhenSpent = "shutRingsWhenSpent"
         static let autoOrderByRemaining = "autoOrderByRemaining"
@@ -787,6 +825,8 @@ final class Preferences: ObservableObject {
         static let claudeDailyPaceRing = "claudeDailyPaceRing"
         static let weeklyHeadline = "weeklyHeadline"
         static let notchSurfaceStyle = "notchSurfaceStyle"
+        static let notchJoinsCutout = "notchJoinsCutout"
+        static let notchCutoutOddSide = "notchCutoutOddSide"
         static let watchLimit = "watchLimit"
         static let criticalLimit = "criticalLimit"
         static let colorTransitionStyle = "colorTransitionStyle"
@@ -1257,6 +1297,9 @@ final class Preferences: ObservableObject {
             .flatMap(AccentColorChoice.init(rawValue:)) ?? .system
         self.notchSurfaceStyle = defaults.string(forKey: Keys.notchSurfaceStyle)
             .flatMap(NotchSurfaceStyle.init(rawValue:)) ?? .glass
+        self.notchJoinsCutout = defaults.object(forKey: Keys.notchJoinsCutout) as? Bool ?? true
+        self.notchCutoutOddSide = defaults.string(forKey: Keys.notchCutoutOddSide)
+            .flatMap(NotchCutoutOddSide.init(rawValue:)) ?? .right
         let storedWatchLimit = defaults.object(forKey: Keys.watchLimit) as? Double ?? 0.50
         let storedCriticalLimit = defaults.object(forKey: Keys.criticalLimit) as? Double ?? 0.70
         // `didSet` does the clamping, and it does not run for these assignments,

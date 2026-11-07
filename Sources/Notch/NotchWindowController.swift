@@ -14,6 +14,10 @@ final class NotchWindowController {
     /// What AppKit settled on, for tests that need to see the panel move and
     /// fade rather than take our word for it.
     var panelFrameForTesting: CGRect? { panel?.frame }
+    #if DEBUG
+    /// Counts actual resize/reposition requests, excluding panel construction.
+    private(set) var panelFrameSetCount = 0
+    #endif
     var panelAlphaForTesting: CGFloat { panel?.alphaValue ?? 0 }
     /// Whether the panel is answering AppKit's private active-appearance
     /// question with yes — see `NotchPanel.claimsActiveAppearance`.
@@ -174,7 +178,20 @@ final class NotchWindowController {
 
     /// The expanded notch body rect in panel coordinates.
     var expandedNotchRect: CGRect {
-        let depth = NotchLayout.bodyDepth(for: model.edge) * model.sizeScale
+        let depth = model.notchDrawnDepth
+        if model.splitsCellsAcrossCutout {
+            // Auto-fold judges the open footprint even while folded. Rebuild
+            // each wing's open length around its fixed wall, including the hole.
+            let open = model.wings.map { wing -> NotchViewModel.Wing in
+                var open = wing
+                open.length = model.mergedWingLength(cellCount: wing.cellIndices.count) * model.sizeScale
+                if wing.onTheLeft { open.lead += wing.length - open.length }
+                return open
+            }
+            return placement.rect(along: open.first?.lead ?? model.slack, across: 0,
+                                  length: model.drawnAlongExtent(in: open),
+                                  depth: model.notchDepth * model.sizeScale)
+        }
         return placement.rect(
             along: model.slack,
             across: 0,
@@ -336,6 +353,31 @@ final class NotchWindowController {
             .sink { [weak self] _ in self?.relocate() }
             .store(in: &cancellables)
 
+        // Taking the hole or leaving it loose changes where the panel sits
+        // and how deep it is, and `adopt` only reads the choice on relocate.
+        model.$cutoutOddSide
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.relocate() }
+            .store(in: &cancellables)
+
+        model.$joinsCutout
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.relocate() }
+            .store(in: &cancellables)
+
+        // Outside, the weekly stroke needs room below the housing, so the
+        // panel's depth follows the choice after Published's willSet too.
+        model.$weeklyRing
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.relocate() }
+            .store(in: &cancellables)
+
         // Reduce transparency resolves the glass styles to the solid one, so
         // turning it on or off in System Settings changes what the panel's
         // appearance has to be, and whether the dock style floats at all.
@@ -427,21 +469,29 @@ final class NotchWindowController {
 
     func relocate(on screen: NSScreen, cellCount: Int? = nil) {
         model.adopt(screen: screen)
-        let size = model.panelSize(cellCount: cellCount ?? model.snapshots.count)
+        let looseLayout = model.looseLayoutMetrics
+        let size = model.panelSize(cellCount: cellCount ?? model.snapshots.count, looseLayout: looseLayout)
         let frame = NotchGeometry.panelFrame(
             for: screen, panelSize: size, edge: model.edge,
-            alongOffset: model.alongOffset, slack: model.slack,
+            alongOffset: model.alongOffset,
+            slack: model.slack(cellCount: model.snapshots.count, looseLayout: looseLayout),
             // In the hand, right up to the screen's end: the room kept for the
             // handles past the notch's ends held it short of each corner, and
             // the passage round the corner — drawn from the corner — started a
             // step away from where the notch had stopped.
             trailingExtent: isOptionDragging ? 0 : model.trailingExtent,
             leadingExtent: isOptionDragging ? 0 : model.leadingExtent,
-            heldBar: model.holdsOffTheCutout ? model.plainBarLength : nil
+            heldBar: model.holdsOffTheCutout ? model.plainBarLength : nil,
+            joinsCutout: model.joinsCutout
         )
 
         if let panel {
-            panel.setFrame(frame, display: true)
+            if panel.frame != frame {
+                #if DEBUG
+                panelFrameSetCount += 1
+                #endif
+                panel.setFrame(frame, display: true)
+            }
         } else {
             let panel = NotchPanel(contentRect: frame)
             // Held at once so its style is on it before SwiftUI first draws.
@@ -788,9 +838,9 @@ final class NotchWindowController {
 
     /// Whether a middle at `place` has the notch within the Mac's notch's reach.
     private func besideTheHole(_ place: CGFloat, on track: BorderTrack, screen: NSScreen) -> Bool {
-        guard let cutout = screen.hardwareNotch else { return false }
         let (edge, along) = track.place(at: place)
-        guard edge == .top else { return false }
+        guard let cutout = NotchGeometry.dragCutout(on: screen, edge: edge,
+                                                   joinsCutout: model.joinsCutout) else { return false }
         let bar = model.plainBarLength
         let free = along - track.width / 2 - cutout.width / 2 + NotchGeometry.cutoutOverlap - bar / 2
         return NotchGeometry.cutoutFreelyNear(alongOffset: free, width: cutout.width, bar: bar)
@@ -912,7 +962,8 @@ final class NotchWindowController {
     }
 
     /// The notch on its edge with its middle at `place` on the border.
-    private func put(at place: CGFloat, on track: BorderTrack, frame: CGRect) {
+    func put(at place: CGFloat, on track: BorderTrack, frame: CGRect,
+             screen: ScreenDescribing? = nil) {
         let (edge, along) = track.place(at: place)
         if edge != model.edge {
             model.hoveredIndex = nil
@@ -924,7 +975,7 @@ final class NotchWindowController {
             ? CGPoint(x: frame.minX, y: frame.maxY - along)
             : CGPoint(x: frame.minX + along, y: frame.maxY)
         let offset = Self.offset(along: edge, at: point, on: frame)
-        if let cutout = heldCutout {
+        if let cutout = heldCutout(on: screen) {
             // The hand's own measure beside the hole: from its right wall to
             // the bar's leading tip, so the bar's middle is at `place`; then
             // the hole's pull on it.
@@ -1175,10 +1226,11 @@ final class NotchWindowController {
     // MARK: - The notch in the hand
 
     /// The hole on the screen the notch is on, if it is on the one edge that
-    /// has one.
-    private var heldCutout: HardwareNotch? {
-        guard model.edge == .top else { return nil }
-        return currentScreen()?.hardwareNotch
+    /// has one and takes it. Loose placement keeps the ordinary offset all
+    /// the way through the gesture, so neither pickup nor landing may convert it.
+    private func heldCutout(on screen: ScreenDescribing? = nil) -> HardwareNotch? {
+        NotchGeometry.dragCutout(on: screen ?? currentScreen(), edge: model.edge,
+                                 joinsCutout: model.joinsCutout)
     }
 
     /// **Picked up, it lets go of the hole.**
@@ -1189,8 +1241,8 @@ final class NotchWindowController {
     /// a lone bar measured the plain way — leading tip point for point with the
     /// pointer — and it lets go of the hole on the fold's spring. The window is
     /// the same before and after, which is the only reason that may be eased.
-    private func pickUp() {
-        guard let cutout = heldCutout, !model.holdsOffTheCutout else { return }
+    func pickUp(on screen: ScreenDescribing? = nil) {
+        guard let cutout = heldCutout(on: screen), !model.holdsOffTheCutout else { return }
         let free = NotchGeometry.freeOffset(fromStanding: model.alongOffset,
                                             width: cutout.width, bar: model.plainBarLength)
         let wasJoined = model.mergesWithCutout
@@ -1212,8 +1264,8 @@ final class NotchWindowController {
     /// that is what lets it ease.
     ///
     /// Put down out of reach, it stays exactly where it was put.
-    private func putDown() {
-        guard let cutout = heldCutout, model.holdsOffTheCutout else {
+    func putDown(on screen: ScreenDescribing? = nil) {
+        guard let cutout = heldCutout(on: screen), model.holdsOffTheCutout else {
             onReposition?(model.alongOffset)
             return
         }

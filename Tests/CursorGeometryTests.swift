@@ -95,7 +95,7 @@ final class CursorGeometryTests: XCTestCase {
             }
             let g = geometry(m)
             for index in m.snapshots.indices {
-                let along = m.ringAlong(index: index, in: m.cellWing)
+                let along = m.ringAlong(index: index, in: m.cellWing(index: index))
                 XCTAssertEqual(g.cellIndex(along: along), index)
             }
             XCTAssertNil(g.cellIndex(along: m.cellWing.lead - 100))
@@ -225,6 +225,94 @@ final class CursorGeometryTests: XCTestCase {
     }
 
     #if DEBUG
+    func testUnchangedRelocationSkipsFrameSettingButRefreshesGeometry() throws {
+        let screen = try XCTUnwrap(NSScreen.main)
+        let controller = NotchWindowController()
+        defer { controller.stop() }
+        let m = controller.model
+        m.snapshots = model().snapshots
+        m.isExpanded = true
+        controller.relocate(on: screen)
+        let original = try XCTUnwrap(controller.panelFrameForTesting)
+        let sets = controller.panelFrameSetCount
+        let hosting = try XCTUnwrap(controller.panelContentViewForTesting?.subviews.first
+                                   as? NotchHostingView<NotchRootView>)
+
+        // Fold and stale bookkeeping do not change the panel's expanded-size
+        // reservation, but still require adoption and fresh input regions.
+        m.isExpanded = false
+        m.screenSize = .zero
+        m.visibleAlongRange = nil
+        hosting.interactiveRects = []
+        controller.relocate(on: screen)
+        XCTAssertEqual(controller.panelFrameForTesting, original)
+        XCTAssertEqual(controller.panelFrameSetCount, sets)
+        XCTAssertEqual(m.screenSize, screen.frame.size)
+        XCTAssertNotNil(m.visibleAlongRange)
+        XCTAssertEqual(hosting.interactiveRects.first,
+                       geometry(m, size: original.size).liveRect(gripRevealed: false))
+
+        m.requestedScale = 1.4
+        controller.relocate(on: screen)
+        XCTAssertNotEqual(controller.panelFrameForTesting, original)
+        XCTAssertEqual(controller.panelFrameSetCount, sets + 1)
+        controller.relocate(on: screen)
+        XCTAssertEqual(controller.panelFrameSetCount, sets + 1)
+    }
+
+    func testUpdateCardReusesTheEventWingsForSingleAndSplitRows() throws {
+        for count in [1, 3] {
+            let m = model(edge: .top)
+            m.snapshots = Array(m.snapshots.prefix(count))
+            m.adopt(screen: Screen(hardwareNotch: HardwareNotch(width: 220, height: 32)))
+            m.updatePrompt = UpdatePrompt(version: "99", notes: "New", phase: .available)
+            let g = geometry(m)
+            _ = g.notchRect
+            let evaluations = m.wingEvaluationCount
+            let card = try XCTUnwrap(g.updateCardRect)
+            XCTAssertEqual(m.wingEvaluationCount, evaluations)
+            XCTAssertEqual(card.midX, m.cardAlong(centredOn: m.notchMiddleAlong,
+                                                 length: card.width), accuracy: 0.001)
+        }
+    }
+
+    func testLooseMetricsAreReusedWithinAnEventAndRefreshedForSameCountWeeklyChanges() throws {
+        let m = model(edge: .top)
+        m.joinsCutout = false
+        m.weeklyRing = .outside
+        m.adopt(screen: Screen(hardwareNotch: HardwareNotch(width: 220, height: 32)))
+        m.updatePrompt = UpdatePrompt(version: "99", notes: "New", phase: .available)
+        let g = geometry(m)
+        let evaluations = m.looseLayoutEvaluationCount
+        let before = g.notchRect
+        let oldCard = try XCTUnwrap(g.tooltipRect(index: 0))
+        _ = g.liveRect(gripRevealed: false)
+        _ = g.updateCardRect
+        XCTAssertEqual(m.looseLayoutEvaluationCount, evaluations + 1)
+
+        m.snapshots[0] = ProviderSnapshot(id: "p0", displayName: "Provider", glyph: .claude,
+            fidelity: .official, status: .ok,
+            windows: [LimitWindow(id: "session", label: "Session", usedFraction: 0.42),
+                      LimitWindow(id: "week", label: "Week", usedFraction: 0.61)],
+            headlineID: "session", weeklyID: "week")
+        let next = geometry(m)
+        let refreshed = m.looseLayoutEvaluationCount
+        XCTAssertGreaterThan(next.notchRect.height, before.height)
+        XCTAssertGreaterThan(try XCTUnwrap(next.tooltipRect(index: 0)).minY, oldCard.minY)
+        _ = next.updateCardRect
+        XCTAssertEqual(m.looseLayoutEvaluationCount, refreshed + 1)
+    }
+
+    func testPanelSizingSharesLooseMetricsWithTheCardBudget() {
+        let m = model(edge: .top)
+        m.joinsCutout = false
+        m.weeklyRing = .outside
+        m.adopt(screen: Screen(hardwareNotch: HardwareNotch(width: 220, height: 32)))
+        let evaluations = m.looseLayoutEvaluationCount
+        _ = m.panelSize
+        XCTAssertEqual(m.looseLayoutEvaluationCount, evaluations + 1)
+    }
+
     func testOneEvaluationReusesWingsAndReducesCardBudgetTraversals() {
         let m = model()
         let p = NotchPlacement(edge: m.edge, panelSize: m.panelSize)

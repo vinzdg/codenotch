@@ -31,12 +31,12 @@ final class MergesWithTheCutoutTests: XCTestCase {
     }
 
     private func model(_ screen: ScreenDescribing, scale: CGFloat = 1,
-                       open: Bool = true, offset: CGFloat = 0) -> NotchViewModel {
+                       open: Bool = true, offset: CGFloat = 0, count: Int = 4) -> NotchViewModel {
         let m = NotchViewModel()
         m.edge = .top
         m.sizeScale = scale
         m.alongOffset = offset
-        m.snapshots = (0..<3).map {
+        m.snapshots = (0..<count).map {
             ProviderSnapshot(id: "p\($0)", displayName: "P", glyph: .claude,
                              fidelity: .official, status: .ok, windows: [])
         }
@@ -264,10 +264,9 @@ final class MergesWithTheCutoutTests: XCTestCase {
     func testItFoldsTowardTheHoleRatherThanItsOwnCentre() throws {
         let m = model(Notched())
         func joinedEnds(_ m: NotchViewModel) -> [CGFloat] {
-            let drawn = m.notchLength * m.sizeScale
             // The end of each copy that meets the hole: the far end of the one
             // on the left, the near end of the one on the right.
-            return m.wings.map { $0.onTheLeft ? $0.lead + drawn : $0.lead }
+            return m.wings.map { $0.onTheLeft ? $0.lead + $0.length : $0.lead }
         }
         let open = joinedEnds(m)
         XCTAssertEqual(open.count, 2, "joined, it is drawn either side of the hole")
@@ -285,9 +284,8 @@ final class MergesWithTheCutoutTests: XCTestCase {
                        "a notch with no hole should still fold to its own centre line")
     }
 
-    /// **The copy that carries the readings is always identity 0**, whether it
-    /// is a lone bar, in the hand, or one of a joined pair — and it is never
-    /// flipped, because nothing is.
+    /// Identity 0 survives pickup and landing. Joined, both copies carry cells;
+    /// the handles and the geometry of the carried bar keep their identity.
     ///
     /// The bar being dragged has to *be* the bar that lands, or the landing is
     /// one view vanishing and another appearing: a swap, not a movement. And
@@ -301,8 +299,8 @@ final class MergesWithTheCutoutTests: XCTestCase {
         let onTheLeft = model(Notched(), offset: -2 * NotchGeometry.cutoutTravel)
         for m in [plain, joined, onTheLeft] {
             XCTAssertEqual(m.cellWing.id, 0, "the carrying copy changed identity")
-            XCTAssertEqual(m.wings.filter(\.carriesCells).count, 1,
-                           "exactly one copy carries the readings")
+            XCTAssertEqual(m.wings.filter(\.carriesCells).count, m.mergesWithCutout ? 2 : 1,
+                           "joined, both wings carry their share; free, one carries everything")
             XCTAssertEqual(Set(m.wings.map(\.id)).count, m.wings.count,
                            "two copies share an identity")
         }
@@ -326,9 +324,8 @@ final class MergesWithTheCutoutTests: XCTestCase {
             for: screen, panelSize: m.panelSize, edge: .top,
             alongOffset: m.alongOffset, slack: m.slack,
             trailingExtent: m.trailingExtent, leadingExtent: m.leadingExtent)
-        let bar = m.shapeLength * m.sizeScale
         let left = frame.minX + (m.wings.first?.lead ?? 0)
-        let right = frame.minX + (m.wings.last?.lead ?? 0) + bar
+        let right = frame.minX + (m.wings.last.map { $0.lead + $0.length } ?? 0)
         XCTAssertEqual(hole.wall - right, left - hole.left, accuracy: 1.5,
                        "the two reach the same distance either side of the hole")
 
@@ -343,8 +340,8 @@ final class MergesWithTheCutoutTests: XCTestCase {
         let merged = model(Notched())
         XCTAssertEqual(merged.cutoutBleed * merged.sizeScale,
                        NotchGeometry.cutoutOverlap, accuracy: 0.001)
-        XCTAssertEqual(merged.cellsLeadIn - merged.cutoutBleed, model(Plain()).cellsLeadIn,
-                       accuracy: 0.001, "the first ring moved relative to the visible start")
+        XCTAssertEqual(merged.cellsLeadIn - merged.cutoutBleed, merged.cellSpacing,
+                       accuracy: 0.001, "the joined end needs the same visible clearance as adjacent rings")
     }
 
     // MARK: - One thickness
@@ -716,7 +713,7 @@ final class MergesWithTheCutoutTests: XCTestCase {
         m.holdsOffTheCutout = false
         m.alongOffset = landing
         m.adopt(screen: screen)
-        let arrived = try XCTUnwrap(m.wings.first { !$0.carriesCells })
+        let arrived = try XCTUnwrap(m.wings.first { $0.id == 1 })
         XCTAssertGreaterThan(arrived.length, 0, "joining did not widen the notch")
         XCTAssertEqual(arrived.id, waiting.id)
         XCTAssertEqual(arrived.onTheLeft, waiting.onTheLeft, "the other copy changed sides")
@@ -785,7 +782,7 @@ final class MergesWithTheCutoutTests: XCTestCase {
             let m = model(screen, offset: offset)
             XCTAssertTrue(m.mergesWithCutout)
             let carrying = m.cellWing
-            let other = try XCTUnwrap(m.wings.first { !$0.carriesCells })
+            let other = try XCTUnwrap(m.wings.first { $0.id == 1 })
             let a = m.notchShape(for: carrying), b = m.notchShape(for: other)
             XCTAssertEqual(a.cornerRadius, b.cornerRadius, accuracy: 0.001,
                            "the two sides turn different corners")
@@ -866,7 +863,7 @@ final class MergesWithTheCutoutTests: XCTestCase {
         let hole = try hole(screen)
         for scale in [0.5, 1.0, 1.5] as [CGFloat] {
             let m = model(screen, scale: scale)
-            let widening = try XCTUnwrap(m.wings.first { !$0.carriesCells })
+            let widening = try XCTUnwrap(m.wings.first { $0.id == 1 })
             XCTAssertEqual(widening.depth * m.sizeScale - NotchRootView.bezelBleed,
                            hole.depth, accuracy: 0.001,
                            "scale \(scale): the notch widened to a different depth")
@@ -1216,7 +1213,263 @@ final class MergesWithTheCutoutTests: XCTestCase {
         return count
     }
 
+    func testFourRingsSplitInReadingOrderIncludingAfterReordering() {
+        for offset in [CGFloat(0), -2 * NotchGeometry.cutoutTravel] {
+            let m = model(Notched(), offset: offset)
+            for reversed in [false, true] {
+                if reversed { m.snapshots.reverse() }
+                XCTAssertEqual(m.wings.map { Array($0.cellIndices) }, [[0, 1], [2, 3]])
+                let centres = m.snapshots.indices.map {
+                    m.ringAlong(index: $0, in: m.cellWing(index: $0))
+                }
+                XCTAssertEqual(centres, centres.sorted())
+                XCTAssertEqual(m.wings.flatMap { wing in
+                    wing.cellIndices.map { m.snapshots[$0].id }
+                }, m.snapshots.map(\.id))
+                for side in NotchCutoutOddSide.allCases {
+                    m.cutoutOddSide = side
+                    XCTAssertEqual(m.wings.map { $0.cellIndices.count }, [2, 2])
+                }
+            }
+        }
+    }
+
+    func testSortingRepartitionsTheRowWithoutReversingTheLeftWing() {
+        let m = model(Notched())
+        let readings = [0.1, 0.7, 0.4, 0.9].enumerated().map { index, fraction in
+            ProviderSnapshot(id: "p\(index)", displayName: "P", glyph: .claude,
+                             fidelity: .official, status: .ok,
+                             windows: [LimitWindow(id: "w", label: "Session", usedFraction: fraction)],
+                             headlineID: "w")
+        }
+        m.updateSnapshots(readings)
+        m.hoveredIndex = 1
+        m.updateSnapshots(ProviderOrder.byRemainingUsage(readings))
+        XCTAssertEqual(m.snapshots.map(\.id), ["p0", "p2", "p1", "p3"])
+        XCTAssertEqual(m.hoveredIndex, 2, "the hovered provider must follow its new index across the hole")
+        XCTAssertEqual(m.wings.map { wing in wing.cellIndices.map { m.snapshots[$0].id } },
+                       [["p0", "p2"], ["p1", "p3"]])
+        let centres = m.snapshots.indices.map { m.ringAlong(index: $0, in: m.cellWing(index: $0)) }
+        XCTAssertEqual(centres, centres.sorted())
+    }
+
+    /// Geometry cannot detect a remount, so host the actual provider layer.
+    /// Sorting, parity and pickup must preserve each cell's spin and activity
+    /// state even when its assigned wing changes under the shared parent.
+    func testCellsStayMountedAcrossWingsParityAndPickup() {
+        let screen = Notched()
+        let m = model(screen, count: 4)
+        m.surfaceStyle = .solid
+        var appearances: [String: Int] = [:]
+        m.cellAppearedForTesting = { appearances[$0, default: 0] += 1 }
+        let host = NSHostingView(rootView: NotchRootView(model: m)
+            .environment(\.codenotchHeadlessGlass, true))
+        let window = NSWindow(contentRect: CGRect(origin: .zero, size: m.panelSize),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        // Hosted as the controller hosts it: inside a plain container, so
+        // SwiftUI never negotiates the window's frame. As the content view
+        // itself it would, and the constraint pass throws on the loop.
+        let container = NSView(frame: CGRect(origin: .zero, size: m.panelSize))
+        host.frame = container.bounds
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host)
+        window.contentView = container
+        func settle() {
+            window.setContentSize(m.panelSize)
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.08))
+        }
+        settle()
+        XCTAssertEqual(appearances, ["p0": 1, "p1": 1, "p2": 1, "p3": 1])
+        m.snapshots.swapAt(1, 2)
+        settle()
+        m.cutoutOddSide = .left
+        let extra = ProviderSnapshot(id: "p4", displayName: "P", glyph: .claude,
+                                     fidelity: .official, status: .ok, windows: [])
+        m.snapshots.append(extra)
+        settle()
+        m.holdsOffTheCutout = true
+        m.adopt(screen: screen)
+        settle()
+        m.holdsOffTheCutout = false
+        m.adopt(screen: screen)
+        settle()
+        XCTAssertEqual(appearances, ["p0": 1, "p1": 1, "p2": 1, "p3": 1, "p4": 1])
+        window.contentView = nil
+    }
+
+    func testBothWingsActuallyDrawTheirAssignedRings() throws {
+        for count in [3, 4] {
+            let m = model(Notched(), count: count)
+            m.surfaceStyle = .solid
+            m.snapshots = (0..<count).map {
+                ProviderSnapshot(id: "p\($0)", displayName: "P", glyph: .claude,
+                                 fidelity: .official, status: .ok,
+                                 windows: [LimitWindow(id: "w", label: "Session", usedFraction: 0.42)],
+                                 headlineID: "w")
+            }
+            for side in NotchCutoutOddSide.allCases {
+                m.cutoutOddSide = side
+                let rep = try XCTUnwrap(render(m))
+                for index in m.snapshots.indices {
+                    let centre = m.ringAlong(index: index, in: m.cellWing(index: index))
+                    let halfGlyph: CGFloat = 7 * m.sizeScale
+                    XCTAssertGreaterThan(whitePixels(rep, from: centre - halfGlyph, to: centre + halfGlyph,
+                                                      depth: m.notchDrawnDepth), 0,
+                                         "ring \(index), count \(count), odd side \(side)")
+                }
+            }
+        }
+    }
+
+    func testThreeRingsPutTheExtraOnTheChosenSideAndSizeEachWing() {
+        for offset in [CGFloat(0), -2 * NotchGeometry.cutoutTravel] {
+            let m = model(Notched(), offset: offset, count: 3)
+            XCTAssertEqual(m.cutoutOddSide, .right)
+            for side in NotchCutoutOddSide.allCases {
+                m.cutoutOddSide = side
+                let counts = side == .left ? [2, 1] : [1, 2]
+                XCTAssertEqual(m.wings.map { $0.cellIndices.count }, counts)
+                XCTAssertEqual(m.wings.flatMap { Array($0.cellIndices) }, [0, 1, 2])
+                for wing in m.wings {
+                    let n = wing.cellIndices.count
+                    let body = NotchLayout.bodyLength(cellCount: n, edge: .top)
+                    let joinEnd = m.cutoutBleed + m.cellSpacing - NotchLayout.padStart(for: .top)
+                    XCTAssertEqual(wing.length / m.sizeScale, body + m.flare + joinEnd, accuracy: 0.001)
+                }
+                XCTAssertEqual(m.wings[0].length > m.wings[1].length, side == .left)
+            }
+        }
+    }
+
+    func testVisibleHoleWallToRingGapMatchesAdjacentRingsOnBothWings() throws {
+        for count in [2, 3, 4, 5] {
+            for offset in [CGFloat(0), -2 * NotchGeometry.cutoutTravel] {
+                let m = model(Notched(), offset: offset, count: count)
+                for side in NotchCutoutOddSide.allCases {
+                    m.cutoutOddSide = side
+                    for readings in [false, true] {
+                        m.showsNotchReadings = readings
+                        for wing in m.wings {
+                            let index = try XCTUnwrap(wing.onTheLeft ? wing.cellIndices.last : wing.cellIndices.first)
+                            let centre = m.ringAlong(index: index, in: wing)
+                            let wall = wing.onTheLeft
+                                ? wing.lead + wing.length - m.cutoutBleed * m.sizeScale
+                                : wing.lead + m.cutoutBleed * m.sizeScale
+                            let distance = abs(wall - centre) / m.sizeScale
+                            let clearance = distance - NotchLayout.ringDiameter / 2
+                            XCTAssertEqual(clearance, m.cellSpacing, accuracy: 0.001)
+                            if wing.cellIndices.count > 1 {
+                                let adjacentIndex = wing.onTheLeft ? index - 1 : index + 1
+                                let adjacentCentre = m.ringAlong(index: adjacentIndex, in: wing)
+                                let visibleGap = abs(adjacentCentre - centre) / m.sizeScale
+                                    - NotchLayout.ringDiameter
+                                XCTAssertEqual(clearance, visibleGap, accuracy: 0.001,
+                                               "the wall gap must match adjacent rings on this wing")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func testHoverAndCardsFollowTheRingOnEitherWing() throws {
+        let m = model(Notched())
+        let geometry = CursorGeometry(model: m, placement: m.placement)
+        for index in m.snapshots.indices {
+            let wing = m.cellWing(index: index)
+            let centre = m.ringAlong(index: index, in: wing)
+            XCTAssertEqual(geometry.cellIndex(along: centre), index)
+            XCTAssertEqual(m.tooltipAlong(index: index, length: NotchLayout.cardWidth), centre, accuracy: 0.001)
+            let card = try XCTUnwrap(geometry.tooltipRect(index: index))
+            XCTAssertEqual(card.midX, centre, accuracy: 0.001)
+            let event = UsageResetEvent(providerID: m.snapshots[index].id, providerName: "P",
+                                       windowLabel: "Session", glyph: .claude,
+                                       previousFraction: 0.9, currentFraction: 0, resetsAt: m.now)
+            XCTAssertEqual(try XCTUnwrap(geometry.resetCardRect(event: event)).midX, centre, accuracy: 0.001)
+        }
+        m.updatePrompt = UpdatePrompt(version: "99", notes: "New", phase: .available)
+        XCTAssertEqual(try XCTUnwrap(geometry.updateCardRect).midX, m.notchMiddleAlong, accuracy: 0.001)
+        XCTAssertEqual(m.handleWing.id, 0)
+    }
+
+    func testExpandedOverlapFootprintIncludesBothWingsEvenWhileFolded() {
+        let controller = NotchWindowController()
+        let m = controller.model
+        m.edge = .top
+        m.snapshots = model(Notched(), count: 3).snapshots
+        m.adopt(screen: Notched())
+        for side in NotchCutoutOddSide.allCases {
+            m.cutoutOddSide = side
+            m.isExpanded = true
+            let expected = CursorGeometry(model: m, placement: m.placement).notchRect
+            XCTAssertEqual(controller.expandedNotchRect, expected)
+            m.isExpanded = false
+            XCTAssertEqual(controller.expandedNotchRect.minX, expected.minX, accuracy: 0.001)
+            XCTAssertEqual(controller.expandedNotchRect.width, expected.width, accuracy: 0.001)
+        }
+    }
+
+    func testSplitFoldsIntoBothWallsAndPickupCarriesAllCells() {
+        let m = model(Notched(), count: 3)
+        let open = m.wings
+        m.isExpanded = false
+        for (before, after) in zip(open, m.wings) {
+            XCTAssertGreaterThan(before.length, after.length)
+            let beforeWall = before.onTheLeft ? before.lead + before.length : before.lead
+            let afterWall = after.onTheLeft ? after.lead + after.length : after.lead
+            XCTAssertEqual(beforeWall, afterWall, accuracy: 0.001)
+        }
+        m.isExpanded = true
+        m.holdsOffTheCutout = true
+        m.adopt(screen: Notched())
+        XCTAssertFalse(m.splitsCellsAcrossCutout)
+        XCTAssertEqual(m.cellWing.cellIndices, 0..<3)
+        XCTAssertEqual(m.cellWing.length, m.plainBarLength, accuracy: 0.001)
+        XCTAssertEqual(m.wings.filter { $0.id == 1 }.first?.length, 0)
+        m.holdsOffTheCutout = false
+        m.adopt(screen: Notched())
+        XCTAssertEqual(m.wings.map { $0.cellIndices.count }, [1, 2])
+    }
+
+    func testOneRingAndUnmergedLayoutsIgnoreOddSide() {
+        let single = oneRing(Notched(), offset: 0, readings: true)
+        let before = single.wings
+        single.cutoutOddSide = .left
+        XCTAssertEqual(single.wings, before)
+        XCTAssertTrue(single.readsAcrossTheCutout)
+        XCTAssertEqual(single.wings.filter(\.carriesCells).count, 1)
+        for edge in NotchEdge.allCases {
+            for plain in [false, true] {
+                for joins in [false, true] {
+                    if edge == .top && !plain && joins { continue }
+                    let m = model(plain ? Plain() : Notched())
+                    m.edge = edge
+                    m.joinsCutout = joins
+                    m.adopt(screen: plain ? Plain() : Notched())
+                    let before = m.wings
+                    m.cutoutOddSide = .left
+                    XCTAssertEqual(m.wings, before)
+                    XCTAssertEqual(m.wings.count, 1)
+                    XCTAssertEqual(m.cellWing.cellIndices, 0..<4)
+                }
+            }
+        }
+    }
+
     /// No hole, no join — on a plain display and on the other three edges.
+    func testEmptyMergedRowHasNoCellsAndKeepsFiniteGeometry() {
+        for open in [true, false] {
+            let m = model(Notched(), open: open, count: 0)
+            XCTAssertTrue(m.wings.allSatisfy { $0.cellIndices.isEmpty })
+            XCTAssertEqual(m.leftCellCount(of: 0), 0)
+            XCTAssertTrue(m.panelSize.width.isFinite)
+            XCTAssertTrue(m.panelSize.height.isFinite)
+            XCTAssertTrue(m.wings.allSatisfy { $0.lead.isFinite && $0.length >= 0 })
+        }
+    }
+
     func testOnlyTheTopEdgeOfANotchedDisplayMerges() {
         XCTAssertNil(model(Plain()).cutout)
         for edge in [NotchEdge.right, .left, .bottom] {
@@ -1226,5 +1479,337 @@ final class MergesWithTheCutoutTests: XCTestCase {
             XCTAssertNil(m.cutout, "\(edge) is merging with a hole it never touches")
             XCTAssertNil(m.notchShape.cutout, "\(edge)")
         }
+    }
+}
+
+/// **The notch grown out of the hole rather than joined to it** — the
+/// Appearance choice `NotchViewModel.joinsCutout` switched off. The hole is
+/// left alone, and the top edge draws the bar every other edge draws, at the
+/// chosen size. The hole's band replaces the upper margin so that the outermost
+/// strokes hang from the camera housing, with the reading's lower margin intact.
+@MainActor
+final class GrowsOutOfTheCutoutTests: XCTestCase {
+    private struct Notched: ScreenDescribing {
+        var frameValue = CGRect(x: 0, y: 0, width: 1800, height: 1169)
+        var visibleFrameValue = CGRect(x: 0, y: 0, width: 1800, height: 1169)
+        var holeHeight: CGFloat = 32
+        var hardwareNotch: HardwareNotch? { HardwareNotch(width: 220, height: holeHeight) }
+        var displayIdentifier: String? { nil }
+    }
+    private struct Plain: ScreenDescribing {
+        var frameValue = CGRect(x: 0, y: 0, width: 1800, height: 1169)
+        var visibleFrameValue = CGRect(x: 0, y: 0, width: 1800, height: 1169)
+        var displayIdentifier: String? { nil }
+    }
+
+    private var ringModes: [(name: String, ring: WeeklyRing, dashed: Bool, hasWeek: Bool)] {
+        [("outside dashed", .outside, true, true),
+         ("outside solid", .outside, false, true),
+         ("inside", .inside, true, true),
+         ("off", .off, false, true),
+         ("no weekly data", .outside, true, false)]
+    }
+
+    private func model(_ screen: ScreenDescribing, edge: NotchEdge = .top,
+                       joins: Bool = false, scale: CGFloat = 1,
+                       hasWeek: Bool = false, empty: Bool = false) -> NotchViewModel {
+        let m = NotchViewModel()
+        m.edge = edge
+        m.joinsCutout = joins
+        m.sizeScale = scale
+        m.showsNotchReadings = true
+        m.snapshots = (0..<3).map {
+            let windows = [LimitWindow(id: "session", label: "Session", usedFraction: 0.42)]
+                + (hasWeek ? [LimitWindow(id: "week", label: "Week", usedFraction: 0.61)] : [])
+            return ProviderSnapshot(id: "p\($0)", displayName: "P", glyph: .claude,
+                                    fidelity: .official, status: .ok, windows: empty ? [] : windows,
+                                    headlineID: "session", weeklyID: hasWeek ? "week" : nil)
+        }
+        m.adopt(screen: screen)
+        m.isExpanded = true
+        return m
+    }
+
+    /// Switched off, there is no join: nothing of `cutout`, one copy of the
+    /// bar, and the hole remembered only for its band.
+    func testLeftLooseItDoesNotTakeTheHole() {
+        let m = model(Notched())
+        XCTAssertNil(m.cutout)
+        XCTAssertFalse(m.mergesWithCutout)
+        XCTAssertEqual(m.wings.count, 1)
+        XCTAssertEqual(m.looseHole, HardwareNotch(width: 220, height: 32))
+        XCTAssertEqual(m.looseBand, 32)
+    }
+
+    /// The housing meets whichever stroke extends furthest. The whole row moves
+    /// together, with no extra overhang charged below the label. Dashed strokes
+    /// have the same envelope as solid ones, and absent weekly data costs nothing.
+    func testTheOutermostStrokeHangsFromTheHoleInEveryRingMode() {
+        for holeHeight: CGFloat in [32, 34, 38] {
+            for scale: CGFloat in [1, 1.25, 1.5] {
+                for mode in ringModes {
+                    for readings in [true, false] {
+                        let m = model(Notched(holeHeight: holeHeight), scale: scale, hasWeek: mode.hasWeek)
+                        m.weeklyRing = mode.ring
+                        m.weeklyRingDashed = mode.dashed
+                        m.showsNotchReadings = readings
+                        let overhang = mode.ring == .outside && mode.hasWeek
+                            ? NotchLayout.weeklyOutsideRadius + NotchLayout.weeklyRingStroke / 2
+                                - NotchLayout.ringDiameter / 2 : 0
+                        let bleed = NotchRootView.bezelBleed
+                        let ringTop = (m.ringAcross - NotchLayout.ringDiameter / 2) * scale - bleed
+                        let barBottom = m.notchDepth * scale - bleed
+                        let context = "\(mode.name), scale \(scale), readings \(readings)"
+                        XCTAssertEqual(m.ringOverhang, overhang, accuracy: 0.001, context)
+                        XCTAssertEqual(ringTop - overhang * scale, holeHeight, accuracy: 0.001, context)
+                        XCTAssertEqual(m.ringAcross,
+                                       m.looseBand + NotchLayout.ringDiameter / 2 + overhang + bleed / scale,
+                                       accuracy: 0.001, context)
+                        if readings {
+                            let labelBottom = ringTop + NotchLayout.cellExtent * scale
+                            XCTAssertEqual(labelBottom + NotchLayout.ringMargin(for: .top) * scale,
+                                           barBottom, accuracy: 0.001, context)
+                        }
+                        XCTAssertEqual(m.notchDrawnDepth, m.notchDepth * scale, accuracy: 0.001)
+                        XCTAssertEqual(m.tooltipInset - m.notchDrawnDepth, NotchLayout.tailGap,
+                                       accuracy: 0.001)
+                        // The handle stays beside the housing, independent of the cell's shift.
+                        XCTAssertGreaterThan(m.shapeLength * scale, 220)
+                        XCTAssertEqual(m.orbInset, NotchLayout.orbInsetFromEdge, accuracy: 0.001)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Hiding the reading still leaves an E-high cell with a centred ring.
+    /// Moving that cell up by Q keeps the ring at the housing when the reading
+    /// is hidden. At the larger sizes this needs a negative inset, not a clamp.
+    func testWithoutReadingsTheRingStaysFlushInItsCentredCell() {
+        let q = (NotchLayout.cellExtent - NotchLayout.ringDiameter) / 2
+        for scale: CGFloat in [1, 1.25, 1.5] {
+            let m = model(Notched(), scale: scale)
+            let depth = m.notchDepth
+            let labelledCentre = m.ringAcross
+            m.showsNotchReadings = false
+            let ringTop = (m.ringAcross - NotchLayout.ringDiameter / 2) * scale
+                - NotchRootView.bezelBleed
+            let ringBottom = ringTop + NotchLayout.ringDiameter * scale
+            let barBottom = m.notchDepth * scale - NotchRootView.bezelBleed
+            XCTAssertFalse(m.showsCellReading)
+            XCTAssertEqual(ringTop, 32, accuracy: 0.001)
+            XCTAssertEqual(m.ringAcross, labelledCentre, accuracy: 0.001)
+            XCTAssertEqual(m.notchDepth, depth - q, accuracy: 0.001)
+            if scale == 1.5 { XCTAssertLessThan(m.looseBodyInset, 0) }
+            XCTAssertEqual(barBottom - ringBottom,
+                           (NotchLayout.ringMargin(for: .top) + q) * scale, accuracy: 0.001)
+        }
+    }
+
+    /// One week anywhere in the row reserves its envelope for the whole row.
+    /// Removing that reading gives the room back without changing the setting.
+    func testOnlyDrawnWeeklyRingsReserveTheEnvelope() {
+        let m = model(Notched())
+        m.weeklyRing = .outside
+        let depth = m.notchDepth
+        XCTAssertEqual(m.ringOverhang, 0)
+        let populated = model(Notched(), hasWeek: true)
+        m.snapshots[2] = populated.snapshots[2]
+        let overhang = NotchLayout.weeklyOutsideRadius + NotchLayout.weeklyRingStroke / 2
+            - NotchLayout.ringDiameter / 2
+        XCTAssertEqual(m.ringOverhang, overhang, accuracy: 0.001)
+        XCTAssertEqual(m.notchDepth, depth + overhang, accuracy: 0.001)
+        m.snapshots[2].windows = []
+        XCTAssertEqual(m.ringOverhang, 0)
+        XCTAssertEqual(m.notchDepth, depth, accuracy: 0.001)
+    }
+
+    /// The model's centres alone cannot catch a stack still drawn at the
+    /// bezel. Measure the stroke in its annulus, excluding the glyph and label.
+    /// Track grey is deliberately faint, especially with an empty reading, so
+    /// a bright-ink threshold alone would miss the very rim being measured.
+    func testTheDrawnCellMovesBelowTheBand() throws {
+        func ringInkBounds(_ m: NotchViewModel) throws -> ClosedRange<CGFloat> {
+            m.surfaceStyle = .solid
+            m.accentColor = .blue
+            let size = m.panelSize
+            let renderer = ImageRenderer(content: NotchRootView(model: m)
+                .frame(width: size.width, height: size.height)
+                .environment(\.colorScheme, .dark))
+            let sampling: CGFloat = 2
+            renderer.scale = sampling
+            let rep = NSBitmapImageRep(cgImage: try XCTUnwrap(renderer.cgImage))
+            let centreX = m.ringAlong(index: 0, in: m.cellWing)
+            let centreY = m.ringAcross * m.sizeScale - NotchRootView.bezelBleed
+            let radius = (NotchLayout.ringDiameter / 2 + m.ringOverhang) * m.sizeScale
+            let stroke = (m.ringOverhang > 0 ? NotchLayout.weeklyRingStroke
+                          : NotchLayout.trackStroke) * m.sizeScale
+            let columns = Int((centreX - radius - 1) * sampling)...Int((centreX + radius + 1) * sampling)
+            let rows = (0..<Int(m.notchDrawnDepth * sampling)).filter { y in
+                columns.contains { x in
+                    let dx = (CGFloat(x) + 0.5) / sampling - centreX
+                    let dy = (CGFloat(y) + 0.5) / sampling - centreY
+                    let distance = hypot(dx, dy)
+                    guard distance >= radius - stroke - 1 / sampling,
+                          distance <= radius + 1 / sampling else { return false }
+                    guard let colour = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB)
+                    else { return false }
+                    let high = max(colour.redComponent, colour.greenComponent, colour.blueComponent)
+                    let low = min(colour.redComponent, colour.greenComponent, colour.blueComponent)
+                    let track = high - low < 0.02 && (0.025...0.25).contains(high)
+                    let arc = colour.saturationComponent > 0.25 && high > 0.05
+                    return colour.alphaComponent > 0.5 && (track || arc)
+                }
+            }
+            let top = try CGFloat(XCTUnwrap(rows.first)) / sampling
+            let bottom = try CGFloat(XCTUnwrap(rows.last) + 1) / sampling
+            return top...bottom
+        }
+        for holeHeight: CGFloat in [32, 34, 38] {
+            for scale: CGFloat in [1, 1.25, 1.5] {
+                for mode in ringModes {
+                    for readings in [true, false] {
+                        // Keep an empty-reading case too: its dimmed track must still register.
+                        for empty in [false, true] {
+                            let plainModel = model(Plain(), scale: scale, hasWeek: mode.hasWeek, empty: empty)
+                            let looseModel = model(Notched(holeHeight: holeHeight), scale: scale, hasWeek: mode.hasWeek, empty: empty)
+                            for m in [plainModel, looseModel] {
+                                m.weeklyRing = mode.ring
+                                m.weeklyRingDashed = mode.dashed
+                                m.showsNotchReadings = readings
+                            }
+                            let plain = try ringInkBounds(plainModel)
+                            let loose = try ringInkBounds(looseModel)
+                            let q = (NotchLayout.cellExtent - NotchLayout.ringDiameter) / 2
+                            let shift = holeHeight + NotchRootView.bezelBleed
+                                + (looseModel.ringOverhang - NotchLayout.ringMargin(for: .top)
+                                              - (readings ? 0 : q)) * scale
+                            let context = "\(mode.name), scale \(scale), readings \(readings), empty \(empty)"
+                            XCTAssertEqual(loose.lowerBound - plain.lowerBound, shift, accuracy: 1, context)
+                            XCTAssertEqual(loose.upperBound - plain.upperBound, shift, accuracy: 1, context)
+                            XCTAssertEqual(loose.lowerBound, holeHeight, accuracy: 1, context)
+                            XCTAssertEqual(loose.upperBound - loose.lowerBound,
+                                           (NotchLayout.ringDiameter + 2 * looseModel.ringOverhang) * scale,
+                                           accuracy: 1, context)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The size setting is the notch's own again: the hole's band is fixed
+    /// by the hardware, and the body below it follows the setting.
+    func testTheSizeSettingChangesIt() {
+        let small = model(Notched(), scale: 1)
+        let large = model(Notched(), scale: 1.5)
+        let body = NotchLayout.bodyDepth(for: .top) - NotchLayout.ringMargin(for: .top)
+        let bleed = NotchRootView.bezelBleed
+        XCTAssertEqual(small.notchDepth * small.sizeScale, 32 + bleed + body, accuracy: 0.001)
+        XCTAssertEqual(large.notchDepth * large.sizeScale, 32 + bleed + 1.5 * body, accuracy: 0.001)
+        for m in [small, large] {
+            XCTAssertGreaterThanOrEqual(m.panelSize(cellCount: 3).height,
+                                        m.notchDepth * m.sizeScale,
+                                        "the panel has to hold the band and the body")
+        }
+    }
+
+    /// Folded away it is the hole exactly, so nothing of the app shows at
+    /// rest, and the hole is what the hand reaches for.
+    func testItFoldsAwayToTheHole() {
+        for holeHeight: CGFloat in [32, 34, 38] {
+            for scale: CGFloat in [1, 1.25, 1.5] {
+                let m = model(Notched(holeHeight: holeHeight), scale: scale)
+                let ring = m.ringAcross
+                let tail = m.tooltipInset
+                let depth = m.notchDepth
+                m.isExpanded = false
+                XCTAssertEqual(m.restingLength * scale, 220, accuracy: 0.001)
+                XCTAssertEqual(m.restingDepth * scale, holeHeight, accuracy: 0.001)
+                XCTAssertEqual(m.notchDepth, m.restingDepth, accuracy: 0.001)
+                XCTAssertEqual(m.wakeDepth, holeHeight, accuracy: 0.001)
+                // The shape conceals the cell as it folds; the cell and the tail
+                // keep their open geometry rather than following the shrinking depth.
+                XCTAssertEqual(m.ringAcross, ring, accuracy: 0.001)
+                XCTAssertEqual(m.tooltipInset, tail, accuracy: 0.001)
+                m.isExpanded = true
+                XCTAssertEqual(m.notchDepth, depth, accuracy: 0.001)
+            }
+        }
+    }
+
+    /// Test screen positions rather than only local lengths: a hole-sized
+    /// shape in the wrong place is still a visible tab beside the hardware.
+    func testNudgedLooseBarFoldsAtThePhysicalHoleAndWakesOnlyThere() throws {
+        for height: CGFloat in [32, 34, 38] {
+            let screen = Notched(holeHeight: height)
+            for count in [0, 3] {
+                for offset: CGFloat in [0, -48, 120, 400] {
+                    let m = model(screen)
+                    m.snapshots = Array(m.snapshots.prefix(count))
+                    m.alongOffset = offset
+                    m.adopt(screen: screen)
+                    let overlaps = abs(offset) < (220 + m.plainBarLength) / 2
+                    XCTAssertEqual(m.looseHole != nil, overlaps)
+                    let size = m.panelSize
+                    let frame = NotchGeometry.panelFrame(for: screen, panelSize: size, edge: .top,
+                        alongOffset: offset, slack: m.slack, heldBar: m.plainBarLength, joinsCutout: false)
+                    let expanded = try XCTUnwrap(m.wings.first)
+                    XCTAssertEqual(frame.minX + expanded.lead + expanded.length / 2,
+                                   screen.frameValue.midX + offset, accuracy: 1)
+                    let travel = m.travelSize(on: .top)
+                    XCTAssertEqual(travel.depth, m.notchDepth * m.sizeScale, accuracy: 0.001)
+                    m.isExpanded = false
+                    XCTAssertEqual(m.panelSize, size, "folding must not move the window")
+                    let folded = try XCTUnwrap(m.wings.first)
+                    let expectedCentre = screen.frameValue.midX + (overlaps ? 0 : offset)
+                    XCTAssertEqual(frame.minX + folded.lead + folded.length / 2, expectedCentre, accuracy: 1)
+                    XCTAssertGreaterThanOrEqual(folded.lead, 0)
+                    XCTAssertLessThanOrEqual(folded.lead + folded.length, size.width)
+                    let cursor = CursorGeometry(model: m, placement: m.placement)
+                    XCTAssertEqual(frame.minX + cursor.pillRect.midX, expectedCentre, accuracy: 1)
+                    if overlaps {
+                        XCTAssertEqual(folded.length, 220, accuracy: 0.001)
+                        XCTAssertEqual(m.wakeDepth, height, accuracy: 0.001)
+                        XCTAssertFalse(cursor.liveRect(gripRevealed: false).contains(
+                            CGPoint(x: cursor.pillRect.midX, y: height + 0.5)))
+                    } else {
+                        XCTAssertEqual(m.looseBand, 0)
+                        XCTAssertEqual(m.restingLength, NotchLayout.pillHeight)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Every other edge, and a display without a hole, are exactly as before:
+    /// the band is zero and the choice is never consulted.
+    func testNothingElseIsTouchedByTheChoice() {
+        for edge in [NotchEdge.left, .right, .bottom] {
+            let loose = model(Notched(), edge: edge)
+            let joined = model(Notched(), edge: edge, joins: true)
+            XCTAssertNil(loose.looseHole, "\(edge) has no hole to grow out of")
+            XCTAssertEqual(loose.notchDepth, joined.notchDepth, accuracy: 0.001)
+            XCTAssertEqual(loose.ringAcross, joined.ringAcross, accuracy: 0.001)
+        }
+        let plain = model(Plain())
+        XCTAssertNil(plain.looseHole)
+        XCTAssertEqual(plain.notchDepth, NotchLayout.bodyDepth(for: .top), accuracy: 0.001)
+    }
+
+    /// Switching the choice on takes the hole again, with everything the join
+    /// measures; switching it off lets go. The window follows on relocate.
+    func testTheChoiceCanBeChangedUnderARunningNotch() {
+        let m = model(Notched(), joins: true)
+        XCTAssertTrue(m.mergesWithCutout)
+        XCTAssertNil(m.looseHole)
+        m.joinsCutout = false
+        m.adopt(screen: Notched())
+        XCTAssertNil(m.cutout)
+        XCTAssertNotNil(m.looseHole)
+        m.joinsCutout = true
+        m.adopt(screen: Notched())
+        XCTAssertTrue(m.mergesWithCutout)
+        XCTAssertNil(m.looseHole)
     }
 }
