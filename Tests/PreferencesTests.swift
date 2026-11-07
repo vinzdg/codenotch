@@ -114,12 +114,61 @@ final class PreferencesMigrationTests: XCTestCase {
         XCTAssertFalse(Preferences(defaults: defaults).showsNotchReadings)
     }
 
-    func testTurningMergeOffLeavesReadingsAsTheyAre() {
+    func testTurningMergeOffRestoresReadingsUnlessTheyWereReenabled() {
+        let (defaults, name) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let rows: [(before: Bool, during: Bool, after: Bool)] = [
+            (before: true, during: false, after: true),
+            (before: true, during: true, after: true),
+            (before: false, during: false, after: false),
+            (before: false, during: true, after: true)
+        ]
+        let preferences = Preferences(defaults: defaults)
+        for row in rows {
+            preferences.setNotchJoinsCutoutFromSettings(false)
+            preferences.showsNotchReadings = row.before
+            preferences.setNotchJoinsCutoutFromSettings(true)
+            preferences.showsNotchReadings = row.during
+
+            preferences.setNotchJoinsCutoutFromSettings(false)
+
+            let context = "before: \(row.before), during: \(row.during)"
+            XCTAssertEqual(preferences.showsNotchReadings, row.after, context)
+            XCTAssertEqual(Preferences(defaults: defaults).showsNotchReadings, row.after, context)
+        }
+    }
+
+    func testTurningMergeOffRestoresReadingsAcrossAFreshLoad() {
+        let (defaults, name) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        for before in [true, false] {
+            for during in [false, true] {
+                let preferences = Preferences(defaults: defaults)
+                preferences.setNotchJoinsCutoutFromSettings(false)
+                preferences.showsNotchReadings = before
+                preferences.setNotchJoinsCutoutFromSettings(true)
+                XCTAssertFalse(preferences.showsNotchReadings)
+                preferences.showsNotchReadings = during
+
+                let reopened = Preferences(defaults: UserDefaults(suiteName: name)!)
+                XCTAssertTrue(reopened.notchJoinsCutout)
+                reopened.setNotchJoinsCutoutFromSettings(false)
+
+                let context = "before: \(before), during: \(during)"
+                XCTAssertEqual(reopened.showsNotchReadings, during || before, context)
+                XCTAssertEqual(Preferences(defaults: UserDefaults(suiteName: name)!).showsNotchReadings,
+                               during || before, context)
+            }
+        }
+    }
+
+    func testTurningMergeOffWithoutASavedChoicePreservesReadings() {
         let (defaults, name) = makeDefaults()
         defer { defaults.removePersistentDomain(forName: name) }
         for readings in [true, false] {
+            // First launch and upgrades can begin merged without an entry gesture.
+            defaults.set(true, forKey: "notchJoinsCutout")
             let preferences = Preferences(defaults: defaults)
-            preferences.setNotchJoinsCutoutFromSettings(true)
             preferences.showsNotchReadings = readings
 
             preferences.setNotchJoinsCutoutFromSettings(false)
@@ -127,6 +176,30 @@ final class PreferencesMigrationTests: XCTestCase {
             XCTAssertEqual(preferences.showsNotchReadings, readings)
             XCTAssertEqual(Preferences(defaults: defaults).showsNotchReadings, readings)
         }
+    }
+
+    func testTurningMergeOffConsumesTheSavedChoice() {
+        let (defaults, name) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let preferences = Preferences(defaults: defaults)
+        preferences.setNotchJoinsCutoutFromSettings(false)
+        preferences.showsNotchReadings = true
+        preferences.setNotchJoinsCutoutFromSettings(true)
+        preferences.setNotchJoinsCutoutFromSettings(false)
+        XCTAssertTrue(preferences.showsNotchReadings)
+        preferences.showsNotchReadings = false
+
+        preferences.setNotchJoinsCutoutFromSettings(false)
+
+        XCTAssertFalse(preferences.showsNotchReadings, "a repeated exit must not restore an old choice")
+
+        // A direct write has no entry gesture, so it must not revive the last one.
+        let reopened = Preferences(defaults: UserDefaults(suiteName: name)!)
+        reopened.notchJoinsCutout = true
+        reopened.setNotchJoinsCutoutFromSettings(false)
+
+        XCTAssertFalse(reopened.showsNotchReadings)
+        XCTAssertFalse(Preferences(defaults: defaults).showsNotchReadings)
     }
 
     func testReadingsReenabledAfterMergeStayOnAcrossAFreshLoad() {
