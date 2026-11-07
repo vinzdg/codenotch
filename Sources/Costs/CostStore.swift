@@ -301,9 +301,10 @@ final class CostStore {
     /// Records one quota reading and attributes any increase since the last one.
     /// Driven by the readings the app already has — no extra network traffic.
     ///
-    /// A reading equal to the last two only moves the newest row's time forward.
-    /// Each run of equal readings keeps its first row and its latest time, which is
-    /// all the readers use, so the table grows with changes, not with time.
+    /// A reading equal to the last two rows only moves the newest row's time forward,
+    /// so the table stops growing while nothing changes. Two rows, not one, because
+    /// the older one is the first of the run: `anchor` and `periods` need its time.
+    /// The readers see the same first time, peak, reset time and latest sample.
     func recordSample(window: CostWindow, pct: Double, resetsAt: Date? = nil, at date: Date = Date()) {
         queue.sync {
             let ts = Int(date.timeIntervalSince1970)
