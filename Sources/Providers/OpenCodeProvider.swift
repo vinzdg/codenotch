@@ -36,6 +36,10 @@ actor OpenCodeProvider: UsageProvider {
     /// GLM's make.
     private var retryNoEarlierThan: Date?
     private var consecutiveRateLimits = 0
+    /// Remember only which freshly read candidate last worked. Keeping the
+    /// identity actor-local avoids spending a known-dead Go key on every poll,
+    /// while rereading the stores still picks up rotations immediately.
+    private var lastGoodCredential: OpenCodeCredentials.Credential.Identity?
 
     init(session: URLSession = .shared, archive: UsageArchive = UsageArchive(),
          credentials: @escaping @Sendable () -> [OpenCodeCredentials.Credential]
@@ -51,8 +55,8 @@ actor OpenCodeProvider: UsageProvider {
     }
 
     nonisolated func forgetCachedCredential() {
-        // Nothing is cached: the key is re-read from disk on every fetch,
-        // which is prompt-free, unlike a keychain read.
+        // Tokens are re-read on every fetch. The actor remembers only a
+        // preference among those current candidates, never a removed token.
     }
 
     nonisolated func account() -> ProviderAccount? {
@@ -74,7 +78,11 @@ actor OpenCodeProvider: UsageProvider {
 
         // Re-read on every fetch. This is an ordinary file, not a keychain
         // item: reading it puts no prompt in front of anyone.
-        let candidates = credentials()
+        var candidates = OpenCodeCredentials.unique(credentials())
+        if let lastGoodCredential,
+           let index = candidates.firstIndex(where: { $0.identity == lastGoodCredential }) {
+            candidates.insert(candidates.remove(at: index), at: 0)
+        }
         guard !candidates.isEmpty else {
             throw UsageProviderError.needsAuth
         }
@@ -121,19 +129,23 @@ actor OpenCodeProvider: UsageProvider {
     /// be told from a sign-out, so the ring read "connect the Go plan" on a
     /// machine that was signed in and wiped the last good reading with it.
     ///
-    /// So a credential the server turns away is not the verdict while there is
-    /// another to try. Only a turning-away moves on — a sign-out or an expiry;
-    /// a rate limit, a planless account or a broken response is an answer about
-    /// the account, and stands. With every credential refused, the last
-    /// refusal is the verdict: that is the OAuth sign-in's, which carries an
-    /// expiry hint of its own and so tells "sign in again" from "open
-    /// OpenCode, it will renew this".
+    /// A refused credential is not the verdict while another remains. A key's
+    /// 403 can likewise describe that key alone, so remember it and try the
+    /// login before calling the account planless. If nothing works, that
+    /// metering answer stands; otherwise the final authentication refusal
+    /// carries the OAuth expiry hint. Rate limits and broken responses stop
+    /// immediately because trying another token would spend the same limit
+    /// or hide an endpoint failure. The last successful candidate goes first
+    /// next time, without keeping credentials that disappeared from disk.
     private func fetch(firstAcceptedOf candidates: [OpenCodeCredentials.Credential])
     async throws -> Data {
         var refusal: UsageProviderError = .needsAuth
+        var unmeteredKey: UsageProviderError?
         for (index, credential) in candidates.enumerated() {
             do {
-                return try await fetch(credential)
+                let data = try await fetch(credential)
+                lastGoodCredential = credential.identity
+                return data
             } catch let error as UsageProviderError {
                 switch error {
                 case .needsAuth, .credentialExpired:
@@ -141,12 +153,14 @@ actor OpenCodeProvider: UsageProvider {
                     if index < candidates.count - 1 {
                         Log.usage.debug("opencode: credential \(index + 1) of \(candidates.count) refused, trying the next")
                     }
+                case .nothingMetered where !credential.oauth:
+                    unmeteredKey = error
                 default:
                     throw error
                 }
             }
         }
-        throw refusal
+        throw unmeteredKey ?? refusal
     }
 
     /// The route this credential is for. Not a preference: each refuses the

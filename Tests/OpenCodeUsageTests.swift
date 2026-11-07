@@ -384,6 +384,107 @@ final class OpenCodeCredentialsTests: XCTestCase {
         }
     }
 
+    private var reading: OpenCodeEndpoint.Answer {
+        .init(status: 200, body: Data(#"{"usage":{"rolling":{"status":"ok","percent":7}}}"#.utf8))
+    }
+
+    /// A store boundary is not an authentication boundary. The file's OAuth
+    /// login must get a turn after a refused database key, with mirrors sent
+    /// only once on each route and Go preceding OAuth inside either store.
+    func testDatabaseDeadKeyFallsThroughToFileLogin() async throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("opencode-mixed-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let db = try database([("opencode-go", #"{"type":"api","key":"sk-expired"}"#, 1, 3)])
+        defer { try? FileManager.default.removeItem(at: db) }
+        try FileManager.default.copyItem(at: db, to: directory.appendingPathComponent("opencode.db"))
+        try #"{"opencode-go":{"type":"api","key":"sk-expired"},"opencode":{"type":"oauth","access":"st_live"}}"#
+            .write(to: directory.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8)
+        let candidates = OpenCodeCredentials.candidates(in: directory)
+        XCTAssertEqual(candidates.map(\.token), ["sk-expired", "st_live"])
+        OpenCodeEndpoint.reset([.init(status: 401), reading])
+        let snapshot = try await provider(candidates).fetchSnapshot()
+        XCTAssertEqual(snapshot.status, .ok)
+        XCTAssertEqual(OpenCodeEndpoint.requestURLs.map(\.path), ["/zen/go/v1/usage", "/inference/go/v1/usage"])
+    }
+
+    func testFileOnlyCandidatesKeepGoBeforeOAuth() throws {
+        let auth = try file(#"{"opencode-go":{"type":"api","key":"sk-file"},"opencode":{"type":"oauth","access":"st_file"}}"#)
+        let directory = auth.deletingLastPathComponent().appendingPathComponent("opencode-file-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            try? FileManager.default.removeItem(at: auth)
+        }
+        try FileManager.default.copyItem(at: auth, to: directory.appendingPathComponent("auth.json"))
+        XCTAssertEqual(OpenCodeCredentials.candidates(in: directory).map(\.token), ["sk-file", "st_file"])
+    }
+
+    func testEveryRefusalPreservesOAuthExpiry() async throws {
+        let expired = OpenCodeCredentials.Credential(token: "st_old", oauth: true, console: nil,
+            org: nil, expires: Date(timeIntervalSince1970: 1), source: "OpenCode")
+        OpenCodeEndpoint.reset([.init(status: 401), .init(status: 401), .init(status: 401)])
+        do {
+            _ = try await provider([expiredKey, expired]).fetchSnapshot()
+            XCTFail("an expired login is not a reading")
+        } catch UsageProviderError.credentialExpired {
+            XCTAssertEqual(OpenCodeEndpoint.requestCount, 3)
+        }
+    }
+
+    func testConsoleAcceptedAfterBothUsageRefusalsMeansNothingMetered() async throws {
+        OpenCodeEndpoint.reset([.init(status: 401), .init(status: 401), .init(status: 200)])
+        do {
+            _ = try await provider([expiredKey, liveSignIn]).fetchSnapshot()
+            XCTFail("a console login is not a Go subscription")
+        } catch UsageProviderError.nothingMetered {
+            XCTAssertEqual(OpenCodeEndpoint.requestCount, 3)
+        }
+    }
+
+    func testKey403StillTriesOAuthAndRemembersTheSuccess() async throws {
+        OpenCodeEndpoint.reset([.init(status: 403), reading, reading])
+        let p = try provider([expiredKey, liveSignIn])
+        let first = try await p.fetchSnapshot()
+        let next = try await p.fetchSnapshot()
+        XCTAssertEqual(first.status, .ok)
+        XCTAssertEqual(next.status, .ok)
+        XCTAssertEqual(OpenCodeEndpoint.requestURLs.map(\.path),
+                       ["/zen/go/v1/usage", "/inference/go/v1/usage", "/inference/go/v1/usage"])
+    }
+
+    func testKey403StandsWhenNoCandidateWorks() async throws {
+        OpenCodeEndpoint.reset([.init(status: 403), .init(status: 401), .init(status: 401)])
+        do {
+            _ = try await provider([expiredKey, liveSignIn]).fetchSnapshot()
+            XCTFail("all candidates failed")
+        } catch UsageProviderError.nothingMetered {
+            XCTAssertEqual(OpenCodeEndpoint.requestCount, 3)
+        }
+    }
+
+    func testOAuthRateLimitAfterKeyRefusalStands() async throws {
+        OpenCodeEndpoint.reset([.init(status: 401), .init(status: 429)])
+        do {
+            _ = try await provider([expiredKey, liveSignIn]).fetchSnapshot()
+            XCTFail("a rate limit is not an authentication refusal")
+        } catch UsageProviderError.rateLimited {
+            XCTAssertEqual(OpenCodeEndpoint.requestCount, 2)
+        }
+    }
+
+    func testDuplicateTokensAreSentOncePerRoute() async throws {
+        OpenCodeEndpoint.reset([.init(status: 401), reading])
+        let snapshot = try await provider([expiredKey, expiredKey, liveSignIn, liveSignIn]).fetchSnapshot()
+        XCTAssertEqual(snapshot.status, .ok)
+        XCTAssertEqual(OpenCodeEndpoint.requestCount, 2)
+        let keyWithSameToken = OpenCodeCredentials.Credential(token: liveSignIn.token, oauth: false,
+            console: nil, org: nil, expires: nil, source: "OpenCode")
+        XCTAssertEqual(OpenCodeCredentials.unique([keyWithSameToken, liveSignIn]).count, 2,
+                       "a token on a different route is a distinct candidate")
+    }
+
     // MARK: - Presence
 
     /// Installed-but-signed-out and never-installed are different answers, so
