@@ -36,6 +36,8 @@ struct NotchRootView: View {
                         .animation(motion(NotchMotion.reading), value: model.readingAcrossTextWidth)
                 }
 
+                cells(place, wings: wings, looseLayout: looseLayout)
+
                 // A floating slab has no flare for the handles to hang off —
                 // see `NotchViewModel.showsHandles`.
                 if model.showsHandles {
@@ -410,11 +412,6 @@ struct NotchRootView: View {
             // as far as it has widened — so a copy grows by being drawn longer,
             // corner and all, rather than by being stretched.
             .frame(width: copySize(wing).width, height: copySize(wing).height)
-            // Aligned to the corner where the stack starts *and* the bezel is.
-            // Each wing draws only its own slice, in the row's reading order.
-            .overlay(alignment: contentAlignment) {
-                if wing.carriesCells { cells(in: wing, looseLayout: looseLayout) }
-            }
             .overlay(alignment: wing.onTheLeft ? .topTrailing : .topLeading) {
                 if !wing.carriesCells { readingAcross(wing) }
             }
@@ -423,8 +420,8 @@ struct NotchRootView: View {
             // slide out of the end of it; clipped, they are swallowed by the
             // outline as it closes, which is what a notch should do.
             .clipShape(clip)
-            // The size choice, applied to the notch and the cells it carries —
-            // and to nothing else. Drawn at design-frame size and scaled from
+            // The size choice, applied to this surface. The shared cells use
+            // the same transform in panel space. Drawn at design-frame size and scaled from
             // there, so `NotchLayout` keeps measuring the one thing it is
             // quoted from.
             // Scaled *from the bezel*, so the outer edge is a fixed point of
@@ -505,83 +502,101 @@ struct NotchRootView: View {
     /// begins at the first row on screen rather than behind the bezel.
     static let bezelBleed: CGFloat = 2
 
-    /// The cells fade and lift into place a beat after the shape starts opening,
-    /// each trailing the one before it. Folded shut they are not just hidden but
-    /// pulled toward the edge, so the whole thing reads as one movement.
-
-    /// Distance from the start of the shape to the first cell, widening
-    /// included so the readings stay in the middle of a bar that was stretched
-    /// to cover the hardware notch.
-    /// Taken from the model so the rings are drawn exactly where the geometry
-    /// says they are. Computing it here as well is what let the two drift.
-    @ViewBuilder
-    private func cells(in wing: NotchViewModel.Wing,
+    /// Cells belong to the panel, because a provider moving across the hole
+    /// must remain the same SwiftUI subtree. A ForEach inside each wing would
+    /// tear down its spin and activity state whenever sorting, parity or pickup
+    /// moved it to the other parent. Only a cell's position changes here;
+    /// surfaces keep their own identities in the layer below.
+    private func cells(_ place: NotchPlacement, wings: [NotchViewModel.Wing],
                        looseLayout: NotchViewModel.LooseLayoutMetrics) -> some View {
-        let leadIn = model.cellsLeadIn(in: wing)
-        let assigned = wing.cellIndices.map { (index: $0, snapshot: model.snapshots[$0]) }
-        let stack = ForEach(assigned, id: \.snapshot.id) { index, snapshot in
-            ProviderCell(
-                snapshot: snapshot,
-                activity: model.activity(for: snapshot),
-                isRefreshing: model.isRefreshing(snapshot),
-                weeklyRing: model.weeklyRing,
-                showsWeeklyReading: model.weeklyReading,
-                showsReading: model.showsCellReading,
-                showsRemaining: model.showsRemainingInNotch,
-                shutRingsWhenSpent: model.shutRingsWhenSpent
-            )
-                // The ring colours were sampled for a black notch and go faint
-                // over the floating slab's clear glass on a light desktop, so
-                // each ring gets a ground of its own, as the Dock's icons do.
-                // A background, so the cell's size is untouched, and mounted
-                // here, under the fade and slide below, so it never shows
-                // without its ring.
-                .background(alignment: model.showsCellReading ? .top : .center) {
-                    if model.floats && !reduceTransparency {
-                        Circle()
-                            .fill(Palette.dockRingBacking)
-                            .frame(width: NotchLayout.ringDiameter, height: NotchLayout.ringDiameter)
-                    }
-                }
-                // Pinned to what the cell claims along the stack, or the drawn
-                // rings stop lining up with the centres `ringCenter` hands to
-                // the hover bands and the tooltip tails. Across a horizontal
-                // edge that is the ring alone — the label sits below it, in the
-                // notch's depth, and claims nothing here.
-                .frame(width: model.edge.isVertical ? nil : NotchLayout.cellAlong(for: model.edge))
-                .opacity(model.isExpanded ? 1 : 0)
-                // A short slide toward the edge, no scaling: the clip is
-                // already doing the concealing, and scaling on top of it
-                // reads as two effects fighting.
-                .offset(
-                    x: model.isExpanded ? 0 : model.edge.outward.x * Design.px(28),
-                    y: model.isExpanded ? 0 : model.edge.outward.y * Design.px(28)
+        let assigned = model.snapshots.enumerated().map { (index: $0.offset, snapshot: $0.element) }
+        let scale = model.sizeScale
+        return ZStack(alignment: .topLeading) {
+            Color.clear
+            ForEach(assigned, id: \.snapshot.id) { index, snapshot in
+                let wing = model.cellWing(index: index, in: wings)
+                let along = model.ringAlong(index: index, in: wing)
+                    + (model.edge.isVertical ? (NotchLayout.cellExtent - NotchLayout.ringDiameter) / 2 * scale : 0)
+                ProviderCell(
+                    snapshot: snapshot,
+                    activity: model.activity(for: snapshot),
+                    isRefreshing: model.isRefreshing(snapshot),
+                    weeklyRing: model.weeklyRing,
+                    showsWeeklyReading: model.weeklyReading,
+                    showsReading: model.showsCellReading,
+                    showsRemaining: model.showsRemainingInNotch,
+                    shutRingsWhenSpent: model.shutRingsWhenSpent
                 )
-                .animation(motion(NotchMotion.stagger(index: index)), value: model.isExpanded)
-                .transition(.opacity.combined(with: .offset(
-                    x: model.edge.outward.x * Design.px(28),
-                    y: model.edge.outward.y * Design.px(28)
-                )).animation(motion(NotchMotion.unfold)))
-        }
-
-        Group {
-            if model.edge.isVertical {
-                VStack(spacing: model.cellSpacing) { stack }
-                    .padding(.top, leadIn)
-                    // The contents keep the expanded layout while folding, so
-                    // the stack does not reflow on its way out; the shape clips
-                    // it. `contentDepth` is the open depth for that reason.
-                    .frame(width: model.contentDepth)
-            } else {
-                HStack(spacing: model.cellSpacing) { stack }
-                    .padding(.leading, leadIn)
-                    .frame(height: model.contentDepth)
-                    // The frame centres the whole cell, ring and reading,
-                    // in the body. The housing's band replaces its top margin
-                    // so the outermost stroke hangs from the hole's bottom edge.
-                    .padding(.top, looseLayout.bodyInset)
+                    // The ring colours were sampled for a black notch and go
+                    // faint over the floating slab's clear glass on a light
+                    // desktop, so each ring gets a ground of its own, as the
+                    // Dock's icons do. A background, so the cell's size is
+                    // untouched, and mounted here, under the fade and slide
+                    // below, so it never shows without its ring.
+                    .background(alignment: model.showsCellReading ? .top : .center) {
+                        if model.floats && !reduceTransparency {
+                            Circle()
+                                .fill(Palette.dockRingBacking)
+                                .frame(width: NotchLayout.ringDiameter, height: NotchLayout.ringDiameter)
+                        }
+                    }
+                    // Pinned to what the cell claims along the stack, or the
+                    // drawn rings stop lining up with the centres `ringCenter`
+                    // hands to the hover bands and the tooltip tails.
+                    .frame(width: model.edge.isVertical ? model.contentDepth : NotchLayout.cellAlong(for: model.edge),
+                           height: NotchLayout.cellExtent)
+                    .opacity(model.isExpanded ? 1 : 0)
+                    // A short slide toward the edge, no scaling: the clip is
+                    // already doing the concealing, and scaling on top of it
+                    // reads as two effects fighting.
+                    .offset(x: model.isExpanded ? 0 : model.edge.outward.x * Design.px(28),
+                            y: model.isExpanded ? 0 : model.edge.outward.y * Design.px(28))
+                    .animation(motion(NotchMotion.stagger(index: index)), value: model.isExpanded)
+                    .scaleEffect(scale)
+                    // Centred in the body, under the housing's band when the
+                    // bar hangs from the hole — the model's numbers, so the
+                    // rings are drawn exactly where the hover bands expect.
+                    .position(place.point(along: along,
+                                          across: (looseLayout.bodyInset + model.contentDepth / 2) * scale))
+                    .transition(.opacity.combined(with: .offset(
+                        x: model.edge.outward.x * Design.px(28),
+                        y: model.edge.outward.y * Design.px(28)
+                    )).animation(motion(NotchMotion.unfold)))
+                    .onAppear {
+                        #if DEBUG
+                        model.cellAppearedForTesting?(snapshot.id)
+                        #endif
+                    }
             }
         }
+        .frame(width: place.panelSize.width, height: place.panelSize.height)
+        // Masked by the notch outlines, not by their bounding boxes, so a
+        // cell is swallowed by its wing as the shape closes rather than
+        // sliding out of the end of it. **One mask for the whole layer**,
+        // the union of every copy, rather than one per cell: a mask is an
+        // offscreen pass, and a ring never strays into the other copy anyway.
+        .mask {
+            ZStack(alignment: .topLeading) {
+                Color.clear
+                ForEach(wings) { wing in
+                    Group {
+                        if model.floats {
+                            dockSlab(wing)
+                        } else {
+                            model.notchShape(for: wing)
+                        }
+                    }
+                    .frame(width: copySize(wing).width, height: copySize(wing).height)
+                    .scaleEffect(scale, anchor: bezelAnchor)
+                    .position(place.point(along: wing.lead + wing.length / 2, across: wing.depth / 2))
+                }
+            }
+            .frame(width: place.panelSize.width, height: place.panelSize.height)
+        }
+        // Tucked under the bezel with the copies, or lifted off the edge
+        // with the slab, by the same amount as the surface it sits on.
+        .offset(x: model.edge.outward.x * (model.floats ? -model.edgeGap : Self.bezelBleed),
+                y: model.edge.outward.y * (model.floats ? -model.edgeGap : Self.bezelBleed))
         .allowsHitTesting(model.isExpanded)
     }
 
@@ -608,17 +623,6 @@ struct NotchRootView: View {
                 .transition(.opacity.animation(motion(NotchMotion.unfold)))
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
-        }
-    }
-
-    /// The corner of the shape's own frame where the stack starts and the
-    /// bezel is — the origin everything inside it is measured from.
-    private var contentAlignment: Alignment {
-        switch model.edge {
-        case .right:  return .topTrailing
-        case .left:   return .topLeading
-        case .top:    return .topLeading
-        case .bottom: return .bottomLeading
         }
     }
 

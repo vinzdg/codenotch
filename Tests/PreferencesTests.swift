@@ -106,7 +106,7 @@ final class PreferencesMigrationTests: XCTestCase {
         let preferences = Preferences(defaults: defaults)
         XCTAssertTrue(preferences.showsNotchReadings)
 
-        preferences.notchJoinsCutout = true
+        preferences.setNotchJoinsCutoutFromSettings(true)
 
         XCTAssertFalse(preferences.showsNotchReadings)
         XCTAssertEqual(defaults.object(forKey: "showsNotchReadings") as? Bool, false)
@@ -119,10 +119,10 @@ final class PreferencesMigrationTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: name) }
         for readings in [true, false] {
             let preferences = Preferences(defaults: defaults)
-            preferences.notchJoinsCutout = true
+            preferences.setNotchJoinsCutoutFromSettings(true)
             preferences.showsNotchReadings = readings
 
-            preferences.notchJoinsCutout = false
+            preferences.setNotchJoinsCutoutFromSettings(false)
 
             XCTAssertEqual(preferences.showsNotchReadings, readings)
             XCTAssertEqual(Preferences(defaults: defaults).showsNotchReadings, readings)
@@ -133,8 +133,8 @@ final class PreferencesMigrationTests: XCTestCase {
         let (defaults, name) = makeDefaults()
         defer { defaults.removePersistentDomain(forName: name) }
         let preferences = Preferences(defaults: defaults)
-        preferences.notchJoinsCutout = false
-        preferences.notchJoinsCutout = true
+        preferences.setNotchJoinsCutoutFromSettings(false)
+        preferences.setNotchJoinsCutoutFromSettings(true)
         XCTAssertFalse(preferences.showsNotchReadings)
         preferences.showsNotchReadings = true
 
@@ -148,13 +148,43 @@ final class PreferencesMigrationTests: XCTestCase {
         let (defaults, name) = makeDefaults()
         defer { defaults.removePersistentDomain(forName: name) }
         let preferences = Preferences(defaults: defaults)
-        preferences.notchJoinsCutout = false
-        preferences.notchJoinsCutout = true
+        preferences.setNotchJoinsCutoutFromSettings(false)
+        preferences.setNotchJoinsCutoutFromSettings(true)
         preferences.showsNotchReadings = true
 
-        preferences.notchJoinsCutout = true
+        preferences.setNotchJoinsCutoutFromSettings(true)
 
         XCTAssertTrue(preferences.showsNotchReadings)
+    }
+
+    /// Importers and fleet setup restore independent keys; only the Settings
+    /// gesture may choose new readings and reinterpret the saved top nudge.
+    func testProgrammaticMergeWritesDoNotMutateOtherKeys() {
+        let (defaults, name) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let preferences = Preferences(defaults: defaults)
+        preferences.showsNotchReadings = true
+        preferences.setOffset(120, for: .top)
+        preferences.notchJoinsCutout = false
+        preferences.notchJoinsCutout = true
+        XCTAssertTrue(preferences.showsNotchReadings)
+        XCTAssertEqual(preferences.offset(for: .top), 120)
+    }
+
+    func testSettingsMergeTransitionsResetOnlyTheTopOffset() {
+        let (defaults, name) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let preferences = Preferences(defaults: defaults)
+        for on in [false, true] {
+            preferences.setOffset(-48, for: .top)
+            preferences.setOffset(120, for: .left)
+            preferences.setNotchJoinsCutoutFromSettings(on)
+            XCTAssertEqual(preferences.offset(for: .top), 0)
+            XCTAssertEqual(preferences.offset(for: .left), 120)
+            preferences.setOffset(120, for: .top)
+            preferences.setNotchJoinsCutoutFromSettings(on)
+            XCTAssertEqual(preferences.offset(for: .top), 120, "a repeated value is not a toggle")
+        }
     }
 
     /// MiniMax is discovered like everyone else, and stays off until switched
