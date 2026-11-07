@@ -1212,8 +1212,8 @@ final class EverySizeSettingAppliesEverywhereTests: XCTestCase {
             throw XCTSkip("Needs a display with a notch")
         }
         let controller = NotchWindowController()
-        controller.model.updateSnapshots(Fixtures.snapshots())
         controller.assignedScreen = notched
+        controller.model.updateSnapshots(Fixtures.snapshots())
         defer { controller.stop() }
 
         controller.apply(edge: .top)
