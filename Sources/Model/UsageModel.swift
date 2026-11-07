@@ -599,6 +599,9 @@ struct ProviderSnapshot: Identifiable, Equatable {
             let slug = CommandCodeProfile.slug(fromProviderID: id)!
             return L10n.t("Sign in to Command Code in ~/.commandcode-\(slug) to read your usage", locale: locale)
         case "kiro":       return L10n.t("Sign in with kiro-cli to read your usage", locale: locale)
+        // Missing or refused, the remedy is the same: a working key.
+        case "deepseek" where Preferences.storedDeepSeekSource() == .apiKey:
+            return L10n.t("Paste a valid DeepSeek API key in Settings, or export DEEPSEEK_API_KEY", locale: locale)
         case "amp":        return L10n.t("Run amp login in Terminal to read your usage", locale: locale)
         case "apify":      return L10n.t("Run apify login in Terminal, or paste an Apify API token in Settings", locale: locale)
         case "kilo":       return L10n.t("Sign in with the Kilo CLI to read your usage", locale: locale)

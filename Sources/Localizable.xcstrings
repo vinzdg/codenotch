@@ -73426,6 +73426,286 @@
           }
         }
       }
+    },
+    "Account balance (%@)": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "账户余额（%@）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "帳戶餘額（%@）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウント残高（%@）"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saldo de la cuenta (%@)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Баланс рахунку (%@)"
+          }
+        }
+      }
+    },
+    "%@ topped up · %@ granted · balance only with an API key": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "充值 %1$@ · 赠送 %2$@ · API key 仅显示余额"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲值 %1$@ · 贈送 %2$@ · API key 僅顯示餘額"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャージ %1$@ · 付与 %2$@ · API キーでは残高のみ"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ recargado · %2$@ regalado · solo el saldo con una clave de API"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ поповнено · %2$@ надано · з ключем API лише баланс"
+          }
+        }
+      }
+    },
+    "Paste a valid DeepSeek API key in Settings, or export DEEPSEEK_API_KEY": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在设置中粘贴有效的 DeepSeek API key，或导出 DEEPSEEK_API_KEY"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在設定中貼上有效的 DeepSeek API key，或匯出 DEEPSEEK_API_KEY"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定で有効な DeepSeek API キーを貼り付けるか、DEEPSEEK_API_KEY をエクスポートしてください"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pega una clave de API de DeepSeek válida en Ajustes o exporta DEEPSEEK_API_KEY"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставте дійсний ключ API DeepSeek у Налаштуваннях або експортуйте DEEPSEEK_API_KEY"
+          }
+        }
+      }
+    },
+    "DeepSeek API key": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek API key"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek API key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DeepSeek API キー"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clave de API de DeepSeek"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключ API DeepSeek"
+          }
+        }
+      }
+    },
+    "Read from": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "读取方式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讀取方式"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取り元"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leer desde"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Джерело"
+          }
+        }
+      }
+    },
+    "Sign-in (full detail)": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录（完整信息）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入（完整資訊）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン（すべての詳細）"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicio de sesión (todo el detalle)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вхід (усі подробиці)"
+          }
+        }
+      }
+    },
+    "API key (balance only)": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API key（仅余额）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API key（僅餘額）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API キー（残高のみ）"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clave de API (solo saldo)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключ API (лише баланс)"
+          }
+        }
+      }
+    },
+    "Shows the balance only: spend and usage detail need the sign-in. DEEPSEEK_API_KEY, if exported, is used instead. Stored in your login keychain.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只显示余额：消费和用量明细需要登录。如果导出了 DEEPSEEK_API_KEY，会优先使用它。保存在你的登录钥匙串中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只顯示餘額：消費與用量明細需要登入。如果匯出了 DEEPSEEK_API_KEY，會優先使用它。儲存在你的登入鑰匙圈中。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残高のみ表示します。利用額と使用量の詳細にはサインインが必要です。DEEPSEEK_API_KEY がエクスポートされていればそちらを使います。ログインキーチェーンに保存されます。"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo muestra el saldo: el gasto y el detalle de uso necesitan el inicio de sesión. Si exportas DEEPSEEK_API_KEY, se usa esa. Se guarda en tu llavero de inicio de sesión."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує лише баланс: витрати й подробиці використання потребують входу. Якщо експортовано DEEPSEEK_API_KEY, використовується він. Зберігається у вашій зв’язці ключів."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

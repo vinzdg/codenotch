@@ -713,6 +713,13 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(minimaxRegion.rawValue, forKey: Keys.minimaxRegion) }
     }
 
+    /// Where DeepSeek is read from: the Codenotch sign-in (balance, spend and
+    /// usage detail) or an API key (balance only). Absent means the sign-in,
+    /// which is what DeepSeek always used.
+    @Published var deepSeekSource: DeepSeekSource {
+        didSet { defaults.set(deepSeekSource.rawValue, forKey: Keys.deepSeekSource) }
+    }
+
     /// The version whose changes have already been shown.
     ///
     /// Written when the What's New dialogue is dismissed rather than when it
@@ -821,6 +828,7 @@ final class Preferences: ObservableObject {
         static let antigravityHeadlineModel = "antigravityHeadlineModel"
         static let deepSeekPricingEnabled = "deepSeekPricingEnabled"
         static let deepSeekPricingSchedule = "deepSeekPricingSchedule"
+        static let deepSeekSource = "deepSeekSource"
         static let showCodexExtraLimits = "showCodexExtraLimits"
         static let planCeilingMode = "planCeilingMode"
         static let ceilingWarningThreshold = "ceilingWarningThreshold"
@@ -1012,6 +1020,14 @@ final class Preferences: ObservableObject {
             }
         }
         return []
+    }
+
+    /// The DeepSeek source read straight from disk, off the main actor, for
+    /// the same reason as the MiniMax region below.
+    nonisolated static func storedDeepSeekSource(
+        defaults: UserDefaults = .standard
+    ) -> DeepSeekSource {
+        DeepSeekSource(rawValue: defaults.string(forKey: Keys.deepSeekSource) ?? "") ?? .web
     }
 
     /// The MiniMax region read straight from disk, off the main actor.
@@ -1304,6 +1320,7 @@ final class Preferences: ObservableObject {
         self.manualProviderLimit = Self.storedManualProviderLimit(defaults: defaults)
         self.manualProviderSchedule = defaults.string(forKey: Keys.manualProviderSchedule) ?? "3h"
         self.minimaxRegion = Self.storedMinimaxRegion(defaults: defaults)
+        self.deepSeekSource = Self.storedDeepSeekSource(defaults: defaults)
         self.qoderRegion = Sites.QoderRegion(rawValue: defaults.string(forKey: Keys.qoderRegion) ?? "") ?? .global
         if let data = defaults.data(forKey: Keys.customEndpoints),
            let list = try? JSONDecoder().decode([CustomEndpoint].self, from: data) {
