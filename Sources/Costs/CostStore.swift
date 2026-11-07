@@ -300,10 +300,21 @@ final class CostStore {
 
     /// Records one quota reading and attributes any increase since the last one.
     /// Driven by the readings the app already has — no extra network traffic.
+    ///
+    /// A reading equal to the last two only moves the newest row's time forward.
+    /// Each run of equal readings keeps its first row and its latest time, which is
+    /// all the readers use, so the table grows with changes, not with time.
     func recordSample(window: CostWindow, pct: Double, resetsAt: Date? = nil, at date: Date = Date()) {
         queue.sync {
             let ts = Int(date.timeIntervalSince1970)
-            let prev = lastSample(window)
+            let resets = resetsAt.map { Int($0.timeIntervalSince1970) }
+            let recent = lastSamples(window, count: 2)
+            if recent.count == 2, ts >= recent[0].ts,
+               recent.allSatisfy({ $0.pct == pct && $0.resetsAt == resets }) {
+                moveSample(id: recent[0].id, to: ts)
+                return                                 // unchanged: nothing to attribute
+            }
+            let prev = recent.first
             insertSample(window: window, pct: pct, ts: ts, resetsAt: resetsAt)
 
             guard let prev else { return }             // first sample: nothing to compare
@@ -331,6 +342,29 @@ final class CostStore {
 
     private let SELECT_LAST_SAMPLE =
         "SELECT ts, pct, resets_at FROM quota_sample WHERE window=?1 ORDER BY ts DESC LIMIT 1"
+
+    private func lastSamples(_ window: CostWindow, count: Int) -> [(id: Int, ts: Int, pct: Double, resetsAt: Int?)] {
+        guard let st = prepare("SELECT id, ts, pct, resets_at FROM quota_sample WHERE window=?1 ORDER BY ts DESC, id DESC LIMIT ?2")
+        else { return [] }
+        defer { sqlite3_finalize(st) }
+        bind(st, 1, window.rawValue)
+        sqlite3_bind_int64(st, 2, Int64(count))
+        var out: [(id: Int, ts: Int, pct: Double, resetsAt: Int?)] = []
+        while sqlite3_step(st) == SQLITE_ROW {
+            let resets = sqlite3_column_type(st, 3) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(st, 3))
+            out.append((Int(sqlite3_column_int64(st, 0)), Int(sqlite3_column_int64(st, 1)),
+                        sqlite3_column_double(st, 2), resets))
+        }
+        return out
+    }
+
+    private func moveSample(id: Int, to ts: Int) {
+        guard let st = prepare("UPDATE quota_sample SET ts=?1 WHERE id=?2") else { return }
+        defer { sqlite3_finalize(st) }
+        sqlite3_bind_int64(st, 1, Int64(ts))
+        sqlite3_bind_int64(st, 2, Int64(id))
+        sqlite3_step(st)
+    }
 
     private func insertSample(window: CostWindow, pct: Double, ts: Int, resetsAt: Date?) {
         guard let st = prepare("INSERT INTO quota_sample(ts, window, pct, resets_at) VALUES(?1,?2,?3,?4)") else { return }
