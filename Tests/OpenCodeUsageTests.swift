@@ -151,13 +151,27 @@ final class OpenCodeCredentialsTests: XCTestCase {
     /// A `credential` table shaped as OpenCode writes it: values are JSON
     /// strings, and `active` is present on some rows and absent on others.
     private func database(
-        _ rows: [(id: String, value: String, active: Int?, updated: Int)]
+        _ rows: [(id: String, value: String, active: Int?, updated: Int)],
+        wal: Bool = false
     ) throws -> URL {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("opencode-\(UUID().uuidString).db")
         var db: OpaquePointer?
         XCTAssertEqual(sqlite3_open(url.path, &db), SQLITE_OK)
-        defer { sqlite3_close(db) }
+        defer {
+            sqlite3_close(db)
+            // OpenCode runs its store in WAL mode, and once it has quit there
+            // is no `-wal` or `-shm` sidecar beside the file: that is the
+            // state every read-only open meets whenever OpenCode is closed.
+            if wal {
+                for sidecar in ["-wal", "-shm"] {
+                    try? FileManager.default.removeItem(atPath: url.path + sidecar)
+                }
+            }
+        }
+        if wal {
+            XCTAssertEqual(sqlite3_exec(db, "PRAGMA journal_mode=WAL", nil, nil, nil), SQLITE_OK)
+        }
         XCTAssertEqual(sqlite3_exec(db, """
         CREATE TABLE credential (id text PRIMARY KEY, integration_id text, label text NOT NULL,
          value text NOT NULL, connector_id text, method_id text, active integer,
@@ -172,6 +186,37 @@ final class OpenCodeCredentialsTests: XCTestCase {
             """, nil, nil, nil), SQLITE_OK)
         }
         return url
+    }
+
+    /// **OpenCode not running.** Its store is a WAL database, and once the
+    /// last connection has closed there is no `-shm` sidecar for a read-only
+    /// connection to map. SQLite still reports that connection as opened; it
+    /// is the first statement that fails. Taken at its word, the store read as
+    /// empty, the only sign-in left to try was the retired Go key in
+    /// `auth.json`, and the ring said "signed out" after every reboot until
+    /// OpenCode was launched by hand.
+    func testReadsACheckpointedWALDatabaseWhileOpenCodeIsClosed() throws {
+        let db = try database([
+            ("opencode-go", #"{"type":"api","key":"sk-old"}"#, nil, 1),
+            ("opencode", #"{"type":"oauth","access":"st_live","metadata":{"orgID":"org_1"}}"#, 1, 3)
+        ], wal: true)
+        defer { try? FileManager.default.removeItem(at: db) }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: db.path + "-shm"),
+                       "the fixture must look like a store whose owner has quit")
+
+        let found = OpenCodeCredentials.candidatesFromDatabase(db)
+        XCTAssertEqual(found.map(\.token), ["sk-old", "st_live"])
+
+        // And through the combined loader, with the stale key mirrored in the
+        // file: the live sign-in must still be on the list to try.
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("opencode-home-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.copyItem(at: db, to: directory.appendingPathComponent("opencode.db"))
+        try #"{"opencode-go":{"type":"api","key":"sk-old"}}"#
+            .write(to: directory.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(OpenCodeCredentials.candidates(in: directory).map(\.token), ["sk-old", "st_live"])
     }
 
     /// The case that broke the ring: no `auth.json` at all, only the database
