@@ -321,6 +321,10 @@ final class NotchViewModel: ObservableObject {
     /// bar that is the cutout's depth cannot be made bigger, and a pair either
     /// side of the hole puts every reading on one flank of it.
     @Published var joinsCutout = true
+    @Published var cutoutOddSide: NotchCutoutOddSide = .right
+
+    /// A lone ring keeps its existing wing and its reading across the hole.
+    var splitsCellsAcrossCutout: Bool { mergesWithCutout && snapshots.count > 1 }
 
     /// The display's own hole while the notch is drawn *out of* it rather than
     /// joined to it — `nil` on every other edge, on a display without one, and
@@ -330,7 +334,7 @@ final class NotchViewModel: ObservableObject {
 
     /// Where a ring's centre falls along the panel, on a given copy of the bar.
     func ringAlong(index: Int, in wing: Wing, spacing: CGFloat? = nil) -> CGFloat {
-        wing.lead + ringCenter(index: index, spacing: spacing) * sizeScale
+        wing.lead + ringCenter(index: index, in: wing, spacing: spacing) * sizeScale
     }
 
     /// And how far along a copy a point in the panel is, in the notch's own
@@ -342,11 +346,17 @@ final class NotchViewModel: ObservableObject {
     }
 
     func tooltipAlong(index: Int, length: CGFloat) -> CGFloat {
-        cardAlong(centredOn: ringAlong(index: index, in: cellWing), length: length)
+        cardAlong(centredOn: ringAlong(index: index, in: cellWing(index: index)), length: length)
     }
 
     /// The notch's middle, along the panel — what the update card hangs from.
-    var notchMiddleAlong: CGFloat { cellWing.lead + cellWing.length / 2 }
+    var notchMiddleAlong: CGFloat {
+        if splitsCellsAcrossCutout {
+            let pair = wings
+            return ((pair.first?.lead ?? slack) + (pair.last.map { $0.lead + $0.length } ?? slack)) / 2
+        }
+        return cellWing.lead + cellWing.length / 2
+    }
 
     /// A card `length` long centred on `centre`, kept on the screen.
     func cardAlong(centredOn centre: CGFloat, length: CGFloat) -> CGFloat {
@@ -540,15 +550,8 @@ final class NotchViewModel: ObservableObject {
 
     /// **One drawn copy of the notch**, and where along the panel it starts.
     struct Wing: Identifiable, Equatable {
-        /// **0 is always the copy that carries the readings; 1 is the other.**
-        ///
-        /// Never shared, and never reused for something else. Whatever a copy
-        /// is — which side of the hole, whether it carries anything — it keeps
-        /// for as long as it has that identity, so SwiftUI only ever animates a
-        /// copy *moving* and never one copy turning into a different one. The
-        /// carrying copy has one identity from the moment it is picked up to
-        /// the moment it is put down, so a drag and its landing are one bar
-        /// moving; the other copy arrives out of the hole and leaves into it.
+        /// Identity 0 survives pickup and landing; identity 1 emerges from
+        /// the opposite wall on the same spring. Both can carry cells joined.
         var id: Int
         /// Panel points, from the panel's own leading edge.
         var lead: CGFloat
@@ -556,9 +559,9 @@ final class NotchViewModel: ObservableObject {
         /// joined end is its trailing one. Drawn by `SideNotchShape` as its own
         /// shape, reflected in the path — never flipped by the view.
         var onTheLeft: Bool
-        /// Whether this copy carries the readings. Only one does; the other is
-        /// the container and nothing else.
-        var carriesCells: Bool
+        /// Global indices, always increasing from left to right across the hole.
+        var cellIndices: Range<Int> = 0..<0
+        var carriesCells: Bool { !cellIndices.isEmpty }
         /// **How long this copy is drawn**, in panel points — and for the copy
         /// that carries nothing, how far the notch has widened.
         ///
@@ -596,11 +599,9 @@ final class NotchViewModel: ObservableObject {
 
     /// **Every drawn copy of the notch.**
     ///
-    /// One, until it joins the display's own notch — then two, mirrored about
-    /// the hole, because a bar hanging off one side of the cutout is not what
-    /// the machine looks like. The pair reads as the hardware's own notch with
-    /// the app either side of it rather than as something stuck to one edge of
-    /// it, and it costs seeing each reading twice.
+    /// One free bar, or two wings welded to the hole. The row is partitioned
+    /// in reading order, and each wing is as long as its own cells need. A
+    /// lone ring retains the widened opposite wing and reading across it.
     #if DEBUG
     // Counts make repeated layout evaluation testable without timing assertions.
     // They are absent from Release builds and never cache model values.
@@ -615,7 +616,7 @@ final class NotchViewModel: ObservableObject {
         let drawn = notchLength * sizeScale
         guard let cutout else {
             return [Wing(id: 0, lead: slack + (shapeLength * sizeScale - drawn) / 2,
-                         onTheLeft: false, carriesCells: true,
+                         onTheLeft: false, cellIndices: snapshots.indices,
                          length: drawn, depth: notchDepth)]
         }
         // Measured out from the hole's own centre, which is the panel's centre
@@ -633,11 +634,19 @@ final class NotchViewModel: ObservableObject {
         // the hole it has been dragged to.
         let carryingLeft = mergesWithCutout ? cutout.atTrailingEnd
                                             : (holdsOffTheCutout ? false : cutout.atTrailingEnd)
+        let leftCount = snapshots.count / 2
+            + (snapshots.count.isMultiple(of: 2) || cutoutOddSide == .right ? 0 : 1)
+        let leftIndices = 0..<leftCount
+        let rightIndices = leftCount..<snapshots.count
+        let carryingIndices = splitsCellsAcrossCutout
+            ? (carryingLeft ? leftIndices : rightIndices) : snapshots.indices
+        let carryingLength = splitsCellsAcrossCutout && isExpanded
+            ? mergedWingLength(cellCount: carryingIndices.count) * sizeScale : drawn
         let carrying = Wing(id: 0,
                             lead: lead(onTheLeft: carryingLeft, overlap: cutout.overlap,
-                                       length: drawn),
-                            onTheLeft: carryingLeft, carriesCells: true,
-                            length: drawn, depth: notchDepth)
+                                       length: carryingLength),
+                            onTheLeft: carryingLeft, cellIndices: carryingIndices,
+                            length: carryingLength, depth: notchDepth)
 
         // **And the notch widening on the other side** — always exactly the
         // hole's depth, ending in the same curve as the side with the readings,
@@ -648,11 +657,18 @@ final class NotchViewModel: ObservableObject {
         let otherOverlap = mergesWithCutout ? cutout.overlap : NotchGeometry.cutoutOverlap
         // Carrying only the one ring's percentage, no longer than it needs to
         // be for it — see `readingAcrossRun`.
-        let widened = mergesWithCutout || revealsTheOtherCopy
-            ? (readsAcrossTheCutout ? min(drawn, readingAcrossLength * sizeScale) : drawn) : 0
+        let otherIndices = splitsCellsAcrossCutout
+            ? (otherLeft ? leftIndices : rightIndices) : 0..<0
+        let widened: CGFloat
+        if splitsCellsAcrossCutout && isExpanded {
+            widened = mergedWingLength(cellCount: otherIndices.count) * sizeScale
+        } else {
+            widened = mergesWithCutout || revealsTheOtherCopy
+                ? (readsAcrossTheCutout ? min(drawn, readingAcrossLength * sizeScale) : drawn) : 0
+        }
         let other = Wing(id: 1,
                          lead: lead(onTheLeft: otherLeft, overlap: otherOverlap, length: widened),
-                         onTheLeft: otherLeft, carriesCells: false,
+                         onTheLeft: otherLeft, cellIndices: otherIndices,
                          length: widened,
                          depth: (cutout.depth + NotchRootView.bezelBleed) / max(sizeScale, 0.0001))
         return otherLeft ? [other, carrying] : [carrying, other]
@@ -830,14 +846,19 @@ final class NotchViewModel: ObservableObject {
     /// Where the first drawn copy starts along the panel.
     var notchAlongLead: CGFloat { wings.first?.lead ?? slack }
 
-    /// The copy that carries the readings. Rings, hover bands, tooltips and
-    /// handles all belong to it; the other is the container and nothing else.
+    /// The primary wing, which becomes the lone bar in the hand. Geometry
+    /// for the drag and its handles uses this identity; cells use their index.
     var cellWing: Wing { cellWing(in: wings) }
 
     func cellWing(in wings: [Wing]) -> Wing {
-        wings.first { $0.carriesCells }
-            ?? Wing(id: 0, lead: slack, onTheLeft: false, carriesCells: true,
+        wings.first { $0.id == 0 }
+            ?? Wing(id: 0, lead: slack, onTheLeft: false, cellIndices: snapshots.indices,
                     length: notchLength * sizeScale, depth: notchDepth)
+    }
+
+    func cellWing(index: Int, in wings: [Wing]? = nil) -> Wing {
+        let pair = wings ?? self.wings
+        return pair.first { $0.cellIndices.contains(index) } ?? cellWing(in: pair)
     }
 
     /// The copy the settings handle and the move handle hang off — one set of
@@ -890,8 +911,24 @@ final class NotchViewModel: ObservableObject {
     /// by 14.5pt — so the shape was positioned by one number and the rings
     /// drawn at another, which put them back under the cutout however carefully
     /// the shape was placed.
-    var cellsLeadIn: CGFloat {
-        leadAllowance + NotchLayout.padStart(for: edge)
+    var cellsLeadIn: CGFloat { cellsLeadIn(in: cellWing) }
+
+    func cellsLeadIn(in wing: Wing) -> CGFloat {
+        guard splitsCellsAcrossCutout else {
+            return leadAllowance + NotchLayout.padStart(for: edge)
+        }
+        // The visible wall-to-rim clearance matches the rim-to-rim gap
+        // between adjacent rings: pitch minus diameter, or cellSpacing.
+        // The far end keeps its flare and padding; the join stays buried.
+        return wing.onTheLeft ? flare + NotchLayout.padStart(for: edge)
+            : cutoutBleed + cellSpacing
+    }
+
+    /// Each populated wing pays for its own body, one far flare, and the
+    /// buried join. Replace the body's join-side padding with the inter-ring gap.
+    func mergedWingLength(cellCount: Int) -> CGFloat {
+        NotchLayout.bodyLength(cellCount: cellCount, edge: edge, spacing: cellSpacing)
+            + flare + cutoutBleed + cellSpacing - NotchLayout.padStart(for: edge)
     }
 
 
@@ -935,7 +972,7 @@ final class NotchViewModel: ObservableObject {
         // bezel and the corner below it, the end this shape has everywhere.
         // Joined, the side with the readings keeps it, and the other side has
         // exactly the same one, so the pair balances about the hole.
-        if wing.carriesCells {
+        if wing.id == 0 {
             // Never reflected: in the hand it is not, and a reflection is not a
             // number SwiftUI can ease — taking the hole on the left turned the
             // bar end for end in the first frame of the landing, with its dip
@@ -1298,9 +1335,11 @@ final class NotchViewModel: ObservableObject {
 
     /// Distance along the stack to cell `index`'s ring centre, widening
     /// included so the readings stay in the middle of the bar.
-    func ringCenter(index: Int, spacing: CGFloat? = nil) -> CGFloat {
-        NotchLayout.ringCenter(index: index, edge: edge, flare: leadAllowance,
-                               spacing: spacing ?? cellSpacing)
+    func ringCenter(index: Int, in wing: Wing? = nil, spacing: CGFloat? = nil) -> CGFloat {
+        let wing = wing ?? cellWing(index: index)
+        return cellsLeadIn(in: wing) + NotchLayout.ringDiameter / 2
+            + CGFloat(index - wing.cellIndices.lowerBound)
+                * (NotchLayout.cellAlong(for: edge) + (spacing ?? cellSpacing))
     }
 
     var cellSpacing: CGFloat { cellSpacing(cellCount: snapshots.count) }
@@ -1556,7 +1595,12 @@ final class NotchViewModel: ObservableObject {
     /// model back. Taking the count as an argument is the only way to be sure
     /// the panel is sized for the list that caused the change.
     func shapeLength(cellCount: Int) -> CGFloat {
-        NotchLayout.bodyLength(cellCount: cellCount, edge: edge,
+        if mergesWithCutout && cellCount > 1 {
+            let leftCount = cellCount / 2
+                + (cellCount.isMultiple(of: 2) || cutoutOddSide == .right ? 0 : 1)
+            return mergedWingLength(cellCount: carriedOnTheLeft ? leftCount : cellCount - leftCount)
+        }
+        return NotchLayout.bodyLength(cellCount: cellCount, edge: edge,
                                spacing: cellSpacing(cellCount: cellCount))
             + leadAllowance + endAllowance
     }

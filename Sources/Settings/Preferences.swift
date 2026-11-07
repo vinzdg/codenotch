@@ -3,6 +3,13 @@ import Foundation
 import ServiceManagement
 import os
 
+/// Which wing gets the extra cell when a merged row has an odd count.
+enum NotchCutoutOddSide: String, CaseIterable, Identifiable {
+    case left, right
+    var id: String { rawValue }
+    var title: String { self == .left ? L10n.t("Left") : L10n.t("Right") }
+}
+
 /// What the user has chosen, kept in `UserDefaults`.
 @MainActor
 final class Preferences: ObservableObject {
@@ -386,8 +393,21 @@ final class Preferences: ObservableObject {
     /// Whether the top edge's notch is merged into a MacBook's own cutout, or
     /// grows out of it as a bar of its own — see `NotchViewModel.joinsCutout`.
     /// On by default: it is how the top edge has drawn since 1.18.
+    /// Switching merge on turns readings off: the bar is only as deep as the
+    /// cutout, so a reading under each ring shrinks the rings. Off by default
+    /// on that transition, they remain a choice away in Settings.
     @Published var notchJoinsCutout: Bool {
-        didSet { defaults.set(notchJoinsCutout, forKey: Keys.notchJoinsCutout) }
+        didSet {
+            defaults.set(notchJoinsCutout, forKey: Keys.notchJoinsCutout)
+            if notchJoinsCutout && !oldValue {
+                showsNotchReadings = false
+            }
+        }
+    }
+
+    /// The extra ring's side when a merged row has an odd count.
+    @Published var notchCutoutOddSide: NotchCutoutOddSide {
+        didSet { defaults.set(notchCutoutOddSide.rawValue, forKey: Keys.notchCutoutOddSide) }
     }
 
     @Published var watchLimit: Double {
@@ -795,6 +815,7 @@ final class Preferences: ObservableObject {
         static let weeklyHeadline = "weeklyHeadline"
         static let notchSurfaceStyle = "notchSurfaceStyle"
         static let notchJoinsCutout = "notchJoinsCutout"
+        static let notchCutoutOddSide = "notchCutoutOddSide"
         static let watchLimit = "watchLimit"
         static let criticalLimit = "criticalLimit"
         static let colorTransitionStyle = "colorTransitionStyle"
@@ -1266,6 +1287,8 @@ final class Preferences: ObservableObject {
         self.notchSurfaceStyle = defaults.string(forKey: Keys.notchSurfaceStyle)
             .flatMap(NotchSurfaceStyle.init(rawValue:)) ?? .glass
         self.notchJoinsCutout = defaults.object(forKey: Keys.notchJoinsCutout) as? Bool ?? true
+        self.notchCutoutOddSide = defaults.string(forKey: Keys.notchCutoutOddSide)
+            .flatMap(NotchCutoutOddSide.init(rawValue:)) ?? .right
         let storedWatchLimit = defaults.object(forKey: Keys.watchLimit) as? Double ?? 0.50
         let storedCriticalLimit = defaults.object(forKey: Keys.criticalLimit) as? Double ?? 0.70
         // `didSet` does the clamping, and it does not run for these assignments,

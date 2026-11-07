@@ -915,7 +915,7 @@ struct SettingsView: View {
                 Toggle(L10n.t("Percentage under each ring"),
                        isOn: $preferences.showsNotchReadings)
                 Text(sizeIsDecidedByTheHardware
-                     ? L10n.t("Merged into your Mac's own notch the bar is exactly as deep as the cutout, so a ring and a percentage under it have to share that depth — showing it draws the rings smaller. Turn it off for the largest rings the cutout has room for.")
+                     ? L10n.t("When merged into your Mac's notch, the bar is only as deep as the cutout, so a percentage under each ring makes the rings smaller. Switching Merge into Notch on turns this off for larger rings; you can turn it back on here.")
                      : L10n.t("The figure under each ring. Turn it off for rings alone; the number is still a hover away in the card."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -993,10 +993,21 @@ struct SettingsView: View {
                 // MacBook's own cutout, and means nothing on another edge or
                 // another display.
                 if topEdgeHasACutout {
-                    Toggle(L10n.t("Merge into your Mac's notch"), isOn: $preferences.notchJoinsCutout)
+                    Toggle(L10n.t("Merge into Notch"), isOn: $preferences.notchJoinsCutout)
+
+                    if preferences.notchJoinsCutout {
+                        Picker(L10n.t("Odd ring"), selection: $preferences.notchCutoutOddSide) {
+                            ForEach(NotchCutoutOddSide.allCases) { Text($0.title).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+
+                        Text(L10n.t("With an odd number of rings, the extra one sits on this side of the camera housing."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
 
                     Text(preferences.notchJoinsCutout
-                         ? L10n.t("Drawn as one shape with the camera housing, at the cutout's own depth, with the readings beside it.")
+                         ? L10n.t("Drawn as one shape with the camera housing, at the cutout's own depth, with the rings beside it.")
                          : L10n.t("The notch grows out of the camera housing instead: a bar at your chosen size, with the readings in a row below it."))
                         .font(.caption)
                         .foregroundStyle(.secondary)

@@ -175,6 +175,19 @@ final class NotchWindowController {
     /// The expanded notch body rect in panel coordinates.
     var expandedNotchRect: CGRect {
         let depth = model.notchDrawnDepth
+        if model.splitsCellsAcrossCutout {
+            // Auto-fold judges the open footprint even while folded. Rebuild
+            // each wing's open length around its fixed wall, including the hole.
+            let open = model.wings.map { wing -> NotchViewModel.Wing in
+                var open = wing
+                open.length = model.mergedWingLength(cellCount: wing.cellIndices.count) * model.sizeScale
+                if wing.onTheLeft { open.lead += wing.length - open.length }
+                return open
+            }
+            return placement.rect(along: open.first?.lead ?? model.slack, across: 0,
+                                  length: model.drawnAlongExtent(in: open),
+                                  depth: model.notchDepth * model.sizeScale)
+        }
         return placement.rect(
             along: model.slack,
             across: 0,
@@ -338,6 +351,13 @@ final class NotchWindowController {
 
         // Taking the hole or leaving it loose changes where the panel sits
         // and how deep it is, and `adopt` only reads the choice on relocate.
+        model.$cutoutOddSide
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.relocate() }
+            .store(in: &cancellables)
+
         model.$joinsCutout
             .removeDuplicates()
             .dropFirst()

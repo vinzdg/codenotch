@@ -95,7 +95,7 @@ final class CursorGeometryTests: XCTestCase {
             }
             let g = geometry(m)
             for index in m.snapshots.indices {
-                let along = m.ringAlong(index: index, in: m.cellWing)
+                let along = m.ringAlong(index: index, in: m.cellWing(index: index))
                 XCTAssertEqual(g.cellIndex(along: along), index)
             }
             XCTAssertNil(g.cellIndex(along: m.cellWing.lead - 100))

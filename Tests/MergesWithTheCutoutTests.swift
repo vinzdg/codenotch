@@ -31,12 +31,12 @@ final class MergesWithTheCutoutTests: XCTestCase {
     }
 
     private func model(_ screen: ScreenDescribing, scale: CGFloat = 1,
-                       open: Bool = true, offset: CGFloat = 0) -> NotchViewModel {
+                       open: Bool = true, offset: CGFloat = 0, count: Int = 4) -> NotchViewModel {
         let m = NotchViewModel()
         m.edge = .top
         m.sizeScale = scale
         m.alongOffset = offset
-        m.snapshots = (0..<3).map {
+        m.snapshots = (0..<count).map {
             ProviderSnapshot(id: "p\($0)", displayName: "P", glyph: .claude,
                              fidelity: .official, status: .ok, windows: [])
         }
@@ -264,10 +264,9 @@ final class MergesWithTheCutoutTests: XCTestCase {
     func testItFoldsTowardTheHoleRatherThanItsOwnCentre() throws {
         let m = model(Notched())
         func joinedEnds(_ m: NotchViewModel) -> [CGFloat] {
-            let drawn = m.notchLength * m.sizeScale
             // The end of each copy that meets the hole: the far end of the one
             // on the left, the near end of the one on the right.
-            return m.wings.map { $0.onTheLeft ? $0.lead + drawn : $0.lead }
+            return m.wings.map { $0.onTheLeft ? $0.lead + $0.length : $0.lead }
         }
         let open = joinedEnds(m)
         XCTAssertEqual(open.count, 2, "joined, it is drawn either side of the hole")
@@ -285,9 +284,8 @@ final class MergesWithTheCutoutTests: XCTestCase {
                        "a notch with no hole should still fold to its own centre line")
     }
 
-    /// **The copy that carries the readings is always identity 0**, whether it
-    /// is a lone bar, in the hand, or one of a joined pair — and it is never
-    /// flipped, because nothing is.
+    /// Identity 0 survives pickup and landing. Joined, both copies carry cells;
+    /// the handles and the geometry of the carried bar keep their identity.
     ///
     /// The bar being dragged has to *be* the bar that lands, or the landing is
     /// one view vanishing and another appearing: a swap, not a movement. And
@@ -301,8 +299,8 @@ final class MergesWithTheCutoutTests: XCTestCase {
         let onTheLeft = model(Notched(), offset: -2 * NotchGeometry.cutoutTravel)
         for m in [plain, joined, onTheLeft] {
             XCTAssertEqual(m.cellWing.id, 0, "the carrying copy changed identity")
-            XCTAssertEqual(m.wings.filter(\.carriesCells).count, 1,
-                           "exactly one copy carries the readings")
+            XCTAssertEqual(m.wings.filter(\.carriesCells).count, m.mergesWithCutout ? 2 : 1,
+                           "joined, both wings carry their share; free, one carries everything")
             XCTAssertEqual(Set(m.wings.map(\.id)).count, m.wings.count,
                            "two copies share an identity")
         }
@@ -326,9 +324,8 @@ final class MergesWithTheCutoutTests: XCTestCase {
             for: screen, panelSize: m.panelSize, edge: .top,
             alongOffset: m.alongOffset, slack: m.slack,
             trailingExtent: m.trailingExtent, leadingExtent: m.leadingExtent)
-        let bar = m.shapeLength * m.sizeScale
         let left = frame.minX + (m.wings.first?.lead ?? 0)
-        let right = frame.minX + (m.wings.last?.lead ?? 0) + bar
+        let right = frame.minX + (m.wings.last.map { $0.lead + $0.length } ?? 0)
         XCTAssertEqual(hole.wall - right, left - hole.left, accuracy: 1.5,
                        "the two reach the same distance either side of the hole")
 
@@ -343,8 +340,8 @@ final class MergesWithTheCutoutTests: XCTestCase {
         let merged = model(Notched())
         XCTAssertEqual(merged.cutoutBleed * merged.sizeScale,
                        NotchGeometry.cutoutOverlap, accuracy: 0.001)
-        XCTAssertEqual(merged.cellsLeadIn - merged.cutoutBleed, model(Plain()).cellsLeadIn,
-                       accuracy: 0.001, "the first ring moved relative to the visible start")
+        XCTAssertEqual(merged.cellsLeadIn - merged.cutoutBleed, merged.cellSpacing,
+                       accuracy: 0.001, "the joined end needs the same visible clearance as adjacent rings")
     }
 
     // MARK: - One thickness
@@ -716,7 +713,7 @@ final class MergesWithTheCutoutTests: XCTestCase {
         m.holdsOffTheCutout = false
         m.alongOffset = landing
         m.adopt(screen: screen)
-        let arrived = try XCTUnwrap(m.wings.first { !$0.carriesCells })
+        let arrived = try XCTUnwrap(m.wings.first { $0.id == 1 })
         XCTAssertGreaterThan(arrived.length, 0, "joining did not widen the notch")
         XCTAssertEqual(arrived.id, waiting.id)
         XCTAssertEqual(arrived.onTheLeft, waiting.onTheLeft, "the other copy changed sides")
@@ -785,7 +782,7 @@ final class MergesWithTheCutoutTests: XCTestCase {
             let m = model(screen, offset: offset)
             XCTAssertTrue(m.mergesWithCutout)
             let carrying = m.cellWing
-            let other = try XCTUnwrap(m.wings.first { !$0.carriesCells })
+            let other = try XCTUnwrap(m.wings.first { $0.id == 1 })
             let a = m.notchShape(for: carrying), b = m.notchShape(for: other)
             XCTAssertEqual(a.cornerRadius, b.cornerRadius, accuracy: 0.001,
                            "the two sides turn different corners")
@@ -866,7 +863,7 @@ final class MergesWithTheCutoutTests: XCTestCase {
         let hole = try hole(screen)
         for scale in [0.5, 1.0, 1.5] as [CGFloat] {
             let m = model(screen, scale: scale)
-            let widening = try XCTUnwrap(m.wings.first { !$0.carriesCells })
+            let widening = try XCTUnwrap(m.wings.first { $0.id == 1 })
             XCTAssertEqual(widening.depth * m.sizeScale - NotchRootView.bezelBleed,
                            hole.depth, accuracy: 0.001,
                            "scale \(scale): the notch widened to a different depth")
@@ -1214,6 +1211,206 @@ final class MergesWithTheCutoutTests: XCTestCase {
             }
         }
         return count
+    }
+
+    func testFourRingsSplitInReadingOrderIncludingAfterReordering() {
+        for offset in [CGFloat(0), -2 * NotchGeometry.cutoutTravel] {
+            let m = model(Notched(), offset: offset)
+            for reversed in [false, true] {
+                if reversed { m.snapshots.reverse() }
+                XCTAssertEqual(m.wings.map { Array($0.cellIndices) }, [[0, 1], [2, 3]])
+                let centres = m.snapshots.indices.map {
+                    m.ringAlong(index: $0, in: m.cellWing(index: $0))
+                }
+                XCTAssertEqual(centres, centres.sorted())
+                XCTAssertEqual(m.wings.flatMap { wing in
+                    wing.cellIndices.map { m.snapshots[$0].id }
+                }, m.snapshots.map(\.id))
+                for side in NotchCutoutOddSide.allCases {
+                    m.cutoutOddSide = side
+                    XCTAssertEqual(m.wings.map { $0.cellIndices.count }, [2, 2])
+                }
+            }
+        }
+    }
+
+    func testSortingRepartitionsTheRowWithoutReversingTheLeftWing() {
+        let m = model(Notched())
+        let readings = [0.1, 0.7, 0.4, 0.9].enumerated().map { index, fraction in
+            ProviderSnapshot(id: "p\(index)", displayName: "P", glyph: .claude,
+                             fidelity: .official, status: .ok,
+                             windows: [LimitWindow(id: "w", label: "Session", usedFraction: fraction)],
+                             headlineID: "w")
+        }
+        m.updateSnapshots(readings)
+        m.hoveredIndex = 1
+        m.updateSnapshots(ProviderOrder.byRemainingUsage(readings))
+        XCTAssertEqual(m.snapshots.map(\.id), ["p0", "p2", "p1", "p3"])
+        XCTAssertEqual(m.hoveredIndex, 2, "the hovered provider must follow its new index across the hole")
+        XCTAssertEqual(m.wings.map { wing in wing.cellIndices.map { m.snapshots[$0].id } },
+                       [["p0", "p2"], ["p1", "p3"]])
+        let centres = m.snapshots.indices.map { m.ringAlong(index: $0, in: m.cellWing(index: $0)) }
+        XCTAssertEqual(centres, centres.sorted())
+    }
+
+    func testBothWingsActuallyDrawTheirAssignedRings() throws {
+        for count in [3, 4] {
+            let m = model(Notched(), count: count)
+            m.surfaceStyle = .solid
+            m.snapshots = (0..<count).map {
+                ProviderSnapshot(id: "p\($0)", displayName: "P", glyph: .claude,
+                                 fidelity: .official, status: .ok,
+                                 windows: [LimitWindow(id: "w", label: "Session", usedFraction: 0.42)],
+                                 headlineID: "w")
+            }
+            for side in NotchCutoutOddSide.allCases {
+                m.cutoutOddSide = side
+                let rep = try XCTUnwrap(render(m))
+                for index in m.snapshots.indices {
+                    let centre = m.ringAlong(index: index, in: m.cellWing(index: index))
+                    let halfGlyph: CGFloat = 7 * m.sizeScale
+                    XCTAssertGreaterThan(whitePixels(rep, from: centre - halfGlyph, to: centre + halfGlyph,
+                                                      depth: m.notchDrawnDepth), 0,
+                                         "ring \(index), count \(count), odd side \(side)")
+                }
+            }
+        }
+    }
+
+    func testThreeRingsPutTheExtraOnTheChosenSideAndSizeEachWing() {
+        for offset in [CGFloat(0), -2 * NotchGeometry.cutoutTravel] {
+            let m = model(Notched(), offset: offset, count: 3)
+            XCTAssertEqual(m.cutoutOddSide, .right)
+            for side in NotchCutoutOddSide.allCases {
+                m.cutoutOddSide = side
+                let counts = side == .left ? [2, 1] : [1, 2]
+                XCTAssertEqual(m.wings.map { $0.cellIndices.count }, counts)
+                XCTAssertEqual(m.wings.flatMap { Array($0.cellIndices) }, [0, 1, 2])
+                for wing in m.wings {
+                    let n = wing.cellIndices.count
+                    let body = NotchLayout.bodyLength(cellCount: n, edge: .top)
+                    let joinEnd = m.cutoutBleed + m.cellSpacing - NotchLayout.padStart(for: .top)
+                    XCTAssertEqual(wing.length / m.sizeScale, body + m.flare + joinEnd, accuracy: 0.001)
+                }
+                XCTAssertEqual(m.wings[0].length > m.wings[1].length, side == .left)
+            }
+        }
+    }
+
+    func testVisibleHoleWallToRingGapMatchesAdjacentRingsOnBothWings() throws {
+        for count in [2, 3, 4, 5] {
+            for offset in [CGFloat(0), -2 * NotchGeometry.cutoutTravel] {
+                let m = model(Notched(), offset: offset, count: count)
+                for side in NotchCutoutOddSide.allCases {
+                    m.cutoutOddSide = side
+                    for readings in [false, true] {
+                        m.showsNotchReadings = readings
+                        for wing in m.wings {
+                            let index = try XCTUnwrap(wing.onTheLeft ? wing.cellIndices.last : wing.cellIndices.first)
+                            let centre = m.ringAlong(index: index, in: wing)
+                            let wall = wing.onTheLeft
+                                ? wing.lead + wing.length - m.cutoutBleed * m.sizeScale
+                                : wing.lead + m.cutoutBleed * m.sizeScale
+                            let distance = abs(wall - centre) / m.sizeScale
+                            let clearance = distance - NotchLayout.ringDiameter / 2
+                            XCTAssertEqual(clearance, m.cellSpacing, accuracy: 0.001)
+                            if wing.cellIndices.count > 1 {
+                                let adjacentIndex = wing.onTheLeft ? index - 1 : index + 1
+                                let adjacentCentre = m.ringAlong(index: adjacentIndex, in: wing)
+                                let visibleGap = abs(adjacentCentre - centre) / m.sizeScale
+                                    - NotchLayout.ringDiameter
+                                XCTAssertEqual(clearance, visibleGap, accuracy: 0.001,
+                                               "the wall gap must match adjacent rings on this wing")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func testHoverAndCardsFollowTheRingOnEitherWing() throws {
+        let m = model(Notched())
+        let geometry = CursorGeometry(model: m, placement: m.placement)
+        for index in m.snapshots.indices {
+            let wing = m.cellWing(index: index)
+            let centre = m.ringAlong(index: index, in: wing)
+            XCTAssertEqual(geometry.cellIndex(along: centre), index)
+            XCTAssertEqual(m.tooltipAlong(index: index, length: NotchLayout.cardWidth), centre, accuracy: 0.001)
+            let card = try XCTUnwrap(geometry.tooltipRect(index: index))
+            XCTAssertEqual(card.midX, centre, accuracy: 0.001)
+            let event = UsageResetEvent(providerID: m.snapshots[index].id, providerName: "P",
+                                       windowLabel: "Session", glyph: .claude,
+                                       previousFraction: 0.9, currentFraction: 0, resetsAt: m.now)
+            XCTAssertEqual(try XCTUnwrap(geometry.resetCardRect(event: event)).midX, centre, accuracy: 0.001)
+        }
+        m.updatePrompt = UpdatePrompt(version: "99", notes: "New", phase: .available)
+        XCTAssertEqual(try XCTUnwrap(geometry.updateCardRect).midX, m.notchMiddleAlong, accuracy: 0.001)
+        XCTAssertEqual(m.handleWing.id, 0)
+    }
+
+    func testExpandedOverlapFootprintIncludesBothWingsEvenWhileFolded() {
+        let controller = NotchWindowController()
+        let m = controller.model
+        m.edge = .top
+        m.snapshots = model(Notched(), count: 3).snapshots
+        m.adopt(screen: Notched())
+        for side in NotchCutoutOddSide.allCases {
+            m.cutoutOddSide = side
+            m.isExpanded = true
+            let expected = CursorGeometry(model: m, placement: m.placement).notchRect
+            XCTAssertEqual(controller.expandedNotchRect, expected)
+            m.isExpanded = false
+            XCTAssertEqual(controller.expandedNotchRect.minX, expected.minX, accuracy: 0.001)
+            XCTAssertEqual(controller.expandedNotchRect.width, expected.width, accuracy: 0.001)
+        }
+    }
+
+    func testSplitFoldsIntoBothWallsAndPickupCarriesAllCells() {
+        let m = model(Notched(), count: 3)
+        let open = m.wings
+        m.isExpanded = false
+        for (before, after) in zip(open, m.wings) {
+            XCTAssertGreaterThan(before.length, after.length)
+            let beforeWall = before.onTheLeft ? before.lead + before.length : before.lead
+            let afterWall = after.onTheLeft ? after.lead + after.length : after.lead
+            XCTAssertEqual(beforeWall, afterWall, accuracy: 0.001)
+        }
+        m.isExpanded = true
+        m.holdsOffTheCutout = true
+        m.adopt(screen: Notched())
+        XCTAssertFalse(m.splitsCellsAcrossCutout)
+        XCTAssertEqual(m.cellWing.cellIndices, 0..<3)
+        XCTAssertEqual(m.cellWing.length, m.plainBarLength, accuracy: 0.001)
+        XCTAssertEqual(m.wings.filter { $0.id == 1 }.first?.length, 0)
+        m.holdsOffTheCutout = false
+        m.adopt(screen: Notched())
+        XCTAssertEqual(m.wings.map { $0.cellIndices.count }, [1, 2])
+    }
+
+    func testOneRingAndUnmergedLayoutsIgnoreOddSide() {
+        let single = oneRing(Notched(), offset: 0, readings: true)
+        let before = single.wings
+        single.cutoutOddSide = .left
+        XCTAssertEqual(single.wings, before)
+        XCTAssertTrue(single.readsAcrossTheCutout)
+        XCTAssertEqual(single.wings.filter(\.carriesCells).count, 1)
+        for edge in NotchEdge.allCases {
+            for plain in [false, true] {
+                for joins in [false, true] {
+                    if edge == .top && !plain && joins { continue }
+                    let m = model(plain ? Plain() : Notched())
+                    m.edge = edge
+                    m.joinsCutout = joins
+                    m.adopt(screen: plain ? Plain() : Notched())
+                    let before = m.wings
+                    m.cutoutOddSide = .left
+                    XCTAssertEqual(m.wings, before)
+                    XCTAssertEqual(m.wings.count, 1)
+                    XCTAssertEqual(m.cellWing.cellIndices, 0..<4)
+                }
+            }
+        }
     }
 
     /// No hole, no join — on a plain display and on the other three edges.

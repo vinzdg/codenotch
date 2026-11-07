@@ -23,14 +23,15 @@ final class CursorGeometry {
     }
 
     private func ringAlong(index: Int) -> CGFloat {
-        model.ringAlong(index: index, in: cellWing, spacing: cellSpacing)
+        model.ringAlong(index: index, in: model.cellWing(index: index, in: wings), spacing: cellSpacing)
     }
 
     func cellIndex(along: CGFloat) -> Int? {
-        guard model.alongWithin(along, of: cellWing) != nil else { return nil }
         let pitch = (NotchLayout.cellAlong(for: model.edge) + cellSpacing) * model.sizeScale
         for index in model.snapshots.indices {
-            if abs(along - ringAlong(index: index)) <= pitch / 2 { return index }
+            let wing = model.cellWing(index: index, in: wings)
+            if model.alongWithin(along, of: wing) != nil,
+               abs(along - ringAlong(index: index)) <= pitch / 2 { return index }
         }
         return nil
     }
@@ -179,7 +180,7 @@ final class CursorGeometry {
         let size = UpdateCard.size(for: model.edge.tooltipDirection)
         let across = model.edge.isVertical ? size.width : size.height
         let along = model.edge.isVertical ? size.height : size.width
-        let centre = model.cardAlong(centredOn: cellWing.lead + cellWing.length / 2, length: along)
+        let centre = model.cardAlong(centredOn: model.notchMiddleAlong, length: along)
         return placement.rect(
             along: centre - along / 2,
             across: model.notchDrawnDepth + model.edgeGap,

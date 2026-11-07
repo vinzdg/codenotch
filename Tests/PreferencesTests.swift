@@ -7,6 +7,20 @@ import XCTest
 /// first-launch basics live with the other PreferencesTests.)
 @MainActor
 final class PreferencesMigrationTests: XCTestCase {
+    func testCutoutOddSideDefaultsPersistsAndRejectsUnknownValues() {
+        let (defaults, name) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        XCTAssertEqual(Preferences(defaults: defaults).notchCutoutOddSide, .right)
+        for side in NotchCutoutOddSide.allCases {
+            let preferences = Preferences(defaults: defaults)
+            preferences.notchCutoutOddSide = side
+            XCTAssertEqual(defaults.string(forKey: "notchCutoutOddSide"), side.rawValue)
+            XCTAssertEqual(Preferences(defaults: defaults).notchCutoutOddSide, side)
+        }
+        defaults.set("unknown", forKey: "notchCutoutOddSide")
+        XCTAssertEqual(Preferences(defaults: defaults).notchCutoutOddSide, .right)
+    }
+
     private func makeDefaults() -> (UserDefaults, String) {
         let name = "PreferencesTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
@@ -72,6 +86,8 @@ final class PreferencesMigrationTests: XCTestCase {
         XCTAssertEqual(preferences.notchEdge, .right)
         XCTAssertEqual(preferences.notchSize, .medium)
         XCTAssertEqual(preferences.weeklyRing, .off)
+        XCTAssertTrue(preferences.notchJoinsCutout)
+        XCTAssertTrue(preferences.showsNotchReadings)
         XCTAssertTrue(preferences.isConnected("claude"))
         XCTAssertTrue(preferences.isConnected("codex"))
         XCTAssertTrue(preferences.isConnected("claude-work"))
@@ -81,6 +97,64 @@ final class PreferencesMigrationTests: XCTestCase {
         XCTAssertFalse(preferences.isConnected("minimax"))
         XCTAssertTrue(preferences.deepSeekPricingEnabled)
         XCTAssertEqual(preferences.deepSeekPricingSchedule, .current)
+    }
+
+    func testTurningMergeOnSwitchesReadingsOff() {
+        let (defaults, name) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set(false, forKey: "notchJoinsCutout")
+        let preferences = Preferences(defaults: defaults)
+        XCTAssertTrue(preferences.showsNotchReadings)
+
+        preferences.notchJoinsCutout = true
+
+        XCTAssertFalse(preferences.showsNotchReadings)
+        XCTAssertEqual(defaults.object(forKey: "showsNotchReadings") as? Bool, false)
+        XCTAssertTrue(Preferences(defaults: defaults).notchJoinsCutout)
+        XCTAssertFalse(Preferences(defaults: defaults).showsNotchReadings)
+    }
+
+    func testTurningMergeOffLeavesReadingsAsTheyAre() {
+        let (defaults, name) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        for readings in [true, false] {
+            let preferences = Preferences(defaults: defaults)
+            preferences.notchJoinsCutout = true
+            preferences.showsNotchReadings = readings
+
+            preferences.notchJoinsCutout = false
+
+            XCTAssertEqual(preferences.showsNotchReadings, readings)
+            XCTAssertEqual(Preferences(defaults: defaults).showsNotchReadings, readings)
+        }
+    }
+
+    func testReadingsReenabledAfterMergeStayOnAcrossAFreshLoad() {
+        let (defaults, name) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let preferences = Preferences(defaults: defaults)
+        preferences.notchJoinsCutout = false
+        preferences.notchJoinsCutout = true
+        XCTAssertFalse(preferences.showsNotchReadings)
+        preferences.showsNotchReadings = true
+
+        let reopened = Preferences(defaults: UserDefaults(suiteName: name)!)
+
+        XCTAssertTrue(reopened.notchJoinsCutout)
+        XCTAssertTrue(reopened.showsNotchReadings)
+    }
+
+    func testAssigningMergeOnAgainKeepsReenabledReadings() {
+        let (defaults, name) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: name) }
+        let preferences = Preferences(defaults: defaults)
+        preferences.notchJoinsCutout = false
+        preferences.notchJoinsCutout = true
+        preferences.showsNotchReadings = true
+
+        preferences.notchJoinsCutout = true
+
+        XCTAssertTrue(preferences.showsNotchReadings)
     }
 
     /// MiniMax is discovered like everyone else, and stays off until switched

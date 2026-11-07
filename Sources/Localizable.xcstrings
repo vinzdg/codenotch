@@ -66235,37 +66235,37 @@
         }
       }
     },
-    "Merged into your Mac's own notch the bar is exactly as deep as the cutout, so a ring and a percentage under it have to share that depth — showing it draws the rings smaller. Turn it off for the largest rings the cutout has room for.": {
+    "When merged into your Mac's notch, the bar is only as deep as the cutout, so a percentage under each ring makes the rings smaller. Switching Merge into Notch on turns this off for larger rings; you can turn it back on here.": {
       "extractionState": "manual",
       "localizations": {
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Коли смуга злита з власним вирізом Mac, її висота дорівнює глибині апаратного вирізу, тож кільце й відсоток під ним мусять ділити цю висоту — показ відсотка робить кільця меншими. Вимкніть, щоб кільця були найбільшими, які вміщує апаратний виріз."
+            "value": "Коли смуга злита з вирізом Mac, її висота дорівнює глибині вирізу, тож відсоток під кожним кільцем робить кільця меншими. Увімкнення «Merge into Notch» вимикає відсотки, щоб кільця були більшими; тут їх можна знову ввімкнути."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "并进这台 Mac 自己的刘海后，横条的高度正好是凹槽的深度，圆环和下面的百分比要共用这点高度——显示百分比就会把圆环画小。关掉的话，圆环用凹槽里放得下的最大尺寸。"
+            "value": "并进 Mac 的刘海后，横条的高度只有凹槽那么深，因此每个圆环下方的百分比会让圆环变小。开启“Merge into Notch”会关闭百分比，让圆环更大；你可以在这里重新开启。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "併進這台 Mac 自己的瀏海後，橫條的高度正好是凹槽的深度，圓環和下面的百分比要共用這點高度——顯示百分比就會把圓環畫小。關掉的話，圓環用凹槽裡放得下的最大尺寸。"
+            "value": "併進 Mac 的瀏海後，橫條的高度只有凹槽那麼深，因此每個圓環下方的百分比會讓圓環變小。開啟「Merge into Notch」會關閉百分比，讓圓環更大；你可以在這裡重新開啟。"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuando se integra en el notch de tu Mac, la barra tiene exactamente la altura del recorte, así que un anillo y el porcentaje que lleva debajo deben compartir esa altura: mostrarlo dibuja los anillos más pequeños. Desactívalo para tener los anillos más grandes que caben en el recorte."
+            "value": "Al integrarse en el notch de tu Mac, la barra tiene la altura del recorte, así que el porcentaje bajo cada anillo reduce su tamaño. Activar «Merge into Notch» desactiva los porcentajes para que los anillos sean más grandes; puedes volver a activarlos aquí."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac 本体のノッチに統合されているとき、バーの高さは切り欠きとちょうど同じなので、リングとその下のパーセントがその高さを分け合うことになります。表示するとリングが小さく描かれます。切り欠きに収まる最大のリングにしたい場合はオフにしてください。"
+            "value": "Mac のノッチに統合されると、バーの高さは切り欠きと同じになるため、各リングの下にパーセントを表示するとリングが小さくなります。「Merge into Notch」をオンにすると、リングを大きくするためにパーセント表示がオフになります。ここで再びオンにできます。"
           }
         }
       }
@@ -73427,7 +73427,7 @@
         }
       }
     },
-    "Merge into your Mac's notch": {
+    "Merge into Notch": {
       "extractionState": "manual",
       "localizations": {}
     },
@@ -73435,7 +73435,15 @@
       "extractionState": "manual",
       "localizations": {}
     },
-    "Drawn as one shape with the camera housing, at the cutout's own depth, with the readings beside it.": {
+    "Drawn as one shape with the camera housing, at the cutout's own depth, with the rings beside it.": {
+      "extractionState": "manual",
+      "localizations": {}
+    },
+    "Odd ring": {
+      "extractionState": "manual",
+      "localizations": {}
+    },
+    "With an odd number of rings, the extra one sits on this side of the camera housing.": {
       "extractionState": "manual",
       "localizations": {}
     }

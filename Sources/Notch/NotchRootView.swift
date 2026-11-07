@@ -407,11 +407,8 @@ struct NotchRootView: View {
             // corner and all, rather than by being stretched.
             .frame(width: copySize(wing).width, height: copySize(wing).height)
             // Aligned to the corner where the stack starts *and* the bezel is.
-            // Only one copy carries the readings. The other is the container
-            // mirrored and nothing else: the point of it is that the hardware's
-            // notch has the app either side of it, not that every number is
-            // printed twice.
-            .overlay(alignment: contentAlignment) { if wing.carriesCells { cells } }
+            // Each wing draws only its own slice, in the row's reading order.
+            .overlay(alignment: contentAlignment) { if wing.carriesCells { cells(in: wing) } }
             .overlay(alignment: wing.onTheLeft ? .topTrailing : .topLeading) {
                 if !wing.carriesCells { readingAcross(wing) }
             }
@@ -511,11 +508,12 @@ struct NotchRootView: View {
     /// to cover the hardware notch.
     /// Taken from the model so the rings are drawn exactly where the geometry
     /// says they are. Computing it here as well is what let the two drift.
-    private var leadIn: CGFloat { model.cellsLeadIn }
-
     @ViewBuilder
-    private var cells: some View {
-        let stack = ForEach(Array(model.snapshots.enumerated()), id: \.element.id) { index, snapshot in
+    private func cells(in wing: NotchViewModel.Wing) -> some View {
+        let leadIn = model.cellsLeadIn(in: wing)
+        let stack = ForEach(Array(model.snapshots.enumerated()).filter {
+            wing.cellIndices.contains($0.offset)
+        }, id: \.element.id) { index, snapshot in
             ProviderCell(
                 snapshot: snapshot,
                 activity: model.activity(for: snapshot),
@@ -692,7 +690,7 @@ struct NotchRootView: View {
     }
 
     private func tooltipTailOffset(index: Int, snapshot: ProviderSnapshot) -> CGFloat {
-        model.ringAlong(index: index, in: model.cellWing)
+        model.ringAlong(index: index, in: model.cellWing(index: index))
             - model.tooltipAlong(index: index, length: tooltipLength(snapshot))
     }
 

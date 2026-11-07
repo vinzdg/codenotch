@@ -74,6 +74,7 @@ final class NotchFleet {
     /// Whether the top edge's notch takes the display's own hole — see
     /// `NotchViewModel.joinsCutout`.
     private var joinsCutout = true
+    private var cutoutOddSide: NotchCutoutOddSide = .right
     private var deepSeekPricingEnabled = true
     private var deepSeekPricingSchedule = DeepSeekPricing.Schedule.current
     /// The ⌥-drag nudge along the current edge. One value for the whole
@@ -313,6 +314,13 @@ final class NotchFleet {
         self.surfaceStyle = surfaceStyle
         for controller in controllers.values {
             controller.model.surfaceStyle = surfaceStyle
+        }
+    }
+
+    func apply(cutoutOddSide: NotchCutoutOddSide) {
+        self.cutoutOddSide = cutoutOddSide
+        for controller in controllers.values {
+            controller.model.cutoutOddSide = cutoutOddSide
         }
     }
 
@@ -576,6 +584,7 @@ final class NotchFleet {
         controller.model.shutRingsWhenSpent = shutRingsWhenSpent
         controller.model.surfaceStyle = surfaceStyle
         controller.model.joinsCutout = joinsCutout
+        controller.model.cutoutOddSide = cutoutOddSide
         controller.model.deepSeekPricingEnabled = deepSeekPricingEnabled
         controller.model.deepSeekPricingSchedule = deepSeekPricingSchedule
 
