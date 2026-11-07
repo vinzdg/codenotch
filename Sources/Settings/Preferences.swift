@@ -393,16 +393,21 @@ final class Preferences: ObservableObject {
     /// Whether the top edge's notch is merged into a MacBook's own cutout, or
     /// grows out of it as a bar of its own — see `NotchViewModel.joinsCutout`.
     /// On by default: it is how the top edge has drawn since 1.18.
-    /// Switching merge on turns readings off: the bar is only as deep as the
-    /// cutout, so a reading under each ring shrinks the rings. Off by default
-    /// on that transition, they remain a choice away in Settings.
     @Published var notchJoinsCutout: Bool {
-        didSet {
-            defaults.set(notchJoinsCutout, forKey: Keys.notchJoinsCutout)
-            if notchJoinsCutout && !oldValue {
-                showsNotchReadings = false
-            }
-        }
+        didSet { defaults.set(notchJoinsCutout, forKey: Keys.notchJoinsCutout) }
+    }
+
+    /// Apply the Settings gesture, whose defaults are a choice made here rather
+    /// than an invariant of the stored keys. A merged bar pays for readings by
+    /// shrinking its rings, so offer those off on entry. The top nudge changes
+    /// meaning between joined and plain placement and must start from centre
+    /// in either direction. Programmatic writes can still restore each key
+    /// independently without silently changing another preference.
+    func setNotchJoinsCutoutFromSettings(_ on: Bool) {
+        guard on != notchJoinsCutout else { return }
+        setOffset(0, for: .top)
+        if on { showsNotchReadings = false }
+        notchJoinsCutout = on
     }
 
     /// The extra ring's side when a merged row has an odd count.

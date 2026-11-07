@@ -10,6 +10,47 @@ final class OptionCarryTests: XCTestCase {
     private struct Screen: ScreenDescribing {
         var frameValue = CGRect(x: 0, y: 0, width: 1800, height: 1169)
         var visibleFrameValue = CGRect(x: 0, y: 0, width: 1800, height: 1169)
+        var hardwareNotch: HardwareNotch? = nil
+    }
+
+    /// Geometry alone cannot catch pickup converting the model before the
+    /// panel receives its plain offset. Exercise the controller operations
+    /// against a fake notched screen, including the value saved on release.
+    func testLoosePickupTravelAndLandingKeepThePlainOffset() {
+        let screen = Screen(hardwareNotch: HardwareNotch(width: 220, height: 38))
+        let controller = NotchWindowController()
+        let m = controller.model
+        m.edge = .top
+        m.joinsCutout = false
+        let track = BorderTrack(width: screen.frameValue.width, height: screen.frameValue.height)
+        var persisted: CGFloat?
+        controller.onReposition = { persisted = $0 }
+        for offset: CGFloat in [0, -48, -17, 23, 120, 400] {
+            m.alongOffset = offset
+            controller.pickUp(on: screen)
+            XCTAssertEqual(m.alongOffset, offset)
+            XCTAssertFalse(m.holdsOffTheCutout)
+            controller.put(at: track.width / 2 + offset, on: track,
+                           frame: screen.frameValue, screen: screen)
+            let plain = NotchWindowController.offset(along: .top,
+                at: CGPoint(x: screen.frameValue.midX + offset, y: screen.frameValue.maxY),
+                on: screen.frameValue)
+            XCTAssertEqual(m.alongOffset, plain)
+            controller.putDown(on: screen)
+            XCTAssertEqual(m.alongOffset, plain)
+            XCTAssertEqual(persisted, plain)
+            let size = m.panelSize
+            let looseFrame = NotchGeometry.panelFrame(for: screen, panelSize: size, edge: .top,
+                alongOffset: plain, slack: m.slack, heldBar: m.plainBarLength, joinsCutout: false)
+            let plainFrame = NotchGeometry.panelFrame(for: Screen(), panelSize: size, edge: .top,
+                alongOffset: plain, slack: m.slack, heldBar: m.plainBarLength, joinsCutout: false)
+            XCTAssertEqual(looseFrame, plainFrame)
+        }
+        XCTAssertNil(NotchGeometry.dragCutout(on: screen, edge: .top, joinsCutout: false))
+        XCTAssertNotNil(NotchGeometry.dragCutout(on: screen, edge: .top, joinsCutout: true))
+        for edge in [NotchEdge.left, .right, .bottom] {
+            XCTAssertNil(NotchGeometry.dragCutout(on: screen, edge: edge, joinsCutout: true))
+        }
     }
 
     func testHowFarThePointerIsFromEachEdge() {

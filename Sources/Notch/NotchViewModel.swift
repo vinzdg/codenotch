@@ -404,7 +404,11 @@ final class NotchViewModel: ObservableObject {
         let side = joinsCutout && edge == .top && screen.hardwareNotch != nil
             && NotchGeometry.cutoutStanding(alongOffset: alongOffset).atTrailingEnd
         if leavesTheCutoutAtItsTrailingEnd != side { leavesTheCutoutAtItsTrailingEnd = side }
-        let loose = !joinsCutout && edge == .top ? screen.hardwareNotch : nil
+        // Asked only for a loose top edge: the other edges never consult the
+        // hardware, and a screen stood in for by a test may not answer.
+        let hole = !joinsCutout && edge == .top ? screen.hardwareNotch : nil
+        let overlapsHole = abs(alongOffset) < ((hole?.width ?? 0) + plainBarLength) / 2
+        let loose = overlapsHole ? hole : nil
         if looseHole != loose { looseHole = loose }
         guard cutout != near else { return }
 
@@ -517,14 +521,13 @@ final class NotchViewModel: ObservableObject {
             - NotchLayout.ringDiameter / 2)
     }
 
-    /// The hole's band is the cell's top margin now, so the outermost stroke
-    /// reads as hanging from the housing. Without readings the fixed-height
-    /// cell centres its ring, so take out that extra space above it too. Keep
-    /// negative insets: clamping would leave a gap at the larger sizes.
-    /// Moving the body and its bottom together preserves the reading's lower
-    /// margin; the weekly overhang is not added there a second time. Pay back
-    /// the bezel bleed here: unlike the bezel, the hole's bottom is a visible
-    /// edge for the outermost stroke to land on at every size.
+    /// The housing replaces the cell's upper margin, so the outermost ring
+    /// stroke hangs from its bottom edge. A cell without readings centres the
+    /// ring in a taller frame; removing that spare space keeps its rim on the
+    /// same edge. Negative insets are useful at larger sizes, where clamping
+    /// would leave a visible gap. The body and its bottom move together to
+    /// preserve the reading's lower margin, and the bezel bleed is paid back
+    /// because the hole's bottom, unlike the bezel, is a visible boundary.
     var looseBodyInset: CGFloat { looseLayoutMetrics.bodyInset }
 
     /// An immutable reading for one view, cursor callback or panel sizing pass.
@@ -569,8 +572,10 @@ final class NotchViewModel: ObservableObject {
 
     /// **One drawn copy of the notch**, and where along the panel it starts.
     struct Wing: Identifiable, Equatable {
-        /// Identity 0 survives pickup and landing; identity 1 emerges from
-        /// the opposite wall on the same spring. Both can carry cells joined.
+        /// Identity 0 survives pickup and landing while identity 1 emerges
+        /// from the opposite wall. SwiftUI must see a copy move, never turn
+        /// into another, or it replaces the shape instead of easing its path.
+        /// Cells keep their own identities in the panel's shared layer.
         var id: Int
         /// Panel points, from the panel's own leading edge.
         var lead: CGFloat
@@ -624,6 +629,7 @@ final class NotchViewModel: ObservableObject {
     #if DEBUG
     // Counts make repeated layout evaluation testable without timing assertions.
     // They are absent from Release builds and never cache model values.
+    var cellAppearedForTesting: ((String) -> Void)?
     private(set) var wingEvaluationCount = 0
     private(set) var cardHeightEvaluationCount = 0
     private(set) var looseLayoutEvaluationCount = 0
@@ -639,7 +645,9 @@ final class NotchViewModel: ObservableObject {
         let slack = slack(cellCount: snapshots.count, looseLayout: looseLayout)
         let depth = notchDepth(looseLayout: looseLayout)
         guard let cutout else {
-            return [Wing(id: 0, lead: slack + (shapeLength * sizeScale - drawn) / 2,
+            let centre = slack + shapeLength * sizeScale / 2
+            let restingCentre = centre - (looseHole == nil ? 0 : alongOffset)
+            return [Wing(id: 0, lead: (isExpanded ? centre : restingCentre) - drawn / 2,
                          onTheLeft: false, cellIndices: snapshots.indices,
                          length: drawn, depth: depth)]
         }
@@ -658,8 +666,7 @@ final class NotchViewModel: ObservableObject {
         // the hole it has been dragged to.
         let carryingLeft = mergesWithCutout ? cutout.atTrailingEnd
                                             : (holdsOffTheCutout ? false : cutout.atTrailingEnd)
-        let leftCount = snapshots.count / 2
-            + (snapshots.count.isMultiple(of: 2) || cutoutOddSide == .right ? 0 : 1)
+        let leftCount = leftCellCount(of: snapshots.count)
         let leftIndices = 0..<leftCount
         let rightIndices = leftCount..<snapshots.count
         let carryingIndices = splitsCellsAcrossCutout
@@ -871,7 +878,9 @@ final class NotchViewModel: ObservableObject {
     var notchAlongLead: CGFloat { wings.first?.lead ?? slack }
 
     /// The primary wing, which becomes the lone bar in the hand. Geometry
-    /// for the drag and its handles uses this identity; cells use their index.
+    /// for the drag and its handles uses this identity, so SwiftUI sees the
+    /// same copy move through pickup rather than turn into the other wing.
+    /// Provider cells have a shared parent and keep their provider identities.
     var cellWing: Wing { cellWing(in: wings) }
 
     func cellWing(in wings: [Wing]) -> Wing {
@@ -908,6 +917,7 @@ final class NotchViewModel: ObservableObject {
         }
         return slack(cellCount: snapshots.count, looseLayout: looseLayout)
             + (shapeLength - restingLength) * sizeScale / 2
+            - (looseHole == nil ? 0 : alongOffset)
     }
 
     /// How far the drawn notch reaches along the panel, from the first copy's
@@ -948,6 +958,12 @@ final class NotchViewModel: ObservableObject {
         // The far end keeps its flare and padding; the join stays buried.
         return wing.onTheLeft ? flare + NotchLayout.padStart(for: edge)
             : cutoutBleed + cellSpacing
+    }
+
+    /// Partition in reading order, with the spare cell on the chosen side.
+    /// Sharing this decision keeps wing lengths and their index ranges in step.
+    func leftCellCount(of count: Int) -> Int {
+        count / 2 + (count.isMultiple(of: 2) || cutoutOddSide == .right ? 0 : 1)
     }
 
     /// Each populated wing pays for its own body, one far flare, and the
@@ -1443,15 +1459,16 @@ final class NotchViewModel: ObservableObject {
         let scale = requestedScale
         let count = snapshots.count
         let spacing = cellSpacing(cellCount: count, on: edge)
+        let inset = edge == .top && looseHole != nil ? looseBodyInset : 0
         let depth = NotchLayout.bodyDepth(for: edge)
         return TravelSize(
             length: (NotchLayout.bodyLength(cellCount: count, edge: edge, spacing: spacing)
                      + 2 * flare) * scale,
-            depth: depth * scale,
+            depth: (depth + inset) * scale,
             ringCenters: (0..<count).map {
                 NotchLayout.ringCenter(index: $0, edge: edge, flare: flare, spacing: spacing) * scale
             },
-            ringAcross: depth / 2 * scale,
+            ringAcross: (inset + depth / 2) * scale,
             cellShift: edge.isVertical && showsCellReading
                 ? (NotchLayout.cellExtent - NotchLayout.ringDiameter) / 2 * scale : 0)
     }
@@ -1461,13 +1478,22 @@ final class NotchViewModel: ObservableObject {
     /// How stack space maps onto the panel right now.
     var placement: NotchPlacement { NotchPlacement(edge: edge, panelSize: panelSize) }
 
+    /// Extra room for the loose bar and its physical folding target. The
+    /// window stays centred on the expanded bar, so its padding must reach
+    /// back to the hole even when a nudge separates their centres. Reserving
+    /// this in both states lets the shape fold without a window-frame jump.
+    private var looseTargetSlack: CGFloat {
+        guard let looseHole else { return 0 }
+        return abs(alongOffset) + max(0, (looseHole.width - plainBarLength) / 2)
+    }
+
     /// Room at each end of the stack, for this edge.
     var slack: CGFloat { slack(cellCount: snapshots.count) }
 
     func slack(cellCount: Int, looseLayout: LooseLayoutMetrics? = nil) -> CGFloat {
         NotchLayout.slack(for: edge,
                           maxCardHeight: maxCardHeight(cellCount: cellCount, looseLayout: looseLayout),
-                          notchScale: sizeScale)
+                          notchScale: sizeScale) + looseTargetSlack
     }
 
     /// How many sessions a tooltip may list here before it has to summarise
@@ -1618,7 +1644,7 @@ final class NotchViewModel: ObservableObject {
     var wakeDepth: CGFloat { wakeDepth(looseLayout: looseLayoutMetrics) }
 
     func wakeDepth(looseLayout: LooseLayoutMetrics) -> CGFloat {
-        restingDepth(looseLayout: looseLayout) * sizeScale + edgeGap + (mergesWithCutout ? 0 : wakeBand)
+        restingDepth(looseLayout: looseLayout) * sizeScale + edgeGap + (mergesWithCutout || looseHole != nil ? 0 : wakeBand)
     }
     private var wakeBand: CGFloat { NotchLayout.pillHotZone }
 
@@ -1635,8 +1661,7 @@ final class NotchViewModel: ObservableObject {
     /// the panel is sized for the list that caused the change.
     func shapeLength(cellCount: Int) -> CGFloat {
         if mergesWithCutout && cellCount > 1 {
-            let leftCount = cellCount / 2
-                + (cellCount.isMultiple(of: 2) || cutoutOddSide == .right ? 0 : 1)
+            let leftCount = leftCellCount(of: cellCount)
             return mergedWingLength(cellCount: carriedOnTheLeft ? leftCount : cellCount - leftCount)
         }
         return NotchLayout.bodyLength(cellCount: cellCount, edge: edge,
@@ -1660,7 +1685,8 @@ final class NotchViewModel: ObservableObject {
         return NotchPlacement.panelSize(
             edge: edge,
             length: cutoutSpan(cellCount: cellCount)
-                + 2 * NotchLayout.slack(for: edge, maxCardHeight: card, notchScale: sizeScale),
+                + 2 * (NotchLayout.slack(for: edge, maxCardHeight: card, notchScale: sizeScale)
+                       + looseTargetSlack),
             depth: notchDrawnDepth(looseLayout: looseLayout) + edgeGap
                 + NotchLayout.tooltipDepth(for: edge, maxCardHeight: card)
         )

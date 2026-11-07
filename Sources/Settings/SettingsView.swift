@@ -993,7 +993,14 @@ struct SettingsView: View {
                 // MacBook's own cutout, and means nothing on another edge or
                 // another display.
                 if topEdgeHasACutout {
-                    Toggle(L10n.t("Merge into Notch"), isOn: $preferences.notchJoinsCutout)
+                    Toggle(L10n.t("Merge into Notch"), isOn: Binding(
+                        get: { preferences.notchJoinsCutout },
+                        set: { on in
+                            if on != preferences.notchJoinsCutout, preferences.notchEdge == .top {
+                                resetPosition()
+                            }
+                            preferences.setNotchJoinsCutoutFromSettings(on)
+                        }))
 
                     if preferences.notchJoinsCutout {
                         Picker(L10n.t("Odd ring"), selection: $preferences.notchCutoutOddSide) {

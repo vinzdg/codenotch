@@ -158,6 +158,16 @@ enum NotchGeometry {
         return (atTrailingEnd: true, overlap: cutoutDeepest + alongOffset - flip)
     }
 
+    /// The hole whose coordinate system the drag uses, if this edge takes it.
+    /// A loose bar uses the same centre-relative nudge as a plain display;
+    /// converting that nudge to a joined offset would move it away from the
+    /// pointer and snap it to a wall it was never meant to join.
+    static func dragCutout(on screen: ScreenDescribing?, edge: NotchEdge,
+                           joinsCutout: Bool) -> HardwareNotch? {
+        guard joinsCutout, edge == .top else { return nil }
+        return screen?.hardwareNotch
+    }
+
     // MARK: - While the notch is in the hand
 
     /// **Near the hole, for a notch that is being dragged.**
@@ -408,7 +418,7 @@ enum NotchGeometry {
             // the middle of the screen.
             // Asked only here: the other three edges never consult the
             // hardware, and a screen stood in for by a test may not answer.
-            let hardware = joinsCutout ? screen.hardwareNotch : nil
+            let hardware = dragCutout(on: screen, edge: edge, joinsCutout: joinsCutout)
             var wanted: CGFloat = full.midX - width / 2 + alongOffset
             if let bar = heldBar, let cutout = hardware {
                 // In the hand: the window that holds a pair while the notch is

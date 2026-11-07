@@ -838,9 +838,9 @@ final class NotchWindowController {
 
     /// Whether a middle at `place` has the notch within the Mac's notch's reach.
     private func besideTheHole(_ place: CGFloat, on track: BorderTrack, screen: NSScreen) -> Bool {
-        guard let cutout = screen.hardwareNotch else { return false }
         let (edge, along) = track.place(at: place)
-        guard edge == .top else { return false }
+        guard let cutout = NotchGeometry.dragCutout(on: screen, edge: edge,
+                                                   joinsCutout: model.joinsCutout) else { return false }
         let bar = model.plainBarLength
         let free = along - track.width / 2 - cutout.width / 2 + NotchGeometry.cutoutOverlap - bar / 2
         return NotchGeometry.cutoutFreelyNear(alongOffset: free, width: cutout.width, bar: bar)
@@ -962,7 +962,8 @@ final class NotchWindowController {
     }
 
     /// The notch on its edge with its middle at `place` on the border.
-    private func put(at place: CGFloat, on track: BorderTrack, frame: CGRect) {
+    func put(at place: CGFloat, on track: BorderTrack, frame: CGRect,
+             screen: ScreenDescribing? = nil) {
         let (edge, along) = track.place(at: place)
         if edge != model.edge {
             model.hoveredIndex = nil
@@ -974,7 +975,7 @@ final class NotchWindowController {
             ? CGPoint(x: frame.minX, y: frame.maxY - along)
             : CGPoint(x: frame.minX + along, y: frame.maxY)
         let offset = Self.offset(along: edge, at: point, on: frame)
-        if let cutout = heldCutout {
+        if let cutout = heldCutout(on: screen) {
             // The hand's own measure beside the hole: from its right wall to
             // the bar's leading tip, so the bar's middle is at `place`; then
             // the hole's pull on it.
@@ -1225,10 +1226,11 @@ final class NotchWindowController {
     // MARK: - The notch in the hand
 
     /// The hole on the screen the notch is on, if it is on the one edge that
-    /// has one.
-    private var heldCutout: HardwareNotch? {
-        guard model.edge == .top else { return nil }
-        return currentScreen()?.hardwareNotch
+    /// has one and takes it. Loose placement keeps the ordinary offset all
+    /// the way through the gesture, so neither pickup nor landing may convert it.
+    private func heldCutout(on screen: ScreenDescribing? = nil) -> HardwareNotch? {
+        NotchGeometry.dragCutout(on: screen ?? currentScreen(), edge: model.edge,
+                                 joinsCutout: model.joinsCutout)
     }
 
     /// **Picked up, it lets go of the hole.**
@@ -1239,8 +1241,8 @@ final class NotchWindowController {
     /// a lone bar measured the plain way — leading tip point for point with the
     /// pointer — and it lets go of the hole on the fold's spring. The window is
     /// the same before and after, which is the only reason that may be eased.
-    private func pickUp() {
-        guard let cutout = heldCutout, !model.holdsOffTheCutout else { return }
+    func pickUp(on screen: ScreenDescribing? = nil) {
+        guard let cutout = heldCutout(on: screen), !model.holdsOffTheCutout else { return }
         let free = NotchGeometry.freeOffset(fromStanding: model.alongOffset,
                                             width: cutout.width, bar: model.plainBarLength)
         let wasJoined = model.mergesWithCutout
@@ -1262,8 +1264,8 @@ final class NotchWindowController {
     /// that is what lets it ease.
     ///
     /// Put down out of reach, it stays exactly where it was put.
-    private func putDown() {
-        guard let cutout = heldCutout, model.holdsOffTheCutout else {
+    func putDown(on screen: ScreenDescribing? = nil) {
+        guard let cutout = heldCutout(on: screen), model.holdsOffTheCutout else {
             onReposition?(model.alongOffset)
             return
         }
