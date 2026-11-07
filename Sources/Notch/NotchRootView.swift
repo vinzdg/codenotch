@@ -13,6 +13,9 @@ struct NotchRootView: View {
         // edge, not against the size we asked for.
         GeometryReader { proxy in
             let place = NotchPlacement(edge: model.edge, panelSize: proxy.size)
+            let looseLayout = model.looseLayoutMetrics
+            let wings = model.wings(looseLayout: looseLayout)
+            let handleWing = model.cellWing(in: wings)
 
             ZStack(alignment: .topLeading) {
                 Color.clear
@@ -25,8 +28,8 @@ struct NotchRootView: View {
                         .fill(Palette.notch)
                         .transition(.identity)
                 }
-                ForEach(model.wings) { wing in
-                    notch(place, wing: wing)
+                ForEach(wings) { wing in
+                    notch(place, wing: wing, looseLayout: looseLayout)
                         // The side carrying the percentage across the Mac's
                         // notch is as long as the number: "9%" to "10%" eases
                         // it longer rather than stepping.
@@ -48,7 +51,7 @@ struct NotchRootView: View {
                         // Swelling to meet the pointer, quick and springy.
                         .animation(motion(Self.gripHover), value: model.isHoveringMove)
                         .scaleEffect(model.sizeScale)
-                        .position(orbCentre(place))
+                        .position(orbCentre(place, wing: handleWing))
                         // Carried, the handle's end is `CarriedHandle`, from the
                         // moment it is taken hold of.
                         .opacity(model.carry == nil ? 1 : 0)
@@ -97,7 +100,7 @@ struct NotchRootView: View {
                             // to hug. Here it scales the orb about its own centre,
                             // which is what `orbCentre` then places.
                             .scaleEffect(model.sizeScale * model.orbScale)
-                            .position(orbCentre(place))
+                            .position(orbCentre(place, wing: handleWing))
                             // In and out of the notch as goo, both ways — see
                             // `arcSeparation`. Full strength the whole way: the
                             // arc is back in the notch's black before this reaches
@@ -121,7 +124,7 @@ struct NotchRootView: View {
                                   arcRadius: model.orbArcRadiusInOrbSpace,
                                   gripShift: gripShift)
                         .scaleEffect(model.sizeScale * model.orbScale)
-                        .position(orbCentre(place))
+                        .position(orbCentre(place, wing: handleWing))
                 }
 
                 if let prompt = model.updatePrompt, model.isExpanded {
@@ -129,9 +132,9 @@ struct NotchRootView: View {
                     // else the notch would show here, until it is answered.
                     UpdateCard(prompt: prompt,
                                direction: model.edge.tooltipDirection,
-                               tailOffset: model.notchMiddleAlong - updateCardAlong,
+                               tailOffset: model.notchMiddleAlong(in: wings) - updateCardAlong(in: wings),
                                onChoice: { model.onUpdateChoice?($0) })
-                        .position(updateCardCentre(place))
+                        .position(updateCardCentre(place, wings: wings, looseLayout: looseLayout))
                         .transition(.opacity.combined(with: .offset(
                             x: model.edge.outward.x * Design.px(24),
                             y: model.edge.outward.y * Design.px(24)
@@ -144,14 +147,14 @@ struct NotchRootView: View {
                     UsageResetCard(
                         event: resetEvent,
                         direction: model.edge.tooltipDirection,
-                        tailOffset: tooltipTailOffset(index: index, snapshot: snapshot),
+                        tailOffset: tooltipTailOffset(index: index, snapshot: snapshot, wings: wings, looseLayout: looseLayout),
                         onDismiss: {
                             withAnimation(.easeOut(duration: 0.18)) {
                                 model.activeResetAlert = nil
                             }
                         }
                     )
-                    .position(resetCardCentre(place, index: index))
+                    .position(resetCardCentre(place, index: index, wings: wings, looseLayout: looseLayout))
                     .transition(.opacity.combined(with: .offset(
                         x: model.edge.outward.x * Design.px(24),
                         y: model.edge.outward.y * Design.px(24)
@@ -163,12 +166,12 @@ struct NotchRootView: View {
                         activity: model.activity(for: snapshot),
                         now: model.now,
                         direction: model.edge.tooltipDirection,
-                        sessionCap: model.sessionCap,
+                        sessionCap: model.sessionCap(cellCount: model.snapshots.count, looseLayout: looseLayout),
                         costRows: model.costRows(for: snapshot),
                         resetTimeFormat: model.resetTimeFormat,
                         deepSeekPricingEnabled: model.deepSeekPricingEnabled,
                         deepSeekPricingSchedule: model.deepSeekPricingSchedule,
-                        tailOffset: tooltipTailOffset(index: index, snapshot: snapshot),
+                        tailOffset: tooltipTailOffset(index: index, snapshot: snapshot, wings: wings, looseLayout: looseLayout),
                         onFocusSession: model.onFocusSession
                     )
                         // Deliberately *no* `.id` here: the card is one object
@@ -176,7 +179,7 @@ struct NotchRootView: View {
                         // far better than one card leaving and another arriving.
                         // What must not interpolate is its contents — see
                         // `TooltipCard`.
-                        .position(tooltipCentre(place, index: index, snapshot: snapshot))
+                        .position(tooltipCentre(place, index: index, snapshot: snapshot, wings: wings, looseLayout: looseLayout))
                         // Swapping cards is a movement like any other — and it
                         // is the card's movement alone. This used to sit on the
                         // whole panel, so every change that happened alongside a
@@ -294,7 +297,8 @@ struct NotchRootView: View {
     static let arcDivide = Animation.timingCurve(0.35, 0, 0.25, 1, duration: 0.95)
 
     @ViewBuilder
-    private func notch(_ place: NotchPlacement, wing: NotchViewModel.Wing) -> some View {
+    private func notch(_ place: NotchPlacement, wing: NotchViewModel.Wing,
+                       looseLayout: NotchViewModel.LooseLayoutMetrics) -> some View {
         // Configured by the model, never assembled here — see `notchShape`.
         let shape = model.notchShape(for: wing)
         // The dock style's slab. Its glass is a sibling behind the whole copy,
@@ -328,10 +332,10 @@ struct NotchRootView: View {
                                     y: -model.edge.outward.y * model.edgeGap)
                     }
                 }
-                notchCopy(place, wing: wing, shape: shape, clip: slab, dock: true)
+                notchCopy(place, wing: wing, shape: shape, clip: slab, dock: true, looseLayout: looseLayout)
             }
         } else {
-            notchCopy(place, wing: wing, shape: shape, clip: shape, dock: false)
+            notchCopy(place, wing: wing, shape: shape, clip: shape, dock: false, looseLayout: looseLayout)
         }
     }
 
@@ -341,7 +345,7 @@ struct NotchRootView: View {
     /// this copy, and nothing of ours is laid under it.
     private func notchCopy<Clip: Shape>(_ place: NotchPlacement, wing: NotchViewModel.Wing,
                                         shape: SideNotchShape, clip: Clip,
-                                        dock: Bool) -> some View {
+                                        dock: Bool, looseLayout: NotchViewModel.LooseLayoutMetrics) -> some View {
         // Glass reaches the notch open and folded alike, so a glass style
         // never turns into a black pill at rest.
         //
@@ -408,7 +412,9 @@ struct NotchRootView: View {
             .frame(width: copySize(wing).width, height: copySize(wing).height)
             // Aligned to the corner where the stack starts *and* the bezel is.
             // Each wing draws only its own slice, in the row's reading order.
-            .overlay(alignment: contentAlignment) { if wing.carriesCells { cells(in: wing) } }
+            .overlay(alignment: contentAlignment) {
+                if wing.carriesCells { cells(in: wing, looseLayout: looseLayout) }
+            }
             .overlay(alignment: wing.onTheLeft ? .topTrailing : .topLeading) {
                 if !wing.carriesCells { readingAcross(wing) }
             }
@@ -509,11 +515,11 @@ struct NotchRootView: View {
     /// Taken from the model so the rings are drawn exactly where the geometry
     /// says they are. Computing it here as well is what let the two drift.
     @ViewBuilder
-    private func cells(in wing: NotchViewModel.Wing) -> some View {
+    private func cells(in wing: NotchViewModel.Wing,
+                       looseLayout: NotchViewModel.LooseLayoutMetrics) -> some View {
         let leadIn = model.cellsLeadIn(in: wing)
-        let stack = ForEach(Array(model.snapshots.enumerated()).filter {
-            wing.cellIndices.contains($0.offset)
-        }, id: \.element.id) { index, snapshot in
+        let assigned = wing.cellIndices.map { (index: $0, snapshot: model.snapshots[$0]) }
+        let stack = ForEach(assigned, id: \.snapshot.id) { index, snapshot in
             ProviderCell(
                 snapshot: snapshot,
                 activity: model.activity(for: snapshot),
@@ -573,7 +579,7 @@ struct NotchRootView: View {
                     // The frame centres the whole cell, ring and reading,
                     // in the body. The housing's band replaces its top margin
                     // so the outermost stroke hangs from the hole's bottom edge.
-                    .padding(.top, model.looseBodyInset)
+                    .padding(.top, looseLayout.bodyInset)
             }
         }
         .allowsHitTesting(model.isExpanded)
@@ -625,9 +631,9 @@ struct NotchRootView: View {
     /// The orb belongs to the notch, not to the tooltip, so it scales with it —
     /// it is tucked into the corner the shape's own flare makes, and a fixed
     /// orb against a scaled flare would sit off that corner.
-    private func orbCentre(_ place: NotchPlacement) -> CGPoint {
+    private func orbCentre(_ place: NotchPlacement, wing: NotchViewModel.Wing) -> CGPoint {
         place.point(
-            along: model.handleWing.lead + model.orbAlong * model.sizeScale,
+            along: wing.lead + model.orbAlong * model.sizeScale,
             across: model.orbInset * model.sizeScale
         )
     }
@@ -661,12 +667,14 @@ struct NotchRootView: View {
     static let gripHover = Animation.spring(response: 0.22, dampingFraction: 0.55)
     static let gripReturn = Animation.easeIn(duration: 0.2)
 
-    private func tooltipLength(_ snapshot: ProviderSnapshot) -> CGFloat {
-        model.edge.isVertical ? cardAcross(snapshot) : NotchLayout.cardWidth
+    private func tooltipLength(_ snapshot: ProviderSnapshot,
+                               looseLayout: NotchViewModel.LooseLayoutMetrics) -> CGFloat {
+        model.edge.isVertical ? cardAcross(snapshot, looseLayout: looseLayout) : NotchLayout.cardWidth
     }
 
     /// The card's extent across the stack (its height on a horizontal edge).
-    private func cardAcross(_ snapshot: ProviderSnapshot) -> CGFloat {
+    private func cardAcross(_ snapshot: ProviderSnapshot,
+                            looseLayout: NotchViewModel.LooseLayoutMetrics) -> CGFloat {
         NotchLayout.cardHeight(
             windowCount: snapshot.windows.count,
             groupCount: snapshot.windowGroupCount,
@@ -675,7 +683,7 @@ struct NotchRootView: View {
             moneyProjectionCount: snapshot.windows.filter { $0.money != nil && $0.usageProjection(now: model.now) != nil }.count,
             usageDetailGroupCount: snapshot.usageDetail?.visibleGroups.count ?? 0,
             sessionCount: snapshot.localModel == nil ? (model.activity(for: snapshot.id)?.sessions.count ?? 0) : 0,
-            sessionCap: model.sessionCap,
+            sessionCap: model.sessionCap(cellCount: model.snapshots.count, looseLayout: looseLayout),
             statusMessage: snapshot.statusMessage,
             blockMessage: snapshot.block?.summary(now: model.now),
             hasTokenUsage: snapshot.tokenUsage != nil,
@@ -689,47 +697,52 @@ struct NotchRootView: View {
             costRows: model.costRows(for: snapshot))
     }
 
-    private func tooltipTailOffset(index: Int, snapshot: ProviderSnapshot) -> CGFloat {
-        model.ringAlong(index: index, in: model.cellWing(index: index))
-            - model.tooltipAlong(index: index, length: tooltipLength(snapshot))
+    private func tooltipTailOffset(index: Int, snapshot: ProviderSnapshot,
+                                   wings: [NotchViewModel.Wing],
+                                   looseLayout: NotchViewModel.LooseLayoutMetrics) -> CGFloat {
+        model.ringAlong(index: index, in: model.cellWing(index: index, in: wings))
+            - model.tooltipAlong(index: index, length: tooltipLength(snapshot, looseLayout: looseLayout), in: wings)
     }
 
     /// The tooltip is the card plus its tail; `position` centres that pair, so
     /// the tail lands on the hovered cell and the card sits beyond it.
     private func tooltipCentre(
-        _ place: NotchPlacement, index: Int, snapshot: ProviderSnapshot
+        _ place: NotchPlacement, index: Int, snapshot: ProviderSnapshot,
+        wings: [NotchViewModel.Wing], looseLayout: NotchViewModel.LooseLayoutMetrics
     ) -> CGPoint {
-        let card = model.edge.isVertical ? NotchLayout.cardWidth : cardAcross(snapshot)
+        let card = model.edge.isVertical ? NotchLayout.cardWidth : cardAcross(snapshot, looseLayout: looseLayout)
         // The ring it points at has moved with the notch, so the tail follows
         // it — but the card beyond the tail is drawn at its own size, and
         // `tooltipInset` already ends where the drawn notch does.
         return place.point(
-            along: model.tooltipAlong(index: index, length: tooltipLength(snapshot)),
-            across: model.tooltipInset + (NotchLayout.tailLength + card) / 2
+            along: model.tooltipAlong(index: index, length: tooltipLength(snapshot, looseLayout: looseLayout), in: wings),
+            across: model.tooltipInset(looseLayout: looseLayout) + (NotchLayout.tailLength + card) / 2
         )
     }
 
     /// Where the update card is centred along the notch: on its middle, kept
     /// on the screen.
-    private var updateCardAlong: CGFloat {
+    private func updateCardAlong(in wings: [NotchViewModel.Wing]) -> CGFloat {
         let size = UpdateCard.size(for: model.edge.tooltipDirection)
-        return model.cardAlong(centredOn: model.notchMiddleAlong,
+        return model.cardAlong(centredOn: model.notchMiddleAlong(in: wings),
                                length: model.edge.isVertical ? size.height : size.width)
     }
 
-    private func updateCardCentre(_ place: NotchPlacement) -> CGPoint {
+    private func updateCardCentre(_ place: NotchPlacement, wings: [NotchViewModel.Wing],
+                                  looseLayout: NotchViewModel.LooseLayoutMetrics) -> CGPoint {
         let size = UpdateCard.size(for: model.edge.tooltipDirection)
         let across = model.edge.isVertical ? size.width : size.height
-        return place.point(along: updateCardAlong,
-                           across: model.tooltipInset + (NotchLayout.tailLength + across) / 2)
+        return place.point(along: updateCardAlong(in: wings),
+                           across: model.tooltipInset(looseLayout: looseLayout) + (NotchLayout.tailLength + across) / 2)
     }
 
-    private func resetCardCentre(_ place: NotchPlacement, index: Int) -> CGPoint {
+    private func resetCardCentre(_ place: NotchPlacement, index: Int, wings: [NotchViewModel.Wing],
+                                 looseLayout: NotchViewModel.LooseLayoutMetrics) -> CGPoint {
         let card = model.edge.isVertical ? NotchLayout.cardWidth : UsageResetCard.cardHeight
         let cardAlong = model.edge.isVertical ? UsageResetCard.cardHeight : NotchLayout.cardWidth
         return place.point(
-            along: model.tooltipAlong(index: index, length: cardAlong),
-            across: model.tooltipInset + (NotchLayout.tailLength + card) / 2
+            along: model.tooltipAlong(index: index, length: cardAlong, in: wings),
+            across: model.tooltipInset(looseLayout: looseLayout) + (NotchLayout.tailLength + card) / 2
         )
     }
 }

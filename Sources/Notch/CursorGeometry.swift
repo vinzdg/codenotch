@@ -9,10 +9,11 @@ import AppKit
 final class CursorGeometry {
     private let model: NotchViewModel
     let placement: NotchPlacement
-    private lazy var wings = model.wings
+    private lazy var looseLayout = model.looseLayoutMetrics
+    private lazy var wings = model.wings(looseLayout: looseLayout)
     private(set) lazy var cellWing = model.cellWing(in: wings)
     private lazy var cellSpacing = model.cellSpacing
-    private lazy var sessionCap = model.sessionCap
+    private lazy var sessionCap = model.sessionCap(cellCount: model.snapshots.count, looseLayout: looseLayout)
     private lazy var orbHandlePoints = model.orbHandlePoints
     private lazy var gripPoint = model.gripPoint
     private var tooltipRects: [Int: CGRect] = [:]
@@ -31,7 +32,9 @@ final class CursorGeometry {
         for index in model.snapshots.indices {
             let wing = model.cellWing(index: index, in: wings)
             if model.alongWithin(along, of: wing) != nil,
-               abs(along - ringAlong(index: index)) <= pitch / 2 { return index }
+               abs(along - model.ringAlong(index: index, in: wing, spacing: cellSpacing)) <= pitch / 2 {
+                return index
+            }
         }
         return nil
     }
@@ -44,7 +47,7 @@ final class CursorGeometry {
             along: wings.first?.lead ?? model.slack,
             across: 0,
             length: model.drawnAlongExtent(in: wings),
-            depth: model.notchDepth * model.sizeScale + model.edgeGap
+            depth: model.notchDepth(looseLayout: looseLayout) * model.sizeScale + model.edgeGap
         )
 
     /// What wakes the folded notch. Larger than the pill it surrounds, and
@@ -58,12 +61,12 @@ final class CursorGeometry {
         if model.mergesWithCutout {
             let span = model.joinedWakeAlong(in: wings)
             return placement.rect(along: span.lead, across: 0, length: span.length,
-                                  depth: model.wakeDepth)
+                                  depth: model.wakeDepth(looseLayout: looseLayout))
         }
-        let lead = model.restingAlongLead(in: wings)
+        let lead = model.restingAlongLead(in: wings, looseLayout: looseLayout)
             + (model.restingLength * model.sizeScale - model.wakeLength) / 2
         return placement.rect(along: lead, across: 0, length: model.wakeLength,
-                              depth: model.wakeDepth)
+                              depth: model.wakeDepth(looseLayout: looseLayout))
     }()
 
     /// The folded notch as drawn, from the screen's edge. Contact here opens
@@ -73,10 +76,10 @@ final class CursorGeometry {
     private(set) lazy var restingRect: CGRect = {
         guard !model.mergesWithCutout else { return pillRect }
         return placement.rect(
-            along: model.restingAlongLead(in: wings),
+            along: model.restingAlongLead(in: wings, looseLayout: looseLayout),
             across: 0,
             length: model.restingLength * model.sizeScale,
-            depth: model.restingDepth * model.sizeScale + model.edgeGap
+            depth: model.restingDepth(looseLayout: looseLayout) * model.sizeScale + model.edgeGap
         )
     }()
 
@@ -177,7 +180,7 @@ final class CursorGeometry {
             along: centre - cardAlong / 2,
             // The card's own extent does not scale, and it begins where the
             // drawn notch ends — past the dock style's gap when it floats.
-            across: model.notchDrawnDepth + model.edgeGap,
+            across: model.notchDrawnDepth(looseLayout: looseLayout) + model.edgeGap,
             length: cardAlong,
             depth: NotchLayout.tailGap + NotchLayout.tailLength + cardAcross
         )
@@ -192,7 +195,7 @@ final class CursorGeometry {
         let centre = model.cardAlong(centredOn: ringAlong(index: index), length: cardAlong)
         return placement.rect(
             along: centre - cardAlong / 2,
-            across: model.notchDrawnDepth + model.edgeGap,
+            across: model.notchDrawnDepth(looseLayout: looseLayout) + model.edgeGap,
             length: cardAlong,
             depth: NotchLayout.tailGap + NotchLayout.tailLength + cardAcross
         )
@@ -204,10 +207,10 @@ final class CursorGeometry {
         let size = UpdateCard.size(for: model.edge.tooltipDirection)
         let across = model.edge.isVertical ? size.width : size.height
         let along = model.edge.isVertical ? size.height : size.width
-        let centre = model.cardAlong(centredOn: model.notchMiddleAlong, length: along)
+        let centre = model.cardAlong(centredOn: model.notchMiddleAlong(in: wings), length: along)
         return placement.rect(
             along: centre - along / 2,
-            across: model.notchDrawnDepth + model.edgeGap,
+            across: model.notchDrawnDepth(looseLayout: looseLayout) + model.edgeGap,
             length: along,
             depth: NotchLayout.tailGap + NotchLayout.tailLength + across
         )
