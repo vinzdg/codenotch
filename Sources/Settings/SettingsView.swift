@@ -1002,7 +1002,9 @@ struct SettingsView: View {
                             preferences.setNotchJoinsCutoutFromSettings(on)
                         }))
 
-                    if preferences.notchJoinsCutout {
+                    // Keep the choice mounted so merging does not move the
+                    // settings below it.
+                    Group {
                         Picker(L10n.t("Odd ring"), selection: $preferences.notchCutoutOddSide) {
                             ForEach(NotchCutoutOddSide.allCases) { Text($0.title).tag($0) }
                         }
@@ -1012,6 +1014,13 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    .opacity(preferences.notchJoinsCutout ? 1 : 0.4)
+                    .disabled(!preferences.notchJoinsCutout)
+                    .allowsHitTesting(preferences.notchJoinsCutout)
+                    .animation(
+                        NotchMotion.respectingReduceMotion(NotchMotion.unfold, reduceMotion),
+                        value: preferences.notchJoinsCutout
+                    )
 
                     Text(preferences.notchJoinsCutout
                          ? L10n.t("Drawn as one shape with the camera housing, at the cutout's own depth, with the rings beside it.")

@@ -397,16 +397,21 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(notchJoinsCutout, forKey: Keys.notchJoinsCutout) }
     }
 
-    /// Apply the Settings gesture, whose defaults are a choice made here rather
-    /// than an invariant of the stored keys. A merged bar pays for readings by
-    /// shrinking its rings, so offer those off on entry. The top nudge changes
-    /// meaning between joined and plain placement and must start from centre
-    /// in either direction. Programmatic writes can still restore each key
-    /// independently without silently changing another preference.
+    /// A merged bar pays for readings by shrinking its rings, so hide them on
+    /// entry. Keep the earlier choice across relaunches, and restore it on exit
+    /// without undoing readings switched on while merged. The top nudge changes
+    /// meaning between joined and plain placement and starts from centre in
+    /// either direction. Programmatic writes still restore each key independently.
     func setNotchJoinsCutoutFromSettings(_ on: Bool) {
         guard on != notchJoinsCutout else { return }
         setOffset(0, for: .top)
-        if on { showsNotchReadings = false }
+        if on {
+            defaults.set(showsNotchReadings, forKey: Keys.showsNotchReadingsBeforeMerge)
+            showsNotchReadings = false
+        } else if let before = defaults.object(forKey: Keys.showsNotchReadingsBeforeMerge) as? Bool {
+            showsNotchReadings = showsNotchReadings || before
+            defaults.removeObject(forKey: Keys.showsNotchReadingsBeforeMerge)
+        }
         notchJoinsCutout = on
     }
 
@@ -810,6 +815,7 @@ final class Preferences: ObservableObject {
         static let weeklyRing = "weeklyRing"
         static let weeklyRingDashed = "weeklyRingDashed"
         static let showsNotchReadings = "showsNotchReadings"
+        static let showsNotchReadingsBeforeMerge = "showsNotchReadingsBeforeMerge"
         static let weeklyReading = "weeklyReading"
         static let shutRingsWhenSpent = "shutRingsWhenSpent"
         static let autoOrderByRemaining = "autoOrderByRemaining"
