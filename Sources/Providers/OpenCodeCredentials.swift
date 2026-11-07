@@ -12,12 +12,11 @@ import SQLite3
 ///    (`{"type":"api","key":…}`, a fresh `oc_sk_…` one once 2.x starts rotating
 ///    keys) or an `opencode` sign-in (`{"type":"oauth","access":…,"expires":…,
 ///    "metadata":{"server":…,"orgID":…}}`, or 2.x's plain-key shape of it);
-/// 2. `auth.json` → the same two entries, both fallbacks now. OpenCode stopped
-///    writing the file once the database held the sign-in, and 2.x leaves the
-///    Go key it wrote before that **dead** — it answers 401 while the database
-///    row answers 200 — so the file must never shadow a database that has a
-///    row. It only serves machines whose database cannot be opened or holds no
-///    sign-in at all.
+/// 2. `auth.json` → the same two entries, both fallbacks now. The database
+///    wins when both stores describe the same route, because OpenCode rotates
+///    keys there and can leave the file stale. The file can still hold a live
+///    OAuth login beside a retired database key, so its distinct candidates
+///    must remain available for the server to judge.
 ///
 /// Which one is found decides the usage endpoint, because each route refuses the
 /// other's credential — see `OpenCodeProvider`. Only OpenCode's own two ids are
@@ -38,6 +37,13 @@ enum OpenCodeCredentials {
         let expires: Date?
         /// Where it was read from, for the settings line. Never the token.
         let source: String
+
+        struct Identity: Hashable {
+            let token: String
+            let oauth: Bool
+        }
+
+        var identity: Identity { Identity(token: token, oauth: oauth) }
     }
 
     /// OpenCode's data directory: `$XDG_DATA_HOME/opencode` when set, else
@@ -62,19 +68,36 @@ enum OpenCodeCredentials {
         }
     }
 
-    /// The two files above, database first. The order is the fix for OpenCode
-    /// 2.x: it rotates the Go key into the database and leaves the key the
-    /// pre-rotation `auth.json` holds answering 401, so a file-first order
-    /// would keep sending a credential OpenCode itself has retired — a signed-in
-    /// app reading as signed out. The file is only asked when the database has
-    /// no answer: missing, unreadable, or carrying no OpenCode row.
+    /// The preferred candidate, database first so a rotated database key
+    /// wins over its retired file counterpart. Fetching tries the remaining
+    /// candidates too; the first stored credential need not still be accepted.
     static func load(in directory: URL = dataDirectory) -> Credential? {
-        if let stored = loadFromDatabase(directory.appendingPathComponent("opencode.db")) {
-            return stored
-        }
+        candidates(in: directory).first
+    }
+
+    /// **Every sign-in on file, in the order they are worth trying**: the Go
+    /// key first, then the OAuth sign-in within each store, database before
+    /// `auth.json`. Identical tokens on the same route are asked only once;
+    /// reading a mirror of a refused token cannot make it valid again.
+    ///
+    /// More than one, because the first is not always good. OpenCode 2.x keeps
+    /// the Go key it imported from `auth.json` in the database beside the
+    /// OAuth sign-in it now makes, and when that key has expired at the console
+    /// it answers 401 while the sign-in next to it answers 200. The server is
+    /// the only judge of that, so the provider asks it credential by
+    /// credential rather than this loader guessing from the rows.
+    static func candidates(in directory: URL = dataDirectory) -> [Credential] {
+        let stored = candidatesFromDatabase(directory.appendingPathComponent("opencode.db"))
         let auth = directory.appendingPathComponent("auth.json")
-        if let go = loadGoKey(from: auth) { return go }
-        return loadOAuth(from: auth)
+        return unique(stored + [loadGoKey(from: auth), loadOAuth(from: auth)].compactMap { $0 })
+    }
+
+    /// Tokens are only comparable on the route that accepts them. Keep the
+    /// first copy so database metadata wins, without sending a refused token
+    /// twice just because OpenCode mirrored it into another store.
+    static func unique(_ candidates: [Credential]) -> [Credential] {
+        var seen = Set<Credential.Identity>()
+        return candidates.filter { seen.insert($0.identity).inserted }
     }
 
     // MARK: - Sources
@@ -88,10 +111,9 @@ enum OpenCodeCredentials {
         return credential(from: entry, source: "OpenCode")
     }
 
-    /// The `opencode` half of `auth.json`: the OAuth sign-in mirrored into the
-    /// file. A fallback only — OpenCode stops writing it once the database
-    /// holds the sign-in, so this covers a machine whose `opencode.db` cannot
-    /// be opened, and nothing else.
+    /// The file's OAuth sign-in can outlive a Go key in the database. It is
+    /// offered after database candidates so an older mirror cannot shadow a
+    /// rotated token, while a distinct login still gets its own chance.
     static func loadOAuth(from url: URL = authURL) -> Credential? {
         guard let root = readJSON(at: url),
               let entry = root["opencode"],
@@ -105,7 +127,14 @@ enum OpenCodeCredentials {
     /// OpenCode has already rotated. `SQLiteStore` opens `mode=ro` first for
     /// that reason.
     static func loadFromDatabase(_ url: URL = databaseURL) -> Credential? {
-        guard let db = SQLiteStore.open(url) else { return nil }
+        candidatesFromDatabase(url).first
+    }
+
+    /// The database's sign-ins, one per integration id: the newest live Go
+    /// key, then the newest live OAuth sign-in. Empty when the database is
+    /// missing, unreadable, or holds no OpenCode row.
+    static func candidatesFromDatabase(_ url: URL = databaseURL) -> [Credential] {
+        guard let db = SQLiteStore.open(url) else { return [] }
         defer { sqlite3_close(db) }
 
         // Newest first, so a rotated sign-in beats the one it replaced. The
@@ -122,16 +151,20 @@ enum OpenCodeCredentials {
             columns: 2
         )
         // Go key first, then the OAuth sign-in: same order as the file sources,
-        // so a machine holding both reads the same account either way.
+        // so a machine holding both reads the same account either way. One
+        // of each — the newest — because an older row of the same id is the
+        // one the newer replaced, not a second account.
+        var found: [Credential] = []
         for wanted in ["opencode-go", "opencode"] {
             for row in rows where row[0] == wanted {
                 guard let value = try? JSONSerialization.jsonObject(with: Data(row[1].utf8)),
-                      let found = credential(from: value, source: "OpenCode")
+                      let parsed = credential(from: value, source: "OpenCode")
                 else { continue }
-                return found
+                found.append(parsed)
+                break
             }
         }
-        return nil
+        return found
     }
 
     // MARK: - Shapes
