@@ -383,6 +383,13 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(notchSurfaceStyle.rawValue, forKey: Keys.notchSurfaceStyle) }
     }
 
+    /// Whether the top edge's notch is merged into a MacBook's own cutout, or
+    /// grows out of it as a bar of its own — see `NotchViewModel.joinsCutout`.
+    /// On by default: it is how the top edge has drawn since 1.18.
+    @Published var notchJoinsCutout: Bool {
+        didSet { defaults.set(notchJoinsCutout, forKey: Keys.notchJoinsCutout) }
+    }
+
     @Published var watchLimit: Double {
         didSet {
             let clamped = min(max(watchLimit, 0.01), criticalLimit - 0.01)
@@ -787,6 +794,7 @@ final class Preferences: ObservableObject {
         static let claudeDailyPaceRing = "claudeDailyPaceRing"
         static let weeklyHeadline = "weeklyHeadline"
         static let notchSurfaceStyle = "notchSurfaceStyle"
+        static let notchJoinsCutout = "notchJoinsCutout"
         static let watchLimit = "watchLimit"
         static let criticalLimit = "criticalLimit"
         static let colorTransitionStyle = "colorTransitionStyle"
@@ -1257,6 +1265,7 @@ final class Preferences: ObservableObject {
             .flatMap(AccentColorChoice.init(rawValue:)) ?? .system
         self.notchSurfaceStyle = defaults.string(forKey: Keys.notchSurfaceStyle)
             .flatMap(NotchSurfaceStyle.init(rawValue:)) ?? .glass
+        self.notchJoinsCutout = defaults.object(forKey: Keys.notchJoinsCutout) as? Bool ?? true
         let storedWatchLimit = defaults.object(forKey: Keys.watchLimit) as? Double ?? 0.50
         let storedCriticalLimit = defaults.object(forKey: Keys.criticalLimit) as? Double ?? 0.70
         // `didSet` does the clamping, and it does not run for these assignments,

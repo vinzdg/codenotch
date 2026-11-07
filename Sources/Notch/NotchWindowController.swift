@@ -174,7 +174,7 @@ final class NotchWindowController {
 
     /// The expanded notch body rect in panel coordinates.
     var expandedNotchRect: CGRect {
-        let depth = NotchLayout.bodyDepth(for: model.edge) * model.sizeScale
+        let depth = model.notchDrawnDepth
         return placement.rect(
             along: model.slack,
             across: 0,
@@ -336,6 +336,24 @@ final class NotchWindowController {
             .sink { [weak self] _ in self?.relocate() }
             .store(in: &cancellables)
 
+        // Taking the hole or leaving it loose changes where the panel sits
+        // and how deep it is, and `adopt` only reads the choice on relocate.
+        model.$joinsCutout
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.relocate() }
+            .store(in: &cancellables)
+
+        // Outside, the weekly stroke needs room below the housing, so the
+        // panel's depth follows the choice after Published's willSet too.
+        model.$weeklyRing
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.relocate() }
+            .store(in: &cancellables)
+
         // Reduce transparency resolves the glass styles to the solid one, so
         // turning it on or off in System Settings changes what the panel's
         // appearance has to be, and whether the dock style floats at all.
@@ -437,7 +455,8 @@ final class NotchWindowController {
             // step away from where the notch had stopped.
             trailingExtent: isOptionDragging ? 0 : model.trailingExtent,
             leadingExtent: isOptionDragging ? 0 : model.leadingExtent,
-            heldBar: model.holdsOffTheCutout ? model.plainBarLength : nil
+            heldBar: model.holdsOffTheCutout ? model.plainBarLength : nil,
+            joinsCutout: model.joinsCutout
         )
 
         if let panel {

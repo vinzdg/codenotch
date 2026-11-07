@@ -443,12 +443,19 @@ struct SettingsView: View {
     /// the acknowledgement keeps the button from feeling inert.
     @State private var didRecentre = false
 
-    /// Whether this Mac draws the notch as its own cutout — the one placement
-    /// where the hardware sets the size outright, and so the only one where the
-    /// reading under a ring is paid for out of the ring.
-    private var sizeIsDecidedByTheHardware: Bool {
+    /// Whether the top edge is chosen on a Mac whose display has a cutout —
+    /// where merging into it is a choice at all.
+    private var topEdgeHasACutout: Bool {
         preferences.notchEdge == .top
             && NSScreen.screens.contains { $0.hardwareNotch != nil }
+    }
+
+    /// Whether this Mac draws the notch as its own cutout — the one placement
+    /// where the hardware sets the size outright, and so the only one where the
+    /// reading under a ring is paid for out of the ring. Grown out of the
+    /// cutout instead, the size setting is the notch's own again.
+    private var sizeIsDecidedByTheHardware: Bool {
+        topEdgeHasACutout && preferences.notchJoinsCutout
     }
 
     /// Switching off has to reach the store's archive, not just the preference
@@ -981,6 +988,20 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                // Only where there is a hole to take: the choice is about the
+                // MacBook's own cutout, and means nothing on another edge or
+                // another display.
+                if topEdgeHasACutout {
+                    Toggle(L10n.t("Merge into your Mac's notch"), isOn: $preferences.notchJoinsCutout)
+
+                    Text(preferences.notchJoinsCutout
+                         ? L10n.t("Drawn as one shape with the camera housing, at the cutout's own depth, with the readings beside it.")
+                         : L10n.t("The notch grows out of the camera housing instead: a bar at your chosen size, with the readings in a row below it."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 // Offered only where there is a glass to choose. Below macOS 26
                 // the choice has one possible answer, and a picker that cannot

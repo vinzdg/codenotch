@@ -73426,6 +73426,18 @@
           }
         }
       }
+    },
+    "Merge into your Mac's notch": {
+      "extractionState": "manual",
+      "localizations": {}
+    },
+    "The notch grows out of the camera housing instead: a bar at your chosen size, with the readings in a row below it.": {
+      "extractionState": "manual",
+      "localizations": {}
+    },
+    "Drawn as one shape with the camera housing, at the cutout's own depth, with the readings beside it.": {
+      "extractionState": "manual",
+      "localizations": {}
     }
   },
   "version": "1.0"

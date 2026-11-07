@@ -572,6 +572,10 @@ struct NotchRootView: View {
                 HStack(spacing: model.cellSpacing) { stack }
                     .padding(.leading, leadIn)
                     .frame(height: model.contentDepth)
+                    // The frame centres the whole cell, ring and reading,
+                    // in the body. The housing's band replaces its top margin
+                    // so the outermost stroke hangs from the hole's bottom edge.
+                    .padding(.top, model.looseBodyInset)
             }
         }
         .allowsHitTesting(model.isExpanded)

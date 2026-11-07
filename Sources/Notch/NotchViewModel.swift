@@ -308,6 +308,26 @@ final class NotchViewModel: ObservableObject {
     /// notch is joined to something at its leading end.
     @Published var cutout: CutoutProximity?
 
+    /// **Whether the top edge's notch takes the display's own hole at all** —
+    /// the Appearance choice, mirrored here like `surfaceStyle` so the notch
+    /// window redraws the moment Settings changes it.
+    ///
+    /// On, the notch is drawn as one shape with the camera housing, at the
+    /// hole's own depth, either side of it — everything `cutout` describes.
+    /// Off, the hole is left alone and the notch grows *out* of it instead: the
+    /// same bar every other edge draws, at the chosen size, centred on the
+    /// hole with its readings in the band below it. That was the top edge's
+    /// layout before the join, and the one some people want back (#370): a
+    /// bar that is the cutout's depth cannot be made bigger, and a pair either
+    /// side of the hole puts every reading on one flank of it.
+    @Published var joinsCutout = true
+
+    /// The display's own hole while the notch is drawn *out of* it rather than
+    /// joined to it — `nil` on every other edge, on a display without one, and
+    /// whenever `joinsCutout` is on. Its depth is the band the contents have to
+    /// clear, because nothing drawn in it is on screen.
+    @Published var looseHole: HardwareNotch?
+
     /// Where a ring's centre falls along the panel, on a given copy of the bar.
     func ringAlong(index: Int, in wing: Wing, spacing: CGFloat? = nil) -> CGFloat {
         wing.lead + ringCenter(index: index, spacing: spacing) * sizeScale
@@ -367,10 +387,13 @@ final class NotchViewModel: ObservableObject {
         if screenSize != size { screenSize = size }
         let near = NotchGeometry.cutoutProximity(
             for: screen, edge: edge, alongOffset: alongOffset,
-            heldBar: holdsOffTheCutout ? plainBarLength : nil)
-        let side = edge == .top && screen.hardwareNotch != nil
+            heldBar: holdsOffTheCutout ? plainBarLength : nil,
+            joinsCutout: joinsCutout)
+        let side = joinsCutout && edge == .top && screen.hardwareNotch != nil
             && NotchGeometry.cutoutStanding(alongOffset: alongOffset).atTrailingEnd
         if leavesTheCutoutAtItsTrailingEnd != side { leavesTheCutoutAtItsTrailingEnd = side }
+        let loose = !joinsCutout && edge == .top ? screen.hardwareNotch : nil
+        if looseHole != loose { looseHole = loose }
         guard cutout != near else { return }
 
         // **The one change worth animating is taking the hole or letting go of
@@ -459,6 +482,50 @@ final class NotchViewModel: ObservableObject {
     var cutoutBleed: CGFloat {
         guard mergesWithCutout else { return 0 }
         return max(0, cutout?.overlap ?? 0) / max(sizeScale, 0.0001)
+    }
+
+    /// **The band the hole takes out of the top of the bar**, in the design's
+    /// measurements, while the notch grows out of the hole rather than joining
+    /// it. The hardware stays the same size on screen while the body follows
+    /// the size setting. Zero everywhere else, so every other edge and the
+    /// joined top edge are exactly as they were.
+    var looseBand: CGFloat {
+        guard let looseHole else { return 0 }
+        return looseHole.height / max(sizeScale, 0.0001)
+    }
+
+    /// The outside weekly stroke draws beyond the ring's frame without making
+    /// the cell larger. Reserve that envelope only when a cell actually draws
+    /// it; the whole row stays aligned even where another cell has no week.
+    var ringOverhang: CGFloat {
+        guard weeklyRing == .outside,
+              snapshots.contains(where: { $0.hasReading && $0.weeklyFraction != nil })
+        else { return 0 }
+        return max(0, NotchLayout.weeklyOutsideRadius + NotchLayout.weeklyRingStroke / 2
+            - NotchLayout.ringDiameter / 2)
+    }
+
+    /// The hole's band is the cell's top margin now, so the outermost stroke
+    /// reads as hanging from the housing. Without readings the fixed-height
+    /// cell centres its ring, so take out that extra space above it too. Keep
+    /// negative insets: clamping would leave a gap at the larger sizes.
+    /// Moving the body and its bottom together preserves the reading's lower
+    /// margin; the weekly overhang is not added there a second time. Pay back
+    /// the bezel bleed here: unlike the bezel, the hole's bottom is a visible
+    /// edge for the outermost stroke to land on at every size.
+    var looseBodyInset: CGFloat {
+        guard looseHole != nil else { return 0 }
+        let q = (NotchLayout.cellExtent - NotchLayout.ringDiameter) / 2
+        return looseBand - NotchLayout.ringMargin(for: edge)
+            + ringOverhang - (showsCellReading ? 0 : q)
+            + NotchRootView.bezelBleed / max(sizeScale, 0.0001)
+    }
+
+    /// The open depth shared by the shape, the panel and the card's budget.
+    /// The cell and its lower margin move together when the housing replaces
+    /// the upper margin, even while the shape folds over them.
+    var expandedDepth: CGFloat {
+        looseBodyInset + NotchLayout.bodyDepth(for: edge)
     }
 
     /// **What each end of the bar spends on its own ending**, before the body
@@ -1104,8 +1171,21 @@ final class NotchViewModel: ObservableObject {
 
     /// One flare in from the bezel, level with the flare's own centre — the
     /// flare as drawn, see `flare`.
+    ///
+    /// Grown out of the hole the bar is usually wider than it, and then the
+    /// flare the handle hangs off is in the clear beside the camera housing,
+    /// where it is on any other edge. Only a bar short enough to end inside
+    /// the hole has to carry the handle down below it.
     var orbInset: CGFloat {
-        mergesWithCutout ? drawnFlare : NotchLayout.orbInsetFromEdge
+        if mergesWithCutout { return drawnFlare }
+        return (orbEndsInsideTheHole ? looseBand : 0) + NotchLayout.orbInsetFromEdge
+    }
+
+    /// Whether the bar's end, and so the handle's pocket, lies in the hole's
+    /// band where nothing can be seen.
+    private var orbEndsInsideTheHole: Bool {
+        guard let looseHole else { return false }
+        return shapeLength * sizeScale < looseHole.width + 2 * flare * sizeScale
     }
 
     /// The arc's radius and offset **as the orb's own view needs them**.
@@ -1134,12 +1214,16 @@ final class NotchViewModel: ObservableObject {
 
     /// The centre of a ring measured across the notch, in stack space.
     ///
-    /// One place, because there were two: the stacked layout centres a ring in
-    /// `bodyDepth` below the hardware's band, and beside the hardware there is
-    /// no band and the bar is the hole's own depth. Anything working the first
-    /// formula out for itself lands below the bar entirely at most sizes.
+    /// The stack centres the whole cell in `contentDepth`, below any band the
+    /// hardware takes. On a horizontal edge the reading is below the ring,
+    /// so the ring's centre is half the reading's share above the cell's.
+    /// The loose top replaces the upper margin with the housing's band; the
+    /// reading's lower margin stays the same.
+    /// Above the cell is toward the bezel on top, away from it on the bottom.
     var ringAcross: CGFloat {
-        contentDepth / 2
+        let reading = !edge.isVertical && showsCellReading
+            ? (NotchLayout.cellExtent - NotchLayout.ringDiameter) / 2 : 0
+        return looseBodyInset + contentDepth / 2 + (edge == .bottom ? reading : -reading)
     }
 
     /// The points the settings handle answers around: the button you are
@@ -1202,7 +1286,7 @@ final class NotchViewModel: ObservableObject {
     /// drawn at that size, so this is the seam between the two spaces rather
     /// than a measurement either of them owns.
     var notchDrawnDepth: CGFloat {
-        NotchLayout.bodyDepth(for: edge) * sizeScale
+        expandedDepth * sizeScale
     }
 
     /// The straight part of the shape, flares excluded.
@@ -1400,7 +1484,7 @@ final class NotchViewModel: ObservableObject {
                 - 2 * NotchLayout.cardCorner
         }
         return screenSize.height / sizeScale
-            - NotchLayout.bodyDepth(for: edge)
+            - expandedDepth
             - edgeGap / sizeScale
             - NotchLayout.tailLength
             - NotchLayout.tailGap
@@ -1414,9 +1498,12 @@ final class NotchViewModel: ObservableObject {
 
     /// And across it. Merged into the hole this is the hole's own depth in both
     /// states — see `mergedScale`.
+    ///
+    /// Growing out of the hole, open, it is the band the hole takes plus the
+    /// body below it, sharing the band's top margin; folded it is the hole itself.
     var notchDepth: CGFloat {
         if mergesWithCutout { return contentDepth }
-        return isExpanded ? NotchLayout.bodyDepth(for: edge) : NotchLayout.pillWidth
+        return isExpanded ? expandedDepth : restingDepth
     }
 
     /// What the notch folds away to, whether or not it is open right now —
@@ -1427,8 +1514,19 @@ final class NotchViewModel: ObservableObject {
     /// too. Folded against the hole it is not a separate tab stuck to the
     /// bezel: the bridge holds, and what shows is the hardware's own notch
     /// carrying a shallow ledge out of one side.
-    var restingLength: CGFloat { NotchLayout.pillHeight + cutoutBleed }
-    var restingDepth: CGFloat { mergesWithCutout ? contentDepth : NotchLayout.pillWidth }
+    ///
+    /// Growing out of the hole it folds away to the hole exactly: a pill of
+    /// its own would hang below the hardware as a separate tab, which is the
+    /// seam the top edge exists to avoid, and the hole is already the target
+    /// the hand reaches for.
+    var restingLength: CGFloat {
+        if let looseHole { return looseHole.width / max(sizeScale, 0.0001) }
+        return NotchLayout.pillHeight + cutoutBleed
+    }
+    var restingDepth: CGFloat {
+        if mergesWithCutout { return contentDepth }
+        return looseHole == nil ? NotchLayout.pillWidth : looseBand
+    }
 
     /// What wakes the folded notch, in panel points: the resting shape and a
     /// band around it, or the resting shape alone.
@@ -1479,7 +1577,7 @@ final class NotchViewModel: ObservableObject {
             edge: edge,
             length: cutoutSpan(cellCount: cellCount)
                 + 2 * NotchLayout.slack(for: edge, maxCardHeight: card, notchScale: sizeScale),
-            depth: NotchLayout.bodyDepth(for: edge) * sizeScale + edgeGap
+            depth: notchDrawnDepth + edgeGap
                 + NotchLayout.tooltipDepth(for: edge, maxCardHeight: card)
         )
     }
