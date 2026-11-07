@@ -306,11 +306,14 @@ fn names_spark(extra: &serde_json::Value) -> bool {
     if !extra.is_object() {
         return false;
     }
-    ["limit_name", "metered_feature"].iter().any(|key| {
+    ["limit_name", "metered_feature", "limit_id", "limitId"].iter().any(|key| {
         extra
             .get(*key)
             .and_then(|x| x.as_str())
-            .is_some_and(|s| s.to_lowercase().contains("spark"))
+            .is_some_and(|s| {
+                let l = s.to_lowercase();
+                l.contains("spark") || l.contains("bengalfox")
+            })
     })
 }
 
@@ -518,6 +521,86 @@ pub fn snapshot_from_rollout(text: &str) -> Option<(Vec<LimitWindow>, Option<u64
     None
 }
 
+/// Inspect the newest lines of a rollout log to recover a missing weekly or model-level limit window.
+/// Malformed entries, entries without a secondary window, or entries older than CURRENT_FOR_MS are skipped.
+pub fn rollout_secondary_window(text: &str, now: u64) -> Option<LimitWindow> {
+    for line in text.lines().rev().filter(|l| l.contains("rate_limits")) {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+        let rl = v
+            .get("rate_limits")
+            .or_else(|| v.pointer("/payload/rate_limits"))
+            .filter(|x| x.is_object());
+        let Some(rl) = rl else { continue };
+
+        let recorded = v
+            .get("timestamp")
+            .or_else(|| v.pointer("/payload/timestamp"))
+            .and_then(|x| x.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|d| d.timestamp_millis().max(0) as u64);
+        let Some(rec) = recorded else { continue };
+        if rec == 0 || now.saturating_sub(rec) > CURRENT_FOR_MS {
+            continue;
+        }
+
+        let Some(w) = rl.get("secondary").filter(|x| x.is_object()) else { continue };
+        let Some(pct) = num(w.get("used_percent")) else { continue };
+        if !pct.is_finite() { continue; }
+
+        let group = if names_spark(rl) {
+            Some("Spark".to_string())
+        } else if let Some(id) = rl.get("limit_id").or_else(|| rl.get("limitId")).and_then(|x| x.as_str()) {
+            if id == "codex" {
+                None
+            } else {
+                Some(id.to_string())
+            }
+        } else if let Some(name) = rl.get("limit_name").and_then(|x| x.as_str()) {
+            Some(name.to_string())
+        } else {
+            None
+        };
+
+        let mins = num(w.get("window_minutes"))
+            .or_else(|| num(w.get("window_seconds").or_else(|| w.get("limit_window_seconds"))).map(|s| s / 60.0));
+        let duration_ms = mins.and_then(|m| duration_from_seconds(m * 60.0));
+        let label = label_for(mins, "secondary");
+        let resets_at = reset_at_ms(w, now, "resets_at", "resets_in_seconds")
+            .or_else(|| reset_at_ms(w, now, "reset_at", "reset_after_seconds"))
+            .or_else(|| w.get("resetsAt").and_then(|x| x.as_u64()).map(|s| s.saturating_mul(1000)));
+
+        return Some(LimitWindow {
+            id: "secondary".into(),
+            label,
+            used: (pct / 100.0).clamp(0.0, 1.0),
+            resets_at,
+            duration_ms,
+            group,
+            ..Default::default()
+        });
+    }
+    None
+}
+
+/// Merge a missing secondary window from rollout log data into live usage windows.
+/// Preserves existing live windows as the source of truth; if secondary is already present,
+/// or rollout data is absent/stale/malformed, windows is unchanged.
+pub fn merge_missing_secondary(
+    windows: &mut Vec<LimitWindow>,
+    rollout: Option<&str>,
+    now: u64,
+) {
+    if !windows.is_empty() && !windows.iter().any(|w| w.id == "secondary") {
+        if let Some(sec) = rollout.and_then(|t| rollout_secondary_window(t, now)) {
+            if let Some(pos) = windows.iter().position(|w| w.id == "primary") {
+                windows.insert(pos + 1, sec);
+            } else {
+                windows.push(sec);
+            }
+        }
+    }
+}
+
 // ---------------- Putting it together ----------------
 
 /// Prefer the installed native Codex client: it understands the desktop's managed sign-in.
@@ -629,8 +712,12 @@ fn read_once() -> UsageSnapshot {
             }
             Some(cred) => match fetch_usage(&cred) {
                 Ok(v) => {
-                    let windows = windows_from_usage(&v);
+                    let mut windows = windows_from_usage(&v);
                     if !windows.is_empty() {
+                        if !windows.iter().any(|w| w.id == "secondary") {
+                            let rollout = newest_rollout().and_then(|p| tail_text(&p));
+                            merge_missing_secondary(&mut windows, rollout.as_deref(), now);
+                        }
                         let plan = v.get("plan_type").and_then(|x| x.as_str()).map(String::from).or(cred.plan);
                         snap.status = "ok".into();
                         snap.windows = windows;
@@ -1169,5 +1256,160 @@ mod tests {
         assert_eq!(ids(&ws), ["primary"]);
         assert_eq!(ws[0].label, "Monthly limit");
         assert!((ws[0].used - 0.16).abs() < 1e-4);
+    }
+
+    #[test]
+    fn prolite_plan_recovers_missing_weekly_limit_from_spark_rollout() {
+        let live = r#"{
+            "plan_type": "prolite",
+            "rate_limit": {
+                "allowed": true,
+                "limit_reached": false,
+                "primary_window": { "used_percent": 0, "limit_window_seconds": 604800 },
+                "secondary_window": null
+            }
+        }"#;
+        let mut ws = windows(live);
+        assert_eq!(ids(&ws), ["primary"]);
+
+        let now = now_ms();
+        let fresh_ts = chrono::DateTime::<chrono::Utc>::from_timestamp_millis((now - 60_000) as i64)
+            .unwrap()
+            .to_rfc3339();
+        let rollout = serde_json::json!({
+            "timestamp": fresh_ts,
+            "payload": {
+                "rate_limits": {
+                    "limit_name": "GPT-5.3-Codex-Spark",
+                    "primary": { "used_percent": 0.0, "window_minutes": 300 },
+                    "secondary": { "used_percent": 100.0, "window_minutes": 10080 }
+                }
+            }
+        }).to_string();
+
+        merge_missing_secondary(&mut ws, Some(&rollout), now);
+        assert_eq!(ids(&ws), ["primary", "secondary"]);
+        assert_eq!(labels(&ws), ["Weekly limit", "Weekly limit"]);
+        assert_eq!(groups(&ws), [None, Some("Spark")]);
+        assert_eq!(ws[0].used, 0.0);
+        assert_eq!(ws[1].used, 1.0);
+        assert_eq!(ws[1].duration_ms, Some(crate::usage::SEVEN_DAYS_MS));
+    }
+
+    #[test]
+    fn live_secondary_is_preferred_and_not_overwritten_by_rollout() {
+        let live = r#"{
+            "rate_limit": {
+                "primary_window": { "used_percent": 25, "limit_window_seconds": 18000 },
+                "secondary_window": { "used_percent": 10, "limit_window_seconds": 604800 }
+            }
+        }"#;
+        let mut ws = windows(live);
+        assert_eq!(ids(&ws), ["primary", "secondary"]);
+
+        let now = now_ms();
+        let fresh_ts = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(now as i64)
+            .unwrap()
+            .to_rfc3339();
+        let rollout = serde_json::json!({
+            "timestamp": fresh_ts,
+            "payload": {
+                "rate_limits": {
+                    "limit_name": "GPT-5.3-Codex-Spark",
+                    "secondary": { "used_percent": 100.0, "window_minutes": 10080 }
+                }
+            }
+        }).to_string();
+
+        merge_missing_secondary(&mut ws, Some(&rollout), now);
+        assert_eq!(ids(&ws), ["primary", "secondary"]);
+        assert_eq!(groups(&ws), [None, None]);
+        assert!((ws[1].used - 0.10).abs() < 1e-9);
+    }
+
+    #[test]
+    fn stale_rollout_is_not_merged_into_live_reading() {
+        let live = r#"{
+            "plan_type": "prolite",
+            "rate_limit": {
+                "primary_window": { "used_percent": 0, "limit_window_seconds": 604800 },
+                "secondary_window": null
+            }
+        }"#;
+        let mut ws = windows(live);
+
+        let now = now_ms();
+        // 10 minutes ago > CURRENT_FOR_MS (5 minutes)
+        let stale_ts = chrono::DateTime::<chrono::Utc>::from_timestamp_millis((now - 600_000) as i64)
+            .unwrap()
+            .to_rfc3339();
+        let rollout = serde_json::json!({
+            "timestamp": stale_ts,
+            "payload": {
+                "rate_limits": {
+                    "limit_name": "GPT-5.3-Codex-Spark",
+                    "secondary": { "used_percent": 100.0, "window_minutes": 10080 }
+                }
+            }
+        }).to_string();
+
+        merge_missing_secondary(&mut ws, Some(&rollout), now);
+        assert_eq!(ids(&ws), ["primary"]);
+    }
+
+    #[test]
+    fn malformed_rollout_is_ignored_when_merging() {
+        let live = r#"{
+            "rate_limit": {
+                "primary_window": { "used_percent": 0, "limit_window_seconds": 604800 },
+                "secondary_window": null
+            }
+        }"#;
+        let now = now_ms();
+        let fresh_ts = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(now as i64)
+            .unwrap()
+            .to_rfc3339();
+
+        for malformed in [
+            "not json at all".to_string(),
+            r#"{"not":"relevant"}"#.to_string(),
+            format!(r#"{{"timestamp":"{fresh_ts}","rate_limits":"nope"}}"#),
+            format!(r#"{{"timestamp":"{fresh_ts}","rate_limits":{{"secondary":null}}}}"#),
+            format!(r#"{{"timestamp":"{fresh_ts}","rate_limits":{{"secondary":{{"used_percent":"nope"}}}}}}"#),
+            format!(r#"{{"timestamp":"invalid-date","rate_limits":{{"secondary":{{"used_percent":50}}}}}}"#),
+            r#"{"rate_limits":{"secondary":{"used_percent":50}}}"#.to_string(), // missing timestamp
+        ] {
+            let mut ws = windows(live);
+            merge_missing_secondary(&mut ws, Some(&malformed), now);
+            assert_eq!(ids(&ws), ["primary"], "malformed case: {malformed}");
+        }
+    }
+
+    #[test]
+    fn core_codex_rollout_secondary_keeps_group_none() {
+        let live = r#"{
+            "rate_limit": {
+                "primary_window": { "used_percent": 0, "limit_window_seconds": 18000 },
+                "secondary_window": null
+            }
+        }"#;
+        let mut ws = windows(live);
+
+        let now = now_ms();
+        let fresh_ts = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(now as i64)
+            .unwrap()
+            .to_rfc3339();
+        let rollout = serde_json::json!({
+            "timestamp": fresh_ts,
+            "rate_limits": {
+                "limit_id": "codex",
+                "secondary": { "used_percent": 75.0, "window_minutes": 10080 }
+            }
+        }).to_string();
+
+        merge_missing_secondary(&mut ws, Some(&rollout), now);
+        assert_eq!(ids(&ws), ["primary", "secondary"]);
+        assert_eq!(groups(&ws), [None, None]);
+        assert_eq!(ws[1].used, 0.75);
     }
 }
