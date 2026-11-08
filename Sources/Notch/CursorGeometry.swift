@@ -62,6 +62,20 @@ final class CursorGeometry {
         return placement.rect(along: lead, across: 0, length: length, depth: model.wakeDepth)
     }()
 
+    /// The folded notch as drawn, from the screen's edge. Contact here opens
+    /// it at once. The band `pillRect` adds around it only opens it once the
+    /// pointer has rested there, see `NotchWindowController.bandDwell`.
+    /// Joined to the hardware notch there is no band, so the two are the same.
+    private(set) lazy var restingRect: CGRect = {
+        guard !model.mergesWithCutout else { return pillRect }
+        return placement.rect(
+            along: model.restingAlongLead(in: wings),
+            across: 0,
+            length: model.restingLength * model.sizeScale,
+            depth: model.restingDepth * model.sizeScale + model.edgeGap
+        )
+    }()
+
     private lazy var orbHandleRect = handleRect(points: orbHandlePoints)
     private lazy var gripRect = handleRect(points: [gripPoint])
 
@@ -115,6 +129,13 @@ final class CursorGeometry {
         guard model.isExpanded else { return pillRect }
         // The orb hangs below the shape, so the live region is both together.
         return notchRect.union(handleRect(gripRevealed: gripRevealed))
+    }
+
+    /// What takes clicks. Folded, only the notch as drawn: the band around it
+    /// is for hovering, and a click inside the band belongs to whatever window
+    /// is under it, such as a close button on a window tiled against the edge.
+    func clickRect(gripRevealed: Bool) -> CGRect {
+        model.isExpanded ? liveRect(gripRevealed: gripRevealed) : restingRect
     }
 
     /// The card, its tail, and the gap between the tail and the notch — so
