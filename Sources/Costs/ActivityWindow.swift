@@ -23,9 +23,13 @@ struct TimelinePane: View {
     @State private var accountFilter = ""          // account id, "" = all
 
     private var cal: Calendar { Calendar.current }
-    private var interval: DateInterval {
+    private var interval: DateInterval { Self.interval(of: period, containing: day, calendar: cal) }
+
+    static func interval(of period: ActivityPeriod, containing day: Date, calendar cal: Calendar) -> DateInterval {
         switch period {
-        case .day: return DateInterval(start: day, duration: 86_400)
+        // A calendar day, not 86,400 seconds: the days the clocks change last
+        // 23 or 25 hours.
+        case .day: return cal.dateInterval(of: .day, for: day) ?? DateInterval(start: day, duration: 86_400)
         case .week: return cal.dateInterval(of: .weekOfYear, for: day)!
         case .month: return cal.dateInterval(of: .month, for: day)!
         }
@@ -234,9 +238,21 @@ struct TimelinePane: View {
     }
 
     private func fraction(_ d: Date, _ range: (from: Int, to: Int)) -> CGFloat {
-        let secs = d.timeIntervalSince(day)
-        let f = (secs / 3600 - Double(range.from)) / Double(range.to - range.from)
+        let f = (Self.clockHours(d, on: day, calendar: cal) - Double(range.from)) / Double(range.to - range.from)
         return CGFloat(min(max(f, 0), 1))
+    }
+
+    /// Where a moment sits on the lane chart's hour axis. The axis is labelled
+    /// in clock hours, so inside the day this reads the clock rather than the
+    /// seconds since midnight, which run an hour off after the clocks change.
+    /// Outside the day it keeps counting from the nearest edge so the caller's
+    /// clamp pins a session that crosses midnight to that edge.
+    static func clockHours(_ d: Date, on day: Date, calendar: Calendar) -> Double {
+        guard let span = calendar.dateInterval(of: .day, for: day) else { return d.timeIntervalSince(day) / 3600 }
+        if d < span.start { return d.timeIntervalSince(span.start) / 3600 }
+        if d >= span.end { return 24 + d.timeIntervalSince(span.end) / 3600 }
+        let c = calendar.dateComponents([.hour, .minute, .second], from: d)
+        return Double(c.hour ?? 0) + Double(c.minute ?? 0) / 60 + Double(c.second ?? 0) / 3600
     }
 
     // MARK: Detail
