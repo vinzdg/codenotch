@@ -17,6 +17,14 @@ import SQLite3
 /// So: `mode=ro` first, `immutable=1` second. The fallback is only ever reached
 /// when there is no write-ahead log left to miss, which is exactly when ignoring
 /// it costs nothing.
+///
+/// The open itself cannot be trusted to say which case this is: SQLite opens
+/// lazily, and a `mode=ro` connection to a checkpointed WAL database reports
+/// success and then refuses its first statement with "unable to open database
+/// file". Taken at its word, that connection answers every query with nothing
+/// — which read as OpenCode signed out whenever OpenCode was not running, and
+/// after every reboot until it was. So each connection has to prove it can
+/// read before it is handed out.
 enum SQLiteStore {
     static func open(_ url: URL) -> OpaquePointer? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
@@ -24,12 +32,23 @@ enum SQLiteStore {
             var db: OpaquePointer?
             if sqlite3_open_v2("file:\(url.path)?\(query)", &db,
                                SQLITE_OPEN_READONLY | SQLITE_OPEN_URI, nil) == SQLITE_OK,
-               let db {
+               let db, canRead(db) {
                 return db
             }
             sqlite3_close(db)
         }
         return nil
+    }
+
+    /// The cheapest statement that touches the file: it is the first read, not
+    /// the open, that fails when the write-ahead log cannot be mapped.
+    private static func canRead(_ db: OpaquePointer) -> Bool {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT 1 FROM sqlite_master LIMIT 1", -1, &statement, nil) == SQLITE_OK
+        else { return false }
+        defer { sqlite3_finalize(statement) }
+        let step = sqlite3_step(statement)
+        return step == SQLITE_ROW || step == SQLITE_DONE
     }
 
     /// Every column of every row, as text. Needed where one row carries more
