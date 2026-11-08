@@ -68,6 +68,20 @@ final class NotchWindowController {
     /// dismissing a tooltip, and doing it the instant the pointer strays feels
     /// twitchy rather than responsive.
     private let foldGrace: TimeInterval = 0.45
+    /// How long the pointer has to rest in the band around the folded pill
+    /// before the notch opens. Contact with the pill itself still opens it at
+    /// once. Without the wait, a pointer passing through the band on its way to
+    /// a button near the edge opened the notch on top of that button.
+    static let bandDwell: TimeInterval = 0.3
+    /// When the pointer came into the band, and whether a click there has
+    /// handed the band to the window underneath until the pointer leaves it.
+    private var bandEnteredAt: Date?
+    private var bandClaimedByClick = false
+    private var bandCheck: DispatchWorkItem?
+    /// The clock the band reads, and whether a mouse button is down. Tests
+    /// set both instead of waiting or pressing.
+    var bandClock: () -> Date = Date.init
+    var mouseButtonHeld: () -> Bool = { NSEvent.pressedMouseButtons != 0 }
     private var foldWork: DispatchWorkItem? {
         didSet {
             // A fold that is not going to happen after all — pinned, peeked,
@@ -395,6 +409,7 @@ final class NotchWindowController {
         clockTimer?.invalidate()
         mouseMonitors.forEach(NSEvent.removeMonitor)
         mouseMonitors.removeAll()
+        resetBand()
         cancellables.removeAll()
     }
 
@@ -1289,7 +1304,7 @@ final class NotchWindowController {
 
     private func updateInteractiveRects(using evaluation: CursorGeometry? = nil) {
         let geometry = evaluation ?? cursorGeometry
-        var rects = [geometry.liveRect(gripRevealed: gripRevealed)]
+        var rects = [geometry.clickRect(gripRevealed: gripRevealed)]
         if let card = geometry.updateCardRect { rects.append(card) }
         if model.isExpanded, let event = model.activeResetAlert, let card = geometry.resetCardRect(event: event) {
             rects.append(card)
@@ -1373,6 +1388,59 @@ final class NotchWindowController {
         }) {
             mouseMonitors.append(local)
         }
+        // A click while the pointer waits in the band was aimed at the window
+        // underneath, which still gets it: the folded panel only takes clicks
+        // on the pill itself. Only the global monitor is needed for that.
+        let presses: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        if let press = NSEvent.addGlobalMonitorForEvents(matching: presses, handler: { [weak self] _ in
+            MainActor.assumeIsolated { self?.pointerPressed() }
+        }) {
+            mouseMonitors.append(press)
+        }
+    }
+
+    /// Not private: tests press inside the band through it.
+    func pointerPressed() {
+        guard !model.isExpanded, bandEnteredAt != nil else { return }
+        bandClaimedByClick = true
+        bandCheck?.cancel()
+        bandCheck = nil
+    }
+
+    private func resetBand() {
+        bandEnteredAt = nil
+        bandClaimedByClick = false
+        bandCheck?.cancel()
+        bandCheck = nil
+    }
+
+    /// Whether the pointer, in the wake region of the folded notch but off the
+    /// pill, has rested there long enough to open it.
+    private func bandDwellElapsed() -> Bool {
+        guard !bandClaimedByClick else { return false }
+        let now = bandClock()
+        guard let entered = bandEnteredAt else {
+            bandEnteredAt = now
+            // Arriving with a button already down is a drag from somewhere
+            // else, heading for a drop target near the edge: the same as a
+            // click in the band.
+            if mouseButtonHeld() {
+                bandClaimedByClick = true
+                return false
+            }
+            // A pointer that stops moving sends no more events, so look again
+            // once the wait is over rather than leave it to the slow poll.
+            let check = DispatchWorkItem { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.bandCheck = nil
+                    self?.cursorMoved()
+                }
+            }
+            bandCheck = check
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.bandDwell, execute: check)
+            return false
+        }
+        return now.timeIntervalSince(entered) >= Self.bandDwell
     }
 
     private func localCursor(in frame: CGRect) -> CGPoint {
@@ -1400,7 +1468,11 @@ final class NotchWindowController {
         // handleActiveSpaceOrAppChange: left ungated, the hover fold out-votes
         // "Always show" under a full-screen app while the other path keeps
         // restoring it — the notch ends up folding on every poll.
-        setExpanded(geometry.liveRect(gripRevealed: gripRevealed).contains(local) || overTooltip,
+        let inWake = geometry.liveRect(gripRevealed: gripRevealed).contains(local)
+        let onPill = model.isExpanded || geometry.restingRect.contains(local)
+        if !inWake || onPill { resetBand() }
+        let wakes = inWake && (onPill || bandDwellElapsed())
+        setExpanded(wakes || overTooltip,
                     ignoreAlwaysOn: shouldFoldForActiveAppOrWindow)
         // Opening calls onLook, which may change content, scale or placement
         // synchronously. Never carry the folded evaluation across that call.

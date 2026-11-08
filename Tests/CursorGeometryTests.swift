@@ -174,7 +174,7 @@ final class CursorGeometryTests: XCTestCase {
         defer { controller.stop() }
         let frame = try XCTUnwrap(controller.panelFrameForTesting)
         let before = geometry(controller.model, size: frame.size)
-        let wake = before.pillRect
+        let wake = before.restingRect
         var looks = 0
         controller.onLook = {
             looks += 1
@@ -210,6 +210,143 @@ final class CursorGeometryTests: XCTestCase {
         XCTAssertEqual(looks, 1)
         XCTAssertEqual(m.hoveredIndex, 0)
         try assertPublishedLiveRectIsCurrent(controller)
+    }
+
+    // The band around the folded pill reaches past it into other windows, so
+    // passing through it on the way to a button there must not open the notch
+    // on top of that button. Resting in it still does.
+    private func foldedController() throws -> (NotchWindowController, CursorGeometry) {
+        let controller = NotchWindowController()
+        controller.model.snapshots = model().snapshots
+        controller.foldsForFullScreen = false
+        controller.show()
+        let frame = try XCTUnwrap(controller.panelFrameForTesting)
+        XCTAssertFalse(controller.model.isExpanded)
+        return (controller, geometry(controller.model, size: frame.size))
+    }
+
+    private func bandPoint(_ g: CursorGeometry, _ m: NotchViewModel) -> CGPoint {
+        // On the pill's middle, halfway between its far side and the far side
+        // of the wake region: in the band, off the pill.
+        let along = g.placement.along(of: CGPoint(x: g.restingRect.midX, y: g.restingRect.midY))
+        let pillDepth = m.restingDepth * m.sizeScale + m.edgeGap
+        return g.placement.point(along: along, across: (pillDepth + m.wakeDepth) / 2)
+    }
+
+    func testFoldedPillOpensOnContact() throws {
+        let (controller, g) = try foldedController()
+        defer { controller.stop() }
+        controller.cursorMoved(at: CGPoint(x: g.restingRect.midX, y: g.restingRect.midY))
+        XCTAssertTrue(controller.model.isExpanded)
+    }
+
+    func testBandAroundFoldedPillOpensOnlyAfterTheDwell() throws {
+        let (controller, g) = try foldedController()
+        defer { controller.stop() }
+        var now = Date(timeIntervalSinceReferenceDate: 0)
+        controller.bandClock = { now }
+        let point = bandPoint(g, controller.model)
+        XCTAssertTrue(g.pillRect.contains(point))
+        XCTAssertFalse(g.restingRect.contains(point))
+
+        controller.cursorMoved(at: point)
+        XCTAssertFalse(controller.model.isExpanded, "passing through the band opened the notch")
+        now += NotchWindowController.bandDwell / 2
+        controller.cursorMoved(at: point)
+        XCTAssertFalse(controller.model.isExpanded)
+        now += NotchWindowController.bandDwell
+        controller.cursorMoved(at: point)
+        XCTAssertTrue(controller.model.isExpanded, "resting in the band no longer opens the notch")
+    }
+
+    func testLeavingTheBandStartsTheDwellOver() throws {
+        let (controller, g) = try foldedController()
+        defer { controller.stop() }
+        var now = Date(timeIntervalSinceReferenceDate: 0)
+        controller.bandClock = { now }
+        let point = bandPoint(g, controller.model)
+        controller.cursorMoved(at: point)
+        controller.cursorMoved(at: CGPoint(x: -500, y: -500))
+        now += NotchWindowController.bandDwell * 2
+        controller.cursorMoved(at: point)
+        XCTAssertFalse(controller.model.isExpanded)
+    }
+
+    func testClickInTheBandKeepsTheNotchFoldedUntilThePointerLeaves() throws {
+        let (controller, g) = try foldedController()
+        defer { controller.stop() }
+        var now = Date(timeIntervalSinceReferenceDate: 0)
+        controller.bandClock = { now }
+        let point = bandPoint(g, controller.model)
+        controller.cursorMoved(at: point)
+        controller.pointerPressed()
+        now += NotchWindowController.bandDwell * 2
+        controller.cursorMoved(at: point)
+        XCTAssertFalse(controller.model.isExpanded, "a click in the band still opened the notch")
+
+        controller.cursorMoved(at: CGPoint(x: -500, y: -500))
+        controller.cursorMoved(at: point)
+        now += NotchWindowController.bandDwell * 2
+        controller.cursorMoved(at: point)
+        XCTAssertTrue(controller.model.isExpanded)
+    }
+
+    func testDraggingIntoTheBandKeepsTheNotchFolded() throws {
+        let (controller, g) = try foldedController()
+        defer { controller.stop() }
+        var now = Date(timeIntervalSinceReferenceDate: 0)
+        controller.bandClock = { now }
+        controller.mouseButtonHeld = { true }
+        let point = bandPoint(g, controller.model)
+        controller.cursorMoved(at: point)
+        now += NotchWindowController.bandDwell * 2
+        controller.cursorMoved(at: point)
+        XCTAssertFalse(controller.model.isExpanded, "a drag into the band opened the notch over its target")
+    }
+
+    // The pill that opens at once and takes clicks is the pill as drawn, on
+    // every edge, floating or not; joined to the hardware notch there is no
+    // band, so the whole notch is both.
+    func testRestingRectIsTheDrawnPillOnEveryEdgeAndStyle() {
+        for edge in NotchEdge.allCases {
+            for style in [NotchSurfaceStyle.solid, .dock] {
+                for joined in [false, true] where !joined || edge == .top {
+                    let m = model(edge: edge, expanded: false)
+                    m.surfaceStyle = style
+                    m.cutout = joined ? CutoutProximity(depth: 38, overlap: 12, width: 220) : nil
+                    let g = geometry(m)
+                    if m.mergesWithCutout {
+                        XCTAssertEqual(g.restingRect, g.pillRect, "\(edge) \(style)")
+                    } else {
+                        assertSameRect(g.restingRect, g.notchRect, "\(edge) \(style)")
+                        XCTAssertTrue(g.pillRect.contains(g.restingRect), "\(edge) \(style)")
+                    }
+                    XCTAssertEqual(g.clickRect(gripRevealed: false), g.restingRect)
+                    m.isExpanded = true
+                    let open = geometry(m)
+                    XCTAssertEqual(open.clickRect(gripRevealed: true), open.liveRect(gripRevealed: true))
+                }
+            }
+        }
+    }
+
+    // The two are built from the same lengths along different paths, so they
+    // can differ in the last bits of a CGFloat.
+    private func assertSameRect(_ a: CGRect, _ b: CGRect, _ message: String,
+                                file: StaticString = #filePath, line: UInt = #line) {
+        for (x, y) in [(a.minX, b.minX), (a.minY, b.minY), (a.width, b.width), (a.height, b.height)] {
+            XCTAssertEqual(x, y, accuracy: 0.001, message, file: file, line: line)
+        }
+    }
+
+    func testFoldedNotchTakesClicksOnlyOnThePill() throws {
+        let (controller, g) = try foldedController()
+        defer { controller.stop() }
+        let hosting = try XCTUnwrap(controller.panelContentViewForTesting?.subviews.first
+                                   as? NotchHostingView<NotchRootView>)
+        controller.cursorMoved(at: bandPoint(g, controller.model))
+        XCTAssertEqual(hosting.interactiveRects.first, g.restingRect)
+        XCTAssertFalse(g.clickRect(gripRevealed: false).contains(bandPoint(g, controller.model)))
     }
 
     private func assertPublishedLiveRectIsCurrent(_ controller: NotchWindowController,
