@@ -1,3 +1,4 @@
+import SQLite3
 import XCTest
 import Sparkle
 @testable import Codenotch
@@ -2034,5 +2035,174 @@ final class AntigravityFlavorSelectionTests: XCTestCase {
         XCTAssertEqual(AntigravityFlavor.ide.displayName, "Antigravity IDE")
         XCTAssertEqual(AntigravityFlavor.cli.displayName, "Antigravity CLI")
         XCTAssertEqual(AntigravityFlavor.acp.displayName, "Antigravity ACP")
+    }
+}
+
+/// The fallback that reads the last quota oh-my-pi (omp) recorded.
+///
+/// The table is built from omp's own `CREATE TABLE usage_history`
+/// (packages/ai/src/auth/sqlite-credential-store.ts) and the rows use the
+/// limit ids omp writes for an Antigravity quota summary
+/// (packages/ai/src/usage/google-antigravity.ts), so a query that names a
+/// column omp does not have fails here the way it fails on a real Mac.
+final class AntigravityOmpUsageTests: XCTestCase {
+    private let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("AntigravityOmpUsageTests", isDirectory: true)
+    private var databaseURL: URL { directory.appendingPathComponent("agent.db") }
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    override func setUpWithError() throws {
+        try? FileManager.default.removeItem(at: directory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(databaseURL.path, &db), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        XCTAssertEqual(sqlite3_exec(db, """
+            CREATE TABLE IF NOT EXISTS usage_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                recorded_at INTEGER NOT NULL,
+                provider TEXT NOT NULL,
+                account_key TEXT NOT NULL,
+                email TEXT,
+                account_id TEXT,
+                limit_id TEXT NOT NULL,
+                label TEXT NOT NULL,
+                window_label TEXT,
+                used_fraction REAL,
+                status TEXT,
+                resets_at INTEGER
+            );
+            """, nil, nil, nil), SQLITE_OK)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    private func milliseconds(_ date: Date) -> Int64 { Int64(date.timeIntervalSince1970 * 1000) }
+
+    /// One row as omp's `recordUsageSnapshots` writes it.
+    private func record(_ limitID: String, label: String, window: String, used: Double,
+                        resetsIn: TimeInterval, email: String = "me@example.com",
+                        recordedAgo: TimeInterval = 60) {
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(databaseURL.path, &db), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        let sql = """
+            INSERT INTO usage_history (recorded_at, provider, account_key, email, account_id,
+                limit_id, label, window_label, used_fraction, status, resets_at)
+            VALUES (\(milliseconds(now.addingTimeInterval(-recordedAgo))), 'google-antigravity',
+                '\(email)', '\(email)', NULL, 'google-antigravity:\(limitID)', '\(label)',
+                '\(window)', \(used), 'ok', \(milliseconds(now.addingTimeInterval(resetsIn))));
+            """
+        XCTAssertEqual(sqlite3_exec(db, sql, nil, nil, nil), SQLITE_OK)
+    }
+
+    private func windows(forEmail email: String? = nil) -> [String: LimitWindow] {
+        let read = AntigravityProvider.ompUsage(forEmail: email, databaseURL: databaseURL, now: now).windows
+        return Dictionary(uniqueKeysWithValues: read.map { ($0.id, $0) })
+    }
+
+    func testItReadsTheQuotaOmpRecorded() throws {
+        record("google:default:gemini-5h", label: "Gemini", window: "5 Hour", used: 0.25, resetsIn: 3600)
+        record("google:default:gemini-weekly", label: "Gemini", window: "Weekly", used: 0.4, resetsIn: 3 * 86400)
+        // omp files the one shared third-party bucket under both counters.
+        record("anthropic:default:3p-weekly", label: "Claude & GPT (shared)", window: "Weekly", used: 0.1, resetsIn: 2 * 86400)
+        record("openai:default:3p-weekly", label: "Claude & GPT (shared)", window: "Weekly", used: 0.1, resetsIn: 2 * 86400)
+
+        let read = windows()
+        XCTAssertEqual(Set(read.keys), ["gemini-hourly", "gemini-weekly", "3p-weekly"])
+        XCTAssertEqual(try XCTUnwrap(read["gemini-hourly"]?.usedFraction), 0.25, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(read["gemini-weekly"]?.usedFraction), 0.4, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(read["3p-weekly"]?.usedFraction), 0.1, accuracy: 1e-9)
+        XCTAssertEqual(read["gemini-weekly"]?.duration, 7 * 86400)
+        // resets_at is in milliseconds.
+        XCTAssertEqual(try XCTUnwrap(read["gemini-hourly"]?.resetsAt?.timeIntervalSince(now)), 3600, accuracy: 0.01)
+    }
+
+    /// The newest row per window wins: omp keeps a history, not a snapshot.
+    func testTheNewestReadingWins() throws {
+        record("google:default:gemini-weekly", label: "Gemini", window: "Weekly", used: 0.2, resetsIn: 86400, recordedAgo: 7200)
+        record("google:default:gemini-weekly", label: "Gemini", window: "Weekly", used: 0.3, resetsIn: 86400, recordedAgo: 60)
+        XCTAssertEqual(try XCTUnwrap(windows()["gemini-weekly"]?.usedFraction), 0.3, accuracy: 1e-9)
+    }
+
+    /// Another account's newer reading is not this account's.
+    func testItReadsOnlyTheSignedInAccount() throws {
+        record("google:default:gemini-weekly", label: "Gemini", window: "Weekly", used: 0.6, resetsIn: 86400,
+               email: "me@example.com", recordedAgo: 600)
+        record("google:default:gemini-weekly", label: "Gemini", window: "Weekly", used: 0.9, resetsIn: 86400,
+               email: "other@example.com", recordedAgo: 60)
+        XCTAssertEqual(try XCTUnwrap(windows(forEmail: "me@example.com")["gemini-weekly"]?.usedFraction), 0.6, accuracy: 1e-9)
+    }
+
+    /// A window that has reset since omp read it no longer has that usage.
+    func testAWindowThatHasResetIsLeftOut() {
+        record("google:default:gemini-5h", label: "Gemini", window: "5 Hour", used: 0.8, resetsIn: -60)
+        record("google:default:gemini-weekly", label: "Gemini", window: "Weekly", used: 0.4, resetsIn: 86400)
+        XCTAssertEqual(Set(windows().keys), ["gemini-weekly"])
+    }
+
+    /// Argon's weekly allowance is its own; it must not stand in for Gemini's.
+    func testArgonIsNotReadAsGemini() throws {
+        record("google:default:gemini-weekly", label: "Gemini", window: "Weekly", used: 0.1, resetsIn: 86400, recordedAgo: 120)
+        record("google:default:gemini-argon-weekly", label: "Gemini (Argon)", window: "Weekly", used: 0.95, resetsIn: 86400, recordedAgo: 60)
+        XCTAssertEqual(try XCTUnwrap(windows()["gemini-weekly"]?.usedFraction), 0.1, accuracy: 1e-9)
+    }
+
+    /// No reading is no window, never a made-up 0%.
+    func testAFamilyOmpNeverReadIsAbsent() {
+        record("google:default:gemini-weekly", label: "Gemini", window: "Weekly", used: 0.4, resetsIn: 86400)
+        XCTAssertNil(windows()["3p-weekly"])
+        XCTAssertNil(windows()["3p-hourly"])
+    }
+
+    func testNoDatabaseIsNoReading() {
+        XCTAssertEqual(AntigravityProvider.ompUsage(
+            databaseURL: directory.appendingPathComponent("missing.db"), now: now).windows.count, 0)
+    }
+
+    /// The rows omp writes from `fetchAvailableModels`, one per tier.
+    func testItReadsThePerModelShapeAndKeepsTheMostUsedTier() throws {
+        record("google:standard-tier:weekly", label: "Usage (Google)", window: "Weekly", used: 0.2, resetsIn: 86400)
+        record("google:free-tier:weekly", label: "Usage (Google)", window: "Weekly", used: 0.7, resetsIn: 86400)
+        record("anthropic:standard-tier:daily", label: "Usage (Anthropic)", window: "Daily", used: 0.3, resetsIn: 3600)
+        let read = windows()
+        XCTAssertEqual(try XCTUnwrap(read["gemini-weekly"]?.usedFraction), 0.7, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(read["3p-hourly"]?.usedFraction), 0.3, accuracy: 1e-9)
+    }
+
+    /// omp's `default` counter is a quota it could not place in a family, so
+    /// it is not Claude and GPT's either.
+    func testAQuotaOfNoFamilyIsLeftOut() {
+        record("default:default:mystery-weekly", label: "Usage", window: "Weekly", used: 0.9, resetsIn: 86400)
+        XCTAssertTrue(windows().isEmpty)
+    }
+
+    /// A row with no reset time cannot age out by itself, so a week is the cap.
+    func testAnOldReadingWithNoResetIsLeftOut() {
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(databaseURL.path, &db), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        let old = milliseconds(now.addingTimeInterval(-8 * 86400))
+        XCTAssertEqual(sqlite3_exec(db, """
+            INSERT INTO usage_history (recorded_at, provider, account_key, email, limit_id, label,
+                window_label, used_fraction, resets_at)
+            VALUES (\(old), 'google-antigravity', 'k', 'me@example.com',
+                'google-antigravity:google:default:gemini-weekly', 'Gemini', 'Weekly', 0.5, NULL);
+            """, nil, nil, nil), SQLITE_OK)
+        XCTAssertTrue(windows().isEmpty)
+    }
+
+    /// The caller needs the reading's age to call it stale rather than live.
+    func testItSaysWhenTheReadingWasTaken() throws {
+        record("google:default:gemini-weekly", label: "Gemini", window: "Weekly", used: 0.4, resetsIn: 86400, recordedAgo: 3600)
+        let read = AntigravityProvider.ompUsage(databaseURL: databaseURL, now: now)
+        XCTAssertEqual(try XCTUnwrap(read.recordedAt?.timeIntervalSince(now)), -3600, accuracy: 0.01)
+    }
+
+    func testTheAccountMatchIgnoresCase() throws {
+        record("google:default:gemini-weekly", label: "Gemini", window: "Weekly", used: 0.4, resetsIn: 86400, email: "Me@Example.com")
+        XCTAssertEqual(try XCTUnwrap(windows(forEmail: "me@example.com")["gemini-weekly"]?.usedFraction), 0.4, accuracy: 1e-9)
     }
 }
