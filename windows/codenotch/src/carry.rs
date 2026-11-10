@@ -7,7 +7,7 @@
 //! overlay over the whole work area, following the pointer's place on a spring, while the notch's
 //! page empties itself. Let go, it comes to rest, and the notch window is put down exactly there.
 
-use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering::SeqCst};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
@@ -265,39 +265,62 @@ fn wait_for(flag: &AtomicU32, seq: u32, ms: u64) -> bool {
     false
 }
 
-/// Alt+drag on the pill. The page empties once the overlay has the notch drawn; from then on the
+/// The page drops this on mouseup. X11 often never reports the button, so the carry cannot
+/// wait on that alone.
+static CARRY_HELD: AtomicBool = AtomicBool::new(false);
+
+fn pointer_xy(app: &AppHandle) -> Option<(f64, f64)> {
+    #[cfg(unix)]
+    if let Some(p) = crate::x11_util::pointer_root_position() {
+        return Some(p);
+    }
+    app.cursor_position().ok().map(|c| (c.x, c.y))
+}
+
+/// Alt+drag on the pill, or a plain drag. The page empties once the overlay has the notch drawn; from then on the
 /// pointer is followed here and its place on the border sent to the overlay, until the button comes up.
 #[tauri::command]
 pub fn begin_carry(app: AppHandle, shape: serde_json::Value) {
     if crate::DRAGGING.swap(true, SeqCst) {
         return;
     }
+    CARRY_HELD.store(true, SeqCst);
     std::thread::spawn(move || {
         run(&app, shape);
+        CARRY_HELD.store(false, SeqCst);
         crate::DRAGGING.store(false, SeqCst);
         let _ = app.emit_to("notch", "drag_end", true);
     });
+}
+
+#[tauri::command]
+pub fn end_carry() {
+    CARRY_HELD.store(false, SeqCst);
 }
 
 fn run(app: &AppHandle, shape: serde_json::Value) {
     let (Some(start), Some(notch)) = (crate::target_screen(app), app.get_webview_window("notch")) else {
         return;
     };
-    let (Ok(pos), Ok(win), Ok(cur)) = (notch.outer_position(), notch.outer_size(), app.cursor_position()) else {
+    let (Ok(pos), Ok(win)) = (notch.outer_position(), notch.outer_size()) else {
         return;
     };
+    let Some(cur) = pointer_xy(app) else { return };
     let from = Edge::parse(&{
         let st = app.state::<crate::AppState>();
         let c = st.cfg.lock().unwrap();
         crate::config::edge_or_right(&c.notch_edge)
     });
+    let (design_w, design_h) = crate::notch_window_size(from.as_str());
+    let win_w = if win.width > 0 { win.width as f64 } else { design_w };
+    let win_h = if win.height > 0 { win.height as f64 } else { design_h };
     let size = crate::ui_scale(app);
     let mut mon = start.clone();
     let mut track = track_of(&mon);
     // The notch is centred in its window along the edge, so the window's middle is the notch's
-    let (mx, my) = local(&mon, pos.x as f64 + win.width as f64 / 2.0, pos.y as f64 + win.height as f64 / 2.0);
+    let (mx, my) = local(&mon, pos.x as f64 + win_w / 2.0, pos.y as f64 + win_h / 2.0);
     let middle = track.position_on(from, mx, my);
-    let (px, py) = local(&mon, cur.x, cur.y);
+    let (px, py) = local(&mon, cur.0, cur.1);
     let mut pointer_edge = from;
     let mut read = reading(px, py, &track, from);
     let mut grip = track.signed(middle - place(px, py, &track, read));
@@ -323,16 +346,34 @@ fn run(app: &AppHandle, shape: serde_json::Value) {
 
     let all = crate::screens(app);
     let mut last = middle;
-    while crate::left_button_down() {
-        if let Ok(cur) = app.cursor_position() {
-            if let Some(s) = crate::screen_at(&all, cur.x, cur.y)
-                .filter(|s| !crate::same_screen(s, &mon) && beyond(&mon, cur.x, cur.y) / s.scale >= CROSS)
+    let mut saw_button = false;
+    #[cfg(unix)]
+    let mut raised = false;
+    while CARRY_HELD.load(SeqCst) {
+        let down = crate::left_button_down();
+        if down {
+            saw_button = true;
+        } else if saw_button {
+            break;
+        }
+        #[cfg(unix)]
+        if !raised {
+            raised = crate::x11_util::raise_window_titled("Codenotch carry");
+            if raised {
+                if let Some(notch) = app.get_webview_window("notch") {
+                    let _ = notch.set_ignore_cursor_events(true);
+                }
+            }
+        }
+        if let Some((x, y)) = pointer_xy(app) {
+            if let Some(s) = crate::screen_at(&all, x, y)
+                .filter(|s| !crate::same_screen(s, &mon) && beyond(&mon, x, y) / s.scale >= CROSS)
             {
                 // Onto another screen: there is no border between the two to travel, so it arrives
                 // under the pointer on the edge nearest it
                 mon = s.clone();
                 track = track_of(&mon);
-                let (px, py) = local(&mon, cur.x, cur.y);
+                let (px, py) = local(&mon, x, y);
                 pointer_edge = sticky_edge(pointer_edge, px, py, &track);
                 read = reading(px, py, &track, pointer_edge);
                 grip = 0.0;
@@ -343,7 +384,7 @@ fn run(app: &AppHandle, shape: serde_json::Value) {
                 relocate(app, &mon);
                 continue;
             }
-            let (px, py) = local(&mon, cur.x, cur.y);
+            let (px, py) = local(&mon, x, y);
             let edge = sticky_edge(pointer_edge, px, py, &track);
             let now = reading(px, py, &track, edge);
             // A new way of reading the pointer's place moves that place, so the grip takes it up
@@ -361,7 +402,11 @@ fn run(app: &AppHandle, shape: serde_json::Value) {
         std::thread::sleep(std::time::Duration::from_millis(8));
     }
 
-    // Let go: the drawing comes to rest on its own and says where
+    // Let go: the drawing comes to rest on its own and says where. Clicks pass through
+    // the overlay again while it coasts to the edge.
+    if let Some(w) = app.get_webview_window(LABEL) {
+        let _ = w.set_ignore_cursor_events(true);
+    }
     let _ = app.emit_to(LABEL, "carry_release", ());
     let mut rest = last;
     for _ in 0..400 {
@@ -423,6 +468,7 @@ fn land(app: &AppHandle, start: &crate::Screen, mon: &crate::Screen, track: &Bor
 fn show(app: &AppHandle, screen: &crate::Screen) {
     if let Some(w) = app.get_webview_window(LABEL) {
         pin(&w, screen);
+        let _ = w.set_ignore_cursor_events(false);
         let _ = w.emit_to(LABEL, "carry_init", CURRENT.lock().unwrap().clone());
         let _ = w.show();
         return;
@@ -445,7 +491,7 @@ fn show(app: &AppHandle, screen: &crate::Screen) {
     match builder.build() {
         Ok(w) => {
             pin(&w, screen);
-            let _ = w.set_ignore_cursor_events(true);
+            let _ = w.set_ignore_cursor_events(false);
         }
         Err(e) => crate::applog(&format!("carry overlay: {e}")),
     }

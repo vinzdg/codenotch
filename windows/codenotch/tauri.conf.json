@@ -11,6 +11,7 @@
     "windows": [
       {
         "label": "notch",
+        "title": "Codenotch notch",
         "url": "notch.html",
         "width": 340,
         "height": 460,

@@ -87,7 +87,7 @@ pub fn enable() -> Result<String, String> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let entry = format!(
-        "[Desktop Entry]\nType=Application\nName=Codenotch\nExec=\"{}\" --silent\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
+        "[Desktop Entry]\nType=Application\nName=Codenotch\nExec=env GDK_BACKEND=x11 \"{}\" --silent\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
         exe.display()
     );
     std::fs::write(&path, entry).map_err(|e| e.to_string())?;
