@@ -5,11 +5,13 @@ import os
 /// credential OpenCode itself stores on sign-in — see `OpenCodeCredentials`.
 ///
 /// Which credential that is decides the endpoint, because each route refuses
-/// the other's: the Go API key is for `zen/go`, while an OAuth sign-in is only
-/// accepted by the `inference/` route OpenCode itself uses. Both answer 401 to
-/// the wrong one, and that 401 is also what a valid account with no Go plan
-/// returns — so an OAuth 401 is checked against the console before it is called
-/// a sign-out.
+/// the other's: the Go API key, including an `oc_sk_` console key, is for
+/// `zen/go`, while an OAuth sign-in is only accepted by the `inference/` route
+/// OpenCode itself uses. Both answer 401 to the wrong one, and that 401 is also
+/// what a valid account with no Go plan returns — so an OAuth 401 is checked
+/// against the console before it is called a sign-out. A 401 whose body is
+/// `api_key_expired` is neither of those: the key is dead, and signing in
+/// again will not renew it.
 ///
 /// The numbers are OpenCode's, so this is `.official`. Like Claude's and
 /// GLM's, the endpoint throttles — so a 429 backs off on a schedule that
@@ -111,6 +113,16 @@ actor OpenCodeProvider: UsageProvider {
         credential.oauth ? OpenCodeUsage.oauthEndpoint : OpenCodeUsage.endpoint
     }
 
+    /// Whether this 401 body is OpenCode's dead console key
+    /// (`error.code == api_key_expired`). A different code, or a body that is
+    /// not that JSON, is false and the caller keeps today's 401 path.
+    static func isExpiredAPIKey(_ body: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let error = object["error"] as? [String: Any]
+        else { return false }
+        return error["code"] as? String == "api_key_expired"
+    }
+
     private func fetch(_ credential: OpenCodeCredentials.Credential) async throws -> Data {
         let url = Self.endpoint(for: credential)
         var request = URLRequest(url: url)
@@ -129,11 +141,17 @@ actor OpenCodeProvider: UsageProvider {
         Log.usage.debug("go usage endpoint answered \(status)")
 
         if status == 401 {
+            // A retired console key answers 401 with this code. It must not
+            // become `needsAuth`: that status tells the user to run
+            // `opencode auth login`, and signing in again will not renew it.
+            if Self.isExpiredAPIKey(data) {
+                throw UsageProviderError.nothingMetered(
+                    L10n.t("This OpenCode key has expired. Create a new key in the OpenCode console"))
+            }
             // Upstream serves a missing Go plan as 401 through the same branch as
             // a bad credential — its join finds no plan row either way. Only the
-            // console can tell the two apart, and only for an OAuth sign-in: the
-            // Go key has no equivalent probe, so its 401 stays a sign-out, as
-            // before.
+            // console can tell the two apart, and only for an OAuth sign-in: any
+            // other Go-key 401 stays a sign-out, as before.
             if credential.oauth, await signedIn(credential) {
                 throw UsageProviderError.nothingMetered(
                     L10n.t("No OpenCode Go subscription on this account"))
