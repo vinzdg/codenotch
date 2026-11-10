@@ -50,6 +50,7 @@ enum ProviderGlyph: String, Codable, Equatable {
     case qianwenAI = "qianwenai"
     case higgsfield
     case krea
+    case mimocode
 
     /// If an asset with this name is in the bundle it wins over the traced
     /// outline — drop a PDF/SVG export from Figma in and it is picked up.
@@ -100,7 +101,7 @@ enum ProviderGlyph: String, Codable, Equatable {
         // the same scale brings this ink to the same extent.
         case .qianwenAI, .qoder: return 0.97
         case .higgsfield: return 0.95
-        case .krea: return 0.96
+        case .krea, .mimocode: return 0.96
         case .devin, .qwen, .gemma, .meta, .deepseek, .mistral: return 1.0
         }
     }
@@ -127,6 +128,7 @@ enum ProviderGlyph: String, Codable, Equatable {
         case .glm: return Color(hex: 0x2E7CF6)
         case .higgsfield: return Color(hex: 0xD1FE17)
         case .krea: return Color(hex: 0xFF4F00)
+        case .mimocode: return Color(hex: 0xF97316)
         default: return Palette.textPrimary
         }
     }
@@ -143,7 +145,7 @@ enum ProviderGlyph: String, Codable, Equatable {
         // glyph-kimi in the asset catalogue are drawn instead.
         case .glm:    return GlyphOutline.glm
         case .devin, .qwen, .gemma, .meta, .deepseek, .mistral, .lmstudio,
-             .omlx, .qianwenAI, .qoder, .amp, .apify, .llamaCpp, .grokbot, .higgsfield, .krea: return []
+             .omlx, .qianwenAI, .qoder, .amp, .apify, .llamaCpp, .grokbot, .higgsfield, .krea, .mimocode: return []
         case .grok:   return GlyphOutline.grok
         case .opencode: return GlyphOutline.opencode
         case .commandcode: return GlyphOutline.commandcode
