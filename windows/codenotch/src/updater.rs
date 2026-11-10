@@ -1,4 +1,4 @@
-//! Check published Windows releases, then use a signed Tauri update when one exists.
+//! Check published GitHub releases, then use a signed Tauri update when one exists.
 //! Until signing is configured, Settings links to the official installer instead.
 
 use semver::Version;
@@ -9,10 +9,16 @@ use tauri::{AppHandle, Emitter};
 use tauri_plugin_updater::UpdaterExt;
 
 const RELEASE_API: &str = "https://api.github.com/repos/vinzdg/codenotch/releases/latest";
-const INSTALLER_NAME: &str = "Codenotch-Setup.exe";
 const UNSET_PUBKEY: &str = "REPLACE_WITH_TAURI_PUBLIC_KEY";
 const CHECK_ERROR: &str = "Could not check for updates";
 const INSTALL_ERROR: &str = "Could not install the update";
+
+#[cfg(windows)]
+const INSTALLER_NAME: &str = "Codenotch-Setup.exe";
+#[cfg(all(unix, not(target_os = "macos")))]
+const INSTALLER_NAME: &str = "Codenotch.AppImage";
+#[cfg(target_os = "macos")]
+const INSTALLER_NAME: &str = "Codenotch.dmg";
 
 #[derive(Clone, Serialize, Default)]
 pub struct UpdateState {
@@ -63,8 +69,8 @@ fn configured(app: &AppHandle) -> bool {
         .is_some_and(|k| !k.is_empty() && k != UNSET_PUBKEY)
 }
 
-/// A Mac-only release cannot be advertised as a Windows update.
-fn newer_windows_release(body: &str, current: &Version) -> Result<Option<Version>, String> {
+/// A release without this platform's installer cannot be advertised as an update.
+fn newer_platform_release(body: &str, current: &Version) -> Result<Option<Version>, String> {
     let release: GithubRelease = serde_json::from_str(body).map_err(|e| e.to_string())?;
     let tag = release
         .tag_name
@@ -77,26 +83,26 @@ fn newer_windows_release(body: &str, current: &Version) -> Result<Option<Version
         .any(|asset| asset.name == INSTALLER_NAME)
     {
         return Err(format!(
-            "release {} has no Windows installer",
-            release.tag_name
+            "release {} has no {} installer",
+            release.tag_name, INSTALLER_NAME
         ));
     }
     Ok((version > *current).then_some(version))
 }
 
-fn latest_windows_release(current: &Version) -> Result<Option<Version>, String> {
+fn latest_platform_release(current: &Version) -> Result<Option<Version>, String> {
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(12))
         .build();
     let body = agent
         .get(RELEASE_API)
         .set("Accept", "application/vnd.github+json")
-        .set("User-Agent", "Codenotch-Windows")
+        .set("User-Agent", "Codenotch-Desktop")
         .call()
         .map_err(|e| e.to_string())?
         .into_string()
         .map_err(|e| e.to_string())?;
-    newer_windows_release(&body, current)
+    newer_platform_release(&body, current)
 }
 
 fn signed_offer_matches(release: &Version, signed: &str) -> bool {
@@ -148,7 +154,7 @@ pub fn check_for_update(app: AppHandle) {
                 return;
             }
         };
-        match latest_windows_release(&current) {
+        match latest_platform_release(&current) {
             Ok(Some(version)) => {
                 let can_install = configured(&app)
                     && signed_feed_offer(&app)
@@ -167,7 +173,7 @@ pub fn check_for_update(app: AppHandle) {
                 );
             }
             Ok(None) => {
-                crate::applog("updater: this is the newest Windows release");
+                crate::applog("updater: this is the newest release for this platform");
                 set(
                     &app,
                     UpdateState {
@@ -208,6 +214,30 @@ pub fn check_for_update(app: AppHandle) {
     });
 }
 
+fn open_url(url: &str) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let mut command = std::process::Command::new("cmd");
+        command.args(["/C", "start", "", url]);
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+        return command.spawn().map(|_| ()).map_err(|e| e.to_string());
+    }
+    #[cfg(unix)]
+    {
+        return std::process::Command::new("xdg-open")
+            .arg(url)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string());
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = url;
+        Err("Cannot open URLs on this platform".into())
+    }
+}
+
 /// Open only the GitHub asset named by a successful release check. The webview
 /// supplies neither the version nor a URL.
 #[tauri::command]
@@ -221,20 +251,13 @@ pub fn open_update_installer() -> Result<(), String> {
         offer
             .available
             .clone()
-            .ok_or("No Windows update is available")?
+            .ok_or("No update is available for this platform")?
     };
     let version = Version::parse(&version).map_err(|e| e.to_string())?;
     let url = format!(
         "https://github.com/vinzdg/codenotch/releases/download/v{version}/{INSTALLER_NAME}"
     );
-    let mut command = std::process::Command::new("cmd");
-    command.args(["/C", "start", "", &url]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
-    command.spawn().map(|_| ()).map_err(|e| e.to_string())
+    open_url(&url)
 }
 
 /// Install only an offer previously found in a signed Tauri feed.
@@ -319,36 +342,36 @@ pub fn check_on_launch(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::{newer_signed_release, newer_windows_release, signed_offer_matches};
+    use super::{newer_platform_release, newer_signed_release, signed_offer_matches, INSTALLER_NAME};
     use semver::Version;
 
-    fn release(tag: &str, windows: bool) -> String {
-        let asset = if windows {
-            r#"[{"name":"Codenotch-Setup.exe"}]"#
+    fn release(tag: &str, with_installer: bool) -> String {
+        let asset = if with_installer {
+            format!(r#"[{{"name":"{INSTALLER_NAME}"}}]"#)
         } else {
-            "[]"
+            "[]".to_string()
         };
         format!(r#"{{"tag_name":"{tag}","assets":{asset}}}"#)
     }
 
     #[test]
-    fn compares_only_windows_releases() {
+    fn compares_only_platform_releases() {
         let current = Version::parse("1.18.0").unwrap();
         assert_eq!(
-            newer_windows_release(&release("v1.19.0", true), &current).unwrap(),
+            newer_platform_release(&release("v1.19.0", true), &current).unwrap(),
             Some(Version::parse("1.19.0").unwrap())
         );
         assert_eq!(
-            newer_windows_release(&release("v1.18.0", true), &current).unwrap(),
+            newer_platform_release(&release("v1.18.0", true), &current).unwrap(),
             None
         );
         assert_eq!(
-            newer_windows_release(&release("v1.17.0", true), &current).unwrap(),
+            newer_platform_release(&release("v1.17.0", true), &current).unwrap(),
             None
         );
-        assert!(newer_windows_release(&release("v1.19.0", false), &current).is_err());
-        assert!(newer_windows_release("not json", &current).is_err());
-        assert!(newer_windows_release(&release("latest", true), &current).is_err());
+        assert!(newer_platform_release(&release("v1.19.0", false), &current).is_err());
+        assert!(newer_platform_release("not json", &current).is_err());
+        assert!(newer_platform_release(&release("latest", true), &current).is_err());
     }
 
     #[test]

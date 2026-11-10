@@ -268,7 +268,36 @@ fn play_notification_sound() {
 }
 
 #[cfg(not(windows))]
-fn play_notification_sound() {}
+fn play_notification_sound() {
+    if sound_started("canberra-gtk-play", &["-i", "dialog-information"]) {
+        return;
+    }
+    for path in [
+        "/usr/share/sounds/freedesktop/stereo/message.oga",
+        "/usr/share/sounds/freedesktop/stereo/bell.oga",
+        "/usr/share/sounds/freedesktop/stereo/complete.oga",
+    ] {
+        if !std::path::Path::new(path).is_file() {
+            continue;
+        }
+        if sound_started("pw-play", &[path]) || sound_started("paplay", &[path]) {
+            return;
+        }
+    }
+    #[cfg(unix)]
+    crate::x11_util::bell();
+}
+
+#[cfg(not(windows))]
+fn sound_started(program: &str, args: &[&str]) -> bool {
+    std::process::Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .is_ok()
+}
 
 fn word_renewed(lang: &str) -> &'static str {
     match lang {

@@ -19,6 +19,14 @@ fn settings_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".claude").join("settings.json"))
 }
 
+fn hook_filename() -> &'static str {
+    if cfg!(windows) {
+        "codenotch-hook.exe"
+    } else {
+        "codenotch-hook"
+    }
+}
+
 fn is_ours(entry: &Value) -> bool {
     entry["hooks"]
         .as_array()
@@ -68,7 +76,7 @@ pub fn install() -> Result<String, String> {
         .map_err(|e| e.to_string())?
         .parent()
         .ok_or("cannot locate the program directory")?
-        .join("codenotch-hook.exe");
+        .join(hook_filename());
     if !hook_exe.exists() {
         return Err(format!("missing {}", hook_exe.display()));
     }

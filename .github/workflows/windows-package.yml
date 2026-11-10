@@ -207,4 +207,15 @@ jobs:
           if (-not $feed.platforms.'windows-x86_64'.signature) {
             throw 'the updater archive was not signed; refusing to publish a feed every updater would reject'
           }
+          New-Item -ItemType Directory -Force -Path merge-tmp | Out-Null
+          gh release download $env:TAG -p latest.json -D merge-tmp 2>$null
+          if (Test-Path merge-tmp/latest.json) {
+            $existing = Get-Content merge-tmp/latest.json -Raw | ConvertFrom-Json
+            foreach ($prop in $existing.platforms.PSObject.Properties) {
+              if (-not $feed.platforms.PSObject.Properties.Name.Contains($prop.Name)) {
+                $feed.platforms | Add-Member -NotePropertyName $prop.Name -NotePropertyValue $prop.Value
+              }
+            }
+            $feed | ConvertTo-Json -Depth 5 | Set-Content latest.json -Encoding utf8
+          }
           gh release upload $env:TAG Codenotch-Setup.nsis.zip latest.json --clobber
