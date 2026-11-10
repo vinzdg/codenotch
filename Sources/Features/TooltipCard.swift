@@ -296,6 +296,7 @@ private struct TooltipHeader<Mark: View>: View {
     var accessory: AnyView?
     @ViewBuilder let mark: Mark
     @Environment(\.tooltipSecondaryInk) private var secondaryInk
+    @Environment(\.typographyScale) private var typographyScale
 
     var body: some View {
         HStack(alignment: .center, spacing: NotchLayout.headerGap) {
@@ -303,14 +304,14 @@ private struct TooltipHeader<Mark: View>: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 0) {
                     Text(title)
-                        .font(Typography.cardTitle)
+                        .font(Typography.cardTitle(scale: typographyScale))
                         .foregroundStyle(Palette.textPrimary)
                         // The title names the model; a long note yields before it does.
                         .layoutPriority(1)
                     if let note {
                         Spacer(minLength: Design.px(20))
                         Text(note)
-                            .font(Typography.cardBody)
+                            .font(Typography.cardBody(scale: typographyScale))
                             .foregroundStyle(secondaryInk)
                             .lineLimit(1)
                     }
@@ -325,7 +326,7 @@ private struct TooltipHeader<Mark: View>: View {
                 }
                 if let subtitle {
                     Text(subtitle)
-                        .font(Typography.cardBody)
+                        .font(Typography.cardBody(scale: typographyScale))
                         .foregroundStyle(secondaryInk)
                         .lineLimit(1)
                 }
@@ -345,6 +346,7 @@ struct SplitRow<Accessory: View>: View {
     /// travels with the word instead of drifting to the middle of the row.
     @ViewBuilder var accessory: () -> Accessory
     @Environment(\.tooltipSecondaryInk) private var secondaryInk
+    @Environment(\.typographyScale) private var typographyScale
 
     var body: some View {
         HStack(spacing: NotchLayout.splitRowGap) {
@@ -355,7 +357,7 @@ struct SplitRow<Accessory: View>: View {
                 Text(trailing).foregroundStyle(trailingColor ?? secondaryInk)
             }
         }
-        .font(Typography.cardBody)
+        .font(Typography.cardBody(scale: typographyScale))
         .lineLimit(1)
     }
 }
@@ -480,6 +482,7 @@ private struct LimitWindowRow: View {
     @Environment(\.usageCriticalLimit) private var criticalLimit
     @Environment(\.colorTransitionStyle) private var colorTransitionStyle
     @Environment(\.tooltipSecondaryInk) private var secondaryInk
+    @Environment(\.typographyScale) private var typographyScale
     @Environment(\.providerDetailWidth) private var detailWidth
 
     private var band: UsageBand {
@@ -551,7 +554,7 @@ private struct LimitWindowRow: View {
                 }
 
                 Text("\(window.usedFraction == nil ? "" : fidelity.qualifier)\(window.detail ?? window.summary(showingRemaining: showsRemaining))\(paceText)")
-                    .font(Typography.cardBody)
+                    .font(Typography.cardBody(scale: typographyScale))
                     .foregroundStyle(Palette.textPrimary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
@@ -575,6 +578,7 @@ private struct MoneyBreakdownView: View {
     @Environment(\.providerDetailWidth) private var detailWidth
     @Environment(\.colorTransitionStyle) private var colorTransitionStyle
     @Environment(\.tooltipSecondaryInk) private var secondaryInk
+    @Environment(\.typographyScale) private var typographyScale
 
     private var barColor: Color {
         // Amber while the balance is still low but the pace says it will not
@@ -642,7 +646,7 @@ private struct MoneyBreakdownView: View {
 
     private func moneyLine(_ text: String, color: Color) -> some View {
         Text(text)
-            .font(Typography.cardBody)
+            .font(Typography.cardBody(scale: typographyScale))
             .foregroundStyle(color)
             .lineLimit(1)
             .frame(width: NotchLayout.cardTextWidth, alignment: .leading)
@@ -665,13 +669,14 @@ private struct MoneyStat: View {
     let value: String
     var color: Color? = nil
     @Environment(\.tooltipSecondaryInk) private var secondaryInk
+    @Environment(\.typographyScale) private var typographyScale
 
     var body: some View {
         VStack(alignment: .leading, spacing: NotchLayout.moneyStatGap) {
             Text(label).foregroundStyle(secondaryInk).lineLimit(1)
             Text(value).foregroundStyle(color ?? secondaryInk).monospacedDigit().lineLimit(1)
         }
-        .font(Typography.cardBody)
+        .font(Typography.cardBody(scale: typographyScale))
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -695,6 +700,7 @@ struct ProviderLimitsContent: View {
     var headerAccessory: AnyView?
     @Environment(\.tooltipSecondaryInk) private var secondaryInk
     @Environment(\.providerDetailWidth) private var detailWidth
+    @Environment(\.typographyScale) private var typographyScale
 
     /// Only worth saying when the numbers are not current. A remembered reading
     /// has to be dated, or it quietly passes itself off as live.
@@ -774,7 +780,7 @@ struct ProviderLimitsContent: View {
 
             if let message = snapshot.statusMessage {
                 Text(message)
-                    .font(Typography.cardBody)
+                    .font(Typography.cardBody(scale: typographyScale))
                     .foregroundStyle(secondaryInk)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, NotchLayout.headerToBlock)
@@ -789,7 +795,7 @@ struct ProviderLimitsContent: View {
                         if let title = group.title {
                             VStack(alignment: .leading, spacing: Design.px(12)) {
                                 Text(title)
-                                    .font(Typography.cardBody)
+                                    .font(Typography.cardBody(scale: typographyScale))
                                     .fontWeight(.semibold)
                                     .foregroundStyle(Palette.textPrimary)
                                     .padding(.leading, Design.px(4))
@@ -830,6 +836,7 @@ private struct RuntimeModelDetails: View {
     let ledger: LocalTokenLedger.Summary?
     let now: Date
     @Environment(\.providerDetailWidth) private var detailWidth
+    @Environment(\.typographyScale) private var typographyScale
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -863,7 +870,7 @@ private struct RuntimeModelDetails: View {
             }
             .padding(.top, NotchLayout.blockSpacing)
         }
-        .font(Typography.cardBody)
+        .font(Typography.cardBody(scale: typographyScale))
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -912,20 +919,21 @@ private struct CodexMetric: Identifiable {
 private struct CodexMetricList: View {
     let metrics: [CodexMetric]
     @Environment(\.tooltipSecondaryInk) private var secondaryInk
+    @Environment(\.typographyScale) private var typographyScale
 
     var body: some View {
         VStack(alignment: .leading, spacing: NotchLayout.codexMetricRowGap) {
             ForEach(metrics) { metric in
                 HStack(alignment: .firstTextBaseline, spacing: Design.px(20)) {
                     Text(metric.label)
-                        .font(Typography.cardBody)
+                        .font(Typography.cardBody(scale: typographyScale))
                         .foregroundStyle(Palette.textPrimary)
                         .lineLimit(1)
 
                     Spacer(minLength: 0)
 
                     Text(metric.value)
-                        .font(Typography.cardBody)
+                        .font(Typography.cardBody(scale: typographyScale))
                         .foregroundStyle(secondaryInk)
                         .lineLimit(1)
                         .monospacedDigit()
@@ -971,6 +979,7 @@ private struct UsageResetCreditsSection: View {
     let credits: UsageResetCredits
     let now: Date
     @Environment(\.tooltipSecondaryInk) private var secondaryInk
+    @Environment(\.typographyScale) private var typographyScale
 
     private var countText: String {
         switch credits.availableCount {
@@ -1005,13 +1014,13 @@ private struct UsageResetCreditsSection: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text(credits.checkedAt == nil
                      ? L10n.t("Unused resets") : L10n.t("Unused resets (cached)"))
-                    .font(Typography.cardBody)
+                    .font(Typography.cardBody(scale: typographyScale))
                     .fontWeight(.semibold)
                     .foregroundStyle(Palette.textPrimary)
                     .padding(.top, NotchLayout.blockSpacing)
 
                 Text(observedCountText)
-                    .font(Typography.cardBody)
+                    .font(Typography.cardBody(scale: typographyScale))
                     .foregroundStyle(Palette.textPrimary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -1019,7 +1028,7 @@ private struct UsageResetCreditsSection: View {
 
                 if let expiryText {
                     Text(expiryText)
-                        .font(Typography.cardBody)
+                        .font(Typography.cardBody(scale: typographyScale))
                         .foregroundStyle(secondaryInk)
                         .lineLimit(1)
                         .padding(.top, NotchLayout.codexUsageRowGap)
@@ -1106,6 +1115,7 @@ private struct CodexUsageSection: View {
 /// percentage beside it still reads comfortable.
 private struct BlockedRow: View {
     let text: String
+    @Environment(\.typographyScale) private var typographyScale
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: NotchLayout.statusDotGap) {
@@ -1115,7 +1125,7 @@ private struct BlockedRow: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
-        .font(Typography.cardBody)
+        .font(Typography.cardBody(scale: typographyScale))
         .foregroundStyle(Palette.critical)
     }
 }
@@ -1188,6 +1198,7 @@ private struct SessionList: View {
     let cap: Int
     var onFocus: ((pid_t) -> Void)? = nil
     @Environment(\.tooltipSecondaryInk) private var secondaryInk
+    @Environment(\.typographyScale) private var typographyScale
 
     /// Busy sessions first, so what is hidden is what matters least.
     private var ordered: [AgentSession] {
@@ -1219,7 +1230,7 @@ private struct SessionList: View {
 
             if hidden > 0 {
                 Text(L10n.t("and \(hidden) more"))
-                    .font(Typography.cardBody)
+                    .font(Typography.cardBody(scale: typographyScale))
                     .foregroundStyle(secondaryInk)
                     .padding(.top, NotchLayout.blockSpacing)
             }
@@ -1365,6 +1376,7 @@ struct TooltipCard: View {
     /// A tap on a session row jumps to that session's terminal — nil leaves
     /// the rows as plain text.
     var onFocusSession: ((pid_t) -> Void)? = nil
+    @Environment(\.typographyScale) private var typographyScale
 
     /// The same figure the hover region uses, so what is drawn and what is
     /// reachable can never drift apart.
@@ -1388,7 +1400,8 @@ struct TooltipCard: View {
                 localLedgerRows: snapshot.localLedgerRowCount,
             compactRowCount: snapshot.compactRowCount,
             showsDeepSeekPricing: deepSeekPricingEnabled,
-            costRows: costRows
+            costRows: costRows,
+            typographyScale: typographyScale
         )
     }
 

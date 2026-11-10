@@ -614,10 +614,12 @@ struct ProviderReading: View {
     /// Whether it reads as the pair, "30%/70%".
     var isPair: Bool { snapshot.hasReading && weeklyReading != nil }
 
+    @Environment(\.typographyScale) private var typographyScale
+
     /// How wide it is drawn across the Mac's notch, in design points — what
     /// the side carrying it is sized to.
     var acrossWidth: CGFloat {
-        let size = isPair ? Typography.percentPairAcrossSize : Typography.percentAcrossSize
+        let size = (isPair ? Typography.percentPairAcrossSize : Typography.percentAcrossSize) * typographyScale
         let font = NSFont.monospacedDigitSystemFont(ofSize: size, weight: .semibold)
         return ceil((text as NSString).size(withAttributes: [.font: font]).width)
     }
@@ -625,7 +627,7 @@ struct ProviderReading: View {
     var body: some View {
         if let width = across {
             Text(text)
-                .font(isPair ? Typography.percentPairAcross : Typography.percentAcross)
+                .font(isPair ? Typography.percentPairAcross(scale: typographyScale) : Typography.percentAcross(scale: typographyScale))
                 .monospacedDigit()
                 .foregroundStyle(foreground)
                 .lineLimit(1)
@@ -641,7 +643,7 @@ struct ProviderReading: View {
 
     private var underTheRing: some View {
         Text(text)
-            .font(snapshot.hasReading && weeklyReading != nil ? Typography.percentPair : Typography.percent)
+            .font(snapshot.hasReading && weeklyReading != nil ? Typography.percentPair(scale: typographyScale) : Typography.percent(scale: typographyScale))
             .foregroundStyle(foreground)
             // Keep local speeds inside the ring's column so longer units
             // cannot consume the notch's existing side margins.

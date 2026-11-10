@@ -217,6 +217,7 @@ final class NotchViewModel: ObservableObject {
     /// Mirrored from Settings like `surfaceStyle`, just below.
     @Published var colorTransitionStyle: ColorTransitionStyle = .hardStep
     @Published var busyIndicatorStyle: BusyIndicatorStyle = .arc
+    @Published var typographyScale: CGFloat = 1.0
     /// Mirrors the persisted Appearance choice so the separate notch window
     /// redraws immediately when Settings changes it.
     @Published var surfaceStyle: NotchSurfaceStyle = .glass

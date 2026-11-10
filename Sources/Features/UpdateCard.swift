@@ -17,6 +17,7 @@ struct UpdateCard: View {
     @Environment(\.codenotchReduceTransparency) private var reduceTransparency
     @Environment(\.notchCardSurfaceStyle) private var surfaceStyle
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.typographyScale) private var typographyScale
 
     static let cardWidth: CGFloat = NotchLayout.updateCardWidth
     static let cardHeight: CGFloat = Design.px(262)
@@ -115,13 +116,13 @@ struct UpdateCard: View {
 
                 VStack(alignment: .leading, spacing: 0) {
                     Text(title)
-                        .font(Typography.cardTitle)
+                        .font(Typography.cardTitle(scale: typographyScale))
                         .foregroundStyle(Palette.textPrimary)
                         .lineLimit(1)
                         .contentTransition(.opacity)
 
                     Text(status)
-                        .font(Typography.cardBody)
+                        .font(Typography.cardBody(scale: typographyScale))
                         .foregroundStyle(secondaryInk)
                         .lineLimit(installing ? 1 : 2)
                         .monospacedDigit()
@@ -176,7 +177,7 @@ struct UpdateCard: View {
                 Image(systemName: symbol)
                     .font(.system(size: 12, weight: .semibold))
                 Text(title)
-                    .font(Typography.cardBody.weight(.semibold))
+                    .font(Typography.cardBody(scale: typographyScale).weight(.semibold))
             }
             .foregroundStyle(Palette.textPrimary)
             .padding(.horizontal, Design.px(28))

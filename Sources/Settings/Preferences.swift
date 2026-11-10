@@ -187,6 +187,13 @@ final class Preferences: ObservableObject {
         usesCustomNotchScale ? CGFloat(customNotchScale) : notchSize.scale
     }
 
+    /// Configurable typography scaling for legibility on high-DPI and small displays.
+    @Published var fontSizeOption: FontSizeOption {
+        didSet { defaults.set(fontSizeOption.rawValue, forKey: Keys.fontSizeOption) }
+    }
+
+    var typographyScale: CGFloat { fontSizeOption.scale }
+
     /// The display the notch stays on, or the original focus-following behaviour.
     ///
     /// Only meaningful in `NotchScreenScope.main` — pinning a display and
@@ -769,6 +776,7 @@ final class Preferences: ObservableObject {
         static let size = "notchSize"
         static let usesCustomSize = "usesCustomNotchScale"
         static let customSize = "customNotchScale"
+        static let fontSizeOption = "fontSizeOption"
         static let display = "notchDisplay"
         static let resetTimeFormat = "resetTimeFormat"
         static let asksProviderOnLook = "asksProviderOnLook"
@@ -1201,6 +1209,8 @@ final class Preferences: ObservableObject {
         self.customNotchScale = stored.map {
             min(max($0, Self.customScaleRange.lowerBound), Self.customScaleRange.upperBound)
         } ?? 1
+        self.fontSizeOption = defaults.string(forKey: Keys.fontSizeOption)
+            .flatMap(FontSizeOption.init(rawValue:)) ?? .standard
         self.displayPreference = defaults.string(forKey: Keys.display)
             .map(DisplayPreference.display) ?? .followActiveWindow
         self.resetTimeFormat = defaults.string(forKey: Keys.resetTimeFormat)

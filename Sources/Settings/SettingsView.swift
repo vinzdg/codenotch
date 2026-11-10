@@ -1056,6 +1056,16 @@ struct SettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
+                Picker(L10n.t("Font size"), selection: $preferences.fontSizeOption) {
+                    ForEach(FontSizeOption.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+
+                Text(preferences.fontSizeOption.explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 // The nudge has been draggable since the edge picker existed,
                 // and nothing on screen has ever said so — the only way to
                 // find it was to hold ⌥ on the notch and see what happened.
