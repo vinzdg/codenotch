@@ -98,7 +98,7 @@ wire-level details.
 | **LM Studio** | local runtime | Loaded models from LM Studio's own listing, what each one is doing (prompt, generating, queue) from its SDK socket, and speed, context use and tokens per day from its server log. No relay needed. |
 | **oMLX** | local runtime | Loaded models from oMLX's own status listing, what each one is doing (prompt, generating, queue) from its admin activity endpoint, and speed and tokens from `~/.omlx/logs/server.log`. |
 | **Grok** | official | The Grok CLI session in `~/.grok/auth.json`, against the same credits billing endpoint `/usage` uses. Once that session has expired it is renewed in memory from the file's own refresh token, the way the CLI would; the file itself is never written. |
-| **OpenCode** | official | The Go plan's official usage endpoint, with the `opencode-go` key OpenCode itself stores on sign-in. |
+| **OpenCode** | official | The Go plan's official usage endpoint, called with the `oc_sk_` console key OpenCode stores at `auth.json` `"opencode"` when that key is present. A leftover `opencode-go` `sk-` key is not used in that case. |
 | **Command Code** | official | The GOAT plan's `/alpha` billing endpoints, with the key the Command Code app writes to `~/.commandcode/auth.json`. Further accounts are read from `~/.commandcode-<slug>` homes. |
 | **GitHub Copilot** | official | GitHub's Copilot quota endpoint, authenticated with the GitHub CLI session already on the Mac (`gh auth login`). |
 | **Kimi** | official | The Kimi Code CLI session in `~/.kimi-code/credentials/kimi-code.json`, against the same `/usages` endpoint the CLI's `/usage` asks. Shows the 5-hour rate window and the weekly or monthly quotas available on the account. |
