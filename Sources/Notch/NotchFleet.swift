@@ -57,6 +57,7 @@ final class NotchFleet {
     private var criticalLimit: Double = 0.70
     private var colorTransitionStyle: ColorTransitionStyle = .hardStep
     private var busyIndicatorStyle: BusyIndicatorStyle = .arc
+    private var typographyScale: CGFloat = 1.0
     /// One choice for the whole fleet, like the edge and the size: a weekly
     /// ring on one display and not another would read as a bug.
     private var weeklyRing: WeeklyRing = .off
@@ -296,6 +297,14 @@ final class NotchFleet {
         self.busyIndicatorStyle = busyIndicatorStyle
         for controller in controllers.values {
             controller.model.busyIndicatorStyle = busyIndicatorStyle
+        controller.model.typographyScale = typographyScale
+        }
+    }
+
+    func apply(typographyScale: CGFloat) {
+        self.typographyScale = typographyScale
+        for controller in controllers.values {
+            controller.model.typographyScale = typographyScale
         }
     }
 
@@ -558,6 +567,7 @@ final class NotchFleet {
         controller.model.criticalLimit = criticalLimit
         controller.model.colorTransitionStyle = colorTransitionStyle
         controller.model.busyIndicatorStyle = busyIndicatorStyle
+        controller.model.typographyScale = typographyScale
         controller.model.weeklyRing = weeklyRing
         controller.model.weeklyRingDashed = weeklyRingDashed
         controller.model.showsNotchReadings = showsNotchReadings

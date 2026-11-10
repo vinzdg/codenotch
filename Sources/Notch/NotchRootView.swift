@@ -213,6 +213,7 @@ struct NotchRootView: View {
         .environment(\.usageCriticalLimit, model.criticalLimit)
         .environment(\.colorTransitionStyle, model.colorTransitionStyle)
         .environment(\.busyIndicatorStyle, model.busyIndicatorStyle)
+        .environment(\.typographyScale, model.typographyScale)
         .onAppear { arcSeparation = arcsOut ? 1 : 0 }
         .onChange(of: arcsOut) { _, open in
             // Both ways as motion, from wherever it is: out as the notch opens,
