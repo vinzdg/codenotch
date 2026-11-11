@@ -774,18 +774,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak fleet] in fleet?.apply(displayPreference: $0) }
                 .store(in: &cancellables)
 
-            fleet.onReposition = { [weak preferences] offset in
-                preferences?.setOffset(offset, for: preferences?.notchEdge ?? .right)
+            fleet.edgeForScreen = { [weak preferences] screen in
+                preferences?.edge(for: screen.persistentScreenKey) ?? preferences?.notchEdge ?? .right
+            }
+
+            fleet.offsetForScreen = { [weak preferences] screen, edge in
+                preferences?.offset(for: edge, on: screen.persistentScreenKey) ?? preferences?.offset(for: edge) ?? 0
+            }
+
+            fleet.onReposition = { [weak preferences] offset, screen in
+                let screenKey = screen?.persistentScreenKey
+                let currentEdge = preferences?.edge(for: screenKey) ?? preferences?.notchEdge ?? .right
+                preferences?.setOffset(offset, for: currentEdge, on: screenKey)
             }
 
             // Writing the preference is the whole of it: `notchEdge` is
             // `@Published` and the fleet already follows it, so the notch
             // relocates by the same path the Settings picker uses.
-            fleet.onMoveToEdge = { [weak preferences] edge, offset in
+            fleet.onMoveToEdge = { [weak preferences] edge, offset, screen in
+                let screenKey = screen?.persistentScreenKey
                 // Where along it first, so the edge's sink reads it back and
                 // the notch lands under the pointer that carried it there.
-                if let offset { preferences?.setOffset(offset, for: edge) }
+                preferences?.setEdge(edge, for: screenKey)
+                if let offset { preferences?.setOffset(offset, for: edge, on: screenKey) }
                 preferences?.notchEdge = edge
+                if preferences?.notchScope == .mainDisplay, let screen, let id = screen.displayIdentifier {
+                    if case .display = preferences?.displayPreference {
+                        preferences?.displayPreference = .display(id)
+                    }
+                }
             }
 
             preferences.$resetTimeFormat

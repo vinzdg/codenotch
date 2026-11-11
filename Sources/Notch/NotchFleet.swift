@@ -120,10 +120,14 @@ final class NotchFleet {
     var signInItems: [(title: String, action: () -> Void)] = []
     /// An ⌥-drag on any one panel settled at a new offset. Persisting it is
     /// Preferences' job, same division `apply(edge:)` already keeps.
-    var onReposition: ((CGFloat) -> Void)?
+    var onReposition: ((CGFloat, NSScreen?) -> Void)?
     /// A move handle carried a notch to another edge. Persisting it is
     /// Preferences' job, the same division `onReposition` keeps.
-    var onMoveToEdge: ((NotchEdge, CGFloat?) -> Void)?
+    var onMoveToEdge: ((NotchEdge, CGFloat?, NSScreen?) -> Void)?
+
+    /// Resolvers for per-screen position preferences.
+    var edgeForScreen: ((NSScreen) -> NotchEdge)?
+    var offsetForScreen: ((NSScreen, NotchEdge) -> CGFloat)?
 
     /// What the fleet settled on, for tests that need to see panels come and
     /// go rather than take our word for it.
@@ -173,6 +177,9 @@ final class NotchFleet {
 
     func apply(scope: NotchScreenScope) {
         self.scope = scope
+        for controller in controllers.values {
+            controller.scope = scope
+        }
         guard hasShown else { return }
         reconcile(screens: NSScreen.screens)
     }
@@ -497,6 +504,13 @@ final class NotchFleet {
         case .allDisplays:
             desired = screens
         }
+        if desired.isEmpty {
+            for id in controllers.keys {
+                controllers[id]?.retire()
+            }
+            controllers.removeAll()
+            return
+        }
         let keys = desired.map(Self.key)
         // Screen numbers are unique per display; if they ever are not, fall
         // back to a single notch rather than keying two panels as one.
@@ -515,8 +529,19 @@ final class NotchFleet {
         // instead of tearing a panel down and building another.
         if scope == .mainDisplay, controllers.count == 1,
            let screen = desired.first, let controller = controllers.values.first {
+            let newKey = Self.key(for: screen)
+            if controllers[newKey] == nil {
+                controllers.removeAll()
+                controllers[newKey] = controller
+            }
             controller.displayPreference = displayPreference
             controller.assignedScreen = screen
+            if let targetEdge = edgeForScreen?(screen), controller.model.edge != targetEdge {
+                controller.apply(edge: targetEdge)
+            }
+            if let targetOffset = offsetForScreen?(screen, controller.model.edge) {
+                controller.apply(alongOffset: targetOffset)
+            }
             controller.relocate(on: screen)
             return
         }
@@ -528,6 +553,12 @@ final class NotchFleet {
             guard let controller = controllers[id] else { continue }
             controller.displayPreference = displayPreference
             controller.assignedScreen = screen
+            if let targetEdge = edgeForScreen?(screen), controller.model.edge != targetEdge {
+                controller.apply(edge: targetEdge)
+            }
+            if let targetOffset = offsetForScreen?(screen, controller.model.edge) {
+                controller.apply(alongOffset: targetOffset)
+            }
             controller.relocate(on: screen)
         }
         for id in plan.remove {
@@ -546,9 +577,11 @@ final class NotchFleet {
         let controller = NotchWindowController()
         controller.assignedScreen = screen
         controller.displayPreference = displayPreference
+        controller.scope = scope
         controller.autoHideMode = autoHideMode
-        controller.model.edge = edge
-        controller.model.alongOffset = alongOffset
+        let targetEdge = edgeForScreen?(screen) ?? edge
+        controller.model.edge = targetEdge
+        controller.model.alongOffset = offsetForScreen?(screen, targetEdge) ?? alongOffset
         // Set before `show()`, so a display plugged in later builds its panel
         // at the current size rather than at medium and resizing a beat later.
         controller.prime(scale: scale)

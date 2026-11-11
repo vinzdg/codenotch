@@ -225,14 +225,47 @@ final class Preferences: ObservableObject {
     /// written through `offset(for:)`/`setOffset(_:for:)` rather than exposed
     /// as a single published value the way the other settings are.
     func offset(for edge: NotchEdge) -> CGFloat {
-        CGFloat(defaults.double(forKey: Self.offsetKey(for: edge)))
+        offset(for: edge, on: nil)
+    }
+
+    func offset(for edge: NotchEdge, on screenKey: String?) -> CGFloat {
+        if let screenKey,
+           let val = defaults.object(forKey: Self.screenOffsetKey(for: edge, screen: screenKey)) as? Double {
+            return CGFloat(val)
+        }
+        return CGFloat(defaults.double(forKey: Self.offsetKey(for: edge)))
     }
 
     func setOffset(_ offset: CGFloat, for edge: NotchEdge) {
+        setOffset(offset, for: edge, on: nil)
+    }
+
+    func setOffset(_ offset: CGFloat, for edge: NotchEdge, on screenKey: String?) {
+        if let screenKey {
+            defaults.set(Double(offset), forKey: Self.screenOffsetKey(for: edge, screen: screenKey))
+        }
         defaults.set(Double(offset), forKey: Self.offsetKey(for: edge))
     }
 
+    func edge(for screenKey: String? = nil) -> NotchEdge {
+        if let screenKey,
+           let raw = defaults.string(forKey: Self.screenEdgeKey(screen: screenKey)),
+           let edge = NotchEdge(rawValue: raw) {
+            return edge
+        }
+        return notchEdge
+    }
+
+    func setEdge(_ edge: NotchEdge, for screenKey: String? = nil) {
+        if let screenKey {
+            defaults.set(edge.rawValue, forKey: Self.screenEdgeKey(screen: screenKey))
+        }
+        notchEdge = edge
+    }
+
     private static func offsetKey(for edge: NotchEdge) -> String { "notchOffset.\(edge.rawValue)" }
+    private static func screenOffsetKey(for edge: NotchEdge, screen: String) -> String { "notchOffset.\(screen).\(edge.rawValue)" }
+    private static func screenEdgeKey(screen: String) -> String { "notchEdge.\(screen)" }
 
     @Published var resetTimeFormat: ResetTimeFormat {
         didSet { defaults.set(resetTimeFormat.rawValue, forKey: Keys.resetTimeFormat) }
