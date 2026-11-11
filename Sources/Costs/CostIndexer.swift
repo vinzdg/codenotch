@@ -74,10 +74,15 @@ final class CostIndexer {
     @discardableResult
     private func indexFile(_ url: URL) -> Bool {
         let path = url.path
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path) else { return false }
-        let size = (attrs[.size] as? Int) ?? 0
-        let inode = (attrs[.systemFileNumber] as? Int) ?? 0
-        let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        // Every scan visits every transcript, so this runs thousands of times per
+        // pass on a large history. stat() returns the same size/inode/mtime that
+        // attributesOfItem did, without also reading every extended attribute and
+        // the catalog info, which was most of the idle CPU (#500).
+        var st = stat()
+        guard stat(path, &st) == 0 else { return false }
+        let size = Int(st.st_size)
+        let inode = Int(st.st_ino)
+        let mtime = Double(st.st_mtimespec.tv_sec) + Double(st.st_mtimespec.tv_nsec) / 1e9
 
         var offset = 0
         if let cursor = store.fileCursor(path) {

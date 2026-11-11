@@ -70,7 +70,7 @@ pointer from cell to card does not dismiss it.
 - [ ] `UsageStore` — actor owning snapshots, refresh scheduling, staleness marking
 - [ ] `ClaudeCodeLocalProvider` — parse `~/.claude/projects/**/*.jsonl`, sum tokens into
       the rolling 5-hour window, derive `usedFraction` against a configured plan ceiling
-- [ ] `ManualProvider` — user-declared limits, app-side counter, reset scheduling
+- [x] `ManualProvider` — user-declared limits, app-side counter, reset scheduling
 - [ ] Refresh on a 60s timer, on wake, and on `Refresh now`
 - [ ] Status rendering: `.stale` dims the ring, `.needsAuth` shows a lock glyph,
       `.derived` / `.manual` numbers get a "~" prefix in the tooltip
@@ -96,7 +96,7 @@ pointer from cell to card does not dismiss it.
 ## M6 — Polish
 
 - [ ] Threshold notifications (80% / 100%) with per-provider mute
-- [ ] Auto-hide modes: never / on fullscreen / on any window overlapping the notch
+- [x] Auto-hide modes: never / on fullscreen / on any window overlapping the notch
 - [ ] Multi-display: follow the active screen, handle unplug
 - [ ] Reduced-motion and reduced-transparency support
 - [ ] App icon, name decision, `README` screenshots

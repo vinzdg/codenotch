@@ -26,6 +26,75 @@ final class KimiUsageTests: XCTestCase {
         XCTAssertEqual(fractions.last ?? -1, 0.08, accuracy: 0.0001)
     }
 
+    func testReadsCurrentQuotaRatiosAndMonthlyWindows() throws {
+        let json = """
+        {"limits":[{"window":{"duration":300,"timeUnit":"TIME_UNIT_MINUTE"},
+        "detail":{"limit":"100","used":"38","remaining":"62","resetTime":"2026-11-05T15:58:26.882959Z"}}],
+        "usages":{"limit_5h":{"used_ratio":0.3832,"reset_time":"2026-11-05T15:58:26Z"},
+        "limit_month_total":{"used_ratio":0.0233,"reset_time":"2026-12-06T00:00:00Z"},
+        "limit_month_code":{"used_ratio":0.0189,"reset_time":"2026-12-06T00:00:00Z"}}}
+        """
+        let read = try KimiUsage.read(fromJSON: json)
+        XCTAssertEqual(read.windows.map(\.id), ["rolling", "monthly-total", "monthly-code"])
+        XCTAssertEqual(read.windows.map(\.label), ["5h limit", "Monthly limit", "Monthly code limit"])
+        let rolling = try XCTUnwrap(read.windows.first { $0.id == "rolling" })
+        let monthly = try XCTUnwrap(read.windows.first { $0.id == "monthly-total" })
+        let code = try XCTUnwrap(read.windows.first { $0.id == "monthly-code" })
+        XCTAssertEqual(rolling.usedFraction ?? -1, 0.3832, accuracy: 0.000001)
+        XCTAssertEqual(monthly.usedFraction ?? -1, 0.0233, accuracy: 0.000001)
+        XCTAssertEqual(code.usedFraction ?? -1, 0.0189, accuracy: 0.000001)
+        XCTAssertEqual(rolling.duration, 18000)
+        XCTAssertNil(monthly.duration)
+        XCTAssertNil(code.duration)
+        XCTAssertEqual(monthly.resetsAt,
+                       ISO8601DateFormatter().date(from: "2026-12-06T00:00:00Z"))
+    }
+
+    func testReadsCurrentOnlyWeeklyAndFiveHourQuotas() throws {
+        let json = #"{"usages":{"limit_5h":{"used_ratio":0.25},"limit_7d":{"used_ratio":"0.125"}}}"#
+        let read = try KimiUsage.read(fromJSON: json)
+        XCTAssertEqual(read.windows.map(\.id), ["rolling", "weekly"])
+        XCTAssertEqual(read.windows.map(\.duration), [18000, 604800])
+        XCTAssertEqual(read.windows[1].usedFraction ?? -1, 0.125, accuracy: 0.000001)
+    }
+
+    func testZeroRatiosAreRealQuotaReadings() throws {
+        let json = #"{"usages":{"limit_5h":{"used_ratio":0},"limit_month_total":{"used_ratio":0}}}"#
+        let read = try KimiUsage.read(fromJSON: json)
+        XCTAssertEqual(read.windows.map(\.usedFraction), [0, 0])
+    }
+
+    func testInvalidCurrentRatiosPreserveLegacyFallback() throws {
+        for ratio in ["null", "true", "false", "-0.1", #""not-a-number""#, #""NaN""#, #""Infinity""#] {
+            let json = """
+            {"limits":[{"window":{"duration":5,"timeUnit":"TIME_UNIT_HOUR"},
+            "detail":{"limit":100,"used":8}}],
+            "usages":{"limit_5h":{"used_ratio":\(ratio)},"limit_month_total":{"used_ratio":\(ratio)}}}
+            """
+            let read = try KimiUsage.read(fromJSON: json)
+            XCTAssertEqual(read.windows.map(\.id), ["rolling"], "ratio: \(ratio)")
+            XCTAssertEqual(read.windows[0].usedFraction ?? -1, 0.08, accuracy: 0.000001)
+        }
+    }
+
+    func testReadsMonthlyOnlyAccountAndOverQuotaUsage() throws {
+        let json = #"{"usages":{"limit_month_total":{"used_ratio":1.2},"limit_month_code":{"used_ratio":0.75}}}"#
+        let read = try KimiUsage.read(fromJSON: json)
+        XCTAssertEqual(read.windows.map(\.id), ["monthly-total", "monthly-code"])
+        XCTAssertEqual(read.windows[0].usedFraction ?? -1, 1.2, accuracy: 0.000001)
+    }
+
+    func testCurrentQuotaReplacesAllLegacyDuplicates() throws {
+        let json = """
+        {"usage":{"limit":100,"used":2},
+        "limits":[{"window":{"duration":1,"timeUnit":"TIME_UNIT_WEEK"},"detail":{"limit":100,"used":3}}],
+        "usages":{"limit_7d":{"used_ratio":0.125}}}
+        """
+        let read = try KimiUsage.read(fromJSON: json)
+        XCTAssertEqual(read.windows.map(\.id), ["weekly"])
+        XCTAssertEqual(read.windows.map(\.usedFraction), [0.125])
+    }
+
     /// Counts arrive as decimal strings, and the 5-hour window ships as 300
     /// minutes — normalised to hours, as the CLI does.
     func testStringCountsAndAMinuteWindowAreUnderstood() throws {
@@ -84,7 +153,7 @@ final class KimiUsageTests: XCTestCase {
     /// An account that meters nothing — no summary, no limits — is not a
     /// reading, and it must not be shown as one.
     func testAnEmptyPayloadIsNothingMetered() {
-        for json in ["{}", #"{"usage":{},"limits":[]}"#] {
+        for json in ["{}", #"{"usage":{},"limits":[]}"#, #"{"usages":{"unknown":{"used_ratio":0.5}}}"#] {
             XCTAssertThrowsError(try KimiUsage.read(fromJSON: json)) { error in
                 guard case UsageProviderError.nothingMetered = error else {
                     return XCTFail("expected nothingMetered, got \(error)")

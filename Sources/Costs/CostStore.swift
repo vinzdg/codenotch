@@ -299,7 +299,7 @@ final class CostStore {
     // MARK: Quota sampling and attribution
 
     /// Records one quota reading and attributes any increase since the last one.
-    /// Called after every usage poll — no extra network traffic.
+    /// Driven by the readings the app already has — no extra network traffic.
     func recordSample(window: CostWindow, pct: Double, resetsAt: Date? = nil, at date: Date = Date()) {
         queue.sync {
             let ts = Int(date.timeIntervalSince1970)

@@ -6,10 +6,10 @@
 //! Refreshes at startup and explicit/hover requests with a 5-minute TTL cache.
 //!
 //! Fallback path, when the CLI is absent (as upstream, most honest first):
-//!   1. Local bridge: find the `language_server*` process (its command line carries
-//!      `--csrf_token <t>`; the port is `--https_server_port 0`, i.e. random at runtime, and can
-//!      only be found in the listening table; it opens two ports and only one answers this RPC,
-//!      so both are tried),
+//!   1. Local bridge: find the IDE's `language_server*` process or, in newer builds and in VS Code's
+//!      Antigravity extension, `agy.exe --hub` (its command line carries `--csrf_token <t>` or
+//!      `--csrf_token=<t>`; the port is random at runtime, and can only be found in the listening
+//!      table; it opens two ports and only one answers this RPC, so both are tried),
 //!      POST `https://127.0.0.1:<port>/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary`
 //!      with header `x-codeium-csrf-token: <t>` (Antigravity sits on the Codeium stack; the header
 //!      name never changed) and body `{"forceRefresh":true}` (otherwise the server answers from
@@ -17,8 +17,11 @@
 //!      Reply `{response:{groups:[{displayName, buckets:[{bucketId, displayName, remainingFraction, resetTime}]}]}}`
 //!      — it reports what **remains**, so used = 1 - remainingFraction; the label is
 //!      group.displayName (buckets only ever say "Weekly Limit Remaining").
-//!   2. Bridge answered before and does not now = Antigravity is closed (the port changes on every
-//!      launch): keep the last percentage marked stale rather than switching to a count.
+//!   2. Antigravity is closed: `~/.gemini/bin/agy.exe`, which the IDE and VS Code's extension install,
+//!      reads the quota without them. It is about 200 MB for twelve seconds, so it runs at launch, on
+//!      a click and on a hover, at most once per `CLI_TTL`, and never on the poll's timer.
+//!      Otherwise, a source that answered before and does not now: keep the last percentage marked
+//!      stale rather than switching to a count.
 //!   3. Credential path (when a Google token exists): Windows Credential Manager target
 //!      `gemini:antigravity` (Go keyring: service:user), value JSON
 //!      `{auth_method, token:{access_token, expiry (RFC3339 with offset)}}`; on macOS it carries a
@@ -49,6 +52,7 @@ const CSRF_HEADER: &str = "x-codeium-csrf-token";
 
 static REFRESH_CLI: Mutex<Option<std::sync::mpsc::SyncSender<()>>> = Mutex::new(None);
 static REFRESH_LEGACY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static HOVERED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub fn request_refresh() {
     if let Some(sender) = REFRESH_CLI.lock().unwrap().as_ref() {
@@ -62,6 +66,8 @@ pub fn request_refresh() {
 pub fn request_hover_refresh() {
     if let Some(sender) = REFRESH_CLI.lock().unwrap().as_ref() {
         let _ = sender.try_send(());
+    } else {
+        HOVERED.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -182,13 +188,10 @@ fn discover() -> Option<Endpoint> {
             "-NoProfile",
             "-NonInteractive",
             "-Command",
-            "Get-CimInstance Win32_Process -Filter \"Name LIKE '%language_server%'\" | ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }",
+            "Get-CimInstance Win32_Process -Filter \"Name LIKE '%language_server%' OR Name = 'agy.exe'\" | ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }",
         ],
     );
-    let line = table.lines().find(|l| l.contains("--csrf_token"))?;
-    let (pid_s, cmdline) = line.split_once('\t')?;
-    let pid: u32 = pid_s.trim().parse().ok()?;
-    let csrf = flag_value(cmdline, "--csrf_token")?;
+    let (pid, csrf) = server_in(&table)?;
     let ports = listening_ports(pid);
     if ports.is_empty() {
         return None;
@@ -213,10 +216,30 @@ fn discover() -> Option<Endpoint> {
     Some(Endpoint { ports, csrf })
 }
 
+/// The IDE's `language_server` first, as on the Mac, then `agy.exe --hub`. Only a server with a
+/// token: without one the hub answers 401.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn server_in(table: &str) -> Option<(u32, String)> {
+    let servers: Vec<&str> = table.lines().filter(|l| l.contains("--csrf_token")).collect();
+    let line = servers.iter().find(|l| l.contains("language_server")).or(servers.first())?;
+    let (pid, cmdline) = line.split_once('\t')?;
+    Some((pid.trim().parse().ok()?, flag_value(cmdline, "--csrf_token")?))
+}
+
+/// `--flag value` or `--flag=value`, which is how `agy.exe` gets its flags
 fn flag_value(line: &str, flag: &str) -> Option<String> {
-    let parts: Vec<&str> = line.split_whitespace().collect();
-    let i = parts.iter().position(|p| *p == flag)?;
-    parts.get(i + 1).map(|s| s.trim_matches('"').to_string())
+    let mut parts = line.split_whitespace();
+    while let Some(part) = parts.next() {
+        let value = if part == flag {
+            parts.next()?
+        } else if let Some(value) = part.strip_prefix(flag).and_then(|rest| rest.strip_prefix('=')) {
+            value
+        } else {
+            continue;
+        };
+        return Some(value.trim_matches('"').to_string());
+    }
+    None
 }
 
 /// netstat -ano: `TCP 127.0.0.1:PORT 0.0.0.0:0 LISTENING PID`
@@ -611,10 +634,17 @@ fn requests_in(roots: &[PathBuf], today: chrono::NaiveDate) -> (u64, Option<u64>
 
 struct Runtime {
     endpoint: Option<Endpoint>,
-    ever_bridged: bool,
+    ever_read: bool,
+    cli_read_at: Option<Instant>,
 }
 
-fn read_once(rt: &mut Runtime, prev: &UsageSnapshot) -> UsageSnapshot {
+impl Runtime {
+    fn cli_due(&self) -> bool {
+        self.cli_read_at.is_none_or(|at| at.elapsed() >= CLI_TTL)
+    }
+}
+
+fn read_once(rt: &mut Runtime, prev: &UsageSnapshot, asked: bool) -> UsageSnapshot {
     let mut snap = UsageSnapshot::default();
     // 1. Local bridge (the cached endpoint first; the port changes on every launch, so a miss is normal)
     let mut bridge_err = String::new();
@@ -623,7 +653,7 @@ fn read_once(rt: &mut Runtime, prev: &UsageSnapshot) -> UsageSnapshot {
         tried = true;
         match bridge_quota(&ep) {
             Ok(w) => {
-                rt.ever_bridged = true;
+                rt.ever_read = true;
                 snap.status = "ok".into();
                 snap.windows = w;
                 snap.fetched_at = now_ms();
@@ -641,7 +671,7 @@ fn read_once(rt: &mut Runtime, prev: &UsageSnapshot) -> UsageSnapshot {
         match bridge_quota(&ep) {
             Ok(w) => {
                 rt.endpoint = Some(ep);
-                rt.ever_bridged = true;
+                rt.ever_read = true;
                 snap.status = "ok".into();
                 snap.windows = w;
                 snap.fetched_at = now_ms();
@@ -654,8 +684,29 @@ fn read_once(rt: &mut Runtime, prev: &UsageSnapshot) -> UsageSnapshot {
     if tried && !bridge_err.is_empty() {
         crate::applog(&format!("antigravity: local bridge failed ({bridge_err})"));
     }
-    // 2. The bridge worked before: keep the last percentage marked stale instead of degrading to a count (8% → 31 looks broken)
-    if rt.ever_bridged && !prev.windows.is_empty() {
+    // 2. Closed: its own CLI, when someone asked and the last read is old enough
+    if asked && rt.cli_due() {
+        if let Some(agy) = crate::agy_cli::bundled_agy() {
+            rt.cli_read_at = Some(Instant::now());
+            match crate::agy_cli::read_quota_with(&agy) {
+                Ok(w) => {
+                    rt.ever_read = true;
+                    snap.status = "ok".into();
+                    snap.windows = w;
+                    snap.fetched_at = now_ms();
+                    snap.note = "via Antigravity CLI".into();
+                    return snap;
+                }
+                Err(e) => crate::applog(&format!("antigravity: CLI read failed ({e})")),
+            }
+        }
+    }
+    // Read before: keep the last percentage instead of degrading to a count (8% → 31 looks broken)
+    if rt.ever_read && !prev.windows.is_empty() {
+        // The CLI answers while Antigravity is closed, so this reading's age is all there is to say
+        if prev.note.starts_with("via Antigravity CLI") {
+            return prev.clone();
+        }
         snap = prev.clone();
         snap.status = "stale".into();
         snap.note = "Antigravity is closed — last reading kept".into();
@@ -716,13 +767,20 @@ fn broadcast(app: &AppHandle, snap: UsageSnapshot) {
     let _ = app.emit("antigravity", &snap);
 }
 
-fn sleep_interruptible(secs: u64) {
+/// True when someone asked for a reading, false when the time ran out. A hover counts only from
+/// `hover_from`, when there is a CLI read to do.
+fn sleep_interruptible(secs: u64, hover_from: Option<Instant>) -> bool {
     for _ in 0..secs {
         if REFRESH_LEGACY.swap(false, std::sync::atomic::Ordering::Relaxed) {
-            return;
+            return true;
+        }
+        let hovered = HOVERED.swap(false, std::sync::atomic::Ordering::Relaxed);
+        if hovered && hover_from.is_some_and(|from| Instant::now() >= from) {
+            return true;
         }
         std::thread::sleep(Duration::from_secs(1));
     }
+    false
 }
 
 pub fn start(app: AppHandle) {
@@ -808,22 +866,30 @@ fn start_legacy(app: AppHandle) {
         if !legacy_present() {
             broadcast(&app, UsageSnapshot { status: "absent".into(), ..Default::default() });
             loop {
-                sleep_interruptible(600);
+                sleep_interruptible(600, None);
                 if legacy_present() {
                     break;
                 }
             }
         }
-        let mut rt = Runtime { endpoint: None, ever_bridged: false };
+        let mut rt = Runtime { endpoint: None, ever_read: false, cli_read_at: None };
+        // A hidden ring has no use for a reading at launch, and no way to ask for one later
+        let mut asked = {
+            let st = app.state::<AppState>();
+            let c = st.cfg.lock().unwrap();
+            c.notch_slots.is_empty() || c.notch_slots.iter().any(|s| s.provider == "gemini")
+        };
         loop {
             let prev = {
                 let st = app.state::<AppState>();
                 let s = st.antigravity.lock().unwrap().clone();
                 s
             };
-            let snap = read_once(&mut rt, &prev);
+            let snap = read_once(&mut rt, &prev, asked);
             broadcast(&app, snap);
-            sleep_interruptible(POLL_SECS);
+            let hover_from = (rt.endpoint.is_none() && crate::agy_cli::bundled_agy().is_some())
+                .then(|| rt.cli_read_at.map_or_else(Instant::now, |at| at + CLI_TTL));
+            asked = sleep_interruptible(POLL_SECS, hover_from);
         }
     });
 }
@@ -842,7 +908,7 @@ fn legacy_probe() -> String {
     let cred = read_credentials();
     let ep = discover();
     format!(
-        "Antigravity: state dirs {} | Credential Manager gemini:antigravity {} | language_server {}",
+        "Antigravity: state dirs {} | Credential Manager gemini:antigravity {} | local server {}",
         if roots.is_empty() {
             "none under ~/.gemini".to_string()
         } else {
@@ -1027,5 +1093,49 @@ mod tests {
                 "Claude and GPT models › Weekly Limit (3p-weekly)",
             ]
         );
+    }
+
+    #[test]
+    fn a_cli_read_is_due_at_first_and_then_once_per_ttl() {
+        use std::time::{Duration, Instant};
+        let runtime = |cli_read_at| super::Runtime { endpoint: None, ever_read: false, cli_read_at };
+        assert!(runtime(None).cli_due());
+        assert!(!runtime(Some(Instant::now())).cli_due());
+        let long_ago = Instant::now().checked_sub(super::CLI_TTL + Duration::from_secs(1));
+        if long_ago.is_some() {
+            assert!(runtime(long_ago).cli_due());
+        }
+    }
+
+    #[test]
+    fn a_hover_wakes_the_poller_only_when_a_cli_read_is_due() {
+        use std::sync::atomic::Ordering::Relaxed;
+        use std::time::{Duration, Instant};
+        let now = Instant::now();
+        super::HOVERED.store(true, Relaxed);
+        assert!(!super::sleep_interruptible(1, None));
+        super::HOVERED.store(true, Relaxed);
+        assert!(!super::sleep_interruptible(1, Some(now + Duration::from_secs(60))));
+        super::HOVERED.store(true, Relaxed);
+        assert!(super::sleep_interruptible(1, Some(now)));
+    }
+
+    #[test]
+    fn a_flag_is_read_after_a_space_or_an_equals_sign() {
+        assert_eq!(super::flag_value("x --csrf_token abc --y", "--csrf_token").as_deref(), Some("abc"));
+        assert_eq!(super::flag_value("x --csrf_token=abc --y", "--csrf_token").as_deref(), Some("abc"));
+        assert_eq!(super::flag_value("x --csrf_token_file=abc", "--csrf_token"), None);
+        assert_eq!(super::flag_value("x --csrf_token", "--csrf_token"), None);
+    }
+
+    #[test]
+    fn the_ides_language_server_comes_first_then_agys_hub() {
+        // The hub's flags as VS Code's Antigravity extension passed them on a real machine
+        let hub = "9052\tC:\\Users\\me\\.gemini\\bin\\agy.exe --hub --hub-port=60487 --app_data_dir=antigravity --csrf_token=hub-token --add-dir=d:\\code";
+        let ide = "4410\tC:\\Antigravity\\resources\\bin\\language_server_windows_x64.exe --csrf_token ide-token --https_server_port 0";
+        let cli = "7000\tC:\\Users\\me\\AppData\\Local\\agy\\bin\\agy.exe --print /usage";
+        assert_eq!(super::server_in(&format!("{cli}\n{hub}")), Some((9052, "hub-token".into())));
+        assert_eq!(super::server_in(&format!("{hub}\n{ide}")), Some((4410, "ide-token".into())));
+        assert_eq!(super::server_in(cli), None);
     }
 }

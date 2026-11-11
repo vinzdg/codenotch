@@ -6,7 +6,45 @@ use crate::AppState;
 use std::io::Read;
 use tauri::{AppHandle, Manager};
 
+pub fn auth_token_path() -> Option<std::path::PathBuf> {
+    dirs::config_dir().map(|d| d.join("codenotch").join("auth_token"))
+}
+
+pub fn get_or_create_auth_token() -> String {
+    if let Some(path) = auth_token_path() {
+        if let Ok(existing) = std::fs::read_to_string(&path) {
+            let trimmed = existing.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+    }
+
+    let mut bytes = [0u8; 32];
+    use ring::rand::SecureRandom;
+    let rng = ring::rand::SystemRandom::new();
+    if rng.fill(&mut bytes).is_err() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        for (i, b) in bytes.iter_mut().enumerate() {
+            *b = (now.wrapping_shr((i % 16) as u32 * 8) ^ (i as u128)) as u8;
+        }
+    }
+    let token: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+
+    if let Some(path) = auth_token_path() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&path, &token);
+    }
+    token
+}
+
 pub fn start(app: AppHandle, port: u16) {
+    let auth_token = get_or_create_auth_token();
     std::thread::spawn(move || {
         let server = match tiny_http::Server::http(("127.0.0.1", port)) {
             Ok(s) => s,
@@ -35,11 +73,25 @@ pub fn start(app: AppHandle, port: u16) {
                     continue;
                 }
 
+                // Local request authentication (#165):
+                // Enforce token authentication distinguishing legitimate codenotch-hook calls
+                // from unauthorized local callers.
+                let state = app.state::<AppState>();
+                let require_auth = {
+                    let config = state.cfg.lock().unwrap();
+                    config.require_event_token
+                };
+                if require_auth && !is_authorized(&req, &auth_token) {
+                    let _ = req.respond(
+                        tiny_http::Response::from_string("unauthorized").with_status_code(401),
+                    );
+                    continue;
+                }
+
                 let mut body = String::new();
                 let _ = req.as_reader().take(256 * 1024).read_to_string(&mut body);
 
                 let ev = parse(&url, &body);
-                let state = app.state::<AppState>();
                 let changed = {
                     let mut store = state.store.lock().unwrap();
                     store.apply(ev)
@@ -106,6 +158,48 @@ fn parse(url: &str, body: &str) -> HookEvent {
 /// browser `Origin` or `Sec-Fetch-Site` headers, allowing them to succeed seamlessly.
 pub(crate) fn is_forbidden(req: &tiny_http::Request) -> bool {
     is_forbidden_headers(req.headers())
+}
+
+/// Local request authentication guard (#165).
+///
+/// Authenticates callers using a shared local token stored in `%APPDATA%\codenotch\auth_token`.
+/// Accepts the token via either `X-Codenotch-Token: <token>` or `Authorization: Bearer <token>`.
+pub(crate) fn is_authorized(req: &tiny_http::Request, expected_token: &str) -> bool {
+    is_authorized_headers(req.headers(), expected_token)
+}
+
+pub(crate) fn is_authorized_headers(headers: &[tiny_http::Header], expected_token: &str) -> bool {
+    if expected_token.is_empty() {
+        return true;
+    }
+    for h in headers {
+        if h.field.equiv("X-Codenotch-Token") {
+            let val = h.value.as_str().trim();
+            if constant_time_eq(val.as_bytes(), expected_token.as_bytes()) {
+                return true;
+            }
+        }
+        if h.field.equiv("Authorization") {
+            let val = h.value.as_str().trim();
+            if let Some(bearer) = val.strip_prefix("Bearer ").or_else(|| val.strip_prefix("bearer ")) {
+                if constant_time_eq(bearer.trim().as_bytes(), expected_token.as_bytes()) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (&x, &y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 pub(crate) fn is_forbidden_headers(headers: &[tiny_http::Header]) -> bool {
@@ -366,5 +460,27 @@ mod tests {
         assert_eq!(resp.status(), 200);
 
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn auth_token_validation() {
+        let expected = "secret-token-12345";
+        let h1 = [tiny_http::Header::from_bytes(&b"X-Codenotch-Token"[..], &b"secret-token-12345"[..]).unwrap()];
+        assert!(is_authorized_headers(&h1, expected));
+
+        let h2 = [tiny_http::Header::from_bytes(&b"Authorization"[..], &b"Bearer secret-token-12345"[..]).unwrap()];
+        assert!(is_authorized_headers(&h2, expected));
+
+        let h3 = [tiny_http::Header::from_bytes(&b"Authorization"[..], &b"bearer secret-token-12345"[..]).unwrap()];
+        assert!(is_authorized_headers(&h3, expected));
+
+        let wrong = [tiny_http::Header::from_bytes(&b"X-Codenotch-Token"[..], &b"wrong-token"[..]).unwrap()];
+        assert!(!is_authorized_headers(&wrong, expected));
+
+        let empty: [tiny_http::Header; 0] = [];
+        assert!(!is_authorized_headers(&empty, expected));
+
+        // When expected_token is empty, auth is unconstrained
+        assert!(is_authorized_headers(&empty, ""));
     }
 }

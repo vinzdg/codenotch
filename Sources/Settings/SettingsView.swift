@@ -829,6 +829,20 @@ struct SettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+
+            Section(L10n.t("Plan ceilings")) {
+                Picker(L10n.t("Ceiling calculation"), selection: $preferences.planCeilingMode) {
+                    ForEach(PlanCeilingMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text(preferences.planCeilingMode.explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .formStyle(.grouped)
         // A row switched off jumps from one group to the other. Scoped to that
@@ -948,8 +962,12 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Toggle(L10n.t("Fold for full-screen apps"), isOn: $preferences.foldsForFullScreen)
-                Text(L10n.t("The notch folds away while a full-screen app is frontmost, and returns when you leave it. Off keeps it in place over full-screen apps."))
+                Picker(L10n.t("Auto-hide"), selection: $preferences.autoHideMode) {
+                    ForEach(AutoHideMode.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+
+                Text(preferences.autoHideMode.explanation)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1452,7 +1470,15 @@ struct SettingsView: View {
             // about notifications in general — but the mechanism it silences
             // belongs to this pane's subject.
             Section(L10n.t("Threshold alerts")) {
-                Text(L10n.t("A system notification the moment a provider's headline limit crosses 80%, and again at 100% — once per crossing, and again only after the window rolls over. Mute one from the bell beside its row in Accounts."))
+                Picker(L10n.t("Warning threshold"), selection: $preferences.ceilingWarningThreshold) {
+                    Text("75%").tag(75)
+                    Text("80%").tag(80)
+                    Text("85%").tag(85)
+                    Text("90%").tag(90)
+                }
+                .pickerStyle(.segmented)
+
+                Text(L10n.t("A system notification the moment a provider's headline limit crosses the warning threshold, and again at 100% — once per crossing, and again only after the window rolls over. Mute one from the bell beside its row in Accounts."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1640,10 +1666,12 @@ struct SettingsView: View {
     /// What the list footer says about ordering: the picker above names the
     /// sort, so this only says what dragging still does under it.
     private var listOrderFooter: String {
-        switch preferences.ringOrder {
+        switch preferences.ringOrder.canonical {
         case .manual:
             return L10n.t("The notch draws these in this order. Drag one by its handle to move it.")
-        case .remaining, .deficit:
+        case .remaining, .deficit, .expiring:
+            return L10n.t("Auto-order is on: dragging still sets the order ties break in.")
+        default:
             return L10n.t("Auto-order is on: dragging still sets the order ties break in.")
         }
     }
@@ -1653,7 +1681,7 @@ struct SettingsView: View {
     /// this, sees four blank rings and concludes it is broken — and the
     /// distinction that catches them out is Claude *Code*, not the Claude app.
     static var setupCopy: String {
-        L10n.t("Codenotch reads usage from tools already signed in on this Mac — it never asks for your password. Install and sign in to any of Claude Code (the terminal tool, not the Claude app), Cursor (the editor or cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, the Kilo CLI, Muse, Higgsfield or a Gemini API key (via Gemini CLI, OpenCode or Hermes), and its ring appears in the notch.")
+        L10n.t("Codenotch reads usage from tools already signed in on this Mac — it never asks for your password. Install and sign in to any of Claude Code (the terminal tool, not the Claude app), Cursor (the editor or cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, the Kilo CLI, Muse, Higgsfield, Krea or a Gemini API key (via Gemini CLI, OpenCode or Hermes), and its ring appears in the notch.")
     }
 
     /// Said before it happens rather than after. A system dialogue asking to
@@ -2196,28 +2224,49 @@ private struct AccountRow: View {
                 }
             }
 
-            // Google publishes no limit for a bare API key, so the ring has
-            // nothing to fill against until the user names a ceiling itself.
+            // Google publishes no limit for a bare API key, so the ring fills
+            // against a user-configured ceiling or one inferred from peak usage.
             if isConnected, provider.id == "gemini-api" {
-                // The field's own title would be drawn as a leading label
-                // inside a `Form` row, which puts the caption hard against
-                // the box and leaves the unit stranded past it. Hidden, so
-                // the caption above can own the naming and the row can
-                // breathe.
+                let peak = preferences.observedPeakUsage[provider.id] ?? 0
+                let inferred = peak > 0 ? PlanCeiling.infer(from: peak) : nil
                 VStack(alignment: .leading, spacing: 4) {
                     Text(L10n.t("Monthly budget"))
                     HStack(spacing: 8) {
-                        TextField(L10n.t("None"), value: $preferences.geminiAPIMonthlyTokenBudget,
+                        TextField(inferred.map { "Auto (~\(PlanCeiling.compact($0)))" } ?? L10n.t("None"),
+                                  value: $preferences.geminiAPIMonthlyTokenBudget,
                                   format: .number)
                             .textFieldStyle(.roundedBorder)
                             .labelsHidden()
-                            .frame(width: 130)
+                            .frame(width: 140)
                         Text(L10n.t("tokens"))
+                        if preferences.geminiAPIMonthlyTokenBudget != nil {
+                            Button(L10n.t("Auto")) {
+                                preferences.geminiAPIMonthlyTokenBudget = nil
+                            }
+                            .buttonStyle(.borderless)
+                            .font(.caption)
+                            .help(L10n.t("Revert to auto-inferred ceiling based on peak usage."))
+                        }
+                    }
+                    if peak > 0 {
+                        HStack(spacing: 4) {
+                            Text(L10n.t("Observed peak: \(PlanCeiling.compact(peak)) tokens"))
+                            if let inferred {
+                                Text("· \(L10n.t("Inferred: ~\(PlanCeiling.compact(inferred))"))")
+                            }
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                     }
                 }
                 .padding(.top, 2)
                 .foregroundStyle(.secondary)
-                .help(L10n.t("Fills the ring against a ceiling you choose; Google publishes none for an API key."))
+                .help(L10n.t("Fills the ring against a ceiling you choose or inferred from peak usage; Google publishes none for an API key."))
+            }
+
+            // Manual provider: user-declared limits and reset schedule.
+            if isConnected, provider.id == "manual" {
+                manualProviderSettings
             }
             // Ollama owns its credential: the user enters an API key here, stored
             // in the keychain. The env var OLLAMA_API_KEY is checked first, so a
@@ -2256,6 +2305,56 @@ private struct AccountRow: View {
             }
             if provider.id == "higgsfield" {
                 higgsfieldKeyEntry
+            }
+            if provider.id == "krea" {
+                kreaKeyEntry
+            }
+        }
+    }
+
+    private var manualProviderSettings: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L10n.t("Request limit"))
+                HStack(spacing: 8) {
+                    TextField(L10n.t("None"), value: $preferences.manualProviderLimit, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .labelsHidden()
+                        .frame(width: 130)
+                    Text(L10n.t("requests"))
+                }
+                if let peak = preferences.observedPeakUsage["manual"], peak > 0 {
+                    let inferred = PlanCeiling.infer(from: peak)
+                    HStack(spacing: 4) {
+                        Text(L10n.t("Observed peak: \(peak) requests"))
+                        Text("· \(L10n.t("Inferred: ~\(inferred)"))")
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.top, 2)
+            .foregroundStyle(.secondary)
+            .help(L10n.t("Fills the ring against a declared ceiling you choose."))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L10n.t("Reset window"))
+                Picker(L10n.t("Reset window"), selection: $preferences.manualProviderSchedule) {
+                    ForEach(ManualResetSchedule.standardOptions, id: \.identifier) { option in
+                        Text(option.displayName).tag(option.identifier)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: 180)
+            }
+            .foregroundStyle(.secondary)
+            .help(L10n.t("How often the manual quota window rolls over."))
+            .onChange(of: preferences.manualProviderSchedule) { _ in
+                refresh(provider.id)
+            }
+            .onChange(of: preferences.manualProviderLimit) { _ in
+                refresh(provider.id)
             }
         }
     }
@@ -2364,6 +2463,41 @@ private struct AccountRow: View {
                 }
             }
             Text(L10n.t("Paste an API key or token from Higgsfield Console. Not needed after hf auth login, or with HIGGSFIELD_API_KEY exported. Stored in your login keychain."))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 2)
+    }
+
+    /// The API key input for Krea. Stored in the keychain on Save, then a
+    /// refresh is triggered so the ring picks up the new credential without a relaunch.
+    @State private var kreaKey = ""
+    @State private var kreaKeySaved = false
+
+    private var kreaKeyEntry: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(L10n.t("Krea API key"))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                SecureField(L10n.t("Paste your key"), text: $kreaKey)
+                    .textContentType(.password)
+                    .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
+                    .frame(maxWidth: 260)
+                Button(L10n.t("Save")) {
+                    guard !kreaKey.isEmpty else { return }
+                    KreaCredentials.store(kreaKey)
+                    kreaKey = ""
+                    kreaKeySaved = true
+                    _ = signIn(provider.id)
+                }
+                .disabled(kreaKey.isEmpty)
+                if kreaKeySaved {
+                    Text(L10n.t("Saved"))
+                        .foregroundStyle(.green)
+                }
+            }
+            Text(L10n.t("Paste an API token from Krea › Settings › API Tokens. Not needed after krea auth login, or with KREA_API_KEY exported. Stored in your login keychain."))
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }

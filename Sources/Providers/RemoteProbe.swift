@@ -64,15 +64,7 @@ enum RemoteProbe {
     }
 
     static func check(host: RemoteHost, run: RemoteSSH.Runner = RemoteSSH.run) throws -> Report {
-        let result: RemoteSSH.CommandResult
-        do {
-            result = try run(host, script(for: host.kind))
-        } catch is RemoteSSH.TimeoutError {
-            throw Failure(message: L10n.t("SSH to \(host.destination) timed out after \(Int(RemoteSSH.timeout))s — the server may be down, the port wrong, or a firewall in the way."))
-        }
-        if RemoteSSH.isTransportFailure(result) {
-            throw Failure(message: transportMessage(host: host, stderr: result.stderr))
-        }
+        let result = try reach(host, script(for: host.kind), run: run)
         guard result.exitCode == 0 else {
             let line = RemoteSSH.firstLine(of: result.stderr)
             throw Failure(message: L10n.t("The probe failed on the server: \(line)"))
@@ -87,8 +79,29 @@ enum RemoteProbe {
         if let found = lines.first(where: { $0.hasPrefix("PROBE_FOUND=") }) {
             return Report(found: String(found.dropFirst("PROBE_FOUND=".count)), os: os)
         }
+        // A Codex routed through a proxy has no login to find, and needs none.
+        if host.kind == .codex,
+           case let config = try reach(host, "cat ~/.codex/config.toml", run: run), config.exitCode == 0,
+           let proxy = CodexRemoteCredentials.Proxy(configTOML: String(decoding: config.stdout, as: UTF8.self)),
+           !proxy.requiresOpenAIAuth {
+            return Report(found: proxy.name, os: os)
+        }
         let checked = host.kind.credentialChecks.map(\.displayPath).joined(separator: ", ")
         throw Failure(message: L10n.t("Connected to \(host.destination) (\(os.displayName)) but found no \(host.kind.displayName) token. Looked in: \(checked). Sign in on the server first — `ssh \(host.destination)`, then run `\(host.kind.signInCommand)`."))
+    }
+
+    /// One SSH call, its timeout and transport failures worded as a `Failure`.
+    private static func reach(_ host: RemoteHost, _ command: String, run: RemoteSSH.Runner) throws -> RemoteSSH.CommandResult {
+        let result: RemoteSSH.CommandResult
+        do {
+            result = try run(host, command)
+        } catch is RemoteSSH.TimeoutError {
+            throw Failure(message: L10n.t("SSH to \(host.destination) timed out after \(Int(RemoteSSH.timeout))s — the server may be down, the port wrong, or a firewall in the way."))
+        }
+        if RemoteSSH.isTransportFailure(result) {
+            throw Failure(message: transportMessage(host: host, stderr: result.stderr))
+        }
+        return result
     }
 
     /// ssh's one line, translated into what to do. Each cause has exactly one

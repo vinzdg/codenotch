@@ -71,7 +71,7 @@ Design spec in [`docs/specs/2026-08-28-usage-notch-design.md`](docs/specs/2026-0
 - [x] **Cursor** via the same route, pinned by `CursorUsageTests`
 - [x] Cursor's glyph, flattened from its own SVG rather than traced from the
       design frame — exact at any size. See "Flattening an SVG" below
-- [ ] `ManualProvider` — user-declared limits, app-side counter
+- [x] `ManualProvider` — user-declared limits, app-side counter
 - [x] Refresh on a timer and on wake — 60s while a session is running, 5 min when
       nothing is. Usage cannot move while nothing is using it, so polling hard
       through a quiet afternoon only spends rate-limit budget
@@ -621,7 +621,7 @@ and the tooltip header is dated.
       contributes one per `~/.claude-<slug>` — so anything the stored order has
       never seen is appended rather than dropped, and an id whose directory is
       gone keeps its place instead of being pruned
-- [ ] Plan ceilings, auto-hide
+- [x] Plan ceilings, auto-hide
 
 ### Accounts in settings
 
@@ -856,7 +856,7 @@ hundredths of a point wide; that is a fact about arcs, not a bug.
 
 ## M6 — Polish
 - [x] Threshold notifications (80% / 100%), per-provider mute (`ThresholdNotifier`)
-- [ ] Auto-hide: never / on fullscreen / on overlap
+- [x] Auto-hide: never / on fullscreen / on overlap
 - [x] Multi-display follow + unplug handling (`NotchFleet`)
 - [x] Reduced-motion / reduced-transparency — `NotchMotion` respects reduce-motion, and reduced transparency is handled across settings and notch surfaces
 - [ ] App icon, final name, README screenshots
@@ -1944,7 +1944,7 @@ nevertheless stale:
 - [ ] Final app name (`Codenotch` is a placeholder)
 - [x] ~~Which service is the third glyph in the mockup?~~ Perplexity — its mark,
       traced off the frame, matches. Wired up as `ProviderGlyph.third`.
-- [ ] Plan ceilings: configured by hand, or inferred from observed peak usage?
+- [x] Plan ceilings: hybrid approach — auto-inferred from observed peak usage with manual override in Settings.
 - [x] ~~Are web-session adapters (ChatGPT et al.) in scope for v1, accepting the fragility?~~
       Decided: **Out of scope.** Scraping ChatGPT web sessions or building a WKWebView
       adapter is rejected due to Cloudflare/Turnstile bot defenses, rapid token churn,

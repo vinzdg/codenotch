@@ -72,14 +72,21 @@ extension LimitWindow {
 }
 
 extension ProviderSnapshot {
-    /// The most urgent burn deficit across every timed window, in points.
+    /// The burn deficit of the window leading the ring, in points.
     ///
-    /// The max, not the headline: a weekly allowance expiring in 23h is
-    /// urgent even where the 5-hour session beside it is comfortable, and
-    /// sorting by the headline alone would bury it. Nil when no window
-    /// carries a clock — nothing timed, nothing to burn down.
-    func maxBurnDeficit(now: Date) -> Double? {
-        windows.compactMap { $0.burnDeficitPoints(now: now) }.max()
+    /// The headline's figure, not the max across windows: the lead is the
+    /// user's main percentage — the weekly limit where that is switched
+    /// on, the 5-hour (or primary) window otherwise — so a weekly-led
+    /// ring orders by its weekly deficit and a session-led one by its
+    /// session deficit, exactly as most-remaining reads the same lead.
+    /// Taking the max let the window the user did not choose decide the
+    /// order: a comfortable 5-hour number on the ring, ranked by a week
+    /// they had deliberately put second. Nil when the leading window
+    /// carries no clock — nothing timed, nothing to burn down. Claude's
+    /// daily pace ring is that case: it *is* a pace, with no cycle of its
+    /// own to measure against.
+    func headlineBurnDeficit(now: Date) -> Double? {
+        headline?.burnDeficitPoints(now: now)
     }
 }
 

@@ -15,9 +15,10 @@ import os
 /// Credits (`?format=credits`) is the weekly Grok Build allowance, and the only
 /// number this endpoint actually states.
 actor GrokLocalProvider: UsageProvider {
-    nonisolated let id = "grok"
-    nonisolated let displayName = "Grok"
+    nonisolated let id: String
+    nonisolated let displayName: String
     nonisolated let glyph = ProviderGlyph.grok
+    nonisolated let profile: GrokProfile
 
     private let creditsURL = URL(string: "https://cli-chat-proxy.grok.com/v1/billing?format=credits")!
     private let session: URLSession
@@ -28,16 +29,27 @@ actor GrokLocalProvider: UsageProvider {
     /// the old one must not outlive that.
     private var renewed: (accessToken: String, expiresAt: Date, from: String)?
 
-    init(session: URLSession = .shared, authURL: URL = GrokCredentials.authURL) {
+    init(profile: GrokProfile = .default(),
+         session: URLSession = .shared,
+         authURL: URL? = nil) {
+        self.profile = profile
+        self.id = profile.id
+        self.displayName = profile.displayName
         self.session = session
-        self.authURL = authURL
+        self.authURL = authURL ?? profile.authURL
     }
 
     nonisolated var signInRoute: SignInRoute {
+        guard profile.slug != nil else { return defaultSignInRoute }
+        return .command(profile.signInCommand, name: displayName,
+                        install: URL(string: "https://docs.x.ai/build/overview"))
+    }
+
+    nonisolated private var defaultSignInRoute: SignInRoute {
         .command("grok login", name: "Grok", install: URL(string: "https://docs.x.ai/build/overview"))
     }
 
-    nonisolated func account() -> ProviderAccount? { GrokCredentials.account() }
+    nonisolated func account() -> ProviderAccount? { GrokCredentials.account(from: authURL, source: profile.sourceName) }
 
     func fetchSnapshot() async throws -> ProviderSnapshot {
         let credentials = try GrokCredentials.load(from: authURL)

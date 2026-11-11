@@ -482,6 +482,28 @@ final class ClaudeAccountNameTests: XCTestCase {
         XCTAssertEqual(names, ["claude": "Claude"])
     }
 
+    /// Claude Desktop signed in to a second account that has no ring: the lone
+    /// ring is no longer the only Claude account on the Mac, so it says which
+    /// one it is (#509).
+    func testALoneAccountBesideAnotherInUseIsNamed() throws {
+        let home = try home(default: "paulo@gmail.com")
+        let profiles = [ClaudeProfile.default(home: home)]
+
+        let names = ClaudeProfile.displayNames(for: profiles, anotherAccountInUse: true)
+
+        XCTAssertEqual(names, ["claude": "Claude Gmail"])
+    }
+
+    /// With no address to name it by, it is still called something.
+    func testALoneAccountWithNoAddressStaysClaude() throws {
+        let home = try home()
+        let profiles = [ClaudeProfile.default(home: home)]
+
+        let names = ClaudeProfile.displayNames(for: profiles, anotherAccountInUse: true)
+
+        XCTAssertEqual(names, ["claude": "Claude"])
+    }
+
     // MARK: - Two accounts that would be called the same thing
 
     /// Two gmail logins would both derive `Claude Gmail`, which is worse than

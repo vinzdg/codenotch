@@ -20,7 +20,8 @@ enum KiroLimits {
         var hasUnseparatedBonus: Bool
     }
 
-    /// macOS default is `~/Library/Application Support/kiro-cli/data.sqlite3`.
+    /// macOS default is `~/Library/Application Support/kiro-cli/data.sqlite3`
+    /// or `~/.local/share/kiro-cli/data.sqlite3`.
     /// `KIRO_DATA_DIR` replaces that directory when it is set.
     static func stateDatabaseURL(
         home: URL? = nil,
@@ -31,17 +32,33 @@ enum KiroLimits {
                 .appendingPathComponent("data.sqlite3")
         }
         let home = home ?? FileManager.default.homeDirectoryForCurrentUser
-        return home
-            .appendingPathComponent("Library/Application Support/kiro-cli/data.sqlite3")
+        let candidates = [
+            home.appendingPathComponent("Library/Application Support/kiro-cli/data.sqlite3"),
+            home.appendingPathComponent(".local/share/kiro-cli/data.sqlite3"),
+            home.appendingPathComponent(".config/kiro-cli/data.sqlite3")
+        ]
+        return candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) })
+            ?? candidates[0]
     }
 
     static func loadAccessToken(from database: URL) -> String? {
-        jsonValue(
-            from: database,
-            table: "auth_kv",
-            key: "kirocli:odic:token",
-            fields: ["access_token", "accessToken"]
-        )
+        let keys = [
+            "kirocli:odic:token",
+            "kirocli:social:token",
+            "kirocli:external-idp:token"
+        ]
+        let fields = ["access_token", "accessToken", "token"]
+        for key in keys {
+            if let token = jsonValue(
+                from: database,
+                table: "auth_kv",
+                key: key,
+                fields: fields
+            ) {
+                return token
+            }
+        }
+        return nil
     }
 
     static func loadProfileARN(from database: URL) -> String? {

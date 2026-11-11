@@ -54,4 +54,58 @@ final class CostTests: XCTestCase {
         XCTAssertNotEqual(model.range, .allTime)
         UserDefaults.standard.removeObject(forKey: "costRange")
     }
+
+    // MARK: Reading gate
+
+    private func usage(_ fraction: Double, id: String = "claude") -> ProviderSnapshot {
+        ProviderSnapshot(id: id, displayName: id, glyph: .claude, fidelity: .official, status: .ok,
+                         windows: [LimitWindow(id: "session", label: "Session", usedFraction: fraction)])
+    }
+
+    private func runtime(_ models: Int) -> ProviderSnapshot {
+        let names = (0..<models).map {
+            LocalRuntimeReading.Model(name: "m\($0)", memoryBytes: 1, contextLength: 1,
+                                      quantizationLevel: "Q4", memoryKind: .modelSize)
+        }
+        return ProviderSnapshot(id: "omlx", displayName: "oMLX", glyph: .third, fidelity: .official, status: .ok,
+                                windows: [], kind: .localRuntime, localRuntime: LocalRuntimeReading(models: names))
+    }
+
+    /// A local runtime lands once a second, and its reading may well differ.
+    /// Neither is a reason to touch the cost databases.
+    func testGateIgnoresLocalRuntimes() {
+        var gate = CostReadingGate()
+        let start = Date(timeIntervalSince1970: 1_000)
+        XCTAssertTrue(gate.admits([usage(0.1), runtime(0)], at: start))
+        for second in 1..<Int(CostReadingGate.heartbeat) {
+            XCTAssertFalse(gate.admits([usage(0.1), runtime(second % 3)],
+                                       at: start.addingTimeInterval(TimeInterval(second))))
+        }
+    }
+
+    /// Attribution is timed by when a rise is seen, so a change cannot wait.
+    func testGatePassesAChangedReadingAtOnce() {
+        var gate = CostReadingGate()
+        let start = Date(timeIntervalSince1970: 1_000)
+        XCTAssertTrue(gate.admits([usage(0.1)], at: start))
+        XCTAssertTrue(gate.admits([usage(0.2)], at: start.addingTimeInterval(1)))
+        XCTAssertTrue(gate.admits([usage(0.2), usage(0.5, id: "codex")], at: start.addingTimeInterval(2)))
+        XCTAssertTrue(gate.admits([usage(0.5, id: "codex")], at: start.addingTimeInterval(3)))
+    }
+
+    /// `currentPeriod` reads the latest sample's time, so a quiet reading still
+    /// has to be sampled now and then, counted from the last one that passed.
+    /// There is no timer behind this: whichever update comes next carries it,
+    /// and with a runtime connected that is usually the runtime's.
+    func testGateLetsAnUnchangedReadingThroughOnTheHeartbeat() {
+        var gate = CostReadingGate()
+        let start = Date(timeIntervalSince1970: 1_000)
+        XCTAssertTrue(gate.admits([usage(0.1)], at: start))
+        XCTAssertFalse(gate.admits([usage(0.1)], at: start.addingTimeInterval(CostReadingGate.heartbeat - 1)))
+        let beat = start.addingTimeInterval(CostReadingGate.heartbeat)
+        XCTAssertTrue(gate.admits([usage(0.1)], at: beat))
+        XCTAssertFalse(gate.admits([usage(0.1)], at: beat.addingTimeInterval(1)))
+        let next = beat.addingTimeInterval(CostReadingGate.heartbeat)
+        XCTAssertTrue(gate.admits([usage(0.1), runtime(1)], at: next))
+    }
 }

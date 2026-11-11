@@ -264,9 +264,33 @@ final class KiroLimitsTests: XCTestCase {
         XCTAssertThrowsError(try KiroLimits.parse(Data("not json".utf8)))
     }
 
+    /// Social login tokens (Google, GitHub, etc.) or external IdP tokens are accepted.
+    func testSocialLoginTokenIsAccepted() throws {
+        let url = try makeDatabase(
+            tokenJSON: #"{"access_token":"social-kiro-token"}"#,
+            profileJSON: #"{"arn":"\#(usARN)"}"#,
+            tokenKey: "kirocli:social:token"
+        )
+        defer { try? FileManager.default.removeItem(at: url) }
+        XCTAssertEqual(KiroLimits.loadAccessToken(from: url), "social-kiro-token")
+    }
+
+    func testStateDatabaseURLDiscoversLocalSharePath() throws {
+        let tempHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("home-\(UUID().uuidString)")
+        let localShare = tempHome.appendingPathComponent(".local/share/kiro-cli")
+        try FileManager.default.createDirectory(at: localShare, withIntermediateDirectories: true)
+        let dbFile = localShare.appendingPathComponent("data.sqlite3")
+        try Data().write(to: dbFile)
+        defer { try? FileManager.default.removeItem(at: tempHome) }
+
+        let resolved = KiroLimits.stateDatabaseURL(home: tempHome, environment: [:])
+        XCTAssertEqual(resolved.path, dbFile.path)
+    }
+
     /// Closing checkpoints the WAL, so the file reads back the way it would
     /// after kiro-cli has quit.
-    private func makeDatabase(tokenJSON: String, profileJSON: String) throws -> URL {
+    private func makeDatabase(tokenJSON: String, profileJSON: String, tokenKey: String = "kirocli:odic:token") throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("kiro-\(UUID().uuidString).sqlite3")
         var db: OpaquePointer?
@@ -276,7 +300,7 @@ final class KiroLimitsTests: XCTestCase {
             CREATE TABLE auth_kv(key TEXT PRIMARY KEY, value TEXT);
             CREATE TABLE state(key TEXT PRIMARY KEY, value TEXT);
             """, nil, nil, nil), SQLITE_OK)
-        insert(db, table: "auth_kv", key: "kirocli:odic:token", value: tokenJSON)
+        insert(db, table: "auth_kv", key: tokenKey, value: tokenJSON)
         insert(db, table: "state", key: "api.codewhisperer.profile", value: profileJSON)
         sqlite3_close(db)
         return url

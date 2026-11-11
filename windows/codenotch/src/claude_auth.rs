@@ -1,11 +1,14 @@
 //! User-initiated sign-in through the standalone Claude Code CLI. OAuth stays in
 //! the CLI: no codes, tokens, browser URLs or credential writes cross widget IPC.
 use serde::Serialize;
-use std::{process::{Child, Command}, sync::{atomic::{AtomicBool, Ordering}, Mutex}, time::{Duration, Instant}};
+use std::{process::{Child, Command}, sync::{atomic::{AtomicBool, AtomicU64, Ordering}, Mutex}, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 
 static BUSY: AtomicBool = AtomicBool::new(false);
 static MESSAGE: Mutex<String> = Mutex::new(String::new());
 static PROFILE_ID: Mutex<Option<String>> = Mutex::new(None);
+/// When the running sign-in is given up on, in ms since the epoch; 0 when none is running.
+static DEADLINE: AtomicU64 = AtomicU64::new(0);
+const LOGIN_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
 /// The lock guards one short line of status text. A panic while it is held would
 /// poison it and take the whole card down with `unwrap`, which is a steep price
@@ -15,14 +18,14 @@ fn message() -> std::sync::MutexGuard<'static, String> {
 }
 
 #[derive(Serialize)]
-pub struct AuthState { pub busy: bool, pub message: String, pub profile_id: Option<String> }
+pub struct AuthState { pub busy: bool, pub message: String, pub profile_id: Option<String>, pub deadline: u64 }
 
 pub fn state() -> AuthState {
     // Do not hold the message mutex while acquiring the profile mutex: usage
     // acknowledgement holds the profile while clearing the corresponding line.
     let status_message = message().clone();
     let profile_id = PROFILE_ID.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    AuthState { busy: BUSY.load(Ordering::Acquire), message: status_message, profile_id }
+    AuthState { busy: BUSY.load(Ordering::Acquire), message: status_message, profile_id, deadline: DEADLINE.load(Ordering::Acquire) }
 }
 
 /// Shared with background renewal so the two native clients cannot rotate the
@@ -150,18 +153,29 @@ pub fn start_login() -> Result<(), String> {
 }
 
 pub fn start_profile_login(profile_dir: &std::path::Path, profile_id: &str) -> Result<(), String> {
+    start_profile_login_within(profile_dir, profile_id, LOGIN_TIMEOUT, |_| {})
+}
+
+/// `ended` runs once the sign-in window has closed or been given up on, before another sign-in
+/// can start, with whether the CLI reported success.
+pub fn start_profile_login_within(profile_dir: &std::path::Path, profile_id: &str, timeout: Duration,
+    ended: impl FnOnce(bool) + Send + 'static) -> Result<(), String> {
     let cli = crate::usage::find_cli().ok_or("Claude Code CLI not found. Install the standalone CLI first.")?;
     let guard = try_acquire().ok_or("Claude sign-in or renewal is already running.")?;
     let mut cmd = login_command(&cli, profile_dir)?;
     let mut child = cmd.spawn().map_err(|_| "Unable to open Claude sign-in window.")?;
     *PROFILE_ID.lock().unwrap_or_else(|e| e.into_inner()) = Some(profile_id.to_string());
     *message() = "Complete sign-in in the browser or terminal window.".into();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    DEADLINE.store((now + timeout).as_millis() as u64, Ordering::Release);
     let profile_id = profile_id.to_string();
     std::thread::spawn(move || {
-        let ok = wait_child(&mut child, Duration::from_secs(15 * 60));
+        let ok = wait_child(&mut child, timeout);
         *message() = if ok { "Sign-in complete. Refreshing usage..." } else {
             "Sign-in cancelled, failed or timed out. Try again."
         }.into();
+        DEADLINE.store(0, Ordering::Release);
+        ended(ok);
         drop(guard);
         if ok { crate::usage::request_account_refresh(&profile_id); }
     });

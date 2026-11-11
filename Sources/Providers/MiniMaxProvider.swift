@@ -11,9 +11,10 @@ import os
 /// (404/405) or the body is not remains JSON — a 401 is a dead key, not a
 /// hint to try the other product.
 ///
-/// A pay-as-you-go `sk-api-` key is not a Coding Plan token: MiniMax will
-/// not meter it on these endpoints, so it is skipped and a cookie session
-/// is used instead.
+/// A pay-as-you-go `sk-api-` key is not a Coding Plan token on the
+/// international hosts, so it is skipped there and a cookie session is used
+/// instead. China's Token Plan host has metered an `sk-api-` key (#516), so
+/// there it is tried, and a refusal falls back to the session as before.
 ///
 /// The numbers from a key are MiniMax's, so that path is `.official`. A
 /// cookie is the same JSON the console paints, read with a session this
@@ -115,14 +116,14 @@ actor MiniMaxProvider: UsageProvider {
         }
 
         let region = resolveRegion()
-        let apiKey = Self.codingPlanToken(from: loadAPIKey())
+        let apiKey = Self.codingPlanToken(from: loadAPIKey(), region: region)
         let cookie = loadCookieHeader()
 
         do {
             let data: Data
             let fidelity: Fidelity
-            if let apiKey {
-                data = try await fetchOfficialRemains(token: apiKey, region: region)
+            if let apiKey, let keyData = try await fetchKeyRemains(token: apiKey, region: region) {
+                data = keyData
                 fidelity = .official
             } else if let cookie {
                 data = try await fetchCookieRemains(cookie: cookie, region: region)
@@ -166,6 +167,21 @@ actor MiniMaxProvider: UsageProvider {
             throw UsageProviderError.rateLimited(
                 retryAfter: Self.backoff(forAttempt: consecutiveRateLimits, retryAfter: nil)
             )
+        }
+    }
+
+    /// `nil` when MiniMax refuses an `sk-api-` key, so the cookie or WebView is
+    /// asked exactly as it was when that key was skipped. Nothing says such a
+    /// key was meant for a plan: `MINIMAX_API_KEY` is often a pay-as-you-go key
+    /// exported for other tools. A throttle is not a refusal and still backs off.
+    private func fetchKeyRemains(token: String, region: MiniMaxRegion) async throws -> Data? {
+        do {
+            return try await fetchOfficialRemains(token: token, region: region)
+        } catch UsageProviderError.rateLimited(let retryAfter) {
+            throw UsageProviderError.rateLimited(retryAfter: retryAfter)
+        } catch let error as UsageProviderError where Self.hasPayAsYouGoPrefix(token) {
+            Log.usage.notice("minimax: sk-api key not metered (\(String(describing: error), privacy: .public)), using the session instead")
+            return nil
         }
     }
 
@@ -354,9 +370,11 @@ actor MiniMaxProvider: UsageProvider {
         return false
     }
 
-    /// Pay-as-you-go `sk-api-` keys cannot query coding-plan remains.
-    /// `sk-cp-` and any unrecognised prefix still can.
-    static func codingPlanToken(from apiKey: String?) -> String? {
+    /// Pay-as-you-go `sk-api-` keys cannot query the international remains
+    /// endpoints. On China, MiniMax's Token Plan endpoint has answered one with
+    /// real remains (#516), so it is kept and `fetchKeyRemains` decides.
+    /// `sk-cp-` and any unrecognised prefix are kept in both regions.
+    static func codingPlanToken(from apiKey: String?, region: MiniMaxRegion) -> String? {
         guard var raw = apiKey?.trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty
         else { return nil }
@@ -364,8 +382,12 @@ actor MiniMaxProvider: UsageProvider {
             raw = String(raw.dropFirst(7)).trimmingCharacters(in: .whitespacesAndNewlines)
         }
         guard !raw.isEmpty else { return nil }
-        if raw.lowercased().hasPrefix("sk-api-") { return nil }
+        if region == .international, hasPayAsYouGoPrefix(raw) { return nil }
         return raw
+    }
+
+    static func hasPayAsYouGoPrefix(_ token: String) -> Bool {
+        token.lowercased().hasPrefix("sk-api-")
     }
 
     private static func envelopeStatus(in data: Data) -> Int? {

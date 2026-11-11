@@ -102,7 +102,7 @@ wire-level details.
 | **OpenCode** | official | The Go plan's official usage endpoint, with the `opencode-go` key OpenCode itself stores on sign-in. |
 | **Command Code** | official | The GOAT plan's `/alpha` billing endpoints, with the key the Command Code app writes to `~/.commandcode/auth.json`. Further accounts are read from `~/.commandcode-<slug>` homes. |
 | **GitHub Copilot** | official | GitHub's Copilot quota endpoint, authenticated with the GitHub CLI session already on the Mac (`gh auth login`). |
-| **Kimi** | official | The Kimi Code CLI session in `~/.kimi-code/credentials/kimi-code.json`, against the same `/usages` endpoint the CLI's `/usage` asks. Shows the 5-hour rate window and the weekly quota. |
+| **Kimi** | official | The Kimi Code CLI session in `~/.kimi-code/credentials/kimi-code.json`, against the same `/usages` endpoint the CLI's `/usage` asks. Shows the 5-hour rate window and the weekly or monthly quotas available on the account. |
 | **Kiro** | official | The kiro-cli session already on this Mac, against the same `/usage` that command prints. Shows monthly credits. |
 | **Amp** | official subscription percentages; derived free-allowance percentage | The Amp CLI login in `~/.local/share/amp/secrets.json`, against Amp's `userDisplayBalanceInfo` endpoint. Shows Agent and Orb usage, or the Free allowance and replenishment rate. See [Amp details](docs/providers/amp.md). |
 | **Apify** | official | The `apify login` session already on this Mac (`~/.apify/auth.json`, or the token the CLI keeps in the keychain), or a token pasted in Settings or exported as `APIFY_TOKEN`, against the `/v2/users/me/limits` endpoint the Console's Billing page draws from. Shows this cycle's platform spend against the account's monthly usage limit. See [Apify details](docs/providers/apify.md). |
@@ -178,6 +178,16 @@ personal one, with its own limits, its own sessions and its own row in Settings.
 Any `~/.claude-<slug>` directory Claude Code has run against is found at launch;
 the default `~/.claude` always comes first, the rest in alphabetical order, so the
 rings never swap places.
+
+An account you only use in the Claude desktop app has no directory of its own,
+so it has no ring yet. While one is in use, the ring that is shown is named for
+its own account (**Claude Gmail**, not just **Claude**), so you can tell which
+one it is. To give the desktop account a ring, sign in to it once from Terminal
+and restart Codenotch:
+
+```sh
+CLAUDE_CONFIG_DIR=~/.claude-desktop claude
+```
 
 Codex accounts work the same way: `~/.codex` stays the **Codex** ring, and each
 used `~/.codex-<slug>` directory adds a **Codex (slug)** ring with its own limits,

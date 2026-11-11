@@ -30,7 +30,13 @@ struct GrokBotReading {
         let limitCents: Double
     }
 
-    var isExpired: Bool { expiresAt.map { $0 <= Date() } ?? false }
+    /// Past Grok Bot's own expiry, or past the reset it names: Grok Bot can run
+    /// for hours after a reset without rewriting the cache, and a reading of a
+    /// week that is over is not the present truth either.
+    var isExpired: Bool {
+        let now = Date()
+        return (expiresAt.map { $0 <= now } ?? false) || (resetsAt.map { $0 <= now } ?? false)
+    }
 }
 
 enum GrokBotCache {
@@ -77,9 +83,11 @@ enum GrokBotCache {
                   key.hasSuffix(weeklyUsageSuffix),
                   key.hasPrefix("sand.client.slice.account.")
             else { return nil }
-            let slot = key.dropFirst("sand.client.slice.account.".count)
-                .dropLast(weeklyUsageSuffix.count)
-            return (String(slot), url)
+            let slot = String(key.dropFirst("sand.client.slice.account.".count)
+                .dropLast(weeklyUsageSuffix.count))
+            // The key spells the slot URL-encoded (`auth0%7Cuser_…`); the slot
+            // blob names it plainly (`auth0|user_…`).
+            return (slot.removingPercentEncoding ?? slot, url)
         }
         guard !caches.isEmpty else { throw UsageProviderError.needsAuth }
 

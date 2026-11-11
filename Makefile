@@ -26,7 +26,13 @@ DEST    ?= platform=macOS,arch=$(ARCH)
 # nothing, so `ifeq (,...)` was never true and a machine *without* the
 # certificate fell through to signing with an identity it does not have —
 # "Signing for Codenotch requires a development team", on every target.
-HAS_DEVELOPER_ID := $(shell security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application")
+#
+# Match the team project.yml signs with, not any Developer ID: a contributor
+# with a Developer ID of their own was taken for the maintainer and the build
+# failed looking for a certificate of the maintainer's team. A Developer ID's
+# bracketed CN value is the Team ID.
+SIGNING_TEAM := $(shell sed -n 's/^ *DEVELOPMENT_TEAM: *//p' project.yml | head -1)
+HAS_DEVELOPER_ID := $(shell security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application: .*($(SIGNING_TEAM))")
 
 # A personal "Apple Development" certificate, where there is one, is preferred
 # over ad-hoc for exactly the reason the maintainer's identity is: it is

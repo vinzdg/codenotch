@@ -10,7 +10,7 @@ final class BusyWaveTests: XCTestCase {
         .claude, .devin, .openai, .third, .cursor, .antigravity, .geminiSpark,
         .glm, .qwen, .gemma, .meta, .deepseek, .mistral, .grok, .grokbot, .opencode,
         .commandcode, .copilot, .kimi, .kilo, .kiro, .amp, .apify, .minimax,
-        .ollama, .ollamaLocal, .lmstudio, .omlx, .llamaCpp, .qoder, .qianwenAI,
+        .ollama, .ollamaLocal, .lmstudio, .omlx, .llamaCpp, .qoder, .qianwenAI, .higgsfield, .krea,
     ]
 
     func testEveryGlyphHasAnOpaqueBrandColour() {

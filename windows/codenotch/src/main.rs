@@ -2255,7 +2255,7 @@ fn main() {
             get_claude_auth,
             claude_accounts::get_claude_accounts,
             claude_accounts::add_claude_account,
-            claude_accounts::update_claude_account,
+            claude_accounts::set_claude_account_enabled,
             claude_accounts::connect_claude_account,
             taskbar::get_taskbar_options,
             taskbar::set_taskbar_options,

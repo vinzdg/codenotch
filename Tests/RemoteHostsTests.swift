@@ -270,6 +270,136 @@ final class CodexRemoteCredentialsTests: XCTestCase {
         }
     }
 
+    private let proxyConfig = """
+    model = "gpt-5.5"
+    model_provider = "cliproxy"
+
+    [model_providers.cliproxy] # on this machine
+    name = "CLIProxy"
+    base_url = "http://127.0.0.1:8317/v1" # pooled logins
+    wire_api = "responses"
+    requires_openai_auth = false
+
+    [model_providers.cliproxy.auth]
+    command = "/usr/bin/python3"
+    """
+
+    func testAProxiedCodexSaysSoInsteadOfAskingForALogin() {
+        XCTAssertThrowsError(
+            try CodexRemoteCredentials.load(from: remoteHost(kind: .codex)) { [proxyConfig] _, command in
+                command == "cat ~/.codex/config.toml"
+                    ? Result(exitCode: 0, stdout: Data(proxyConfig.utf8), stderr: "")
+                    : Result(exitCode: 1, stdout: Data(), stderr: "No such file\n")
+            }
+        ) { error in
+            guard case UsageProviderError.nothingMetered(let why) = error else {
+                return XCTFail("wrong error: \(error)")
+            }
+            XCTAssertTrue(why.contains("CLIProxy"), why)
+            XCTAssertTrue(why.contains("http://127.0.0.1:8317"), why)
+            XCTAssertFalse(why.contains("/v1"), why)
+        }
+    }
+
+    func testAnAPIKeyFileIsReadAsAProxyToo() {
+        XCTAssertThrowsError(
+            try CodexRemoteCredentials.load(from: remoteHost(kind: .codex)) { [proxyConfig] _, command in
+                command == "cat ~/.codex/config.toml"
+                    ? Result(exitCode: 0, stdout: Data(proxyConfig.utf8), stderr: "")
+                    : Result(exitCode: 0, stdout: Data(#"{"OPENAI_API_KEY":"sk-proxy"}"#.utf8), stderr: "")
+            }
+        ) { error in
+            guard case UsageProviderError.nothingMetered = error else {
+                return XCTFail("wrong error: \(error)")
+            }
+        }
+    }
+
+    func testAGatewayThatTakesTheLoginStillAsksForOne() {
+        let gateway = """
+        model_provider = "gw"
+        [model_providers.gw]
+        base_url = "https://gateway.example/v1"
+        requires_openai_auth = true
+        """
+        XCTAssertThrowsError(
+            try CodexRemoteCredentials.load(from: remoteHost(kind: .codex)) { _, command in
+                command == "cat ~/.codex/config.toml"
+                    ? Result(exitCode: 0, stdout: Data(gateway.utf8), stderr: "")
+                    : Result(exitCode: 0, stdout: Data("{}".utf8), stderr: "")
+            }
+        ) { error in
+            guard case UsageProviderError.needsAuth = error else {
+                return XCTFail("wrong error: \(error)")
+            }
+        }
+        XCTAssertThrowsError(
+            try CodexRemoteCredentials.load(from: remoteHost(kind: .codex)) { _, command in
+                command == "cat ~/.codex/config.toml"
+                    ? Result(exitCode: 0, stdout: Data(gateway.utf8), stderr: "")
+                    : Result(exitCode: 0, stdout: Data(#"{"OPENAI_API_KEY":"sk-gw"}"#.utf8), stderr: "")
+            }
+        ) { error in
+            guard case UsageProviderError.nothingMetered = error else {
+                return XCTFail("wrong error: \(error)")
+            }
+        }
+    }
+
+    func testAConfigReadThatFailsInTransitIsNotALogout() {
+        XCTAssertThrowsError(
+            try CodexRemoteCredentials.load(from: remoteHost(kind: .codex)) { _, command in
+                command == "cat ~/.codex/config.toml"
+                    ? Result(exitCode: 255, stdout: Data(), stderr: "Connection reset\n")
+                    : Result(exitCode: 1, stdout: Data(), stderr: "No such file\n")
+            }
+        ) { error in
+            guard case UsageProviderError.apiError(let name) = error else {
+                return XCTFail("wrong error: \(error)")
+            }
+            XCTAssertTrue(name.contains("Connection reset"), name)
+        }
+    }
+
+    func testProxyDetectionLeavesOpenAIsOwnLoginAlone() {
+        XCTAssertNotNil(CodexRemoteCredentials.Proxy(configTOML: proxyConfig))
+        XCTAssertEqual(CodexRemoteCredentials.Proxy(configTOML: """
+        model_provider = "p"
+        [model_providers.p]
+        base_url = "https://user:secret@proxy.example:8443/v1?api_key=k"
+        """)?.baseURL, "https://proxy.example:8443")
+        XCTAssertEqual(CodexRemoteCredentials.Proxy(configTOML: """
+        "model_provider" = "p"
+        [model_providers.p]
+        "base_url" = "http://gw:9000"
+        "requires_openai_auth" = true
+        """)?.requiresOpenAIAuth, true)
+        XCTAssertNil(CodexRemoteCredentials.Proxy(configTOML: """
+        developer_instructions = '''
+        model_provider = "p"
+        [model_providers.p]
+        base_url = "https://proxy.example"
+        '''
+        """))
+        XCTAssertNil(CodexRemoteCredentials.Proxy(configTOML: "model = \"gpt-5.5\"\n"))
+        XCTAssertNil(CodexRemoteCredentials.Proxy(configTOML: "model_provider = \"openai\"\n"))
+        XCTAssertNil(CodexRemoteCredentials.Proxy(configTOML: """
+        model_provider = "p"
+        profile = "work"
+        [model_providers.p]
+        base_url = "https://proxy.example"
+        [profiles.work]
+        model_provider = "openai"
+        """))
+        XCTAssertEqual(CodexRemoteCredentials.Proxy(configTOML: """
+        profile = "gw"
+        [profiles."gw"]
+        model_provider = "p"
+        [model_providers."p"]
+        base_url = "https://proxy.example"
+        """)?.name, "p")
+    }
+
     func testTransportFailureKeepsTheReading() {
         XCTAssertThrowsError(
             try CodexRemoteCredentials.load(from: remoteHost(kind: .codex)) { _, _ in
@@ -357,6 +487,34 @@ final class RemoteProbeTests: XCTestCase {
             XCTAssertTrue(failure.message.contains("Linux"), failure.message)
             XCTAssertTrue(failure.message.contains("~/.claude/.credentials.json"), failure.message)
             XCTAssertTrue(failure.message.contains("claude"), failure.message)
+        }
+    }
+
+    func testAProxiedCodexPassesTheProbeWithoutALogin() throws {
+        let config = """
+        model_provider = "cliproxy"
+        [model_providers.cliproxy]
+        name = "CLIProxy"
+        base_url = "http://127.0.0.1:8317/v1"
+        """
+        let report = try RemoteProbe.check(host: remoteHost(kind: .codex)) { _, command in
+            command == "cat ~/.codex/config.toml"
+                ? RemoteSSH.CommandResult(exitCode: 0, stdout: Data(config.utf8), stderr: "")
+                : self.output("PROBE_OS=Linux\n")
+        }
+        XCTAssertEqual(report.found, "CLIProxy")
+    }
+
+    func testAProxyCheckThatFailsInTransitSaysSo() {
+        XCTAssertThrowsError(
+            try RemoteProbe.check(host: remoteHost(kind: .codex)) { _, command in
+                command == "cat ~/.codex/config.toml"
+                    ? Result(exitCode: 255, stdout: Data(), stderr: "Connection refused\n")
+                    : self.output("PROBE_OS=Linux\n")
+            }
+        ) { error in
+            let message = (error as? RemoteProbe.Failure)?.message ?? ""
+            XCTAssertTrue(message.contains("Nothing is listening"), message)
         }
     }
 
@@ -457,6 +615,16 @@ final class ClaudeRemoteProviderTests: XCTestCase {
         XCTAssertEqual(snapshot.plan, "max")
         XCTAssertEqual(RemoteClaudeEndpoint.requestCount, 1)
         XCTAssertEqual(RemoteClaudeEndpoint.bearers, ["remote-token"])
+    }
+
+    func testReusesAReadingInsteadOfAskingEveryTick() async throws {
+        let current = usage.replacingOccurrences(of: "2026-", with: "2099-")
+        let provider = makeProvider(answers: [(200, current), (429, "")])
+        let first = try await provider.fetchSnapshot()
+        let second = try await provider.fetchSnapshot()
+        XCTAssertEqual(second.headlineText, first.headlineText)
+        XCTAssertEqual(RemoteClaudeEndpoint.requestCount, 1,
+                       "a tick inside the allowance must not reach the endpoint")
     }
 
     func testUnauthorizedReReadsOnceThenNeedsAuth() async throws {
@@ -698,6 +866,30 @@ final class CodexRemoteProviderTests: XCTestCase {
         XCTAssertEqual(snapshot.displayName, "Hetzner")
         XCTAssertEqual(snapshot.headlineText, "25%")
         XCTAssertEqual(snapshot.weeklyFraction ?? -1, 0.10, accuracy: 0.0001)
+    }
+
+    func testAProxiedHostIsNotAskedAgainEveryTick() async throws {
+        var commands: [String] = []
+        let config = "model_provider = \"cliproxy\"\n[model_providers.cliproxy]\nbase_url = \"http://127.0.0.1:8317/v1\"\n"
+        let provider = makeProvider(answers: []) { _, command in
+            commands.append(command)
+            return command.hasSuffix("config.toml")
+                ? Result(exitCode: 0, stdout: Data(config.utf8), stderr: "")
+                : Result(exitCode: 1, stdout: Data(), stderr: "No such file\n")
+        }
+        for _ in 0..<2 {
+            do {
+                _ = try await provider.fetchSnapshot()
+                XCTFail("expected nothingMetered")
+            } catch UsageProviderError.nothingMetered(let why) {
+                XCTAssertTrue(why.contains("cliproxy"), why)
+            } catch {
+                XCTFail("wrong error: \(error)")
+            }
+        }
+        XCTAssertEqual(commands.count, 2, "the second tick reuses the finding: \(commands)")
+        _ = try? await provider.fetchSnapshot(freshness: .fromSource)
+        XCTAssertEqual(commands.count, 4, "Refresh now looks again: \(commands)")
     }
 
     func testUnauthorizedReReadsOnceThenNeedsAuth() async throws {
