@@ -304,6 +304,10 @@ pub fn label(name: &str, lang: &str) -> String {
         ("ko", "Premium requests") => "프리미엄 요청",
         ("ko", "Chat requests") => "채팅 요청",
         ("ko", "Completions") => "코드 완성",
+        ("ko", "Plan usage") => "요금제 사용량",
+        ("ko", "Total usage") => "총 사용량",
+        ("ko", "Add-on credits") => "추가 크레딧",
+        ("ko", "Organization package") => "조직 패키지",
         _ => name,
     };
     translated.into()

@@ -218,7 +218,7 @@ pub fn tr(lang: &str, key: &str) -> &'static str {
         ("ko", "lang_auto") => "시스템 따르기",
         ("ko", "reset_pos") => "바 위치 초기화",
         ("ko", "quit") => "종료",
-        ("ko", "hooks_missing") => "후크 미설치: 트레이 우클릭 → 후크 설치 (데스크톱판은 자동 폴백)",
+        ("ko", "hooks_missing") => "후크 미설치: 트레이 우클릭 → Claude Code 후크 설치 (데스크톱 앱은 대체 방식을 자동으로 사용 중)",
         ("ru", "install") => "Установить хуки Claude Code",
         ("uk", "install") => "Встановити хуки Claude Code",
         ("ru", "uninstall") => "Удалить хуки",
