@@ -393,7 +393,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "미사용 리셋 (캐시)"
+            "value": "미사용 재설정 (캐시)"
           }
         }
       }
@@ -35159,7 +35159,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "미사용 리셋"
+            "value": "미사용 재설정"
           }
         },
         "uz": {
@@ -35230,7 +35230,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "미사용 리셋 없음"
+            "value": "미사용 재설정 없음"
           }
         },
         "uz": {
@@ -35301,7 +35301,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "미사용 리셋 1개"
+            "value": "미사용 재설정 1회"
           }
         },
         "uz": {
@@ -35372,7 +35372,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "미사용 리셋 %lld개"
+            "value": "미사용 재설정 %lld회"
           }
         },
         "uz": {
@@ -49471,7 +49471,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codex 세션을 파일 전체 대신 끝부분에서 읽고 Codex 카드에서 비어 있는 재설정 크레딧 영역을 숨깁니다. Windows에서 Claude 토큰 갱신이 실패해도 카드가 멈추지 않고 재시도합니다."
+            "value": "Codex 세션을 파일 전체 대신 끝부분에서 읽고 Codex 카드에서 비어 있는 미사용 재설정 영역을 숨깁니다. Windows에서 Claude 토큰 갱신이 실패해도 카드가 멈추지 않고 재시도합니다."
           }
         },
         "id": {
@@ -52103,7 +52103,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "제목 아래에 계정 요금제를 표시하고 아직 사용하지 않은 Codex 요청 한도 리셋을 표시합니다."
+            "value": "제목 아래에 계정 요금제와 Codex의 미사용 재설정을 표시합니다."
           }
         },
         "id": {
@@ -69349,7 +69349,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude의 미사용 리셋과 더 안정적인 Desktop 측정값"
+            "value": "Claude의 미사용 재설정과 더 안정적인 Desktop 측정값"
           }
         }
       }
@@ -69390,7 +69390,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "쓰지 않은 리셋을 버리지 않고 표시하며 날짜가 정해진 지급분은 새로 고침 후에도 남습니다. Desktop 캐시를 찾는 범위에 한도를 두어, 쓸 수 없는 측정값은 계속 재시도하지 않고 간격을 두고 다시 시도합니다."
+            "value": "미사용 재설정을 버리지 않고 표시하며 날짜가 정해진 지급분은 새로 고침 후에도 남습니다. Desktop 캐시는 정해진 범위 안에서만 찾고 쓸 수 없는 측정값이 나오면 바로 재시도하지 않고 간격을 두고 다시 시도합니다."
           }
         }
       }
@@ -75961,6 +75961,600 @@
           "stringUnit": {
             "state": "translated",
             "value": "메뉴 막대에 대기 중·완료 표시"
+          }
+        }
+      }
+    },
+    "Claude sessions named by their title, a lighter cost indexer, Krea, Japanese brought up to date, and a Windows taskbar strip drawn like the notch.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 세션을 제목으로 표시하고 비용 인덱서를 가볍게 만들었습니다. Krea를 지원하고 일본어 번역을 최신 상태로 맞췄습니다. Windows 작업 표시줄의 링도 노치와 같은 모양으로 그리도록 바꿨습니다."
+          }
+        }
+      }
+    },
+    "Sessions by title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션을 제목으로 표시"
+          }
+        }
+      }
+    },
+    "Claude Code sessions carry their own title instead of the folder name.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 세션을 폴더 이름 대신 세션 제목으로 표시합니다."
+          }
+        }
+      }
+    },
+    "Lighter on big histories": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대화 기록이 많아도 가볍게 동작"
+          }
+        }
+      }
+    },
+    "The cost indexer checks each transcript far more cheaply, and costs react only when a usage reading changes.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비용 인덱서가 각 대화 기록을 훨씬 가볍게 확인합니다. 비용은 사용량 측정값이 바뀔 때만 다시 계산합니다."
+          }
+        }
+      }
+    },
+    "Krea and Xiaomi MiMo": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krea와 Xiaomi MiMo"
+          }
+        }
+      }
+    },
+    "A Krea AI ring, and a MiMo preset for Custom Endpoints.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krea AI 링과 사용자 지정 엔드포인트용 MiMo 프리셋을 추가합니다."
+          }
+        }
+      }
+    },
+    "Several Grok accounts": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여러 Grok 계정"
+          }
+        }
+      }
+    },
+    "One ring per Grok home directory.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok 홈 디렉터리마다 별도의 링을 표시합니다."
+          }
+        }
+      }
+    },
+    "日本語": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日本語"
+          }
+        }
+      }
+    },
+    "The Japanese translation is up to date.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일본어 번역을 최신 상태로 맞췄습니다."
+          }
+        }
+      }
+    },
+    "Claude plans with only weekly limits read again, the lone Claude ring is named when Claude Desktop uses another account, remote Claude readings are reused for five minutes, Kiro never sends /usage to the model, Kimi monthly quotas, MiniMax China keys, and Grok Bot readings dim past their reset. Rings in deficit sort by the soonest expiry.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "주간 한도만 있는 Claude 요금제도 다시 정상적으로 읽습니다. Claude Desktop이 다른 계정을 쓰면 하나뿐인 Claude 링에도 이름을 표시합니다. 원격 Claude 측정값은 5분 동안 다시 사용하고 Kiro는 이제 /usage를 모델에 보내지 않습니다. Kimi 월간 할당량과 MiniMax 중국 키를 지원하고 재설정 시각이 지난 Grok Bot 측정값은 흐리게 표시합니다. 소멸 위험 순으로 정렬하면 할당량이 먼저 소멸되는 링이 앞에 옵니다."
+          }
+        }
+      }
+    },
+    "Run krea auth login in Terminal, or paste a Krea API key in Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널에서 krea auth login을 실행하거나 설정에서 Krea API 키를 붙여넣으십시오"
+          }
+        }
+      }
+    },
+    "Kiro CLI rejected --agent-engine v2. Update kiro-cli to read usage.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiro CLI가 --agent-engine v2를 거부했습니다. 사용량을 읽으려면 kiro-cli를 업데이트하십시오."
+          }
+        }
+      }
+    },
+    "Krea CLI": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krea CLI"
+          }
+        }
+      }
+    },
+    "Couldn't reach Krea. Check your connection.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krea에 연결할 수 없습니다. 연결을 확인하십시오."
+          }
+        }
+      }
+    },
+    "No Krea workspaces or credits found.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krea 워크스페이스나 크레딧을 찾을 수 없습니다."
+          }
+        }
+      }
+    },
+    "No Krea credit balance reported.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krea가 크레딧 잔액을 보고하지 않았습니다."
+          }
+        }
+      }
+    },
+    "Daily (midnight)": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "매일(자정)"
+          }
+        }
+      }
+    },
+    "Weekly (Monday)": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "매주(월요일)"
+          }
+        }
+      }
+    },
+    "Monthly (1st)": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "매월(1일)"
+          }
+        }
+      }
+    },
+    "Manual reset only": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수동 재설정만"
+          }
+        }
+      }
+    },
+    "Counts usage locally against limits you declare.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "직접 정한 한도를 기준으로 사용량을 로컬에서 집계합니다."
+          }
+        }
+      }
+    },
+    "No limit set": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한도 미설정"
+          }
+        }
+      }
+    },
+    "Never": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 안 함"
+          }
+        }
+      }
+    },
+    "On full-screen": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 화면일 때"
+          }
+        }
+      }
+    },
+    "On overlap": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창이 겹칠 때"
+          }
+        }
+      }
+    },
+    "The notch stays in place even over full-screen apps or overlapping windows.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 화면 앱이나 겹치는 창 위에서도 노치를 그대로 표시합니다."
+          }
+        }
+      }
+    },
+    "The notch folds away while a full-screen app is frontmost, and returns when you leave it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 화면 앱이 맨 앞에 있으면 노치를 접고 해당 앱을 벗어나면 다시 표시합니다."
+          }
+        }
+      }
+    },
+    "The notch folds away when a full-screen app or active window overlaps its frame.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 화면 앱이나 활성 창이 노치 영역과 겹치면 노치를 접습니다."
+          }
+        }
+      }
+    },
+    "Auto with override": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동(수동 변경 가능)"
+          }
+        }
+      }
+    },
+    "Manual only": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수동만"
+          }
+        }
+      }
+    },
+    "Auto-inferred": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 추정"
+          }
+        }
+      }
+    },
+    "Infers plan ceilings from peak usage and allows a manual override.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최대 사용량으로 요금제 한도를 추정하고 직접 정한 값으로 바꿀 수 있습니다."
+          }
+        }
+      }
+    },
+    "Uses manual ceiling entries only; no inference from peak usage.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "직접 입력한 한도만 사용하며 최대 사용량으로 추정하지 않습니다."
+          }
+        }
+      }
+    },
+    "Infers plan ceilings strictly from observed peak usage.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "측정된 최대 사용량만으로 요금제 한도를 추정합니다."
+          }
+        }
+      }
+    },
+    "Expiring first": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재설정 임박 순"
+          }
+        }
+      }
+    },
+    "Sorts by which ring's main window resets soonest, so a ring resetting in 1h outranks one resetting in 5h. Rings whose main ring or weekly allowance is spent sink to the end.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "주요 집계 기간이 가장 먼저 재설정되는 링부터 정렬합니다. 1시간 후 재설정되는 링이 5시간 후 재설정되는 링보다 앞에 옵니다. 주요 링이나 주간 할당량을 모두 사용한 링은 맨 뒤로 갑니다."
+          }
+        }
+      }
+    },
+    "Plan ceilings": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요금제 한도"
+          }
+        }
+      }
+    },
+    "Ceiling calculation": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한도 계산 방식"
+          }
+        }
+      }
+    },
+    "Auto-hide": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 접기"
+          }
+        }
+      }
+    },
+    "Warning threshold": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "경고 기준"
+          }
+        }
+      }
+    },
+    "A system notification the moment a provider's headline limit crosses the warning threshold, and again at 100% — once per crossing, and again only after the window rolls over. Mute one from the bell beside its row in Accounts.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제공자의 주요 한도 사용량이 경고 기준을 넘는 순간과 100%에 도달할 때 시스템 알림을 보냅니다. 각 기준을 넘을 때 한 번씩 알리고 집계 기간이 바뀐 뒤에만 다시 알립니다. ‘계정’의 해당 항목 옆 종 아이콘으로 알림을 끌 수 있습니다."
+          }
+        }
+      }
+    },
+    "Codenotch reads usage from tools already signed in on this Mac — it never asks for your password. Install and sign in to any of Claude Code (the terminal tool, not the Claude app), Cursor (the editor or cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, the Kilo CLI, Muse, Higgsfield, Krea or a Gemini API key (via Gemini CLI, OpenCode or Hermes), and its ring appears in the notch.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, Kilo CLI, Muse, Higgsfield, Krea 중 하나를 설치하고 로그인하거나 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하면 노치에 해당 링이 나타납니다."
+          }
+        }
+      }
+    },
+    "Auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동"
+          }
+        }
+      }
+    },
+    "Revert to auto-inferred ceiling based on peak usage.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최대 사용량으로 추정한 자동 한도로 되돌립니다."
+          }
+        }
+      }
+    },
+    "Fills the ring against a ceiling you choose or inferred from peak usage; Google publishes none for an API key.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "직접 정하거나 최대 사용량으로 추정한 한도를 기준으로 링을 채웁니다. Google은 API 키의 한도를 공개하지 않습니다."
+          }
+        }
+      }
+    },
+    "Request limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요청 한도"
+          }
+        }
+      }
+    },
+    "requests": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요청"
+          }
+        }
+      }
+    },
+    "Fills the ring against a declared ceiling you choose.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "직접 정한 한도를 기준으로 링을 채웁니다."
+          }
+        }
+      }
+    },
+    "Reset window": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재설정 주기"
+          }
+        }
+      }
+    },
+    "How often the manual quota window rolls over.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수동 할당량의 집계 기간이 바뀌는 주기를 정합니다."
+          }
+        }
+      }
+    },
+    "Krea API key": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krea API 키"
+          }
+        }
+      }
+    },
+    "Paste an API token from Krea › Settings › API Tokens. Not needed after krea auth login, or with KREA_API_KEY exported. Stored in your login keychain.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krea › Settings › API Tokens의 API 토큰을 붙여넣으십시오. krea auth login을 실행했거나 KREA_API_KEY를 내보낸 경우에는 필요 없습니다. 로그인 키체인에 저장됩니다."
           }
         }
       }
