@@ -35,17 +35,20 @@ final class NotchWindowController {
     /// Open the settings window, asked for by clicking the handle.
     var onOpenSettings: (() -> Void)?
     /// An ⌥-drag on the pill settled at a new `model.alongOffset`. The
-    /// controller only holds the live value; persisting it per edge is
+    /// controller only holds the live value; persisting it per edge and screen is
     /// Preferences' job, the same division `apply(edge:)` already keeps.
-    var onReposition: ((CGFloat) -> Void)?
+    var onReposition: ((CGFloat, NSScreen?) -> Void)?
     /// A move settled on a new edge — and, carried there by an ⌥-drag, where
     /// along it it was let go, as that edge's offset; nil keeps the offset the
     /// edge remembers. The fleet owns writing that to preferences, for the
     /// same reason it owns `onReposition`.
-    var onMoveToEdge: ((NotchEdge, CGFloat?) -> Void)?
+    var onMoveToEdge: ((NotchEdge, CGFloat?, NSScreen?) -> Void)?
 
     private var panel: NotchPanel?
     private var hostingView: NotchHostingView<NotchRootView>?
+
+    /// The scope of this notch (main display only or all displays).
+    var scope: NotchScreenScope = .mainDisplay
 
     /// The display this notch belongs to. Nil follows the menu-bar screen,
     /// which is what a single-controller setup did before the fleet existed —
@@ -413,9 +416,15 @@ final class NotchWindowController {
     }
 
     func currentScreen(in screens: [NSScreen]) -> NSScreen? {
-        if let assigned = assignedScreen,
-           screens.contains(where: { $0 === assigned }) {
-            return assigned
+        if let assigned = assignedScreen {
+            if let matched = screens.first(where: {
+                $0 === assigned ||
+                ($0.displayIdentifier != nil && $0.displayIdentifier == assigned.displayIdentifier) ||
+                NotchFleet.key(for: $0) == NotchFleet.key(for: assigned)
+            }) {
+                assignedScreen = matched
+                return matched
+            }
         }
         return NotchGeometry.preferredScreen(from: screens, preference: displayPreference)
     }
@@ -522,6 +531,24 @@ final class NotchWindowController {
         // put its own cursor back.
         NSCursor.closedHand.set()
         guard let screen = currentScreen() else { return }
+        if scope == .mainDisplay {
+            let mouse = NSEvent.mouseLocation
+            if let targetScreen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }),
+               targetScreen !== screen,
+               NotchFleet.key(for: targetScreen) != NotchFleet.key(for: screen) {
+                // Drag crossed display boundary onto another screen
+                passage?.hide()
+                assignedScreen = targetScreen
+                model.adopt(screen: targetScreen)
+                let overlay = CornerPassageOverlay(screen: targetScreen)
+                overlay.prepare()
+                passage = overlay
+                travelSizes = Dictionary(uniqueKeysWithValues:
+                    NotchEdge.allCases.map { ($0, model.travelSize(on: $0)) })
+                travel(on: targetScreen)
+                return
+            }
+        }
         travel(on: screen)
     }
 
@@ -652,7 +679,7 @@ final class NotchWindowController {
         // Gone round onto another edge: that is the edge now, and where along
         // it is saved by the landing below, against it.
         if let start = dragStartEdge, model.edge != start {
-            onMoveToEdge?(model.edge, model.holdsOffTheCutout ? nil : model.alongOffset)
+            onMoveToEdge?(model.edge, model.holdsOffTheCutout ? nil : model.alongOffset, assignedScreen ?? currentScreen())
         }
         dragStartEdge = nil
         passage?.hide()
@@ -1213,8 +1240,9 @@ final class NotchWindowController {
     ///
     /// Put down out of reach, it stays exactly where it was put.
     private func putDown() {
+        let activeScreen = assignedScreen ?? currentScreen()
         guard let cutout = heldCutout, model.holdsOffTheCutout else {
-            onReposition?(model.alongOffset)
+            onReposition?(model.alongOffset, activeScreen)
             return
         }
         let bar = model.plainBarLength
@@ -1227,7 +1255,7 @@ final class NotchWindowController {
                                                              width: cutout.width, bar: bar)
             relocate()
             updateInteractiveRects()
-            onReposition?(model.alongOffset)
+            onReposition?(model.alongOffset, activeScreen)
             return
         }
 
@@ -1246,7 +1274,7 @@ final class NotchWindowController {
             relocate()
         }
         updateInteractiveRects()
-        onReposition?(model.alongOffset)
+        onReposition?(model.alongOffset, activeScreen)
     }
 
     // MARK: - Hit regions
