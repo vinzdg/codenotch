@@ -4500,7 +4500,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "5시간 제한"
+            "value": "5시간 한도"
           }
         },
         "uz": {
@@ -4583,7 +4583,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "주간 제한"
+            "value": "주간 한도"
           }
         },
         "uz": {
@@ -4624,7 +4624,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "월간 코드 제한"
+            "value": "월간 코드 한도"
           }
         }
       }
@@ -4683,7 +4683,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "월간 제한"
+            "value": "월간 한도"
           }
         },
         "uz": {
@@ -4932,7 +4932,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld분 제한"
+            "value": "%lld분 한도"
           }
         },
         "uz": {
@@ -5015,7 +5015,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld시간 제한"
+            "value": "%lld시간 한도"
           }
         },
         "uz": {
@@ -5098,7 +5098,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld일 제한"
+            "value": "%lld일 한도"
           }
         },
         "uz": {
@@ -16636,7 +16636,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "일시 제한 상태를 명확히 표시"
+            "value": "일시 중지된 한도를 명확히 표시"
           }
         },
         "id": {
@@ -30583,7 +30583,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "5시간 제한"
+            "value": "5시간 한도"
           }
         },
         "uz": {
@@ -30654,7 +30654,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "주간 제한"
+            "value": "주간 한도"
           }
         },
         "uz": {
@@ -33526,7 +33526,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "5시간 제한"
+            "value": "5시간 한도"
           }
         },
         "uz": {
@@ -50035,7 +50035,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "만료된 토큰을 요청 제한으로 오인하지 않고 갱신하며, 노치가 포커스를 빼앗지 않습니다. Windows 애니메이션 효과를 끄면 노치도 움직이지 않습니다."
+            "value": "만료된 토큰을 요청 한도 초과로 오인하지 않고 갱신하며, 노치가 포커스를 빼앗지 않습니다. Windows 애니메이션 효과를 끄면 노치도 움직이지 않습니다."
           }
         },
         "id": {
@@ -52432,7 +52432,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "가운데로 되돌리기가 노치를 즉시 이동시키고, 전체 화면 자동 접기는 카메라 영역을 고려합니다. 요청 제한 대기 후 불필요한 새로 고침 한 주기를 더 기다리지 않습니다."
+            "value": "가운데로 되돌리기가 노치를 즉시 이동시키고, 전체 화면 자동 접기는 카메라 영역을 고려합니다. 요청 한도 초과 대기 후 불필요한 새로 고침 한 주기를 더 기다리지 않습니다."
           }
         },
         "id": {
@@ -63710,7 +63710,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "1시간 제한"
+            "value": "1시간 한도"
           }
         }
       }
@@ -63751,7 +63751,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "일일 제한"
+            "value": "일일 한도"
           }
         }
       }
@@ -63792,7 +63792,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "요금제 제한"
+            "value": "요금제 한도"
           }
         }
       }
@@ -63915,7 +63915,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@시간 제한"
+            "value": "%@시간 한도"
           }
         }
       }
@@ -74876,7 +74876,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용자 지정 엔드포인트의 OpenCode 활동, Grok Bot 주간 사용량, 중국 법정 공휴일의 DeepSeek 종일 오프피크를 지원합니다. 요청 제한 시 Claude 요청을 더 천천히 다시 시도하고 잠자기 후 외부 디스플레이에 노치가 다시 나타납니다. 아무도 열어 두지 않은 Claude 세션은 제외합니다."
+            "value": "사용자 지정 엔드포인트의 OpenCode 활동, Grok Bot 주간 사용량, 중국 법정 공휴일의 DeepSeek 종일 오프피크를 지원합니다. 요청 한도 초과 시 Claude 요청을 더 천천히 다시 시도하고 잠자기 후 외부 디스플레이에 노치가 다시 나타납니다. 아무도 열어 두지 않은 Claude 세션은 제외합니다."
           }
         }
       }
