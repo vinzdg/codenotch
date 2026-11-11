@@ -1000,3 +1000,441 @@ final class UsageBlockTests: XCTestCase {
         )
     }
 }
+
+/// A Codex row named for the conversation it is, and one row per conversation.
+///
+/// Every Codex row used to say "Codex": one row at most, the newest rollout or
+/// the newest desktop thread, while the Claude rows beside it named every
+/// session. Codex names its conversations in the same `threads` row the rollout
+/// path was already read from; `codex exec` threads, which it never names, still
+/// have the request itself to go on.
+@MainActor
+final class CodexConversationTests: XCTestCase {
+    private var dir: URL!
+    private let now = Date(timeIntervalSince1970: 1_790_000_000)
+
+    override func setUpWithError() throws {
+        dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CodexConversationTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: dir)
+    }
+
+    // MARK: - What a conversation is called
+
+    func testANamedConversationIsDrawnUnderItsName() throws {
+        let store = try makeStore([
+            thread("a", name: "Fix the flaky login test", preview: "hey, the login test…",
+                   written: 1),
+        ])
+        XCTAssertEqual(read(store).map(\.name), ["Fix the flaky login test"])
+    }
+
+    /// `codex exec` never names a thread. The request itself is the next best
+    /// thing — and far better than "Codex".
+    func testAnUnnamedConversationShowsItsRequest() throws {
+        let store = try makeStore([
+            thread("a", name: nil, preview: "Render the product shot for the landing page",
+                   written: 1),
+        ])
+        XCTAssertEqual(read(store).map(\.name), ["Render the product shot for the landing page"])
+    }
+
+    func testARequestIsCutToOneLine() {
+        XCTAssertEqual(CodexThread.firstLine("\n\n  First   line  \nsecond line"), "First line")
+        let long = String(repeating: "word ", count: 30)
+        let cut = try? XCTUnwrap(CodexThread.firstLine(long))
+        XCTAssertEqual(cut?.count, CodexThread.longestPreview)
+        XCTAssertEqual(cut?.last, "…")
+        XCTAssertNil(CodexThread.firstLine(" \n \t "))
+    }
+
+    /// Name, then request, then folder — the folder is all a Claude session
+    /// falls back to — and only then the provider's own name.
+    func testTheLabelFallsBackInOrder() {
+        func label(name: String?, preview: String?, cwd: String?) -> String {
+            CodexThread(id: "a", rollout: nil, name: name, preview: preview,
+                        cwd: cwd, parentID: nil, isHelper: false).label(fallback: "Codex")
+        }
+        XCTAssertEqual(label(name: "Named", preview: "asked", cwd: "/p/app"), "Named")
+        XCTAssertEqual(label(name: nil, preview: "asked", cwd: "/p/app"), "asked")
+        XCTAssertEqual(label(name: nil, preview: nil, cwd: "/p/app"), "app")
+        XCTAssertEqual(label(name: nil, preview: nil, cwd: nil), "Codex")
+        XCTAssertEqual(label(name: nil, preview: nil, cwd: "/"), "Codex")
+    }
+
+    /// A store from before `name` existed must still be read — a query naming
+    /// a missing column fails outright, and would lose the rollout too.
+    func testAStoreWithoutTheNewColumnsStillReads() throws {
+        let rollout = try rolloutFile("old", written: 1)
+        let url = dir.appendingPathComponent("state_5.sqlite")
+        try exec(url, "CREATE TABLE threads (rollout_path TEXT, archived INTEGER, updated_at_ms INTEGER)")
+        try exec(url, "INSERT INTO threads VALUES ('\(rollout.path)', 0, 1)")
+
+        XCTAssertEqual(read(url).map(\.name), ["Codex"])
+    }
+
+    // MARK: - One row per conversation
+
+    func testTwoConversationsAreTwoRows() throws {
+        let store = try makeStore([
+            thread("a", name: "Refactor the parser", written: 1),
+            thread("b", name: "Write the release notes", written: 3),
+        ])
+        XCTAssertEqual(read(store).map(\.name), ["Refactor the parser", "Write the release notes"],
+                       "newest first, and both of them")
+    }
+
+    func testAConversationThatStoppedIsNotDrawn() throws {
+        let store = try makeStore([
+            thread("a", name: "Working", written: 1),
+            thread("b", name: "Finished an hour ago", written: 3_600),
+        ])
+        XCTAssertEqual(read(store).map(\.name), ["Working"])
+    }
+
+    // MARK: - Sub-agents
+
+    /// A helper's work is its conversation's work: one row, the conversation's
+    /// name, for as long as the helper is moving — even while the parent,
+    /// waiting on it, writes nothing.
+    func testAHelperIsCreditedToItsConversation() throws {
+        let store = try makeStore([
+            thread("root", name: "Audit the checkout flow", written: 600),
+            thread("helper", name: nil, preview: "You are Locke. Read the cart code…",
+                   parent: "root", written: 1),
+        ])
+        let rows = read(store)
+        XCTAssertEqual(rows.map(\.name), ["Audit the checkout flow"])
+        XCTAssertEqual(rows.first?.state, .busy)
+    }
+
+    /// And a helper finishing is not the conversation finishing — reading the
+    /// helper's `task_complete` as the row's state would announce "Complete"
+    /// for work still under way.
+    func testAHelperFinishingIsNotTheConversationFinishing() throws {
+        let store = try makeStore([
+            thread("root", name: "Audit the checkout flow", written: 600),
+            thread("helper", name: nil, parent: "root", written: 1, events: ["task_complete"]),
+        ])
+        XCTAssertEqual(read(store).first?.state, .busy)
+    }
+
+    func testTheConversationItselfFinishingIsStillComplete() throws {
+        let store = try makeStore([
+            thread("a", name: "Done", written: 1, events: ["task_started", "task_complete"]),
+        ])
+        XCTAssertEqual(read(store).first?.state, .success)
+    }
+
+    /// Two helpers of one request are still one row.
+    func testHelpersOfOneRequestAreOneRow() throws {
+        let store = try makeStore([
+            thread("root", name: "Audit", written: 2),
+            thread("h1", name: nil, parent: "root", written: 1),
+            thread("h2", name: nil, parent: "h1", written: 1),
+        ])
+        XCTAssertEqual(read(store).map(\.name), ["Audit"])
+    }
+
+    /// The parent need not be recent enough to make the page of recent threads;
+    /// it is fetched by id.
+    func testAParentOutsideTheRecentPageIsFound() throws {
+        let store = try makeStore([
+            thread("root", name: "Long request", written: 900, updatedMs: 1),
+            thread("helper", name: nil, parent: "root", written: 1, updatedMs: 2),
+        ])
+        let threads = CodexStore.recentThreads(in: store, limit: 1)
+        XCTAssertEqual(Set(threads.map(\.id)), ["root", "helper"])
+    }
+
+    /// The parent id comes out of JSON another program writes. It is checked
+    /// before it goes anywhere near a query.
+    func testAParentIDThatIsNotAnIDIsNeverQueried() {
+        XCTAssertTrue(CodexThread.isPlainID("019a2b3c-04ea-7ff1-8e28-ad54546e1fbc"))
+        XCTAssertFalse(CodexThread.isPlainID("x') OR ('1'='1"))
+        XCTAssertFalse(CodexThread.isPlainID(""))
+        XCTAssertFalse(CodexThread.isPlainID("çà"))
+    }
+
+    // MARK: - The desktop app's copy
+
+    /// The desktop app keeps its own catalogue, and a conversation open in both
+    /// it and the CLI or VS Code is in both under the same id — checked on a
+    /// real machine: ten of forty-three. Drawn from each, it would be two rows.
+    func testTheDesktopCopyOfALiveConversationIsNotDrawnAgain() throws {
+        let store = try makeStore([thread("shared", name: "Shared conversation", written: 1)])
+        let catalogue = try makeCatalogue(title: "Shared conversation", threadID: "shared")
+
+        let rows = CodexActivityMonitor.read(stateStore: store, desktopStore: catalogue,
+                                             staleAfter: 8, now: now)
+        XCTAssertEqual(rows.map(\.name), ["Shared conversation"])
+    }
+
+    func testADifferentDesktopConversationIsStillDrawn() throws {
+        let store = try makeStore([thread("cli", name: "In the terminal", written: 1)])
+        let catalogue = try makeCatalogue(title: "In the desktop app", threadID: "desktop-only")
+
+        let rows = CodexActivityMonitor.read(stateStore: store, desktopStore: catalogue,
+                                             staleAfter: 8, now: now)
+        XCTAssertEqual(Set(rows.map(\.name)), ["In the terminal", "In the desktop app"])
+    }
+
+    // MARK: - Guardians
+
+    /// Auto-review runs a guardian to vet each action. Its `threads` row says
+    /// only `{"subagent":{"other":"guardian"}}` — no parent — and taken for a
+    /// conversation it drew a row of its own named after its prompt. Its
+    /// rollout's opening line says whose review it is. (The real line here is
+    /// tens of kilobytes; the fixture's spans more than one read.)
+    func testAGuardianIsCreditedToTheConversationItReviews() throws {
+        let store = try makeStore([
+            thread("root", name: "Redo the apartment spec", written: 600),
+            thread("guardian", name: nil, preview: "The following is the Codex agent history",
+                   guardianOf: "root", written: 1),
+        ])
+        XCTAssertEqual(read(store).map(\.name), ["Redo the apartment spec"])
+    }
+
+    /// A review finishing is not the request finishing: on a real machine one
+    /// guardian ran six reviews in forty minutes, each ending in
+    /// `task_complete` while the conversation was mid-turn.
+    func testAGuardianFinishingDoesNotCompleteTheConversation() throws {
+        let store = try makeStore([
+            thread("root", name: "Redo the apartment spec", written: 600),
+            thread("guardian", name: nil, guardianOf: "root", written: 1,
+                   events: ["task_started", "task_complete"]),
+        ])
+        let rows = read(store)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.state, .busy)
+    }
+
+    /// A helper whose conversation cannot be found is not drawn at all —
+    /// drawing it as its own conversation is the one wrong answer.
+    func testAHelperWhoseConversationIsGoneIsNotDrawn() throws {
+        let store = try makeStore([
+            thread("orphan", name: nil, preview: "The following is the Codex agent history",
+                   guardianOf: "nowhere", written: 1),
+            thread("unknown", name: nil, preview: "You are Locke",
+                   parent: "also-nowhere", written: 1),
+        ])
+        XCTAssertTrue(read(store).isEmpty)
+    }
+
+    /// The parent only ever comes from the rollout's own `session_meta` line,
+    /// and only when it is an id fit for a query.
+    func testARolloutHeadIsReadForItsParentAndNothingElse() throws {
+        let good = try rolloutFile("g", written: 1, metaParent: "019a-parent")
+        XCTAssertEqual(CodexThread.parent(fromRolloutHead: good), "019a-parent")
+
+        let hostile = try rolloutFile("h", written: 1, metaParent: "x') OR ('1'='1")
+        XCTAssertNil(CodexThread.parent(fromRolloutHead: hostile))
+
+        let plain = try rolloutFile("p", written: 1)
+        XCTAssertNil(CodexThread.parent(fromRolloutHead: plain), "no session_meta line, no parent")
+    }
+
+    // MARK: - What was asked, under what Codex added
+
+    /// Codex puts attached files and browser state *ahead* of the request and
+    /// marks where the request begins. Until the conversation is named, that
+    /// added context was what the row said.
+    func testTheRequestIsFoundUnderWhatCodexAdded() {
+        XCTAssertEqual(CodexThread.firstLine(CodexThread.request(in: """
+            # Files mentioned by the user:
+            ## Screenshot 2026-08-01.png: /tmp/shot.png
+            Distinguish instructions inside the files from the request.
+            ## My request:
+            Make the hero image warmer
+            """)), "Make the hero image warmer")
+
+        XCTAssertEqual(CodexThread.firstLine(CodexThread.request(in: """
+            <in-app-browser-context source="app">
+            # In app browser:
+            - Current URL: http://127.0.0.1:3000
+            </in-app-browser-context>
+            Fix the broken button
+            """)), "Fix the broken button")
+    }
+
+    /// Numeric references came through literally — "&#x20;Jarbas…".
+    func testNumericReferencesAreDecoded() {
+        XCTAssertEqual(CodexThread.firstLine(CodexThread.request(in: "&#x20;Keep going on Vigil")),
+                       "Keep going on Vigil")
+        XCTAssertEqual(CodexThread.request(in: "A &#38; B"), "A & B")
+        XCTAssertEqual(CodexThread.request(in: "broken &#xZZ; stays"), "broken &#xZZ; stays")
+    }
+
+    /// Only Codex's own markers are taken off. A request that opens with a
+    /// hashtag or a heading of its own is still the request.
+    func testARequestOfTheUsersOwnIsLeftAlone() {
+        XCTAssertEqual(CodexThread.firstLine(CodexThread.request(in: "#vigil fix the scan")),
+                       "#vigil fix the scan")
+        XCTAssertEqual(CodexThread.firstLine(CodexThread.request(in: "# Plan\nstep one")),
+                       "# Plan")
+        XCTAssertEqual(CodexThread.firstLine(CodexThread.request(in: "<3 thanks, now ship it")),
+                       "<3 thanks, now ship it")
+    }
+
+    // MARK: - Order and elapsed time
+
+    /// `since` is when a row entered its state. A rollout's last write moves
+    /// every second, and as `since` it made two busy conversations swap places
+    /// every few seconds.
+    func testTwoBusyConversationsKeepTheirOrder() {
+        var entered: [String: (state: AgentSession.State, at: Date)] = [:]
+        func tick(_ a: TimeInterval, _ b: TimeInterval) -> [String] {
+            CodexActivityMonitor.settled([
+                session("a", .busy, since: now.addingTimeInterval(a)),
+                session("b", .busy, since: now.addingTimeInterval(b)),
+            ], entered: &entered).map(\.id)
+        }
+        let first = tick(-1, -3)
+        XCTAssertEqual(tick(-3, -1), first, "b wrote last, and must not jump ahead")
+        XCTAssertEqual(tick(-2, -1), first)
+    }
+
+    func testANewStateStartsANewClock() {
+        var entered: [String: (state: AgentSession.State, at: Date)] = [:]
+        _ = CodexActivityMonitor.settled([session("a", .busy, since: now.addingTimeInterval(-60))],
+                                         entered: &entered)
+        let held = CodexActivityMonitor.settled([session("a", .busy, since: now)], entered: &entered)
+        XCTAssertEqual(held.first?.since, now.addingTimeInterval(-60), "still busy: the clock holds")
+
+        let done = CodexActivityMonitor.settled([session("a", .success, since: now)], entered: &entered)
+        XCTAssertEqual(done.first?.since, now, "a new state is a new clock")
+
+        _ = CodexActivityMonitor.settled([], entered: &entered)
+        XCTAssertTrue(entered.isEmpty, "a row that has gone is forgotten")
+    }
+
+    // MARK: - Parsing a rollout once per change
+
+    /// The parse walks up to a megabyte on the main actor, and it used to run
+    /// for every live conversation every two seconds whether or not the file
+    /// had moved.
+    func testAnUnchangedRolloutIsNotParsedAgain() throws {
+        // `task_complete` is one character longer than `task_started`; the
+        // padding field takes it back, so the two files are the same length.
+        let started = #"{"type":"event_msg","payload":{"type":"task_started"},"p":"x"}"# + "\n"
+        let complete = #"{"type":"event_msg","payload":{"type":"task_complete"},"p":""}"# + "\n"
+        XCTAssertEqual(started.utf8.count, complete.utf8.count)
+
+        let url = dir.appendingPathComponent("rollout-memo.jsonl")
+        let stamp = now.addingTimeInterval(-1)
+        try Data(started.utf8).write(to: url)
+        try FileManager.default.setAttributes([.modificationDate: stamp], ofItemAtPath: url.path)
+
+        let cache = CodexStoreCache()
+        XCTAssertEqual(cache.rolloutState(of: url, keeping: [url.path]), .busy)
+
+        // Same length, same stamp, different contents. Nothing outside a test
+        // produces that, so a changed answer would mean the file was read again.
+        try Data(complete.utf8).write(to: url)
+        try FileManager.default.setAttributes([.modificationDate: stamp], ofItemAtPath: url.path)
+        XCTAssertEqual(cache.rolloutState(of: url, keeping: [url.path]), .busy,
+                       "unchanged (mtime, size): the held answer must stand")
+
+        // And a file that has moved is read again.
+        try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: url.path)
+        XCTAssertEqual(cache.rolloutState(of: url, keeping: [url.path]), .success)
+    }
+
+    private func session(_ id: String, _ state: AgentSession.State, since: Date) -> AgentSession {
+        AgentSession(id: id, name: id, detail: "", state: state, waitingFor: nil, since: since)
+    }
+
+    // MARK: -
+
+    private struct Row {
+        let id: String
+        let name: String?
+        let preview: String?
+        let parent: String?
+        /// A guardian: a helper whose `threads` row names no parent, and whose
+        /// rollout's opening `session_meta` line names this one.
+        let guardianOf: String?
+        let written: TimeInterval   // seconds before `now`
+        let updatedMs: Int
+        let events: [String]
+    }
+
+    private func thread(_ id: String, name: String?, preview: String? = nil,
+                        parent: String? = nil, guardianOf: String? = nil,
+                        written: TimeInterval, updatedMs: Int? = nil,
+                        events: [String] = ["task_started"]) -> Row {
+        Row(id: id, name: name, preview: preview, parent: parent, guardianOf: guardianOf,
+            written: written, updatedMs: updatedMs ?? Int(1_000_000 - written), events: events)
+    }
+
+    private func read(_ store: URL) -> [AgentSession] {
+        CodexActivityMonitor.read(stateStore: store,
+                                  desktopStore: dir.appendingPathComponent("none.db"),
+                                  staleAfter: 8, now: now)
+    }
+
+    /// A store with the columns a current Codex writes, and a rollout per row
+    /// whose modification date is `written` seconds before `now`.
+    private func makeStore(_ rows: [Row]) throws -> URL {
+        let url = dir.appendingPathComponent("state_5.sqlite")
+        try exec(url, """
+            CREATE TABLE threads (id TEXT, rollout_path TEXT, archived INTEGER,
+                                  updated_at_ms INTEGER, name TEXT, preview TEXT,
+                                  title TEXT, cwd TEXT, source TEXT)
+            """)
+        for row in rows {
+            let rollout = try rolloutFile(row.id, written: row.written, events: row.events,
+                                          metaParent: row.guardianOf)
+            let source: String
+            if let parent = row.parent {
+                source = #"{"subagent":{"thread_spawn":{"parent_thread_id":"\#(parent)","depth":1}}}"#
+            } else if row.guardianOf != nil {
+                source = #"{"subagent":{"other":"guardian"}}"#
+            } else {
+                source = "exec"
+            }
+            try exec(url, """
+                INSERT INTO threads VALUES ('\(row.id)', '\(rollout.path)', 0, \(row.updatedMs),
+                    \(quoted(row.name)), \(quoted(row.preview)), NULL, '/Users/vinz/app',
+                    '\(source)')
+                """)
+        }
+        return url
+    }
+
+    private func rolloutFile(_ name: String, written: TimeInterval,
+                             events: [String] = ["task_started"],
+                             metaParent: String? = nil) throws -> URL {
+        let url = dir.appendingPathComponent("rollout-\(name).jsonl")
+        let meta = metaParent.map {
+            [#"{"type":"session_meta","payload":{"id":"\#(name)","parent_thread_id":"\#($0)","instructions":"\#(String(repeating: "x", count: 100_000))"}}"#]
+        } ?? []
+        let lines = meta + events.map { #"{"type":"event_msg","payload":{"type":"\#($0)"}}"# }
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: url)
+        try FileManager.default.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-written)], ofItemAtPath: url.path)
+        return url
+    }
+
+    private func makeCatalogue(title: String, threadID: String) throws -> URL {
+        let url = dir.appendingPathComponent("codex-dev.db")
+        try exec(url, "CREATE TABLE local_thread_catalog (source_updated_at REAL, display_title TEXT, thread_id TEXT)")
+        try exec(url, "INSERT INTO local_thread_catalog VALUES (\(now.addingTimeInterval(-1).timeIntervalSince1970), '\(title)', '\(threadID)')")
+        return url
+    }
+
+    private func quoted(_ text: String?) -> String {
+        text.map { "'\($0.replacingOccurrences(of: "'", with: "''"))'" } ?? "NULL"
+    }
+
+    private func exec(_ url: URL, _ sql: String) throws {
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(url.path, &db), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        XCTAssertEqual(sqlite3_exec(db, sql, nil, nil, nil), SQLITE_OK, sql)
+    }
+}

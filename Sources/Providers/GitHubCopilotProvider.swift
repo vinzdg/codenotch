@@ -18,7 +18,7 @@ actor GitHubCopilotProvider: UsageProvider {
     }
 
     nonisolated var signInRoute: SignInRoute {
-        .guidance(L10n.t("Sign in with GitHub CLI using `gh auth login`, then enable GitHub Copilot."))
+        .command("gh auth login", name: "GitHub", install: URL(string: "https://cli.github.com"))
     }
 
     nonisolated func account() -> ProviderAccount? {

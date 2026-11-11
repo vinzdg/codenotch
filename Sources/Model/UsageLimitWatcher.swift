@@ -5,6 +5,14 @@ import Foundation
 @MainActor
 final class UsageLimitWatcher {
     private struct TrackedLimit {
+        /// False until this window has been read once. The first reading of a
+        /// window only records: a limit already spent when Codenotch starts is
+        /// not news. Kept per window rather than per provider because the
+        /// windows do not arrive together: the store's first publication can
+        /// be a placeholder with no window at all, and the weekly window can
+        /// appear a fetch after the session one. Counting the placeholder as
+        /// the baseline is what announced "limit reached" at launch.
+        var seeded = false
         var isExhausted: Bool = false
         var resetsAt: Date?
         var fraction: Double = 0
@@ -18,13 +26,26 @@ final class UsageLimitWatcher {
     private var states: [String: ProviderLimitState] = [:]
     private let isMuted: (String) -> Bool
     private let deliver: (UsageAlertEvent) -> Void
+    private let now: () -> Date
 
     init(
         isMuted: @escaping (String) -> Bool = { _ in false },
-        deliver: @escaping (UsageAlertEvent) -> Void = { _ in }
+        deliver: @escaping (UsageAlertEvent) -> Void = { _ in },
+        now: @escaping () -> Date = Date.init
     ) {
         self.isMuted = isMuted
         self.deliver = deliver
+        self.now = now
+    }
+
+    /// A later reset timestamp alone is not a new window: APIs which report a
+    /// relative countdown move that timestamp by a few seconds on every
+    /// refresh, and re-arming on that announced "limit reached" again on every
+    /// fetch while the limit stayed spent. The tracked window must have
+    /// actually elapsed, the same rule the reset watcher applies.
+    private func rolledOver(from previous: Date?, to current: Date?) -> Bool {
+        guard let previous, let current else { return false }
+        return previous <= now() && current > previous
     }
 
     func observe(_ snapshots: [ProviderSnapshot]) {
@@ -34,23 +55,32 @@ final class UsageLimitWatcher {
     }
 
     private func observe(_ snapshot: ProviderSnapshot) {
+        // Same rule as the reset watcher: an archived (stale) reading is not a
+        // baseline, so the first live reading after one only records.
+        guard !snapshot.status.isStale else {
+            states.removeValue(forKey: snapshot.id)
+            return
+        }
         var state = states[snapshot.id] ?? ProviderLimitState()
-        let isFirstObservation = states[snapshot.id] == nil
 
         // 1. Session limit (headline window)
         if let headline = snapshot.headline, let fraction = snapshot.usedFraction {
-            let isExhausted = fraction >= 1.0 || snapshot.block != nil
+            // A block the spent week attached is the weekly alert's news, not
+            // the session's: counting it here would fire a session card
+            // claiming the session itself spent while it still shows room.
+            let blockedBeyondWeekly = snapshot.block.map { !$0.isWeeklyExhaustion } ?? false
+            let isExhausted = fraction >= 1.0 || blockedBeyondWeekly
 
-            let dateRolledOver = headline.resetsAt != nil
-                && state.session.resetsAt != nil
-                && headline.resetsAt != state.session.resetsAt
-                && headline.resetsAt! > state.session.resetsAt!
+            let dateRolledOver = rolledOver(from: state.session.resetsAt, to: headline.resetsAt)
 
             if dateRolledOver || fraction < 0.95 {
                 state.session.isExhausted = false
             }
 
-            if isExhausted && !state.session.isExhausted && !isFirstObservation && !isMuted(snapshot.id) {
+            if !state.session.seeded {
+                state.session.seeded = true
+                state.session.isExhausted = isExhausted
+            } else if isExhausted && !state.session.isExhausted && !isMuted(snapshot.id) {
                 state.session.isExhausted = true
                 deliver(UsageAlertEvent(
                     kind: .sessionLimitReached,
@@ -62,8 +92,6 @@ final class UsageLimitWatcher {
                     currentFraction: fraction,
                     resetsAt: headline.resetsAt
                 ))
-            } else if isFirstObservation && isExhausted {
-                state.session.isExhausted = true
             }
 
             state.session.fraction = fraction
@@ -74,16 +102,16 @@ final class UsageLimitWatcher {
         if let weekly = snapshot.weeklyWindow, let weeklyFraction = snapshot.weeklyFraction {
             let isWeeklyExhausted = weeklyFraction >= 1.0
 
-            let dateRolledOver = weekly.resetsAt != nil
-                && state.weekly.resetsAt != nil
-                && weekly.resetsAt != state.weekly.resetsAt
-                && weekly.resetsAt! > state.weekly.resetsAt!
+            let dateRolledOver = rolledOver(from: state.weekly.resetsAt, to: weekly.resetsAt)
 
             if dateRolledOver || weeklyFraction < 0.95 {
                 state.weekly.isExhausted = false
             }
 
-            if isWeeklyExhausted && !state.weekly.isExhausted && !isFirstObservation && !isMuted(snapshot.id) {
+            if !state.weekly.seeded {
+                state.weekly.seeded = true
+                state.weekly.isExhausted = isWeeklyExhausted
+            } else if isWeeklyExhausted && !state.weekly.isExhausted && !isMuted(snapshot.id) {
                 state.weekly.isExhausted = true
                 deliver(UsageAlertEvent(
                     kind: .weeklyLimitReached,
@@ -95,8 +123,6 @@ final class UsageLimitWatcher {
                     currentFraction: weeklyFraction,
                     resetsAt: weekly.resetsAt
                 ))
-            } else if isFirstObservation && isWeeklyExhausted {
-                state.weekly.isExhausted = true
             }
 
             state.weekly.fraction = weeklyFraction

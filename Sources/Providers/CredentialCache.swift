@@ -160,6 +160,15 @@ final class CredentialCache<Credential>: @unchecked Sendable {
         return stored
     }
 
+    /// Stores an externally refreshed credential directly into the cache.
+    func updateHeld(_ credential: Credential) {
+        lock.lock()
+        stored = credential
+        attemptedAt = now()
+        lastError = nil
+        lock.unlock()
+    }
+
     /// Drop what is held, so the next read goes to the keychain for real.
     ///
     /// Called when the server rejects the credential — that is the one signal

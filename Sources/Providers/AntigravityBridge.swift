@@ -77,6 +77,45 @@ enum AntigravityBridge {
         return URL(fileURLWithPath: String(fields[1])).lastPathComponent == "agy"
     }
 
+    /// ACP runs as `agy_acp_server.par` or `localharness_external`.
+    static func isACP(_ line: Substring) -> Bool {
+        line.contains("agy_acp_server") || line.contains("localharness_external")
+    }
+
+    /// Whether an Antigravity ACP server process is currently running.
+    static func isACPRunning(processTable: String? = nil) -> Bool {
+        let table = processTable ?? run("/bin/ps", ["-Ao", "pid,command"])
+        return table.split(separator: "\n").contains(where: isACP)
+    }
+
+    /// IDE runs as language_server with --csrf_token or Antigravity.app.
+    static func isIDE(_ line: Substring) -> Bool {
+        (line.contains("language_server") && line.contains("--csrf_token")) ||
+        line.contains("Antigravity.app")
+    }
+
+    /// Whether an Antigravity IDE process is currently running.
+    static func isIDERunning(processTable: String? = nil) -> Bool {
+        let table = processTable ?? run("/bin/ps", ["-Ao", "pid,command"])
+        return table.split(separator: "\n").contains(where: isIDE)
+    }
+
+    /// Whether an Antigravity CLI process is currently running.
+    static func isCLIRunning(processTable: String? = nil) -> Bool {
+        let table = processTable ?? run("/bin/ps", ["-Ao", "pid,command"])
+        return table.split(separator: "\n").contains(where: isCLI)
+    }
+
+    /// Whether a specific Antigravity flavor process is currently running.
+    static func isRunning(flavor: AntigravityFlavor, processTable: String? = nil) -> Bool {
+        let table = processTable ?? run("/bin/ps", ["-Ao", "pid,command"])
+        switch flavor {
+        case .ide: return isIDERunning(processTable: table)
+        case .cli: return isCLIRunning(processTable: table)
+        case .acp: return isACPRunning(processTable: table)
+        }
+    }
+
     private static func endpoint(
         for line: Substring, token: String?, ports listeningPorts: ((Int) -> [Int])?
     ) -> Endpoint? {
@@ -173,9 +212,152 @@ enum AntigravityBridge {
         AntigravityProvider.windows(in: data, now: now)
     }
 
+    // MARK: - Starting one ourselves
+
+    /// A language server this process started, kept for as long as the app runs.
+    ///
+    /// Held rather than restarted per poll because the server is not ready the
+    /// instant it binds: it listens within about a tenth of a second and then
+    /// spends roughly eight more authenticating. Spawning per poll would pay
+    /// those eight seconds every five minutes to fetch one number.
+    ///
+    /// Only ever started when `discover()` found nothing, so it never competes
+    /// with an IDE that is already running — and once it is up, `discover()`
+    /// finds it like any other, because it carries the same flags on the same
+    /// command line. Nothing downstream of here knows the difference.
+    final class Owned: @unchecked Sendable {
+        private let lock = NSLock()
+        private var process: Process?
+        private var endpoint: Endpoint?
+
+        /// The endpoint already running, if any.
+        var current: Endpoint? {
+            lock.lock(); defer { lock.unlock() }
+            return endpoint
+        }
+
+        /// The started server's pid, for the `lsof` lookup that finds its port.
+        var pid: Int32? {
+            lock.lock(); defer { lock.unlock() }
+            guard process?.isRunning == true else { return nil }
+            return process?.processIdentifier
+        }
+
+        /// Starts one if none is running, and returns where it landed. The
+        /// ports arrive empty and are filled by `resolvePorts(_:)` once the
+        /// server has bound them.
+        ///
+        /// `start` replaces `Process.run()` so a test can drive this without
+        /// launching anything; the default is the real thing.
+        func endpointOrStart(binary: URL,
+                             start: (Process) -> Bool = { (try? $0.run()) != nil }) -> Endpoint? {
+            if let current { return current }
+            lock.lock(); defer { lock.unlock() }
+            // Re-checked under the lock: two polls can overlap, and a second
+            // server would bind its own ports for nothing.
+            if let endpoint { return endpoint }
+
+            let token = UUID().uuidString
+            let process = Process()
+            process.executableURL = binary
+            process.arguments = AntigravityBridge.arguments(token: token)
+            // The server logs to stdout when no IDE is attached to take it.
+            // Discarded rather than inherited, so it cannot write into
+            // whatever the app redirected there.
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            guard start(process) else { return nil }
+
+            self.process = process
+            // The port is left at 0 so the server picks one and `lsof` finds
+            // it afterwards, exactly as for the IDE's own. Probing for a free
+            // port here would race whatever claimed it before the bind.
+            self.endpoint = Endpoint(ports: [], csrfToken: token)
+            return endpoint
+        }
+
+        /// Fills in the ports once the server has bound them.
+        func resolvePorts(_ ports: [Int]) {
+            lock.lock(); defer { lock.unlock() }
+            guard let token = endpoint?.csrfToken, !ports.isEmpty else { return }
+            endpoint = Endpoint(ports: ports, csrfToken: token)
+        }
+
+        func stop() {
+            lock.lock(); defer { lock.unlock() }
+            // `terminate()` raises if the task was never launched, or has already
+            // finished — both reachable: a server that crashed on start-up is
+            // gone, and the app can quit before the first poll ever ran one.
+            if process?.isRunning == true { process?.terminate() }
+            process = nil
+            endpoint = nil
+        }
+
+        func resetForTesting() {
+            stop()
+        }
+    }
+
+    /// A server Codenotch owns, or nil until one is needed.
+    static let owned = Owned()
+
+    /// The same flags the IDE passes its own server, minus everything that wires
+    /// it to a running IDE — there is none. `--standalone` is what makes it
+    /// legal to start without one.
+    ///
+    /// `--app_data_dir` is a *name*, not a path, and the server refuses an
+    /// absolute one outright ("must not be absolute") before it reads
+    /// anything. It resolves under `~/.gemini/`, which is why this is a name.
+    ///
+    /// A directory of its own rather than the IDE's `antigravity`: the quota
+    /// answer needs no project or conversation state, and sharing the IDE's
+    /// would put two writers on its SQLite files if the IDE is launched while
+    /// this one is still up.
+    static func arguments(token: String, appDataDir: String = "codenotch-bridge") -> [String] {
+        [
+            "--standalone",
+            "--override_ide_name", "antigravity",
+            "--subclient_type", "hub",
+            "--override_user_agent_name", "antigravity",
+            "--https_server_port", "0",
+            "--csrf_token", token,
+            "--app_data_dir", appDataDir,
+            "--api_server_url", "https://generativelanguage.googleapis.com",
+            "--cloud_code_endpoint", "https://daily-cloudcode-pa.googleapis.com",
+        ]
+    }
+
+    /// The IDE's copy of the server, which is the one known to answer this RPC.
+    ///
+    /// Found through the bundle rather than hardcoded, so an install somewhere
+    /// other than `/Applications` still works, and read through the same
+    /// `Contents/Resources` layout the IDE uses. Nil when the IDE is not
+    /// installed, which is the honest answer: there is nothing to start.
+    static func serverBinaryURL(
+        fileManager: FileManager = .default,
+        applications: [URL] = [
+            URL(fileURLWithPath: "/Applications"),
+            URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Applications"),
+        ]
+    ) -> URL? {
+        for applications in applications {
+            guard let entries = try? fileManager.contentsOfDirectory(
+                at: applications, includingPropertiesForKeys: nil)
+            else { continue }
+            for app in entries where app.pathExtension == "app" {
+                if app.deletingPathExtension().lastPathComponent.lowercased() == "antigravity" {
+                    let binary = app
+                        .appendingPathComponent("Contents/Resources/bin/language_server")
+                    if fileManager.isExecutableFile(atPath: binary.path) { return binary }
+                }
+            }
+        }
+        return nil
+    }
+
     // MARK: - Plumbing
 
-    private static func run(_ path: String, _ arguments: [String]) -> String {
+    static func run(_ path: String, _ arguments: [String]) -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = arguments

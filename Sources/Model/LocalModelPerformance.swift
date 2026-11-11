@@ -7,7 +7,8 @@ struct LocalModelPerformance: Equatable {
     let generationSeconds: TimeInterval
     let measuredAt: Date
     /// The clock was ours, not the runtime's: the generating phase as polled,
-    /// against the runtime's token count. A tilde marks it wherever it prints.
+    /// against the runtime's token count. A tilde marks it in the tooltip;
+    /// the headline under the ring drops it for room.
     let isApproximate: Bool
 
     init?(outputTokens: Int, durationNanoseconds: Int64, measuredAt: Date = Date(),
@@ -42,10 +43,15 @@ struct LocalModelPerformance: Equatable {
             : "\(qualifier)\(tokensPerSecond.formatted(.number.precision(.fractionLength(0...1)))) tok/s"
     }
     var headlineText: String {
-        guard tokensPerSecond >= 1 else { return "\(qualifier)<1 tok/s" }
-        let value = tokensPerSecond.formatted(.number.notation(.compactName)
-            .precision(.significantDigits(1...(tokensPerSecond >= 1000 ? 2 : 3))))
-        return "\(qualifier)\(value) \(tokensPerSecond >= 1000 ? "t/s" : "tok/s")"
+        guard tokensPerSecond >= 1 else { return "<1 tok/s" }
+        // Whole tokens only: the label is scaled down to fit the ring's column,
+        // and the tenth costs two characters of font size for a digit nobody
+        // reads at that size. The approximate qualifier goes the same way;
+        // the tooltip's `speedText` keeps both.
+        let rounded = tokensPerSecond.rounded()
+        guard rounded >= 1000 else { return "\(Int(rounded)) tok/s" }
+        let value = rounded.formatted(.number.notation(.compactName).precision(.significantDigits(1...2)))
+        return "\(value) t/s"
     }
 
     enum Band: Equatable {

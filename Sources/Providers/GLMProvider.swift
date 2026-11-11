@@ -65,7 +65,7 @@ actor GLMProvider: UsageProvider {
         // reading them puts no prompt in front of anyone, which is why this
         // provider needs none of Claude's credential caching.
         guard let credentials = GLMCredentials.load() else {
-            if GLMCredentials.zcodeHasStartPlan() {
+            if GLMCredentials.zcodeHasStartPlan() || GLMCredentials.zcodeSettingsHasStartPlanOnly() {
                 throw UsageProviderError.nothingMetered(
                     L10n.t("Z.ai does not publish usage for the GLM Start Plan yet, so there is nothing to read. The Coding Plan is supported.")
                 )

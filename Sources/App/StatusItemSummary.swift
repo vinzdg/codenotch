@@ -21,6 +21,9 @@ struct StatusItemSummary: Equatable {
         /// A remembered reading rather than a fresh one, dimmed the way the
         /// notch dims its ring.
         let isStale: Bool
+        /// Weekly allowance consumed, for the compact ring. Nil means the
+        /// provider did not publish a valid current weekly percentage.
+        let weeklyFraction: Double?
         /// What the tooltip and VoiceOver say about this entry, in full.
         let detail: String
 
@@ -34,16 +37,26 @@ struct StatusItemSummary: Equatable {
     /// When the first countdown on show next reads differently. Nil when
     /// nothing is counting down, so nothing needs to wake up for it.
     let nextChange: Date?
+    /// How much of each reading is printed, from Settings. A `var` with a
+    /// default so the memberwise initialiser keeps working for everything
+    /// that builds a summary without an opinion about it.
+    var reading: MenuBarReading = .automatic
 
     /// Two readings sit side by side comfortably. Past that each keeps its mark
     /// and percentage, and the countdowns stay in the tooltip and the menu.
+    ///
+    /// The rule `MenuBarReading.automatic` follows, and what the other two
+    /// answers overrule.
     static let fullEntryLimit = 2
     /// Past this many the rest are in the menu only. macOS hides a status item
     /// that does not fit rather than squeezing it, and with the app out of the
     /// Dock this item is the only way into it.
+    ///
+    /// Not up to Settings, unlike `fullEntryLimit`: dropping a countdown
+    /// shortens the item, and a fifth reading only ever lengthens it.
     static let entryLimit = 4
 
-    var isCompact: Bool { entries.count > Self.fullEntryLimit }
+    var isCompact: Bool { reading.isCompact(entryCount: entries.count) }
 
     /// Whether the bar has anything to say about this provider: it meters a
     /// five-hour window, or it is Claude or Codex, whose headline limit *is*
@@ -59,24 +72,43 @@ struct StatusItemSummary: Equatable {
     /// The chosen providers the bar can summarise, in the order the notch shows
     /// them. None at all while the feature is off — or when nothing chosen has
     /// a limit to show — which gives the item its icon back.
+    ///
+    /// `reading` decides how much of each one is printed; `autoOrdering`,
+    /// `showingRemaining` and `hidingDepleted` are the notch's own switches,
+    /// answered here for the same reason the cards in the menu below already
+    /// answer the first: one account must not read two ways in one app.
+    /// Depleted accounts are dropped before the count, so an empty one never
+    /// takes a place from an account there is still something to say about.
     @MainActor
     static func make(from snapshots: [ProviderSnapshot], showing limits: MenuBarLimits,
-                     now: Date, format: ResetTimeFormat = .automatic) -> StatusItemSummary {
+                     now: Date, format: ResetTimeFormat = .automatic,
+                     showingWeeklyLimit: Bool = false,
+                     showingRemaining: Bool = false,
+                     hidingDepleted: Bool = false,
+                     reading: MenuBarReading = .automatic,
+                     autoOrdering: Bool = false) -> StatusItemSummary {
         guard limits.isOn else { return StatusItemSummary(entries: [], nextChange: nil) }
-        let summarised = snapshots.filter { snapshot in
+        let chosen = snapshots.filter { snapshot in
             canSummarise(snapshot) && limits.isChosen(snapshot.id)
-        }.prefix(entryLimit)
+                && !(hidingDepleted && snapshot.isDepleted)
+        }
+        // Before the four are taken, not after: on a bar this short the order
+        // decides who is on it at all, which is the whole of what auto-order
+        // is for here.
+        let summarised = (autoOrdering ? ProviderOrder.byRemainingFiveHour(chosen) : chosen)
+            .prefix(entryLimit)
         var marks: [ProviderGlyph: Int] = [:]
         for snapshot in summarised { marks[snapshot.glyph, default: 0] += 1 }
         let entries = summarised.map { snapshot in
             entry(for: snapshot, sharesMark: marks[snapshot.glyph, default: 0] > 1, now: now,
-                  format: format)
+                  format: format, showingWeeklyLimit: showingWeeklyLimit,
+                  showingRemaining: showingRemaining)
         }
         let nextChange = summarised
             .compactMap { $0.fiveHourWindow?.resetsAt }
             .compactMap { ResetCopy.nextCountdownChange(to: $0, now: now) }
             .min()
-        return StatusItemSummary(entries: entries, nextChange: nextChange)
+        return StatusItemSummary(entries: entries, nextChange: nextChange, reading: reading)
     }
 
     static func isFiveHourFamily(_ providerID: String) -> Bool {
@@ -85,7 +117,9 @@ struct StatusItemSummary: Equatable {
 
     @MainActor
     private static func entry(for snapshot: ProviderSnapshot, sharesMark: Bool,
-                              now: Date, format: ResetTimeFormat) -> Entry {
+                              now: Date, format: ResetTimeFormat,
+                              showingWeeklyLimit: Bool,
+                              showingRemaining: Bool) -> Entry {
         let window = snapshot.fiveHourWindow
         // Past its reset a reading describes a window that is over. The store
         // re-reads on its first tick after a reset; until that lands the honest
@@ -93,21 +127,48 @@ struct StatusItemSummary: Equatable {
         let isOver = window?.resetsAt.map { $0 <= now } ?? false
         var percent = Entry.unknown
         if !isOver, let fraction = window?.usedFraction, fraction.isFinite {
-            percent = Percent.whole(for: fraction) + "%"
+            percent = (showingRemaining ? Percent.wholeRemaining(for: fraction)
+                                        : Percent.whole(for: fraction)) + "%"
         }
         let countdown = window?.resetsAt.flatMap { ResetCopy.countdown(to: $0, now: now) }
+        // A remote login's "slug" would be `<kind>-remote-<uuid>` — its
+        // display name is the user's own short word for it, and the label.
         let label = sharesMark
-            ? ClaudeProfile.slug(fromProviderID: snapshot.id) ?? CodexProfile.slug(fromProviderID: snapshot.id)
+            ? (RemoteHost.isRemote(providerID: snapshot.id)
+                ? snapshot.displayName
+                : ClaudeProfile.slug(fromProviderID: snapshot.id) ?? CodexProfile.slug(fromProviderID: snapshot.id)
+                ?? CommandCodeProfile.slug(fromProviderID: snapshot.id))
             : nil
+        let weeklyWindow = showingWeeklyLimit ? snapshot.weeklyLimitWindow : nil
+        let weeklyIsOver = weeklyWindow?.resetsAt.map { $0 <= now } ?? false
+        let weeklyFraction = weeklyIsOver ? nil : weeklyWindow?.usedFraction.flatMap { fraction in
+            // The ring sweeps from the end the figure beside it is read from,
+            // the way the notch's own rings do. The arc clamps what it is
+            // given, so an overspent week arrives here negative and draws shut.
+            fraction.isFinite && fraction >= 0
+                ? Percent.metered(fraction, showingRemaining: showingRemaining) : nil
+        }
+        var detail = detail(for: snapshot, window: window, isOver: isOver,
+                            countdown: countdown, now: now, format: format,
+                            showingRemaining: showingRemaining)
+        if weeklyFraction != nil, let weeklyWindow {
+            // The window's own label, the way the line above already names the
+            // headline window. "Weekly" was baked in here when every provider
+            // that had a second window called it that; QianwenAI's is a monthly
+            // allowance, Claude's is "All models", and a bar that relabels
+            // either one is reporting a window the provider never declared.
+            detail += " · \(weeklyWindow.label): \(weeklyWindow.summary(showingRemaining: showingRemaining))"
+        }
         return Entry(
             id: snapshot.id,
             glyph: snapshot.glyph,
             label: label,
             percent: percent,
             countdown: countdown ?? Entry.unknown,
-            isStale: snapshot.status.isStale && percent != Entry.unknown,
-            detail: detail(for: snapshot, window: window, isOver: isOver,
-                           countdown: countdown, now: now, format: format)
+            isStale: snapshot.status.isStale
+                && (percent != Entry.unknown || weeklyFraction != nil),
+            weeklyFraction: weeklyFraction,
+            detail: detail
         )
     }
 
@@ -117,12 +178,16 @@ struct StatusItemSummary: Equatable {
     @MainActor
     private static func detail(for snapshot: ProviderSnapshot, window: LimitWindow?,
                                isOver: Bool, countdown: String?, now: Date,
-                               format: ResetTimeFormat) -> String {
+                               format: ResetTimeFormat,
+                               showingRemaining: Bool) -> String {
         let reading: String
         if let window {
+            // Both ends are on this line whichever way round it reads — the
+            // tooltip is the detailed view. The setting decides which leads,
+            // so it leads with the figure the bar itself is showing.
             let figures = isOver
                 ? [L10n.t("Resetting…")]
-                : [window.summary] + [countdown].compactMap { $0 }
+                : [window.summary(showingRemaining: showingRemaining)] + [countdown].compactMap { $0 }
             reading = "\(window.label): \(figures.joined(separator: " · "))"
         } else if let headline = snapshot.headline {
             // What the account does meter, so a dash in the bar is explained
@@ -149,23 +214,40 @@ struct StatusItemArtwork {
     let summary: StatusItemSummary
     let font: NSFont
     let height: CGFloat
+    /// Reduce Motion's stand-in for the pulse: a still dot on each working
+    /// provider's mark. It is part of the template image, so AppKit gives it
+    /// the same tint as the rest of the item.
+    let activityBadgeProviderIDs: Set<String>
+    /// Providers with a session waiting on a reply. Their mark gets a hole in
+    /// its top trailing corner, and the red dot that fills it is drawn outside
+    /// this image — see `StatusItemWaitingBadges` — because a template image
+    /// is all one colour and the dot's whole point is that it is not.
+    let waitingBadgeProviderIDs: Set<String>
 
     /// The menu bar's own type size, with figures of one width: "72%" and
     /// "18%" take the same room, so nothing jitters as the numbers move.
     init(summary: StatusItemSummary,
          font: NSFont = .monospacedDigitSystemFont(ofSize: NSFont.menuBarFont(ofSize: 0).pointSize,
                                                    weight: .regular),
-         height: CGFloat = NSStatusBar.system.thickness) {
+         height: CGFloat = NSStatusBar.system.thickness,
+         activityBadgeProviderIDs: Set<String> = [],
+         waitingBadgeProviderIDs: Set<String> = []) {
         self.summary = summary
         self.font = font
         self.height = height
+        self.activityBadgeProviderIDs = activityBadgeProviderIDs
+        self.waitingBadgeProviderIDs = waitingBadgeProviderIDs
     }
 
     private enum Mark {
-        case glyph(ProviderGlyph, NSRect)
+        case glyph(ProviderGlyph, NSRect, weeklyFraction: Double?)
         case text(String, NSPoint)
         /// The upright rule between two providers' readings.
         case rule(NSRect)
+        /// Reduce Motion's still indication, cut clear of the mark below it.
+        case activityBadge(NSRect)
+        /// Room for the waiting dot: a clear disc with nothing drawn in it.
+        case waitingCutout(NSRect)
     }
 
     private var separator: String { " · " }
@@ -177,35 +259,50 @@ struct StatusItemArtwork {
     /// say anything.
     private var ruleAlpha: CGFloat { 0.35 }
 
-    /// The widest either figure gets in the ordinary run of a window, measured
-    /// in the current language. Each is given at least this much room, so the
-    /// item keeps one width from the start of a window to its reset — the
-    /// items to its left would otherwise shuffle every time "10%" became "9%"
-    /// or "1h 00m" became "59m".
-    private var percentRoom: CGFloat { width("00%") }
-    private var countdownRoom: CGFloat {
-        let now = Date(timeIntervalSinceReferenceDate: 0)
-        return width(ResetCopy.countdown(to: now.addingTimeInterval(5 * 3600 - 30), now: now) ?? "")
-    }
-
+    /// As wide as what it says, and no wider.
+    ///
+    /// The figures used to be padded to the widest reading each could take, so
+    /// the item held one width from the start of a window to its reset. That
+    /// room is empty whenever the figures are shorter, and it is emptiest
+    /// exactly when the bar is most worth reading: "0% · 8m" is eight
+    /// characters printed in a space kept for thirteen, and no arrangement of
+    /// it inside the item looked like anything but a hole — in front of the
+    /// figure it left "0%" adrift of its own mark, behind it left the item
+    /// trailing blank into its neighbour.
+    ///
+    /// The width moves instead, and less often than the padding suggests:
+    /// monospaced digits mean it changes only when a figure gains or loses a
+    /// character, which across a whole five-hour window happens five times for
+    /// one provider — see `testTheItemChangesWidthOnlyAsTheFiguresChangeShape`.
     var size: NSSize { NSSize(width: layout().width, height: height) }
 
     func image() -> NSImage {
-        let (width, marks) = layout()
+        let (width, marks, _, _) = layout()
         let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
             for (mark, alpha) in marks { draw(mark, alpha: alpha) }
             return true
         }
+        image.cacheMode = .always
         image.isTemplate = true
         return image
     }
 
-    private func layout() -> (width: CGFloat, marks: [(Mark, CGFloat)]) {
+    func glyphFrame(for providerID: String) -> NSRect? {
+        layout().glyphFrames[providerID]
+    }
+
+    /// Where each waiting dot goes, in the image's coordinates.
+    var waitingBadgeFrames: [String: NSRect] { layout().waitingBadges }
+
+    private func layout() -> (width: CGFloat, marks: [(Mark, CGFloat)], glyphFrames: [String: NSRect],
+                              waitingBadges: [String: NSRect]) {
         // Figures centred on the bar by their cap height, which is what the eye
         // measures digits by; the marks are centred on the same line.
         let baseline = ((height - font.capHeight) / 2 * 2).rounded() / 2
         let middle = baseline + font.capHeight / 2
         var marks: [(Mark, CGFloat)] = []
+        var glyphFrames: [String: NSRect] = [:]
+        var waitingBadges: [String: NSRect] = [:]
         var x: CGFloat = 0
         func text(_ string: String, alpha: CGFloat) {
             marks.append((.text(string, NSPoint(x: x, y: baseline)), alpha))
@@ -223,7 +320,15 @@ struct StatusItemArtwork {
             }
             let alpha: CGFloat = entry.isStale ? 0.5 : 1
             let box = NSRect(x: x, y: middle - glyphSize / 2, width: glyphSize, height: glyphSize)
-            marks.append((.glyph(entry.glyph, box), alpha))
+            glyphFrames[entry.id] = box
+            marks.append((.glyph(entry.glyph, box, weeklyFraction: entry.weeklyFraction), alpha))
+            if waitingBadgeProviderIDs.contains(entry.id) {
+                let dot = waitingBadge(on: box)
+                waitingBadges[entry.id] = dot
+                marks.append((.waitingCutout(dot), alpha))
+            } else if activityBadgeProviderIDs.contains(entry.id) {
+                marks.append((.activityBadge(activityBadge(on: box)), alpha))
+            }
             x += glyphSize + glyphGap
             if let label = entry.label {
                 text(label, alpha: alpha)
@@ -233,17 +338,33 @@ struct StatusItemArtwork {
                 text(StatusItemSummary.Entry.unknown, alpha: alpha)
                 continue
             }
-            // Right-aligned, so the "%" stays put and the figure grows leftward.
-            let percentWidth = width(entry.percent)
-            x += max(0, percentRoom - percentWidth)
             text(entry.percent, alpha: alpha)
-            guard !summary.isCompact else { continue }
-            text(separator, alpha: alpha)
-            let start = x
-            text(entry.countdown, alpha: alpha)
-            x = max(x, start + countdownRoom)
+            if !summary.isCompact {
+                text(separator, alpha: alpha)
+                text(entry.countdown, alpha: alpha)
+            }
         }
-        return (x.rounded(.up), marks)
+        return (x.rounded(.up), marks, glyphFrames, waitingBadges)
+    }
+
+    /// The upper trailing corner, where a notification badge sits on a Dock
+    /// icon — and the opposite corner from Reduce Motion's working dot, so the
+    /// two never read as the same thing even before the colour does. Larger
+    /// than that dot: this one is asking for something.
+    private func waitingBadge(on box: NSRect) -> NSRect {
+        let diameter = max(4, (glyphSize * 0.45).rounded())
+        return NSRect(x: (box.maxX - diameter * 0.7).rounded(),
+                      y: (box.maxY - diameter * 0.7).rounded(),
+                      width: diameter, height: diameter)
+    }
+
+    /// The badge sits in the lower trailing corner, where macOS icon badges
+    /// normally sit, and lands on whole points so it stays round at 1x.
+    private func activityBadge(on box: NSRect) -> NSRect {
+        let diameter = max(3, (glyphSize * 0.32).rounded())
+        return NSRect(x: (box.maxX - diameter * 0.8).rounded(),
+                      y: (box.minY - diameter * 0.2).rounded(),
+                      width: diameter, height: diameter)
     }
 
     private func width(_ string: String) -> CGFloat {
@@ -263,9 +384,38 @@ struct StatusItemArtwork {
             ink.setFill()
             // Composited like everything else here; plain `fill()` copies.
             rect.fill(using: .sourceOver)
-        case .glyph(let glyph, let box):
-            let inset = box.width * (1 - glyph.opticalScale) / 2
-            let rect = box.insetBy(dx: inset, dy: inset)
+        case .glyph(let glyph, let box, let weeklyFraction):
+            var glyphBox = box
+            if let weeklyFraction {
+                // Weekly usage borrows the app's established ring language and
+                // occupies the glyph's existing box, so enabling it adds no
+                // width even with several providers. The faint complete track
+                // makes 0% visible; the clockwise arc grows to a full circle.
+                let circle = box.insetBy(dx: 0.75, dy: 0.75)
+                let radius = min(circle.width, circle.height) / 2
+                let track = NSBezierPath()
+                track.appendArc(withCenter: NSPoint(x: circle.midX, y: circle.midY),
+                                radius: radius, startAngle: 90, endAngle: -270,
+                                clockwise: true)
+                track.lineWidth = 1
+                ink.withAlphaComponent(alpha * 0.32).setStroke()
+                track.stroke()
+
+                let clamped = CGFloat(min(max(weeklyFraction, 0), 1))
+                if clamped > 0 {
+                    let progress = NSBezierPath()
+                    progress.appendArc(withCenter: NSPoint(x: circle.midX, y: circle.midY),
+                                       radius: radius, startAngle: 90,
+                                       endAngle: 90 - 360 * clamped, clockwise: true)
+                    progress.lineWidth = 1.25
+                    progress.lineCapStyle = .round
+                    ink.setStroke()
+                    progress.stroke()
+                }
+                glyphBox = box.insetBy(dx: 2.25, dy: 2.25)
+            }
+            let inset = glyphBox.width * (1 - glyph.opticalScale) / 2
+            let rect = glyphBox.insetBy(dx: inset, dy: inset)
             // The same preference as the notch: a bundled asset over the trace,
             // fitted rather than stretched, since not every mark is square.
             if let asset = NSImage(named: glyph.assetName), asset.size.width > 0, asset.size.height > 0 {
@@ -290,6 +440,22 @@ struct StatusItemArtwork {
             }
             ink.setFill()
             path.fill()
+        case .activityBadge(let dot):
+            // A clear ring separates the dot from the mark it overlaps.
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current?.compositingOperation = .destinationOut
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: dot.insetBy(dx: -1.5, dy: -1.5)).fill()
+            NSGraphicsContext.restoreGraphicsState()
+            ink.setFill()
+            NSBezierPath(ovalIn: dot).fill()
+        case .waitingCutout(let dot):
+            // The same clear ring, around a disc left empty for the red dot.
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current?.compositingOperation = .destinationOut
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: dot.insetBy(dx: -1.5, dy: -1.5)).fill()
+            NSGraphicsContext.restoreGraphicsState()
         }
     }
 }

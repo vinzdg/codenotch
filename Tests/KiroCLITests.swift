@@ -36,8 +36,62 @@ final class KiroCLITests: XCTestCase {
     }
 
     func testItAsksInNonInteractiveChat() {
-        XCTAssertEqual(KiroCLI.arguments, ["chat", "--no-interactive", "/usage"])
+        XCTAssertEqual(KiroCLI.arguments, ["chat", "--agent-engine", "v2", "--no-interactive", "/usage"])
         XCTAssertEqual(KiroCLI.timeout, 20)
+    }
+
+    /// With `chat.agentEngine v3` saved, an unpinned `/usage` goes to the
+    /// model, which bills credits and never prints a card (#520). The stand-in
+    /// answers only a pinned call and otherwise hangs the way V3 does.
+    func testThePinnedEngineIsWhatGetsTheCard() throws {
+        let url = try makeScript("""
+        #!/bin/sh
+        if [ "$1" = chat ]; then
+          case " $* " in
+            *" --agent-engine v2 "*) echo 'Estimated Usage | resets on 2026-12-01 | KIRO PRO'; exit 0 ;;
+          esac
+        fi
+        exec /bin/sleep 30
+        """)
+
+        let text = try KiroCLI.run(binary: url, timeout: 15)
+        XCTAssertTrue(text.contains("Estimated Usage"), text)
+    }
+
+    /// A CLI that refuses the flag is not signed out, and must not be asked
+    /// again without it: that unpinned call is the one that spends credits.
+    func testACLIThatRejectsTheEnginePinIsNotASignOutAndIsNotRetried() throws {
+        let calls = try makeTemp().appendingPathComponent("calls")
+        let url = try makeScript("""
+        #!/bin/sh
+        echo "$*" >> '\(calls.path)'
+        echo "error: unexpected argument '--agent-engine' found" >&2
+        exit 2
+        """)
+
+        XCTAssertThrowsError(try KiroCLI.run(binary: url, timeout: 15)) { error in
+            guard case UsageProviderError.apiError(let message) = error else {
+                return XCTFail("expected apiError, got \(error)")
+            }
+            XCTAssertTrue(message.contains("--agent-engine"), message)
+        }
+        let made = try String(contentsOf: calls, encoding: .utf8)
+            .split(separator: "\n")
+        XCTAssertEqual(made, ["chat --agent-engine v2 --no-interactive /usage"])
+    }
+
+    func testAnyOtherFailedExitStillMeansNoLogin() throws {
+        let url = try makeScript("""
+        #!/bin/sh
+        echo 'You are not logged in, please log in with kiro-cli login' >&2
+        exit 1
+        """)
+
+        XCTAssertThrowsError(try KiroCLI.run(binary: url, timeout: 15)) { error in
+            guard case UsageProviderError.needsAuth = error else {
+                return XCTFail("expected needsAuth, got \(error)")
+            }
+        }
     }
 
     /// `isExecutableFile` is true for directories; treating one as kiro-cli
@@ -129,6 +183,16 @@ final class KiroCLITests: XCTestCase {
         XCTAssertNil(KiroCLI.usageText(stdout: "", stderr: " \n"))
     }
 
+    func testNonEstimatedUsageCardInStderrWinsOverWarningsInStdout() {
+        let card = """
+        | KIRO FREE |
+        ████████████████ 25%
+        (12.50 of 50 covered in plan), resets on 01/15
+        """
+        XCTAssertEqual(KiroCLI.usageText(stdout: "warning: new version available\n", stderr: card), card)
+        XCTAssertEqual(KiroCLI.usageText(stdout: card, stderr: "warning: new version available\n"), card)
+    }
+
     // MARK: - Fixtures
 
     private func makeTemp() throws -> URL {
@@ -137,6 +201,13 @@ final class KiroCLITests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
         return root
+    }
+
+    private func makeScript(_ body: String) throws -> URL {
+        let url = try makeTemp().appendingPathComponent("kiro-cli")
+        try body.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        return url
     }
 
     private func makeExecutable(_ name: String) throws -> URL {

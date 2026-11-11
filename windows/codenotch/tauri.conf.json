@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Codenotch",
-  "version": "1.16.0",
+  "version": "1.25.0",
   "identifier": "com.immidi.codenotch",
   "build": {
     "frontendDist": "ui"
@@ -35,6 +35,10 @@
       "nsis"
     ],
     "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
       "icons/icon.ico"
     ],
     "createUpdaterArtifacts": false

@@ -1,0 +1,18 @@
+{
+  "_comment": "credit_usd = money per credit for credit-based seats (Codex Business/Team); cost there = credits used × credit_usd. Subscription plans as the vendors report them (Claude: organization.rate_limit_tier; Codex: plan_type). Prices per month; the Mac's currency is used when listed, else USD converted at the daily rate. Copied to ~/Library/Application Support/Codenotch/costs/plans.json on first run: edit that file, or point Settings → Costs at a remote catalog URL.",
+  "plans": {
+    "default_claude_free":      { "name": "Free",     "prices": { "USD": 0 } },
+    "default_claude_pro":       { "name": "Pro",      "prices": { "USD": 20 } },
+    "default_claude_max_5x":    { "name": "Max 5x",   "prices": { "USD": 100, "BRL": 550 } },
+    "default_claude_max_20x":   { "name": "Max 20x",  "prices": { "USD": 200 } },
+    "default_claude_team":      { "name": "Team",     "prices": { "USD": 30 } },
+    "default_claude_enterprise":{ "name": "Enterprise", "prices": {} },
+    "free":       { "name": "Free",       "prices": { "USD": 0 } },
+    "plus":       { "name": "Plus",       "prices": { "USD": 20 } },
+    "pro":        { "name": "Pro",        "prices": { "USD": 200 } },
+    "team":       { "name": "Team",       "prices": { "USD": 30 }, "credit_usd": 1 },
+    "business":   { "name": "Business",   "prices": { "USD": 30 }, "credit_usd": 1 },
+    "enterprise": { "name": "Enterprise", "prices": {}, "credit_usd": 1 },
+    "edu":        { "name": "Edu",        "prices": {} }
+  }
+}

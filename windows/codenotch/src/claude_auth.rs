@@ -1,10 +1,14 @@
 //! User-initiated sign-in through the standalone Claude Code CLI. OAuth stays in
 //! the CLI: no codes, tokens, browser URLs or credential writes cross widget IPC.
 use serde::Serialize;
-use std::{process::{Child, Command, Stdio}, sync::{atomic::{AtomicBool, Ordering}, Mutex}, time::{Duration, Instant}};
+use std::{process::{Child, Command}, sync::{atomic::{AtomicBool, AtomicU64, Ordering}, Mutex}, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
 
 static BUSY: AtomicBool = AtomicBool::new(false);
 static MESSAGE: Mutex<String> = Mutex::new(String::new());
+static PROFILE_ID: Mutex<Option<String>> = Mutex::new(None);
+/// When the running sign-in is given up on, in ms since the epoch; 0 when none is running.
+static DEADLINE: AtomicU64 = AtomicU64::new(0);
+const LOGIN_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
 /// The lock guards one short line of status text. A panic while it is held would
 /// poison it and take the whole card down with `unwrap`, which is a steep price
@@ -14,10 +18,14 @@ fn message() -> std::sync::MutexGuard<'static, String> {
 }
 
 #[derive(Serialize)]
-pub struct AuthState { pub busy: bool, pub message: String }
+pub struct AuthState { pub busy: bool, pub message: String, pub profile_id: Option<String>, pub deadline: u64 }
 
 pub fn state() -> AuthState {
-    AuthState { busy: BUSY.load(Ordering::Acquire), message: message().clone() }
+    // Do not hold the message mutex while acquiring the profile mutex: usage
+    // acknowledgement holds the profile while clearing the corresponding line.
+    let status_message = message().clone();
+    let profile_id = PROFILE_ID.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    AuthState { busy: BUSY.load(Ordering::Acquire), message: status_message, profile_id, deadline: DEADLINE.load(Ordering::Acquire) }
 }
 
 /// Shared with background renewal so the two native clients cannot rotate the
@@ -30,14 +38,68 @@ impl Drop for AuthGuard {
     fn drop(&mut self) { BUSY.store(false, Ordering::Release); }
 }
 
-pub fn usage_succeeded() {
-    if !BUSY.load(Ordering::Acquire) { message().clear(); }
+pub fn usage_succeeded(profile_id: &str) {
+    // A new login writes its profile before its message. Holding this lock
+    // prevents an older successful read from erasing that newly-written message.
+    let current_profile = PROFILE_ID.lock().unwrap_or_else(|e| e.into_inner());
+    if !BUSY.load(Ordering::Acquire) && current_profile.as_deref() == Some(profile_id) { message().clear(); }
 }
 
 // No interpolated shell input: even paths containing apostrophes arrive in env.
+#[cfg(windows)]
 const LOGIN_SCRIPT: &str = "$Host.UI.RawUI.WindowTitle = 'Codenotch - Claude sign-in'; Write-Host 'Complete sign-in in your browser. Paste any code in this window.'; & $env:CODENOTCH_CLAUDE_CLI auth login --claudeai; $loginResult = $LASTEXITCODE; if ($loginResult -eq 0) { Write-Host 'Sign-in complete. Codenotch will refresh automatically.'; Start-Sleep -Seconds 2 } else { Write-Host 'Sign-in failed or cancelled. Retry from Codenotch.'; Start-Sleep -Seconds 8 }; exit $loginResult";
 
-fn login_command(cli: &std::path::Path) -> Result<Command, String> {
+/// The same sign-in, driven by a POSIX shell inside a terminal window. The CLI path
+/// travels in the environment here too, so a path with quotes in it is never parsed.
+#[cfg(not(windows))]
+const LOGIN_SH: &str = "echo 'Complete sign-in in your browser. Paste any code in this window.'; \"$CODENOTCH_CLAUDE_CLI\" auth login --claudeai; r=$?; if [ $r -eq 0 ]; then echo 'Sign-in complete. Codenotch will refresh automatically.'; sleep 2; else echo 'Sign-in failed or cancelled. Retry from Codenotch.'; sleep 8; fi; exit $r";
+
+/// A terminal emulator that can run a command, in the order a desktop is likely to have one.
+/// `-e` is understood by all of these; the Debian alternative comes first so the user's own
+/// choice wins.
+#[cfg(not(windows))]
+fn terminal_emulator() -> Option<std::path::PathBuf> {
+    const CANDIDATES: [&str; 8] = [
+        "x-terminal-emulator",
+        "gnome-terminal",
+        "konsole",
+        "xfce4-terminal",
+        "kgx",
+        "alacritty",
+        "kitty",
+        "xterm",
+    ];
+    let path = std::env::var_os("PATH")?;
+    for name in CANDIDATES {
+        for dir in std::env::split_paths(&path) {
+            let p = dir.join(name);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(windows))]
+fn login_command(cli: &std::path::Path, profile_dir: &std::path::Path) -> Result<Command, String> {
+    let term = terminal_emulator().ok_or("No terminal emulator found. Run `claude auth login` yourself.")?;
+    let mut cmd = Command::new(term);
+    cmd.args(["-e", "sh", "-c", LOGIN_SH]).env("CODENOTCH_CLAUDE_CLI", cli);
+    cmd.current_dir(dirs::home_dir().ok_or("Home directory unavailable.")?);
+    for (key, _) in std::env::vars_os() {
+        let k = key.to_string_lossy();
+        if k == "CLAUDECODE" || k.starts_with("CLAUDE_CODE_")
+            || matches!(k.as_ref(), "CLAUDE_CONFIG_DIR" | "ANTHROPIC_API_KEY" | "ANTHROPIC_AUTH_TOKEN") {
+            cmd.env_remove(&key);
+        }
+    }
+    cmd.env("CLAUDE_CONFIG_DIR", profile_dir);
+    Ok(cmd)
+}
+
+#[cfg(windows)]
+fn login_command(cli: &std::path::Path, profile_dir: &std::path::Path) -> Result<Command, String> {
     let root = std::env::var_os("SystemRoot").ok_or("Windows directory unavailable.")?;
     let mut cmd = Command::new(std::path::PathBuf::from(root).join("System32/WindowsPowerShell/v1.0/powershell.exe"));
     cmd.args(["-NoLogo", "-NoProfile", "-Command", LOGIN_SCRIPT]).env("CODENOTCH_CLAUDE_CLI", cli);
@@ -55,12 +117,14 @@ fn login_command(cli: &std::path::Path) -> Result<Command, String> {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0000_0010); // visible console only after a user's click
     }
+    cmd.env("CLAUDE_CONFIG_DIR", profile_dir);
     Ok(cmd)
 }
 
 fn terminate(child: &mut Child) {
     #[cfg(windows)] {
         use std::os::windows::process::CommandExt;
+        use std::process::Stdio;
         if let Some(root) = std::env::var_os("SystemRoot") {
             // A .cmd CLI may have node children: terminate only this owned tree.
             let _ = Command::new(std::path::PathBuf::from(root).join("System32/taskkill.exe"))
@@ -84,18 +148,36 @@ fn wait_child(child: &mut Child, timeout: Duration) -> bool {
 }
 
 pub fn start_login() -> Result<(), String> {
+    let home = dirs::home_dir().ok_or("Home directory unavailable")?;
+    start_profile_login(&home.join(".claude"), "default")
+}
+
+pub fn start_profile_login(profile_dir: &std::path::Path, profile_id: &str) -> Result<(), String> {
+    start_profile_login_within(profile_dir, profile_id, LOGIN_TIMEOUT, |_| {})
+}
+
+/// `ended` runs once the sign-in window has closed or been given up on, before another sign-in
+/// can start, with whether the CLI reported success.
+pub fn start_profile_login_within(profile_dir: &std::path::Path, profile_id: &str, timeout: Duration,
+    ended: impl FnOnce(bool) + Send + 'static) -> Result<(), String> {
     let cli = crate::usage::find_cli().ok_or("Claude Code CLI not found. Install the standalone CLI first.")?;
     let guard = try_acquire().ok_or("Claude sign-in or renewal is already running.")?;
-    let mut cmd = login_command(&cli)?;
+    let mut cmd = login_command(&cli, profile_dir)?;
     let mut child = cmd.spawn().map_err(|_| "Unable to open Claude sign-in window.")?;
+    *PROFILE_ID.lock().unwrap_or_else(|e| e.into_inner()) = Some(profile_id.to_string());
     *message() = "Complete sign-in in the browser or terminal window.".into();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    DEADLINE.store((now + timeout).as_millis() as u64, Ordering::Release);
+    let profile_id = profile_id.to_string();
     std::thread::spawn(move || {
-        let ok = wait_child(&mut child, Duration::from_secs(15 * 60));
+        let ok = wait_child(&mut child, timeout);
         *message() = if ok { "Sign-in complete. Refreshing usage..." } else {
             "Sign-in cancelled, failed or timed out. Try again."
         }.into();
+        DEADLINE.store(0, Ordering::Release);
+        ended(ok);
         drop(guard);
-        crate::usage::request_refresh();
+        if ok { crate::usage::request_account_refresh(&profile_id); }
     });
     Ok(())
 }
@@ -111,12 +193,21 @@ mod tests {
         drop(guard);
         assert!(!state().busy);
         assert!(try_acquire().is_some());
+        *PROFILE_ID.lock().unwrap_or_else(|e| e.into_inner()) = Some("work".into());
+        *message() = "Sign-in complete. Refreshing usage...".into();
+        usage_succeeded("default");
+        assert!(!state().message.is_empty(), "an unrelated account cannot acknowledge this account's sign-in");
+        usage_succeeded("work");
+        assert!(state().message.is_empty());
+        *PROFILE_ID.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
     #[test]
     #[cfg(windows)]
     fn paths_are_data_not_shell_source() {
         let path = std::path::Path::new(r"C:\fixture with spaces\O'Brien\claude.cmd");
-        let cmd = login_command(path).unwrap();
+        let profile = std::path::Path::new(r"C:\Users\fixture\.claude-work");
+        let cmd = login_command(path, profile).unwrap();
+        assert!(cmd.get_envs().any(|(k,v)| k == "CLAUDE_CONFIG_DIR" && v == Some(profile.as_os_str())));
         assert!(cmd.get_args().all(|arg| !arg.to_string_lossy().contains("O'Brien")));
         assert!(cmd.get_envs().any(|(k,v)| k == "CODENOTCH_CLAUDE_CLI" && v == Some(path.as_os_str())));
     }
@@ -125,16 +216,18 @@ mod tests {
     fn failed_exit_and_timeout_are_reaped() {
         use std::os::windows::process::CommandExt;
         let root = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap());
-        let shell = root.join("System32/WindowsPowerShell/v1.0/powershell.exe");
-        let mut child = Command::new(&shell)
-            .args(["-NoProfile", "-NonInteractive", "-Command", "exit 7"]).creation_flags(0x0800_0000).spawn().unwrap();
+        let where_exe = root.join("System32/where.exe");
+        let mut child = Command::new(&where_exe)
+            .arg("codenotch-no-such-command-394.exe").creation_flags(0x0800_0000)
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
         assert!(!wait_child(&mut child, Duration::from_secs(5)));
-        let mut child = Command::new(&shell)
-            .args(["-NoProfile", "-NonInteractive", "-Command", "exit 0"]).creation_flags(0x0800_0000).spawn().unwrap();
+        let mut child = Command::new(&where_exe)
+            .arg("cmd.exe").creation_flags(0x0800_0000)
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
         assert!(wait_child(&mut child, Duration::from_secs(5)));
-        let mut child = Command::new(root.join("System32/WindowsPowerShell/v1.0/powershell.exe"))
-            .args(["-NoProfile", "-Command", "Start-Sleep -Seconds 30"])
-            .creation_flags(0x0800_0000).spawn().unwrap();
+        let mut child = Command::new(root.join("System32/ping.exe"))
+            .args(["-n", "30", "127.0.0.1"]).creation_flags(0x0800_0000)
+            .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
         let start = Instant::now();
         assert!(!wait_child(&mut child, Duration::from_millis(300)));
         assert!(start.elapsed() < Duration::from_secs(5));

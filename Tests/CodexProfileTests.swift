@@ -74,7 +74,8 @@ final class CodexProfileTests: XCTestCase {
                        "CODEX_HOME='/Users/O'\"'\"'Brien/.codex-work' codex -c 'cli_auth_credentials_store=\"file\"' login")
         let provider = CodexLocalProvider(profile: profile)
         XCTAssertEqual(provider.signInRoute,
-                       .guidance("Run \(profile.signInCommand) in Terminal to sign in to Codex (work)."))
+                       .command(profile.signInCommand, name: "Codex (work)",
+                                install: URL(string: "https://developers.openai.com/codex/cli")))
         let snapshot = ProviderSnapshot(id: profile.id, displayName: profile.displayName,
                                         glyph: .openai, fidelity: .official, status: .needsAuth, windows: [])
         XCTAssertEqual(snapshot.statusMessage, "Sign in to Codex in ~/.codex-work to read your usage")

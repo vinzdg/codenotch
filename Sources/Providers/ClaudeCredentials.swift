@@ -94,8 +94,9 @@ struct ClaudeCredentials {
     }
 
     /// Turn the stored JSON into a credential. Shared by both readers, so a
-    /// rescued read is judged exactly as a direct one is.
-    private static func decode(_ data: Data, services: [String]) throws -> ClaudeCredentials {
+    /// rescued read is judged exactly as a direct one is — and by the remote
+    /// reader, for which the SSH output is the same document over a wire.
+    static func decode(_ data: Data, services: [String]) throws -> ClaudeCredentials {
         struct Payload: Decodable {
             struct OAuth: Decodable {
                 let accessToken: String

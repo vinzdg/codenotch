@@ -17,6 +17,7 @@
 		<string>en</string>
 		<string>fr</string>
 		<string>de</string>
+		<string>id</string>
 		<string>ja</string>
 		<string>ko</string>
 		<string>pt-BR</string>
@@ -24,6 +25,9 @@
 		<string>zh-Hans</string>
 		<string>zh-Hant</string>
 		<string>uk</string>
+		<string>uz</string>
+		<string>tr</string>
+		<string>es</string>
 	</array>
 	<key>CFBundleName</key>
 	<string>Codenotch</string>
@@ -35,10 +39,21 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>15.0</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>100.64.0.0/10</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
+		</dict>
+	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Codenotch answers your phone on this network so it can show your usage.</string>
 	<key>SUAutomaticallyUpdate</key>
-	<true/>
+	<false/>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>

@@ -36,6 +36,24 @@ final class ClaudeSessionMonitor: ObservableObject, AgentActivityMonitor {
     /// between. See `ClaudeTokenRefresher`.
     var ignoredPIDs: () -> Set<Int32> = { [] }
 
+    /// Working directories whose sessions are Codenotch's own, matched as a
+    /// second net under the pids: the `/usage` probe runs in
+    /// `ClaudeUsageCLI.scratchDirectory`, and a session filed from there is
+    /// never the user's, whichever process wrote it.
+    var ignoredWorkingDirectories: Set<String> = []
+
+    /// Who owns a session the Claude desktop app hosts, when there is more than
+    /// one Claude account on the machine. Nil leaves every record with the
+    /// directory it was found in, which is what a single-profile machine and
+    /// every test that predates this want. See `ClaudeSessionOwnership`.
+    ///
+    /// Only this profile's own directory is *watched*; a session adopted from
+    /// another profile's directory arrives on the next liveness tick instead,
+    /// two seconds later. Deliberate: a second descriptor per profile per
+    /// profile is a lot of machinery to save a delay nobody can see, and the
+    /// timer is already what covers everything a file event cannot report.
+    var ownership: ClaudeSessionOwnership?
+
     private var source: DispatchSourceFileSystemObject?
     private var descriptor: CInt = -1
     private var livenessTimer: Timer?
@@ -112,7 +130,9 @@ final class ClaudeSessionMonitor: ObservableObject, AgentActivityMonitor {
 
     private func rescan() {
         let found = Self.read(directory: directory, transcripts: transcripts,
-                              ignoring: ignoredPIDs())
+                              ignoring: ignoredPIDs(),
+                              ignoringDirectories: ignoredWorkingDirectories,
+                              ownership: ownership)
         guard found != sessions else { return }   // don't churn SwiftUI for nothing
         // Only on a change, so this is a handful of lines an hour rather than a
         // firehose. It is the one way to see what the notch thinks is running
@@ -124,11 +144,71 @@ final class ClaudeSessionMonitor: ObservableObject, AgentActivityMonitor {
         sessions = found
     }
 
+    /// Every session this profile should draw.
+    ///
+    /// With no `ownership` this is exactly what it always was: the records in
+    /// `directory`, nothing else. With one, the registry files of *every*
+    /// profile are read and each desktop-hosted record goes to the profile
+    /// whose account actually hosts it — which is not the profile whose
+    /// directory it sits in, because the desktop app files them all under the
+    /// default. A record whose account cannot be established is left exactly
+    /// where it was found, so an unreadable index costs nothing but the
+    /// old behaviour.
     static func read(directory: URL,
                      transcripts: ClaudeTranscriptReader? = nil,
-                     ignoring: Set<Int32> = []) -> [AgentSession] {
+                     ignoring: Set<Int32> = [],
+                     ignoringDirectories: Set<String> = [],
+                     ownership: ClaudeSessionOwnership? = nil,
+                     isAttended: (Int32) -> Bool = ClaudeSessionMonitor.isAttended(pid:))
+    -> [AgentSession] {
+        let sources = ownership?.directories ?? [directory]
+
+        var live: [ClaudeSessionRecord] = []
+        /// Which directory each record came from: an adopted session's
+        /// transcript stays where the session writes it, not where its ring is.
+        var origin: [Int32: URL] = [:]
+
+        for source in sources {
+            for record in records(in: source, ignoring: ignoring,
+                                  ignoringDirectories: ignoringDirectories,
+                                  isAttended: isAttended) {
+                if let ownership, !ownership.claims(record, foundIn: source) { continue }
+                live.append(record)
+                origin[record.pid] = source
+            }
+        }
+
+        return deduplicated(live)
+            .map { record in
+                let reader = origin[record.pid].flatMap { ownership?.reader(for: $0) }
+                    ?? transcripts
+                return state(of: record, transcripts: reader)
+            }
+            // The id breaks ties so the order cannot flicker between two ticks
+            // that read the same thing.
+            .sorted { $0.since == $1.since ? $0.id < $1.id : $0.since > $1.since }
+    }
+
+    /// The live records in one profile's `sessions` directory.
+    ///
+    /// `ignoringDirectories` is the second net under the pids: a session filed
+    /// from Codenotch's own `/usage` scratch directory is never the user's,
+    /// whichever profile's directory it turns up in. `isAttended` is asked only
+    /// of the sessions a program started, and leaves out the ones nobody is at.
+    ///
+    /// A session suspended with ctrl-Z is left out until it is resumed. Its
+    /// file stays and its process is alive, but nobody has it open: one seen on
+    /// a real machine sat stopped for a day behind the session resumed in the
+    /// same tab, drawn as an idle row nobody could find.
+    static func records(in directory: URL, ignoring: Set<Int32> = [],
+                        ignoringDirectories: Set<String> = [],
+                        isAttended: (Int32) -> Bool = ClaudeSessionMonitor.isAttended(pid:))
+    -> [ClaudeSessionRecord] {
+        let ignoredDirectories = Set(ignoringDirectories.map {
+            URL(fileURLWithPath: $0).standardizedFileURL.path
+        })
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        let live = names
+        return names
             .filter { $0.hasSuffix(".json") }
             .compactMap { name -> ClaudeSessionRecord? in
                 let url = directory.appendingPathComponent(name)
@@ -136,23 +216,49 @@ final class ClaudeSessionMonitor: ObservableObject, AgentActivityMonitor {
                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let record = ClaudeSessionRecord(json: json),
                       !ignoring.contains(record.pid),
-                      ProcessLiveness.isAlive(pid: record.pid, startedAt: record.startedAt)
+                      !ignoredDirectories.contains(URL(fileURLWithPath: record.cwd).standardizedFileURL.path),
+                      ProcessLiveness.isAlive(pid: record.pid, startedAt: record.startedAt),
+                      !ProcessLiveness.isStopped(pid: record.pid),
+                      !record.isFromSDK || isAttended(record.pid)
                 else { return nil }
                 return record
             }
-        return deduplicated(live)
-            .map { record in state(of: record, transcripts: transcripts) }
-            // The id breaks ties so the order cannot flicker between two ticks
-            // that read the same thing.
-            .sorted { $0.since == $1.since ? $0.id < $1.id : $0.since > $1.since }
+    }
+
+    /// Whether somebody can be at this session: it has a terminal, or an
+    /// application somewhere above it.
+    ///
+    /// Asked only of the sessions a program started (`isFromSDK`), because those
+    /// are not always anybody's. claude-mem's worker runs a headless Claude Code
+    /// for every session it observes, with no terminal and a daemon parented to
+    /// launchd above it. Each of those ran `busy`, fell `idle` and was announced
+    /// as a turn of yours that finished — seven times in a hundred seconds on a
+    /// real machine. `claude -p` typed into a terminal has that terminal, and an
+    /// editor driving Claude Code through the SDK has its own application above
+    /// it, so both stay.
+    nonisolated static func isAttended(pid: Int32) -> Bool {
+        SessionFocus.tty(of: pid) != nil || SessionFocus.owningApp(of: pid) != nil
     }
 
     /// The record's own answer where it has one, the transcript's where it does
     /// not. Desktop sessions always take the second path; terminal ones never
     /// do, which is what keeps their `waiting` state — the one thing only the
     /// terminal interface knows — exactly as it was.
+    ///
+    /// The name follows the same rule: the record's, unless it is only the
+    /// folder stand-in and the transcript has a title for it.
     static func state(of record: ClaudeSessionRecord,
                       transcripts: ClaudeTranscriptReader?) -> AgentSession {
+        let session = activity(of: record, transcripts: transcripts)
+        guard record.hasDerivedName,
+              let sessionID = record.sessionID,
+              let title = transcripts?.title(sessionID: sessionID, cwd: record.cwd)
+        else { return session }
+        return session.named(title)
+    }
+
+    private static func activity(of record: ClaudeSessionRecord,
+                                 transcripts: ClaudeTranscriptReader?) -> AgentSession {
         guard !record.reportsStatus,
               let sessionID = record.sessionID,
               let activity = transcripts?.activity(sessionID: sessionID, cwd: record.cwd)

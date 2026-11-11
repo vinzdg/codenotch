@@ -60,15 +60,15 @@ final class DevinUsageTests: XCTestCase {
         let windows = try windows(recorded)
         let old = ProviderSnapshot(id: "devin", displayName: "Devin", glyph: .third,
                                    fidelity: .official, status: .ok, windows: windows)
-        let other = ProviderSnapshot(id: "perplexity", displayName: "Perplexity", glyph: .third,
+        let other = ProviderSnapshot(id: "other", displayName: "Other", glyph: .third,
                                      fidelity: .official, status: .ok, windows: [])
-        archive.save(["devin": (old, captured), "perplexity": (other, captured)])
+        archive.save(["devin": (old, captured), "other": (other, captured)])
         let restored = archive.load()
         XCTAssertEqual(restored["devin"]?.snapshot.glyph, .devin)
         XCTAssertEqual(restored["devin"]?.snapshot.windows, windows)
         XCTAssertEqual(restored["devin"]?.fetchedAt, captured)
         XCTAssertEqual(restored["devin"]?.snapshot.status, .stale(since: captured))
-        XCTAssertEqual(restored["perplexity"]?.snapshot.glyph, .third)
+        XCTAssertEqual(restored["other"]?.snapshot.glyph, .third)
     }
 
     func testReadsLiveResponseAndFormatsBalance() throws {

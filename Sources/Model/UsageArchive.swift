@@ -23,6 +23,10 @@ struct UsageArchive {
         /// continue to open and show their last quota reading.
         let tokenUsage: CodexTokenUsage?
         let usageDetail: ProviderUsageDetail?
+        /// Whose reading this was. Optional for the same reason, and kept so a
+        /// remembered one still says it — a reading restored from the archive
+        /// is exactly when "which account is this?" is hardest to answer.
+        let plan: String?
     }
 
     private let defaults: UserDefaults
@@ -73,7 +77,12 @@ struct UsageArchive {
         else { return [:] }
 
         var result: [String: (snapshot: ProviderSnapshot, fetchedAt: Date)] = [:]
+        var prunedObsolete = false
         for entry in entries {
+            if entry.id == "perplexity" {
+                prunedObsolete = true
+                continue
+            }
             // Spark and code-review are live windows. Older Codex readings also
             // carried rollout quotas the provider no longer displays. Strip
             // those leftovers rather than discarding a Spark snapshot — and
@@ -85,7 +94,7 @@ struct UsageArchive {
             } else {
                 windows = entry.windows
             }
-            let snapshot = ProviderSnapshot(
+            var snapshot = ProviderSnapshot(
                 id: entry.id,
                 displayName: entry.displayName,
                 glyph: entry.id == "devin" && entry.glyph == .third ? .devin : entry.glyph,
@@ -97,7 +106,11 @@ struct UsageArchive {
                 tokenUsage: entry.tokenUsage,
                 usageDetail: entry.usageDetail
             )
+            snapshot.plan = entry.plan
             result[entry.id] = (snapshot, entry.fetchedAt)
+        }
+        if prunedObsolete {
+            save(result)
         }
         return result
     }
@@ -110,7 +123,9 @@ struct UsageArchive {
     }
 
     func save(_ readings: [String: (snapshot: ProviderSnapshot, fetchedAt: Date)]) {
-        let entries = readings.values.map {
+        let entries = readings.values
+            .filter { $0.snapshot.id != "perplexity" }
+            .map {
             Entry(
                 id: $0.snapshot.id,
                 displayName: $0.snapshot.displayName,
@@ -121,7 +136,8 @@ struct UsageArchive {
                 headlineID: $0.snapshot.headlineID,
                 weeklyID: $0.snapshot.weeklyID,
                 tokenUsage: $0.snapshot.tokenUsage,
-                usageDetail: $0.snapshot.usageDetail
+                usageDetail: $0.snapshot.usageDetail,
+                plan: $0.snapshot.plan
             )
         }
         guard let data = try? JSONEncoder().encode(entries) else { return }

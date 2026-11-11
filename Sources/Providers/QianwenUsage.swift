@@ -41,11 +41,11 @@ import Foundation
 /// wrong again for telling someone who is signed in to go and sign in.
 ///
 /// The console bundle all of this mirrors is
-/// `https://q.alyasset.com/code/qwen-cloud/console-home/1.1.38/assets/`:
+/// `https://q.alyasset.com/code/qwen-cloud/console-home/1.1.43/assets/`:
 /// `shared.js` holds the gateway client whose `data.DataV2.data` unwrap this
-/// parser follows and the session-code set above, while
-/// `analytics.js`/`home.js` hold the usage call and the `per1WeekPercentage`
-/// card the numbers below are read for.
+/// parser follows, the session-code set above and the individual-plan card's
+/// choice between the two periods the numbers below are read for, while
+/// `analytics.js`/`home.js` hold the usage call.
 ///
 /// The numbers sit two unwraps down, inside a `DataV2.data` wrapper that also
 /// carries the gateway's own `msg`, `code` and `requestId` and, beside them,
@@ -64,21 +64,57 @@ import Foundation
 ///                                   "data": { "per1WeekPercentage": 0.42,
 ///                                             "per1WeekResetTime": 1700179200000 } } } } }
 /// ```
+///
+/// A monthly plan answers with `per1MonthPercentage` and `per1MonthResetTime`
+/// in that innermost object instead, and no `per1Week*` field at all (recorded
+/// the same way on 2026-09-23, against the console's 1.1.43 build).
 enum QianwenUsage {
-    /// The personal plan's 7-day credit window: a fixed window that starts at
-    /// the first call of the cycle, allowance by tier (Lite 2 500, Standard
-    /// 10 000, Pro 40 000 credits), and unused credits do not roll over.
+    /// The personal plan's credits window, whichever period the plan is on.
+    ///
+    /// The period belongs to the account's plan, not to the site, and the two
+    /// are told apart by which pair of fields the payload carries: a weekly
+    /// plan reports `per1WeekPercentage`/`per1WeekResetTime`, a monthly one the
+    /// `per1Month*` pair. `…/tokenplan/personal/api/v2/subscription` is what
+    /// says which plan the account is on — `specCode`, status and the plan's
+    /// start and end dates — and `…/tokenplan/personal/api/v2/quota-config`
+    /// states each tier's allowances under `five_hour`, `weekly` and `monthly`
+    /// keys, so a weekly plan's own figure is the `weekly` one there.
+    ///
+    /// The figures that call answered for this account when the plan change was
+    /// read — `essential` 1 800 / 25 500, `lite` 700 / 11 500, `standard`
+    /// 3 000 / 45 000, `pro` 12 000 / 180 000 — are a live reading of it alone:
+    /// nothing in this repository pins them, they are here as context for the
+    /// labels below, and they are not something a reader can check. What the
+    /// usage payload read here carries is only the period's percentage and
+    /// reset time — no credit counts.
     static func windows(fromJSON json: String, now: Date = Date()) throws -> [LimitWindow] {
         let payload = try payload(fromJSON: json)
 
-        // The console renders remaining as `(1 - per1WeekPercentage)`, clamped,
+        // Which period the plan is on is decided the way the console's own
+        // individual-plan card decides it (`e.per1WeekPercentage != null`): the
+        // weekly branch when that field is there, the monthly one otherwise.
+        // Missing and JSON `null` are the same answer there, so they are here
+        // too. The percentage and the reset time are then read from that one
+        // branch — a weekly fraction against a monthly reset would be a
+        // reading of neither period.
+        //
+        // The branch is chosen by presence alone, not by readability: a weekly
+        // field that is there but unreadable is a failed read of the weekly
+        // plan, and reading the monthly number as if it were that plan's would
+        // report a different period's usage rather than reporting nothing.
+        let weeklyValue = payload["per1WeekPercentage"]
+        let weeklyPlan = !(weeklyValue == nil || weeklyValue is NSNull)
+        let percentage = weeklyPlan ? weeklyValue : payload["per1MonthPercentage"]
+
+        // The console renders remaining as `(1 - percentage)`, clamped,
         // because the platform stops the work at the limit rather than
         // reporting past it. Same reading, same clamp — and the units are the
-        // console's too: the first live signed-in read (2026-09-18) answered a
-        // 0–1 fraction, not a percent-scaled 42. That value would clamp here to
-        // a full ring rather than being divided by a hundred on a guess, which
-        // is what the console's own client does with it.
-        var usedFraction = number(payload["per1WeekPercentage"]).map { min(max($0, 0), 1) }
+        // console's too: both live signed-in reads (the weekly one 2026-09-18,
+        // the monthly one 2026-09-23) answered a 0–1 fraction, not a
+        // percent-scaled 42. That value would clamp here to a full ring rather
+        // than being divided by a hundred on a guess, which is what the
+        // console's own client does with it.
+        var usedFraction = number(percentage).map { min(max($0, 0), 1) }
         var remaining: Int?
         var used: Int?
 
@@ -101,13 +137,39 @@ enum QianwenUsage {
         }
 
         return [LimitWindow(
+            // The id names the *role* this window plays, not its period: the
+            // allowance the provider's own ring draws. `Sites.qianwen`
+            // declares its roles statically (`headlineID`/`weeklyID` = "week")
+            // and every consumer resolves by id — `ProviderSnapshot.headline`,
+            // `weeklyLimitWindow`/`weeklyWindow` — so a monthly plan reporting
+            // through an id of its own would resolve to nothing and draw an
+            // empty ring. What period it is is what the label says, exactly as
+            // `CodexUsage` keeps role ids `primary`/`secondary` under
+            // period-accurate labels.
             id: "week",
-            label: L10n.t("Weekly limit"),
+            label: weeklyPlan ? L10n.t("Weekly limit") : L10n.t("Monthly limit"),
             usedFraction: usedFraction,
             remaining: remaining,
             used: used,
-            resetsAt: reset(payload["per1WeekResetTime"], now: now),
-            duration: 7 * 86_400
+            resetsAt: reset(payload[weeklyPlan ? "per1WeekResetTime" : "per1MonthResetTime"],
+                            now: now),
+            // The cycle length the tooltip's pace line compares elapsed time
+            // against (`UsagePace.usagePace`; `LimitWindow.isFiveHour` also
+            // reads it, and 30 days is nowhere near the five-hour window that
+            // looks for). The monthly reset is anchored to a *day of the
+            // month*, not to a cycle length: the live read's
+            // `per1MonthResetTime` is 2026-10-02 16:00 UTC, the same day and
+            // hour as the plan's own `endTime` (2026-12-02 16:00 UTC, and the
+            // term between the recorded `startTime` and it is 91.52 days), so
+            // consecutive resets are 28, 29, 30 or 31 days apart depending on
+            // the month between them. A nominal 30 days is the convention this
+            // repo already uses for a monthly window (`KiroUsage.monthlyDuration
+            // = 30 * 86400`; `CodexUsage.label(windowSeconds:)` calls a 30-day
+            // window "Monthly limit"), and what it costs is bounded: the
+            // elapsed-time comparison is off by at most |cycle − 30| / 30 of the
+            // ring — 3.3 percentage points in a 29- or 31-day cycle, 6.7 in the
+            // 28-day February one, nothing at all when a cycle is 30 days.
+            duration: weeklyPlan ? 7 * 86_400 : 30 * 86_400
         )]
     }
 
@@ -203,22 +265,44 @@ enum QianwenUsage {
         return plain.date(from: text)
     }
 
+    /// A reading has to be a *finite* number to be one. `Double("nan")` and
+    /// `Double("inf")` both parse where the body named neither, and neither is
+    /// clamped by the caller's `min(max(…))` — `NaN` passes straight through it
+    /// — so such a fraction would satisfy the caller's `guard` and reach
+    /// `Percent.text(for:)`/`Percent.halves(for:)`, whose `Int(_: Double)`
+    /// conversion aborts the process instead of printing a ring. The console's
+    /// own client refuses the same value (`typeof n != "number" ||
+    /// !Number.isFinite(n)`, on the field it just picked), and a fraction that
+    /// is not finite can be drawn as neither a ring nor a percent, so it is not
+    /// a reading — and this is the boundary where a body becomes one.
+    /// `date(from:)` reads through here too, where a non-finite epoch would
+    /// otherwise come out as a reset moment that is not one.
     private static func number(_ value: Any?) -> Double? {
-        if let number = value as? NSNumber { return number.doubleValue }
-        if let text = value as? String {
-            return Double(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        var parsed: Double?
+        if let number = value as? NSNumber {
+            parsed = number.doubleValue
+        } else if let text = value as? String {
+            parsed = Double(text.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-        return nil
+        guard let parsed, parsed.isFinite else { return nil }
+        return parsed
     }
 
     /// Credits reach the console's own model as decimal strings ("10000.00"),
     /// so both spellings have to count.
+    ///
+    /// Only the string path needs a bound: `Int("1e30")` fails where
+    /// `Double("1e30")` succeeds, and `Int(_: Double)` aborts the process on
+    /// that value rather than answering — the same trap `"1e400"` and `"nan"`
+    /// reach, all three measured. `NSNumber.intValue` does not abort on those,
+    /// so there is nothing to guard on that path.
     private static func int(_ value: Any?) -> Int? {
         if let number = value as? NSNumber { return number.intValue }
         guard let text = value as? String else { return nil }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if let value = Int(trimmed) { return value }
-        if let value = Double(trimmed) { return Int(value) }
-        return nil
+        guard let value = Double(trimmed), value >= Double(Int.min),
+              value < Double(Int.max) else { return nil }
+        return Int(value)
     }
 }

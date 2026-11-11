@@ -71,7 +71,7 @@ enum GrokUsage {
            (weekly["type"] as? String).map({ $0.contains("WEEKLY") }) == true {
             windows.append(LimitWindow(
                 id: "credits",
-                label: "Weekly limit",
+                label: L10n.t("Weekly limit"),
                 usedFraction: 0,
                 resetsAt: date(weekly["end"]) ?? creditsReset
             ))

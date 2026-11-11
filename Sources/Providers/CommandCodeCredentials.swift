@@ -15,12 +15,14 @@ struct CommandCodeCredentials {
     let apiKey: String
     let userName: String?
 
-    static func account(from url: URL = authURL) -> ProviderAccount? {
-        guard let stored = try? load(from: url) else { return nil }
+    static func account(from url: URL = authURL,
+                        environment: [String: String] = ProcessInfo.processInfo.environment,
+                        source: String = "Command Code") -> ProviderAccount? {
+        guard let stored = try? load(from: url, environment: environment) else { return nil }
         return ProviderAccount(
             label: stored.userName,
             plan: nil,
-            source: "Command Code",
+            source: source,
             manageURL: URL(string: "https://commandcode.ai")
         )
     }

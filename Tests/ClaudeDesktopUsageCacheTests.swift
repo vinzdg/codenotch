@@ -522,6 +522,50 @@ final class ClaudeDesktopUsageCacheTests: XCTestCase {
 
     // MARK: - The two alternating keys
 
+    func testResetMetadataSurvivesANewerPlainUsageReadingWithoutChangingItsWindows() throws {
+        var reset = Entry()
+        reset.key += "&cedar_ember=1"
+        reset.body = ClaudeResetFixture.availableCacheBody
+        reset.responseDate = nil
+        var plain = Entry()
+        plain.responseDate = nil
+        let directory = makeCacheDirectory(["reset_0": reset.data(), "plain_0": plain.data()])
+        let now = Date()
+        setModificationDate(now.addingTimeInterval(-60), of: directory.appendingPathComponent("reset_0"))
+        setModificationDate(now, of: directory.appendingPathComponent("plain_0"))
+
+        let reading = try XCTUnwrap(ClaudeDesktopUsageCache(directory: directory).read(organization: Self.organization))
+        XCTAssertEqual(reading.entry.lastPathComponent, "plain_0")
+        XCTAssertEqual(reading.windows.first?.usedFraction, 0.30)
+        XCTAssertEqual(reading.resets?.credits(at: now)?.availableCount, 1)
+        let later = try XCTUnwrap(reading.resets?.credits(at: now.addingTimeInterval(3 * 3600)))
+        XCTAssertEqual(later.availableCount, 1)
+        XCTAssertEqual(try XCTUnwrap(later.checkedAt).timeIntervalSince1970,
+                       now.addingTimeInterval(-60).timeIntervalSince1970, accuracy: 1,
+                       "newer usage must not re-date the cached reset observation")
+        XCTAssertEqual(later.unexpired(at: now).checkedAt, later.checkedAt)
+        XCTAssertNil(ClaudeDesktopUsageCache(directory: directory).read(organization: "other-account"))
+    }
+
+    func testSpentOrMalformedResetMetadataSupersedesOlderAvailableGrants() throws {
+        for body in [ClaudeResetFixture.spentCacheBody, ClaudeResetFixture.malformedCacheBody,
+                     Body.full] {
+            var older = Entry()
+            older.body = ClaudeResetFixture.availableCacheBody
+            older.responseDate = nil
+            var newer = Entry()
+            newer.key += "&cedar_ember=1"
+            newer.body = body
+            newer.responseDate = nil
+            let directory = makeCacheDirectory(["older_0": older.data(), "newer_0": newer.data()])
+            setModificationDate(Date().addingTimeInterval(-60), of: directory.appendingPathComponent("older_0"))
+            setModificationDate(Date(), of: directory.appendingPathComponent("newer_0"))
+            let reading = try XCTUnwrap(ClaudeDesktopUsageCache(directory: directory).read(organization: Self.organization))
+            XCTAssertNotNil(reading.resets)
+            XCTAssertEqual(reading.resets?.credits(at: Date())?.availableCount ?? 0, 0)
+        }
+    }
+
     /// The regression this reader actually hit on a real cache. Desktop asks for
     /// both `…/usage` and `…/usage?skip_spend=1` — two keys, two files — and
     /// refreshes them independently. An earlier version of this reader

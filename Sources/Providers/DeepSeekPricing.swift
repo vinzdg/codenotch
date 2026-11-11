@@ -5,6 +5,8 @@ import Foundation
 /// DeepSeek publishes the schedule in UTC, so it is intentionally independent
 /// of the Mac's local time zone. The UI can then show the user's local clock
 /// while this type remains the single source of truth for the billing phase.
+/// The one exception is China's statutory holidays, which DeepSeek bills
+/// off-peak all day and which are Beijing calendar days.
 enum DeepSeekPricing {
     struct Schedule: Codable, Equatable {
         struct Window: Codable, Equatable {
@@ -16,6 +18,9 @@ enum DeepSeekPricing {
         /// Foundation's `Calendar.Component.weekday` values.
         var peakWeekdays: Set<Int>
         var windows: [Window]
+        /// "Monday to Friday, excluding Chinese statutory holidays" in
+        /// DeepSeek's pricing footnote; on unless someone turns it off.
+        var offPeakOnChineseHolidays = true
 
         /// The currently published rule. This is the first-launch value and
         /// also the target of the reset button in Settings.
@@ -43,7 +48,8 @@ enum DeepSeekPricing {
                 validWindows = [Self.current.windows[0]]
             }
             return Schedule(peakWeekdays: weekdays,
-                            windows: validWindows)
+                            windows: validWindows,
+                            offPeakOnChineseHolidays: offPeakOnChineseHolidays)
         }
     }
 
@@ -61,7 +67,13 @@ enum DeepSeekPricing {
         phase(at: date, schedule: .current)
     }
 
-    static func phase(at date: Date, schedule: Schedule) -> Phase {
+    /// A year the holiday calendar does not cover falls back to the weekday
+    /// rule alone, which is what DeepSeek bills on every other day.
+    static func phase(at date: Date, schedule: Schedule,
+                      holidays: ChineseHolidayCalendar = .empty) -> Phase {
+        if schedule.offPeakOnChineseHolidays, holidays.isOffDay(date) {
+            return .offPeak
+        }
         let calendar = utcCalendar
 
         let components = calendar.dateComponents([.weekday, .hour, .minute], from: date)
@@ -82,13 +94,18 @@ enum DeepSeekPricing {
         nextTransition(after: date, schedule: .current)
     }
 
-    static func nextTransition(after date: Date, schedule: Schedule) -> Transition {
+    static func nextTransition(after date: Date, schedule: Schedule,
+                               holidays: ChineseHolidayCalendar = .empty) -> Transition {
         let calendar = utcCalendar
         let start = calendar.startOfDay(for: date)
 
-        let boundaries = Set(schedule.windows.flatMap { [$0.startMinute, $0.endMinute] })
-        // Looking ahead eight days covers the Friday-to-Monday gap as well.
-        for dayOffset in 0...8 {
+        var boundaries = Set(schedule.windows.flatMap { [$0.startMinute, $0.endMinute] })
+        // A holiday starts and ends at Beijing midnight, 16:00 UTC; it only
+        // changes the phase there when a window runs across that minute.
+        boundaries.insert(16 * 60)
+        // Sixteen days covers the longest run without a peak: the Spring
+        // Festival's nine days off between two weekends.
+        for dayOffset in 0...16 {
             guard let day = calendar.date(byAdding: .day, value: dayOffset, to: start) else {
                 continue
             }
@@ -97,9 +114,9 @@ enum DeepSeekPricing {
                                                     value: minuteOfDay,
                                                     to: day),
                       candidate > date else { continue }
-                let nextPhase = phase(at: candidate, schedule: schedule)
+                let nextPhase = phase(at: candidate, schedule: schedule, holidays: holidays)
                 guard nextPhase != phase(at: candidate.addingTimeInterval(-1),
-                                         schedule: schedule) else {
+                                         schedule: schedule, holidays: holidays) else {
                     continue
                 }
                 return Transition(phase: nextPhase, date: candidate)
@@ -108,12 +125,28 @@ enum DeepSeekPricing {
 
         // The loop always finds a transition, but keep a deterministic result
         // if Foundation ever behaves unexpectedly around a calendar boundary.
-        return Transition(phase: .offPeak, date: date.addingTimeInterval(8 * 86_400))
+        return Transition(phase: .offPeak, date: date.addingTimeInterval(16 * 86_400))
     }
 
     private static var utcCalendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         return calendar
+    }
+}
+
+// Decoded by hand so a schedule saved before the holiday rule existed keeps
+// its days and windows instead of failing to decode and resetting.
+extension DeepSeekPricing.Schedule {
+    private enum CodingKeys: String, CodingKey {
+        case peakWeekdays, windows, offPeakOnChineseHolidays
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        peakWeekdays = try container.decode(Set<Int>.self, forKey: .peakWeekdays)
+        windows = try container.decode([Window].self, forKey: .windows)
+        offPeakOnChineseHolidays = try container.decodeIfPresent(Bool.self,
+                                                                 forKey: .offPeakOnChineseHolidays) ?? true
     }
 }

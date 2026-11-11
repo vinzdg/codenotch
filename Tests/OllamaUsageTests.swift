@@ -131,4 +131,114 @@ final class OllamaUsageTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Cloud totals & buckets (Issue #436)
+
+    func testCloudTotalsRequestCountFromIssue436() throws {
+        let issueJson = """
+        {
+          "range": "7d",
+          "scope": "self",
+          "granularity": "day",
+          "from": "2026-10-01T00:00:00Z",
+          "until": "2026-10-08T18:59:58Z",
+          "totals": { "request_count": 6912 },
+          "buckets": [
+            { "from": "2026-10-01T00:00:00Z", "until": "2026-10-02T00:00:00Z", "request_count": 895 }
+          ]
+        }
+        """
+        let result = try OllamaUsage.parse(issueJson)
+        XCTAssertEqual(result.headlineID, "requests")
+        let requestsWindow = result.windows.first { $0.id == "requests" }
+        XCTAssertNotNil(requestsWindow)
+        XCTAssertEqual(requestsWindow?.used, 6912)
+        XCTAssertEqual(requestsWindow?.label, "Requests (7d)")
+        XCTAssertNil(requestsWindow?.usedFraction)
+        XCTAssertNil(requestsWindow?.resetsAt)
+        XCTAssertNotNil(requestsWindow?.duration)
+    }
+
+    func testCloudTotalsWithCostAndTokens() throws {
+        let json = """
+        {
+          "range": "24h",
+          "scope": "self",
+          "granularity": "hour",
+          "from": "2026-10-07T00:00:00Z",
+          "until": "2026-10-08T00:00:00Z",
+          "totals": {
+            "request_count": 125,
+            "usage_usd": 0.01718,
+            "input_tokens": 106000,
+            "output_tokens": 13600
+          }
+        }
+        """
+        let result = try OllamaUsage.parse(json)
+        XCTAssertEqual(result.headlineID, "requests")
+        XCTAssertEqual(result.windows.count, 3)
+
+        let requests = result.windows.first { $0.id == "requests" }
+        XCTAssertEqual(requests?.used, 125)
+        XCTAssertEqual(requests?.label, "Requests (24h)")
+
+        let cost = result.windows.first { $0.id == "cost" }
+        XCTAssertNotNil(cost)
+        XCTAssertEqual(cost?.label, "Cost")
+        XCTAssertEqual(cost?.usedText, "$0.02")
+
+        let tokens = result.windows.first { $0.id == "tokens" }
+        XCTAssertNotNil(tokens)
+        XCTAssertEqual(tokens?.label, "Tokens")
+        XCTAssertEqual(tokens?.used, 119600)
+    }
+
+    func testCloudBucketsFallbackWithoutTotals() throws {
+        let json = """
+        {
+          "range": "7d",
+          "buckets": [
+            { "request_count": 100 },
+            { "request_count": 250 }
+          ]
+        }
+        """
+        let result = try OllamaUsage.parse(json)
+        XCTAssertEqual(result.headlineID, "requests")
+        let requests = result.windows.first { $0.id == "requests" }
+        XCTAssertEqual(requests?.used, 350)
+        XCTAssertEqual(requests?.label, "Requests (7d)")
+    }
+
+    func testCloudEmptyTotalsThrowsNothingMetered() {
+        let empty = """
+        {
+          "range": "7d",
+          "totals": { "request_count": 0 },
+          "buckets": []
+        }
+        """
+        XCTAssertThrowsError(try OllamaUsage.parse(empty)) { error in
+            guard case UsageProviderError.nothingMetered = error else {
+                return XCTFail("expected nothingMetered, got \(error)")
+            }
+        }
+    }
+
+    /// The cloud summary can carry the same model in its totals and at the
+    /// top level; the tooltip lists it once.
+    func testAModelNamedTwiceInTheSummaryIsListedOnce() throws {
+        let json = """
+        {
+          "range": "7d",
+          "totals": { "request_count": 12, "models": [{ "name": "gpt-oss:120b", "request_count": 12 }] },
+          "models": [{ "name": "gpt-oss:120b", "request_count": 12 }],
+          "activity": { "models": [{ "name": "gpt-oss:120b", "request_count": 12 }] }
+        }
+        """
+        let result = try OllamaUsage.parse(json)
+        XCTAssertEqual(result.windows.filter { $0.label == "gpt-oss:120b" }.count, 1)
+    }
+
 }

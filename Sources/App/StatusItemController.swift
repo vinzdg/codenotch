@@ -1,4 +1,6 @@
 import AppKit
+import QuartzCore
+import SwiftUI
 
 /// The menu bar icon, present only while `AppPresence.menuBar` is chosen.
 ///
@@ -16,18 +18,52 @@ import AppKit
 /// whenever none of them has such a window to show. See `StatusItemSummary`.
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
-    private var item: NSStatusItem?
+    /// Readable so a test can measure what the bar was actually given; only
+    /// `show` and `hide` make or unmake it.
+    private(set) var item: NSStatusItem?
     private let onOpenSettings: () -> Void
-    /// Refetch one provider, leaving the others alone.
-    var onRefreshProvider: ((String) -> Void)?
-    /// Refetch every provider.
-    var onRefreshAll: (() -> Void)?
+    /// Refetch every provider. Hands back the pass, so the menu can say it is
+    /// running and when it is done.
+    var onRefreshAll: (() -> Task<Void, Never>?)?
+    /// Somebody has just opened the menu, so the readings in it are about to be
+    /// read. Separate from `onRefreshAll`, which is the **Refresh all** item and
+    /// must always fetch: this one is allowed to decide it has fetched recently
+    /// enough — see `UsageStore.refreshBecauseSomeoneIsLooking`.
+    var onLook: (() -> Void)?
+    /// Switch limits in the bar on or off — the same Settings preference,
+    /// written back through the same place, never a second one kept here. The
+    /// controller stores no answer of its own: it asks `limits.isOn`, which is
+    /// the preference mirrored in, and so the tick and Settings are one thing.
+    var onToggleLimits: ((Bool) -> Void)?
+    /// Open or close one provider's card. Written back through Preferences the
+    /// way `onToggleLimits` is, and read back through `expandedDetail`, so the
+    /// switch and what the card draws are one thing rather than two.
+    var onToggleDetail: ((String, Bool) -> Void)?
+
+    /// Which cards are opened out, mirrored from Preferences.
+    ///
+    /// The controller keeps no answer of its own: a click asks for the
+    /// opposite of what is here, the preference is written, and the new value
+    /// arrives back through this — which is what re-measures and redraws the
+    /// card, so the menu can be open while it happens.
+    var expandedDetail: Set<String> = [] {
+        didSet {
+            guard expandedDetail != oldValue else { return }
+            redrawOpenCards(now: Date())
+        }
+    }
 
     /// The latest readings, mirrored from the store. The menu is rebuilt from
     /// these every time it opens, so reset countdowns and ages are fresh; the
     /// item's own summary is redrawn from them as they land.
     var snapshots: [ProviderSnapshot] = [] {
-        didSet { updateButton() }
+        didSet {
+            updateButton()
+            // The menu is built when it opens, but a reading can land while it
+            // is still up — and a menu bar utility that showed a stale number
+            // for as long as you held it open would be the wrong way round.
+            redrawOpenCards(now: Date())
+        }
     }
     /// Whether the item shows limits at all, and whose — from Settings. Only
     /// the item's face follows it: the menu still lists every provider read.
@@ -48,25 +84,166 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             updateButton()
         }
     }
+    /// Adds the compact weekly-consumption ring to each provider that has a
+    /// valid weekly reading. Presentation only; changing it redraws from the
+    /// snapshots already held here and never asks the store to refresh.
+    var showsWeeklyLimit: Bool = false {
+        didSet {
+            guard showsWeeklyLimit != oldValue else { return }
+            updateButton()
+        }
+    }
+    /// Reads what is left rather than what is spent, from Settings. The notch
+    /// follows this and so do the cards in the menu below — the item's own
+    /// face was the one place in the app still answering from the other end.
+    var showsRemaining: Bool = false {
+        didSet {
+            guard showsRemaining != oldValue else { return }
+            updateButton()
+        }
+    }
+    /// Drops accounts with nothing left to spend from the item's face, as the
+    /// notch drops their rings. The menu keeps every provider read: the item
+    /// is the way into the app, and an account that cannot be reached is not
+    /// hidden, it is lost.
+    var hidesDepleted: Bool = false {
+        didSet {
+            guard hidesDepleted != oldValue else { return }
+            updateButton()
+        }
+    }
+    /// What a plain click does, from Settings. `.menu` is the path the item
+    /// has always taken — AppKit's own menu tracking, with nothing of ours
+    /// between the click and the menu — so the default is untouched code.
+    var clickAction: MenuBarClickAction = .menu {
+        didSet {
+            guard clickAction != oldValue else { return }
+            applyClickAction()
+        }
+    }
+    /// Sorts the face by what is left of the five-hour window it prints,
+    /// most first, as the notch sorts its rings. The menu keeps the manual
+    /// order: it is the full list, and a list that rearranges itself under
+    /// the pointer is harder to use than one that does not.
+    var autoOrders: Bool = false {
+        didSet {
+            guard autoOrders != oldValue else { return }
+            updateButton()
+        }
+    }
+    /// How much of each reading the face prints, from Settings. Presentation
+    /// only, like everything beside it: the same readings, shorter or longer.
+    var reading: MenuBarReading = .automatic {
+        didSet {
+            guard reading != oldValue else { return }
+            updateButton()
+        }
+    }
+    /// Pulse, a still dot, or nothing at all while an agent works. Reduce
+    /// Motion still has the last word over the pulse.
+    var activityStyle: MenuBarActivityStyle = .pulse {
+        didSet {
+            guard activityStyle != oldValue else { return }
+            redrawArtwork()
+        }
+    }
     /// What the item shows now, so a publication that changes nothing on it —
     /// a local runtime is re-read every second — redraws nothing.
     private var summary: StatusItemSummary?
+    /// Normalized activity from the same provider monitors that feed the
+    /// notch. Kept separate from usage snapshots: a usage refresh is not work,
+    /// and activity never asks a provider to refresh its limits.
+    private(set) var activeProviderIDs: Set<String> = []
+    /// Providers with a session waiting on a reply. These get the red dot and
+    /// not the pulse: waiting is the state that needs somebody, and one clear
+    /// signal on a mark says that better than two at once.
+    private(set) var waitingProviderIDs: Set<String> = []
+    /// Started waiting since the item was last drawn, so owed their one nudge.
+    private var waitingSinceLastDraw: Set<String> = []
+    /// Finished work since the item was last drawn, so owed their blinks.
+    /// Readable so the rule for "finished" can be tested without a status item.
+    private(set) var finishedSinceLastDraw: Set<String> = []
+    /// Each provider's sessions as last reported, by session id — what a
+    /// session was is what says whether it has just finished.
+    private var lastSessionStates: [String: [String: AgentSession.State]] = [:]
+    /// Pulses the marks of the entries that are working without drawing a
+    /// second, independently tinted copy of each mark over AppKit's image.
+    private let pulse = StatusItemPulse()
+    private let waitingBadges = StatusItemWaitingBadges()
+    private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
+    private weak var observedStatusWindow: NSWindow?
+    private var statusWindowObserver: NSObjectProtocol?
+    /// Read again when AppKit reports a display-accessibility change. Internal
+    /// so the no-animation treatment can be verified without changing the
+    /// development Mac's setting.
+    var reducesMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        didSet {
+            guard reducesMotion != oldValue else { return }
+            redrawArtwork()
+        }
+    }
     /// Wakes the item when its first countdown next changes, since the minutes
     /// run down between readings. One-shot and re-armed on every update: a
     /// minute's precision is all the bar shows.
     private var countdownTimer: Timer?
+    /// Built once and kept, because `clickAction` may take it off the item
+    /// and put it back. Its contents are rebuilt on every open regardless —
+    /// see `menuWillOpen`.
+    private let menu = NSMenu()
     /// The notch's decorated cells, read when the menu opens. A local runtime's
     /// own snapshot only lists its models; what each one is doing, how fast it
     /// answered and what it cost today are put on the cells by the view model,
     /// and the menu says the same things the cells do.
     var cells: () -> [ProviderSnapshot] = { [] }
     var activity: (ProviderSnapshot) -> ActivitySummary? = { _ in nil }
+    /// The fleet's panel-less view model: the same readings every notch is
+    /// handed, and the same Appearance settings — Watch and Critical, the
+    /// accent, how a reset is worded. The cards are drawn from it, so what the
+    /// menu says and what the notch says are one thing read twice, never two
+    /// things that could drift.
+    ///
+    /// Held weakly: the fleet owns it for the life of the app, and an item
+    /// that outlived it would be holding a model nobody feeds.
+    weak var model: NotchViewModel?
+    /// Keeps the countdowns on the cards from ageing while the menu is held
+    /// open. Only the clock — nothing here reads a provider.
+    private var menuClock: Timer?
+    /// The menu this controller last filled.
+    ///
+    /// Held rather than reached for through the status item, because the cards
+    /// have to be re-measured and redrawn in whatever menu they were put in —
+    /// including one handed straight to `rebuild`, which is how the menu is
+    /// read in a test. Weak: the menu belongs to the item, or to the caller.
+    private weak var builtMenu: NSMenu?
+
+    /// The menu the cards were last drawn into, so a test can read one card's
+    /// view without a status item to hang a menu off.
+    var builtMenuForTesting: NSMenu? { builtMenu }
+    /// The Refresh all row of that menu, told when a pass it asked for is
+    /// running. Weak for the same reason.
+    private weak var refreshRow: MenuCommandRowView?
+    /// Whether a pass asked for from the menu is still running.
+    private var isRefreshing = false {
+        didSet { refreshRow?.isBusy = isRefreshing }
+    }
+    /// Which wait is the current one. A pass can end after the menu has been
+    /// closed and another pass asked for, and it must not say the newer one
+    /// is done.
+    private var refreshWait = 0
 
     init(onOpenSettings: @escaping () -> Void) {
         self.onOpenSettings = onOpenSettings
+        super.init()
     }
 
     var isShowing: Bool { item != nil }
+
+    /// How the clicks are routed at this moment. Internal so the routing can
+    /// be checked without a click: with `.menu` the menu sits on the item and
+    /// the button has nothing of ours on it, and with the others it is the
+    /// other way round — the menu goes back on only while it is down.
+    var menuIsOnTheItem: Bool { item?.menu != nil }
+    var buttonTakesTheClicks: Bool { item?.button?.action != nil }
 
     func show() {
         guard item == nil else { return }
@@ -74,12 +251,37 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = Self.icon()
         item.button?.toolTip = L10n.t("Codenotch")
+        // The pulse is a mask on the button's layer, and has to follow the
+        // button's width as the item is laid out around a new image.
+        item.button?.wantsLayer = true
+        item.button?.postsFrameChangedNotifications = true
 
-        let menu = NSMenu()
         menu.delegate = self
-        item.menu = menu
-
         self.item = item
+        applyClickAction()
+
+        guard let button = item.button else { return }
+        observe(NSView.frameDidChangeNotification, on: .default, object: button) { controller in
+            controller.pulse.relayout()
+            controller.waitingBadges.relayout()
+            controller.observeStatusWindow(of: button)
+        }
+        // AppKit drops layer animations while a window is off screen; the
+        // item's comes back when the bar does, and so should its pulse. The
+        // button can be made before AppKit attaches its private window, so do
+        // not register a nil-object observer (which would watch every window).
+        observeStatusWindow(of: button)
+        DispatchQueue.main.async { [weak self, weak button] in
+            guard let self, let button else { return }
+            self.observeStatusWindow(of: button)
+        }
+        observe(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+                on: NSWorkspace.shared.notificationCenter, object: nil) { controller in
+            controller.reducesMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        }
+        // The controller can stay alive while its status item is hidden and
+        // therefore not observing workspace notifications. Re-read on show.
+        reducesMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         updateButton()
     }
 
@@ -87,9 +289,57 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         guard let item else { return }
         countdownTimer?.invalidate()
         countdownTimer = nil
+        pulse.clear()
+        waitingBadges.clear()
+        // Owed to a bar that is no longer there: shown again later, it would
+        // blink for work that ended while it was hidden.
+        waitingSinceLastDraw.removeAll()
+        finishedSinceLastDraw.removeAll()
+        stopObservingStatusWindow()
+        for (center, token) in observers { center.removeObserver(token) }
+        observers = []
         summary = nil
         NSStatusBar.system.removeStatusItem(item)
         self.item = nil
+    }
+
+    private func observe(_ name: Notification.Name, on center: NotificationCenter, object: AnyObject?,
+                         _ handle: @escaping (StatusItemController) -> Void) {
+        let token = center.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                handle(self)
+            }
+        }
+        observers.append((center, token))
+    }
+
+    /// A status bar button lives in an AppKit-owned window which may not exist
+    /// until the next layout pass. Observe precisely that window once it does,
+    /// replacing the token if AppKit moves the item to another screen/window.
+    private func observeStatusWindow(of button: NSStatusBarButton) {
+        guard item?.button === button, let window = button.window else { return }
+        guard observedStatusWindow !== window else { return }
+        stopObservingStatusWindow()
+        observedStatusWindow = window
+        statusWindowObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification,
+            object: window,
+            queue: .main
+        ) { [weak self, weak window] _ in
+            MainActor.assumeIsolated {
+                guard let self, let window, self.observedStatusWindow === window else { return }
+                self.pulse.ensureRunning()
+            }
+        }
+    }
+
+    private func stopObservingStatusWindow() {
+        if let statusWindowObserver {
+            NotificationCenter.default.removeObserver(statusWindowObserver)
+        }
+        statusWindowObserver = nil
+        observedStatusWindow = nil
     }
 
     // MARK: - Summary
@@ -104,25 +354,139 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private func updateButton(now: Date = Date()) {
         guard let item, let button = item.button else { return }
         let next = StatusItemSummary.make(from: snapshots, showing: limits, now: now,
-                                          format: resetTimeFormat)
+                                          format: resetTimeFormat,
+                                          showingWeeklyLimit: showsWeeklyLimit,
+                                          showingRemaining: showsRemaining,
+                                          hidingDepleted: hidesDepleted,
+                                          reading: reading,
+                                          autoOrdering: autoOrders)
         scheduleCountdown(at: next.nextChange)
         guard next != summary else { return }
         summary = next
 
         if next.entries.isEmpty {
+            pulse.clear()
+            waitingBadges.clear()
             item.length = NSStatusItem.squareLength
             button.image = Self.icon()
             button.toolTip = L10n.t("Codenotch")
             button.setAccessibilityLabel(nil)
             return
         }
-        item.length = NSStatusItem.variableLength
-        button.image = StatusItemArtwork(summary: next).image()
         button.imagePosition = .imageOnly
-        let details = next.entries.map(\.detail).joined(separator: "\n")
+        // `redrawArtwork` sets the length from the artwork it draws, so there
+        // is nothing for `variableLength` to work out.
+        redrawArtwork()
+    }
+
+    /// What the item says in words: one line per reading, then who is waiting.
+    /// The red dot is colour alone, which a tooltip and VoiceOver cannot see.
+    private func describe(_ button: NSStatusBarButton, summary: StatusItemSummary, waiting: Set<String>) {
+        let names = Dictionary(snapshots.map { ($0.id, $0.displayName) }, uniquingKeysWith: { first, _ in first })
+        let waits = summary.entries.filter { waiting.contains($0.id) }.map { entry in
+            L10n.t("\(names[entry.id] ?? entry.id) is waiting for your reply")
+        }
+        let details = (summary.entries.map(\.detail) + waits).joined(separator: "\n")
         button.toolTip = details
         // The image is text VoiceOver cannot read; this says what it shows.
         button.setAccessibilityLabel(details)
+    }
+
+    /// Called by the activity coordinator with provider-specific normalized
+    /// sessions. Actual work (`busy`) pulses; a session waiting on a reply
+    /// puts a red dot on the mark, and takes precedence over work from another
+    /// session of the same provider. Work that has just ended blinks the mark
+    /// a few times as the pulse stops; after that, success and an
+    /// open-but-idle process are static.
+    func setActivity(providerID: String, sessions: [AgentSession]) {
+        let isActive = sessions.contains { $0.state == .busy }
+        let isWaiting = sessions.contains { $0.state == .waiting }
+        // Finished as the notch's completion watcher means it: a session that
+        // was busy and now is not, without stopping to ask anything — Claude
+        // ends a turn at `idle`, others at `success`. A session seen for the
+        // first time has no "was", so nothing already running at launch
+        // blinks. Only once the provider has no work left: while another of
+        // its sessions is busy, the pulse goes on and says so.
+        let was = lastSessionStates[providerID] ?? [:]
+        let finished = !isActive && !isWaiting && sessions.contains { session in
+            guard let before = was[session.id] else { return false }
+            return SessionCompletionWatcher.reason(from: before, to: session.state) == .finished
+        }
+        lastSessionStates[providerID] = Dictionary(sessions.map { ($0.id, $0.state) },
+                                                   uniquingKeysWith: { _, last in last })
+        var changed = false
+        if finished, finishedSinceLastDraw.insert(providerID).inserted {
+            changed = true
+        }
+        if isActive {
+            changed = activeProviderIDs.insert(providerID).inserted || changed
+        } else {
+            changed = (activeProviderIDs.remove(providerID) != nil) || changed
+        }
+        if isWaiting {
+            if waitingProviderIDs.insert(providerID).inserted {
+                waitingSinceLastDraw.insert(providerID)
+                changed = true
+            }
+        } else if waitingProviderIDs.remove(providerID) != nil {
+            waitingSinceLastDraw.remove(providerID)
+            changed = true
+        }
+        guard changed else { return }
+        redrawArtwork()
+    }
+
+    private var visibleProviderIDs: Set<String> {
+        Set(summary?.entries.map(\.id) ?? [])
+    }
+
+    private var visibleWaitingProviderIDs: Set<String> {
+        waitingProviderIDs.intersection(visibleProviderIDs)
+    }
+
+    private var visibleActiveProviderIDs: Set<String> {
+        activeProviderIDs.intersection(visibleProviderIDs).subtracting(waitingProviderIDs)
+    }
+
+    private func redrawArtwork() {
+        guard let item, let button = item.button, let summary, !summary.entries.isEmpty else { return }
+        let working = activityStyle == .off ? Set<String>() : visibleActiveProviderIDs
+        let waiting = visibleWaitingProviderIDs
+        let artwork = StatusItemArtwork(
+            summary: summary,
+            activityBadgeProviderIDs: activityStyle.showsStillBadge(reducesMotion: reducesMotion)
+                ? working : [],
+            waitingBadgeProviderIDs: waiting
+        )
+        button.image = artwork.image()
+        // The item is its artwork and nothing besides. Left to size itself an
+        // NSStatusBarButton pads an image by 7pt a side — what a lone icon
+        // wants, and dead space either end of a line of figures. It lands
+        // against the next item's own padding, so a reading ended a clear 14pt
+        // before anything else began. macOS still keeps the items apart.
+        item.length = artwork.size.width
+        let glyphs = Dictionary(uniqueKeysWithValues: summary.entries.compactMap { entry in
+            artwork.glyphFrame(for: entry.id).map { (entry.id, $0) }
+        })
+        describe(button, summary: summary, waiting: waiting)
+        // Still in either case: the dot is the signal, and it does not move.
+        waitingBadges.update(view: button, imageSize: artwork.size, badges: artwork.waitingBadgeFrames)
+        if !activityStyle.animates(reducesMotion: reducesMotion) {
+            // Accessibility changes are synchronous: no fading settle after
+            // Reduce Motion is enabled. The artwork above keeps activity
+            // visible as a still badge instead, and a wait goes without its
+            // nudge. Chosen outright in Settings it is the same treatment —
+            // and with `.off`, not even the badge.
+            pulse.clear()
+        } else {
+            pulse.update(view: button, imageSize: artwork.size, glyphs: glyphs, working: working)
+            pulse.nudge(waitingSinceLastDraw.intersection(waiting), .waiting)
+            pulse.nudge(finishedSinceLastDraw.intersection(visibleProviderIDs).subtracting(working), .finished)
+        }
+        // Owed once, on the draw that first shows the wait. A provider that
+        // started waiting while it was off the bar arrives without one.
+        waitingSinceLastDraw.removeAll()
+        finishedSinceLastDraw.removeAll()
     }
 
     private func scheduleCountdown(at change: Date?) {
@@ -136,10 +500,19 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             MainActor.assumeIsolated { self?.updateButton() }
         }
         // Late by a second is invisible at a minute's precision, and lets the
-        // system fold this wake-up into others.
-        timer.tolerance = 1
+        // system fold this wake-up into others. Inside the last minute the
+        // change *is* a second, and a second of slack there would let the timer
+        // wake up having skipped the figure it woke up to show — so the
+        // tolerance is a fraction of the step rather than a fixed second.
+        timer.tolerance = Self.tolerance(untilChange: fireDate.timeIntervalSinceNow)
         RunLoop.main.add(timer, forMode: .common)
         countdownTimer = timer
+    }
+
+    /// How much slack the next countdown wake-up may take. Pure, so the rule
+    /// can be tested without a status item.
+    static func tolerance(untilChange wait: TimeInterval) -> TimeInterval {
+        wait > 1.5 ? 1 : 0.15
     }
 
     // MARK: - Menu
@@ -148,37 +521,111 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// time would freeze "Resets in 51 min" and "20 hr ago" until the next
     /// reading lands.
     func menuWillOpen(_ menu: NSMenu) {
+        // Asked here rather than anywhere else because opening the menu is the
+        // one unambiguous "read these numbers" gesture the item has. The fetch
+        // it may start lands a moment later: the item's own face follows it at
+        // once — see `snapshots` — and the rows below are built from whatever
+        // has landed by the time the menu is next opened.
+        onLook?()
         rebuild(menu: menu, now: Date())
+        startMenuClock()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        menuClock?.invalidate()
+        menuClock = nil
+        // Let go of the menu, or every reading that lands from here on lays
+        // out a card per provider for a menu nobody is looking at — and a
+        // local runtime republishes every second, so that is N forced layouts
+        // a second for the rest of the session. There is nothing on screen to
+        // keep current, and the next open rebuilds from scratch anyway.
+        builtMenu = nil
+        // Stop waiting with the menu. A pass stuck behind a keychain prompt
+        // nobody has answered can outlast the store's own deadline, and it
+        // would leave every menu after this one saying "Refreshing…".
+        refreshWait += 1
+        isRefreshing = false
+        // The menu is handed back to the button, so the next plain click is
+        // the action again and not a second menu. Asynchronously: AppKit is
+        // still unwinding this menu's tracking, and taking it off the item
+        // from inside the callback that announces it closed is asking for
+        // trouble. With `.menu` there is nothing to hand back — the menu
+        // lives on the item and must stay there.
+        guard !clickAction.opensMenuOnItsOwn else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.clickAction.opensMenuOnItsOwn else { return }
+            self.item?.menu = nil
+        }
+    }
+
+    /// The Refresh all row draws its own highlight — AppKit draws none for a
+    /// row with a view — and this is how it learns it is under the pointer or
+    /// the arrow keys.
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        refreshRow?.isHighlighted = item?.view === refreshRow
+    }
+
+    /// A menu held open would otherwise show the countdowns it was built with.
+    /// `.common` mode, because AppKit runs a menu in its own tracking mode and
+    /// a timer in the default mode would not fire until the menu closed —
+    /// which is exactly when it is no longer needed.
+    private func startMenuClock() {
+        menuClock?.invalidate()
+        let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // The cards only, not `model.now`: writing that republishes
+                // the model to every notch, and the notches keep their own
+                // clocks for exactly this.
+                self.redrawOpenCards(now: Date())
+            }
+        }
+        timer.tolerance = 1
+        RunLoop.main.add(timer, forMode: .common)
+        menuClock = timer
     }
 
     /// Exposed for tests: what the menu says without needing a status item.
     func rebuild(menu: NSMenu, now: Date) {
+        builtMenu = menu
+        // The menu is mostly Codenotch's own drawing now, and an opaque card
+        // cannot follow a material. Left alone, macOS gives a menu dropped
+        // over a dark desktop a dark material while its *appearance* stays
+        // Light — which put white cards, correctly drawn for Light, on a menu
+        // that looked dark. Asking for the plain system appearance settles it
+        // for the cards and for the items around them at once.
         menu.removeAllItems()
         if snapshots.isEmpty {
             let empty = NSMenuItem(title: L10n.t("Waiting for the first reading…"), action: nil, keyEquivalent: "")
             empty.isEnabled = false
             menu.addItem(empty)
         } else {
-            let cells = cells()
-            for snapshot in snapshots {
-                menu.addItem(headerItem(for: snapshot, now: now))
-                for line in Self.detailLines(for: snapshot, cells: cells, activity: activity, now: now) {
-                    let row = NSMenuItem(title: line, action: nil, keyEquivalent: "")
-                    row.isEnabled = false
-                    row.indentationLevel = 1
-                    menu.addItem(row)
-                }
+            for snapshot in Self.cardsToDraw(for: snapshots, cells: cells()) {
+                menu.addItem(cardItem(for: snapshot, now: now))
             }
         }
         menu.addItem(.separator())
-        menu.addItem(
-            withTitle: L10n.t("Refresh all"), action: #selector(refreshAll), keyEquivalent: "r"
-        ).target = self
+        // The one Settings switch, within reach of the bar it changes: a tick
+        // beside its own wording, which is how macOS writes a setting into a
+        // menu. It sits with the utilities rather than the readings, because
+        // it is about the item rather than any provider on it.
+        let showLimits = NSMenuItem(
+            title: L10n.t("Show limit information in menu bar"),
+            action: #selector(toggleLimits), keyEquivalent: ""
+        )
+        showLimits.target = self
+        showLimits.state = limits.isOn ? .on : .off
+        menu.addItem(showLimits)
+        menu.addItem(.separator())
+        menu.addItem(refreshItem())
         if PhoneLink.isAvailable {
             menu.addItem(
                 withTitle: L10n.t("Connect Phone…"), action: #selector(connectPhone), keyEquivalent: ""
             ).target = self
         }
+        menu.addItem(
+            withTitle: L10n.t("Activity…"), action: #selector(openActivity), keyEquivalent: ""
+        ).target = self
         menu.addItem(
             withTitle: L10n.t("Settings…"), action: #selector(openSettings), keyEquivalent: ","
         ).target = self
@@ -213,27 +660,252 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
-    @objc private func openSettings() { onOpenSettings() }
-    @objc private func quit() { NSApp.terminate(nil) }
-
-    @objc private func refreshProvider(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String else { return }
-        onRefreshProvider?(id)
+    /// Either hand the clicks to AppKit, or take them.
+    ///
+    /// `.menu` restores the original arrangement exactly: the menu is on the
+    /// item, the button has no target, and nothing of ours runs between the
+    /// click and the menu opening.
+    private func applyClickAction() {
+        guard let item, let button = item.button else { return }
+        if clickAction.opensMenuOnItsOwn {
+            button.target = nil
+            button.action = nil
+            button.setAccessibilityCustomActions(nil)
+            item.menu = menu
+            return
+        }
+        item.menu = nil
+        button.target = self
+        button.action = #selector(clicked)
+        // VoiceOver's press is the button's action now, and its "show menu"
+        // is not a ⌃-click this sees. With the app out of the Dock the menu
+        // is the only way to Settings and Quit, so it is named outright.
+        button.setAccessibilityCustomActions([
+            NSAccessibilityCustomAction(name: L10n.t("Show menu")) { [weak self] in
+                self?.popUpMenu()
+                return true
+            },
+        ])
+        // A status item button sends on the left button alone; the menu has
+        // to stay reachable, and the right button is where a menu belongs.
+        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
     }
 
-    @objc private func refreshAll() { onRefreshAll?() }
+    /// Only ever called while `clickAction` is not `.menu`.
+    @objc private func clicked() {
+        // ⌃-click is the other way macOS asks for a contextual menu, and the
+        // way VoiceOver asks for one. Both must find it.
+        let event = NSApp.currentEvent
+        let wantsMenu = event?.type == .rightMouseUp
+            || event?.modifierFlags.contains(.control) == true
+        guard !wantsMenu else { return popUpMenu() }
+        switch clickAction {
+        case .menu:     popUpMenu()
+        case .refresh:  refreshAll()
+        case .activity: openActivity()
+        }
+    }
 
-    /// The provider's own row: name, headline figure, and age when stale — the
-    /// same three facts the tooltip header shows. Clicking re-reads it.
-    private func headerItem(for snapshot: ProviderSnapshot, now: Date) -> NSMenuItem {
-        var title = "\(snapshot.displayName) — \(Self.headline(for: snapshot))"
+    /// Put the menu back and let AppKit open it, rather than popping it up
+    /// ourselves: this is the path that highlights the item while the menu is
+    /// down and tracks it the way every other status item does. `menuDidClose`
+    /// takes it off again.
+    private func popUpMenu() {
+        guard let item, let button = item.button else { return }
+        item.menu = menu
+        button.performClick(nil)
+    }
+
+    @objc private func openSettings() { onOpenSettings() }
+    @objc private func openActivity() { Costs.showActivity() }
+    @objc private func quit() { NSApp.terminate(nil) }
+
+    /// "Refresh all", as a row the menu stays open for.
+    ///
+    /// AppKit's own rows cannot stay: a click ends the menu's tracking, the
+    /// menu goes, and only then is the action sent — so a refresh took away
+    /// the very cards it was for. A row with a view of its own gets the click
+    /// instead, the way the cards' Detail switch does, and each card redraws
+    /// as its reading lands (see `snapshots`). Return on the row is the row's
+    /// own too, and leaves the menu open the way a click does. The title, the
+    /// shortcut and the action stay on the item: they are what ⌘R and
+    /// VoiceOver use, and those close the menu as any menu command does.
+    private func refreshItem() -> NSMenuItem {
+        let item = NSMenuItem(title: L10n.t("Refresh all"), action: #selector(refreshAll),
+                              keyEquivalent: "r")
+        item.target = self
+        let row = MenuCommandRowView(title: item.title, busyTitle: L10n.t("Refreshing…"),
+                                     keyEquivalent: item.keyEquivalent,
+                                     modifiers: item.keyEquivalentModifierMask)
+        row.isBusy = isRefreshing
+        row.onClick = { [weak self] in self?.refreshAll() }
+        item.view = row
+        refreshRow = row
+        return item
+    }
+
+    @objc private func refreshAll() {
+        guard let pass = onRefreshAll?() else { return }
+        refreshWait += 1
+        let wait = refreshWait
+        isRefreshing = true
+        Task { [weak self] in
+            await pass.value
+            guard let self, self.refreshWait == wait else { return }
+            self.isRefreshing = false
+        }
+    }
+
+    /// Asks for the opposite of what is on now. The answer comes back the way
+    /// Settings' own does — through the preference and into `limits` — so the
+    /// item redraws once, from one place, and the tick is right the next time
+    /// the menu opens whichever switch was used.
+    @objc private func toggleLimits() { onToggleLimits?(!limits.isOn) }
+
+    /// One provider's card, as a menu item.
+    ///
+    /// Drawn from `model` — the fleet's panel-less view model, the same
+    /// readings and the same Appearance settings every notch is handed — so
+    /// the menu and the notch cannot disagree about a percentage, a band or
+    /// the wording of a reset. Nothing is fetched to build it.
+    private func cardItem(for snapshot: ProviderSnapshot, now: Date) -> NSMenuItem {
+        let item = MenuUsageCardItem.make(
+            title: Self.headerTitle(for: snapshot, now: now),
+            appearance: menuAppearance,
+            onToggle: { [weak self] in self?.toggleDetail(for: snapshot.id) },
+            root: { [weak self] onSwitchFrame in
+                self?.card(for: snapshot, now: now, onSwitchFrame: onSwitchFrame) ?? AnyView(EmptyView())
+            })
+        // The card is a picture to VoiceOver. These are the same facts in
+        // words — the header, then one line per limit — so the menu is as
+        // readable aloud as it is on screen.
+        let spoken = [Self.headerTitle(for: snapshot, now: now)]
+            + Self.detailLines(for: snapshot, cells: cells(), activity: activity,
+                               now: now, format: resetTimeFormat)
+        item.setAccessibilityLabel(spoken.joined(separator: ", "))
+        item.representedObject = snapshot.id
+        return item
+    }
+
+    /// Ask for the opposite of what this card is showing.
+    ///
+    /// Nothing is decided here: the preference is written, and the answer
+    /// comes back through `expandedDetail`, which is what re-measures the card
+    /// and tells the menu its item changed height.
+    private func toggleDetail(for providerID: String) {
+        onToggleDetail?(providerID, !expandedDetail.contains(providerID))
+    }
+
+    /// Light or dark, as the Mac is.
+    ///
+    /// The menu's own items follow the system appearance, so the cards beside
+    /// them have to as well — an opaque card cannot work it out for itself,
+    /// because a hosting view built before it is installed resolves its colours
+    /// against nothing in particular.
+    ///
+    /// Deliberately *not* the status item button's tone. macOS tints the menu
+    /// bar to the desktop behind it, so the button reads dark over a dark
+    /// wallpaper while the Mac is in Light — and taking the tone from there
+    /// gave black cards under light menu items. The menu bar's tint is about
+    /// the bar; the menu is about the Mac.
+    private var menuAppearance: NSAppearance? {
+        NSAppearance(named: NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) ?? .aqua)
+    }
+
+    /// One card, with the Appearance settings the notch is drawn with.
+    ///
+    /// Read off `model` — the fleet's own — with the shipped defaults as the
+    /// fallback for a controller standing on its own. Nothing here is a second
+    /// copy of a setting: it is the same object Settings writes through.
+    private func card(for snapshot: ProviderSnapshot, now: Date,
+                      onSwitchFrame: @escaping (CGRect) -> Void) -> AnyView {
+        MenuUsageCardItem.root(
+            snapshot: snapshot,
+            activity: activity(snapshot),
+            now: now,
+            resetTimeFormat: model?.resetTimeFormat ?? resetTimeFormat,
+            deepSeekPricingEnabled: model?.deepSeekPricingEnabled ?? true,
+            deepSeekPricingSchedule: model?.deepSeekPricingSchedule ?? .current,
+            // The notch's own budget: as many sessions as the display it is on
+            // has room for, so an opened card says what its tooltip says.
+            sessionCap: model?.sessionCap ?? NotchLayout.defaultSessionCap,
+            accentColor: (model?.accentColor ?? .system).color,
+            watchLimit: model?.watchLimit ?? 0.50,
+            criticalLimit: model?.criticalLimit ?? 0.70,
+            colorTransitionStyle: model?.colorTransitionStyle ?? .hardStep,
+            isExpanded: expandedDetail.contains(snapshot.id),
+            onToggle: { [weak self] in self?.toggleDetail(for: snapshot.id) },
+            // The card reports where its switch landed; the view hosting it
+            // hit-tests against that, because a menu runs its own
+            // event-tracking loop and a hosted control cannot be relied on to
+            // see the click itself.
+            //
+            // Handed straight to that view. Looking it up in the menu instead
+            // could not work on a first open: the card is measured inside
+            // `make`, which is where the frame is first reported, and the item
+            // it will live on has no `representedObject` — indeed is not in
+            // any menu — until `cardItem` returns. The switch stayed dead
+            // until something else made the card lay out again.
+            onSwitchFrame: onSwitchFrame
+        )
+    }
+
+    /// Redraw the cards of a menu that is already open.
+    ///
+    /// A reading that lands while the menu is up, or a countdown that has run
+    /// down, changes what a card should say. Rebuilding the menu under AppKit
+    /// while it is tracking is the one thing not to do, so each card's hosting
+    /// view is handed a fresh root instead: same item, same frame, new
+    /// contents. Nothing is fetched — this is the state that already arrived.
+    private func redrawOpenCards(now: Date) {
+        guard let menu = builtMenu else { return }
+        let drawn = Self.cardsToDraw(for: snapshots, cells: cells())
+        for menuItem in menu.items {
+            guard let id = menuItem.representedObject as? String,
+                  let hosting = menuItem.view as? MenuCardHostingView<AnyView>,
+                  let snapshot = drawn.first(where: { $0.id == id })
+            else { continue }
+            hosting.appearance = menuAppearance
+            hosting.rootView = card(for: snapshot, now: now) { [weak hosting] frame in
+                hosting?.interactiveRect = frame
+            }
+            // A card that has just opened or closed is a different height, and
+            // the menu laid itself out around the old one. Re-measuring and
+            // then telling the menu the item changed is what makes it take the
+            // new height while it is still on screen.
+            MenuUsageCardItem.resize(hosting)
+            menu.itemChanged(menuItem)
+        }
+    }
+
+    /// What gets a card, in the order the menu draws them.
+    ///
+    /// A local runtime is one card per loaded model, which is what the notch
+    /// makes of it — the runtime itself has no quota, its models have. With
+    /// nothing loaded there are no model cells, and the runtime keeps a card
+    /// of its own so "no models loaded" is still said rather than the provider
+    /// silently disappearing from the menu.
+    ///
+    /// Pure, so the rule can be read off a test without a status item.
+    static func cardsToDraw(for snapshots: [ProviderSnapshot],
+                            cells: [ProviderSnapshot]) -> [ProviderSnapshot] {
+        snapshots.flatMap { snapshot -> [ProviderSnapshot] in
+            let models = cells.filter { $0.providerID == snapshot.id && $0.localModel != nil }
+            return models.isEmpty ? [snapshot] : models
+        }
+    }
+
+    /// The provider's name, its headline figure, and its age when stale — the
+    /// same three facts the card's header shows, as one line of text.
+    static func headerTitle(for snapshot: ProviderSnapshot, now: Date) -> String {
+        if let model = snapshot.localModel {
+            return "\(snapshot.displayName) — \(model.name)"
+        }
+        var title = "\(snapshot.displayName) — \(headline(for: snapshot))"
         if snapshot.kind == .usage, let since = snapshot.status.staleSince, since != .distantPast {
             title += " · \(ElapsedCopy.ago(since: since, now: now))"
         }
-        let header = NSMenuItem(title: title, action: #selector(refreshProvider(_:)), keyEquivalent: "")
-        header.target = self
-        header.representedObject = snapshot.id
-        return header
+        return title
     }
 
     /// A runtime has no headline figure of its own; its models have. The row
@@ -250,11 +922,24 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// nothing metered. For a local runtime, one line per loaded model, built
     /// from its decorated cell. Pure, so the wording can be tested without a
     /// menu.
+    ///
+    /// `format` is the user's **Reset time** choice, and it has to be passed in:
+    /// this is static, so it cannot read the controller's own copy, and the
+    /// default is not the shipped behaviour but merely a default. Without it
+    /// the menu wrote "Resets Tue 17:25" under a card and a tooltip that both
+    /// said "Resets in 4h 52m" — the same reset, the same instant, two ways of
+    /// saying it, one of which the user had switched off.
     static func detailLines(for snapshot: ProviderSnapshot, cells: [ProviderSnapshot] = [],
                             activity: (ProviderSnapshot) -> ActivitySummary? = { _ in nil },
-                            now: Date) -> [String] {
+                            now: Date, format: ResetTimeFormat = .automatic) -> [String] {
         let now = now
         if snapshot.kind == .localRuntime {
+            // A cell *is* one model, so it describes itself. Without this a
+            // model card had nothing to say: the filter below looks for cells
+            // belonging to a runtime, and a cell is not a runtime.
+            if snapshot.localModel != nil {
+                return [modelLine(for: snapshot, activity: activity(snapshot))]
+            }
             let models = cells.filter { $0.providerID == snapshot.id && $0.localModel != nil }
             guard models.isEmpty else { return models.map { modelLine(for: $0, activity: activity($0)) } }
             // The header already says "No models loaded"; only a failure to
@@ -263,13 +948,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
         if let block = snapshot.block {
             var lines = [block.summary(now: now)]
-            lines += snapshot.windows.map { windowLine(for: $0, now: now) }
+            lines += snapshot.windows.map { windowLine(for: $0, now: now, format: format) }
             return lines
         }
         if let message = snapshot.statusMessage {
             return [message]
         }
-        return snapshot.windows.map { windowLine(for: $0, now: now) }
+        return snapshot.windows.map { windowLine(for: $0, now: now, format: format) }
     }
 
     /// One loaded model on one line: what its cell prints, what it is doing,

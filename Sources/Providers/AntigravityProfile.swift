@@ -14,7 +14,7 @@ struct AntigravityProfile: Equatable, Hashable {
 
     /// Internal tool flavours under `~/.gemini` that belong to the default installation
     /// rather than separate user accounts.
-    static let ignoredSlugs: Set<String> = ["ide", "cli", "backup", "api"]
+    static let ignoredSlugs: Set<String> = ["ide", "cli", "backup", "api", "acp"]
 
     /// Nil for `~/.gemini/antigravity`; the part after `antigravity-` otherwise.
     let slug: String?
@@ -47,7 +47,7 @@ struct AntigravityProfile: Equatable, Hashable {
     }
 
     /// `antigravity-work` -> `work`; anything else -> nil. The bare `antigravity` is
-    /// the default and is handled separately. Internal flavours (`ide`, `cli`, `backup`, `api`)
+    /// the default and is handled separately. Internal flavours (`ide`, `cli`, `backup`, `api`, `acp`)
     /// are ignored unless explicit.
     static func slug(fromDirectoryName name: String) -> String? {
         let prefix = directoryPrefix + "-"

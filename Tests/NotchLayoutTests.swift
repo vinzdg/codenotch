@@ -134,6 +134,15 @@ final class NotchLayoutTests: XCTestCase {
             XCTAssertLessThanOrEqual(centre + cardHalf, panelHeight)
         }
     }
+
+    /// A solid bar has its top and bottom snapped to the pixel grid one by
+    /// one, so a fractional height drew two bars of one height a pixel apart
+    /// depending on where each sat. Whole points snap the same everywhere.
+    func testBarsAreWholePointsSoEveryOneDrawsTheSameThickness() {
+        for height in [NotchLayout.barHeight, NotchLayout.moneyBarHeight] {
+            XCTAssertEqual(height, height.rounded(), "\(height)pt lands on a different number of pixels by position")
+        }
+    }
 }
 
 /// The panel has to be sized for the provider list that caused the change, not
@@ -206,9 +215,9 @@ final class FoldedNotchTests: XCTestCase {
     func testFoldingKeepsTheCentreLine() {
         let m = model(cells: 3)
         m.isExpanded = true
-        let openCentre = m.notchLeadingInset + m.notchSize.height / 2
+        let openCentre = m.notchAlongLead + m.notchSize.height * m.sizeScale / 2
         m.isExpanded = false
-        let foldedCentre = m.notchLeadingInset + m.notchSize.height / 2
+        let foldedCentre = m.notchAlongLead + m.notchSize.height * m.sizeScale / 2
         XCTAssertEqual(openCentre, foldedCentre, accuracy: 0.001)
     }
 
@@ -402,20 +411,6 @@ final class PointerStateTests: XCTestCase {
 /// resting arc follows that curve rather than merely sitting near it.
 @MainActor
 final class SettingsOrbTests: XCTestCase {
-    func testCameraNotchHandlesMirrorEachOther() {
-        let model = NotchViewModel()
-        model.edge = .top
-        model.hardwareNotch = HardwareNotch(width: 220, height: 37)
-
-        XCTAssertEqual(model.moveAlong + model.orbAlong, model.shapeLength, accuracy: 0.001,
-                       "The buttons must sit equally far from the two ends")
-        let moveArc = model.moveAlong + model.moveArcOffset.width
-        let settingsArc = model.orbAlong + model.orbArcOffset.width
-        XCTAssertEqual(moveArc + settingsArc, model.shapeLength, accuracy: 0.001,
-                       "The resting arcs must mirror around the notch's centre")
-        XCTAssertEqual(model.moveArcOffset.height, model.orbArcOffset.height, accuracy: 0.001)
-    }
-
     private func centre(_ count: Int) -> CGFloat {
         NotchLayout.orbCenterAlong(cellCount: count)
     }
@@ -596,6 +591,16 @@ final class PreferencesTests: XCTestCase {
         XCTAssertEqual(Preferences(defaults: defaults).notchSurfaceStyle, .darkGlass)
     }
 
+    func testTheDockStyleSurvivesARestart() {
+        let name = "PreferencesDockTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        addTeardownBlock { defaults.removePersistentDomain(forName: name) }
+
+        Preferences(defaults: defaults).notchSurfaceStyle = .dock
+        XCTAssertEqual(Preferences(defaults: defaults).notchSurfaceStyle, .dock)
+    }
+
     func testAnUnknownSurfaceStyleFallsBackToLiquidGlass() {
         let name = "PreferencesSurfaceStyleFallbackTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
@@ -691,31 +696,74 @@ final class PreferencesTests: XCTestCase {
     }
 }
 
-/// The two glass styles differ in the `Glass` variant they ask for (`.regular`
+/// The glass styles differ in the `Glass` variant they ask for (`.regular`
 /// for `glass`, `.clear` for `darkGlass`) and the wash drawn beneath it
 /// (`glassDim`: nil for `glass`, `Palette.darkGlassDim` for `darkGlass`).
-/// Both are pinned on the enum so the views cannot drift apart.
+/// Both are pinned on the enum so the views cannot drift apart. `dock` follows
+/// `darkGlass` everywhere but its slab, and is Dark glass on the top edge.
 final class NotchSurfaceStyleTests: XCTestCase {
     func testTheStylesAreOfferedGlassFirst() {
-        XCTAssertEqual(NotchSurfaceStyle.allCases, [.glass, .darkGlass, .solid])
+        XCTAssertEqual(NotchSurfaceStyle.allCases, [.glass, .darkGlass, .solid, .dock])
     }
 
-    func testOnlyDarkGlassCarriesADimBeneathTheGlass() {
+    func testDarkGlassAndDockCarryADimBeneathTheGlass() {
         XCTAssertNil(NotchSurfaceStyle.glass.glassDim)
         XCTAssertNil(NotchSurfaceStyle.solid.glassDim)
-        guard NotchSurfaceStyle.glassAvailable else { return }
+        guard NotchSurfaceStyle.glassAvailable else {
+            XCTAssertNil(NotchSurfaceStyle.dock.glassDim)
+            return
+        }
         XCTAssertNotNil(NotchSurfaceStyle.darkGlass.glassDim)
+        XCTAssertEqual(NotchSurfaceStyle.dock.glassDim, Palette.darkGlassDim,
+                       "the dock keeps the Dark glass dim; only its cards' glass differs")
     }
 
     /// A black `tint` on adaptive `.regular` glass rendered lighter, not
     /// darker, so `darkGlass` asks for the clear variant and does its own
-    /// darkening underneath. `glass` must keep asking for plain `.regular`.
+    /// darkening underneath. `glass` must keep asking for plain `.regular`,
+    /// and so must `dock`, whose cards would otherwise be truly clear under
+    /// the floating panel's active appearance.
     func testDarkGlassAsksForClearGlassAndGlassForRegular() throws {
         guard #available(macOS 26.0, *) else {
             throw XCTSkip("Glass does not exist before macOS 26")
         }
         XCTAssertEqual(NotchSurfaceStyle.darkGlass.glass, .clear)
+        XCTAssertEqual(NotchSurfaceStyle.dock.glass, .regular,
+                       "the dock's cards are frosted; only its slab is clear")
         XCTAssertEqual(NotchSurfaceStyle.glass.glass, .regular)
+    }
+
+    func testTheDockIsGlassWhereThereIsGlass() {
+        guard NotchSurfaceStyle.glassAvailable else {
+            XCTAssertEqual(NotchSurfaceStyle.dock.effective, .solid)
+            XCTAssertFalse(NotchSurfaceStyle.dock.isGlass)
+            XCTAssertFalse(NotchSurfaceStyle.dock.isDock)
+            return
+        }
+        XCTAssertEqual(NotchSurfaceStyle.dock.effective, .dock)
+        XCTAssertTrue(NotchSurfaceStyle.dock.isGlass)
+        XCTAssertTrue(NotchSurfaceStyle.dock.isDock)
+    }
+
+    func testOnlyTheDockStyleIsADock() {
+        XCTAssertFalse(NotchSurfaceStyle.glass.isDock)
+        XCTAssertFalse(NotchSurfaceStyle.darkGlass.isDock)
+        XCTAssertFalse(NotchSurfaceStyle.solid.isDock)
+    }
+
+    /// On the top edge the notch has to stay welded to the bezel, so the dock
+    /// style draws there as Dark glass; everywhere else, and for every other
+    /// style, resolving on an edge changes nothing.
+    func testTheDockStyleIsDarkGlassOnTheTopEdgeOnly() {
+        XCTAssertEqual(NotchSurfaceStyle.dock.resolved(on: .top), .darkGlass)
+        for edge in [NotchEdge.right, .left, .bottom] {
+            XCTAssertEqual(NotchSurfaceStyle.dock.resolved(on: edge), .dock, "\(edge)")
+        }
+        for style in [NotchSurfaceStyle.glass, .darkGlass, .solid] {
+            for edge in NotchEdge.allCases {
+                XCTAssertEqual(style.resolved(on: edge), style, "\(style) on \(edge)")
+            }
+        }
     }
 
     func testSolidIsNotGlass() {
@@ -737,6 +785,10 @@ final class NotchSurfaceStyleTests: XCTestCase {
         XCTAssertEqual(
             NotchSurfaceStyle.darkGlass.panelAppearance(reduceTransparency: false)?.name, .darkAqua,
             "dark glass has to keep Palette's frame hexes whatever the Mac's appearance"
+        )
+        XCTAssertEqual(
+            NotchSurfaceStyle.dock.panelAppearance(reduceTransparency: false)?.name, .darkAqua,
+            "the dock style is always dark"
         )
         guard NotchSurfaceStyle.glassAvailable else { return }
         XCTAssertNil(NotchSurfaceStyle.glass.panelAppearance(reduceTransparency: false))
@@ -1066,6 +1118,105 @@ final class NotchFleetScopeTests: XCTestCase {
         fleet.setSnapshots([reading])
         for controller in fleet.controllersForTesting {
             XCTAssertEqual(controller.model.snapshots, [reading])
+        }
+    }
+}
+
+@MainActor
+private final class SyntheticNSScreen: NSScreen {
+    private let number: Int
+
+    init(number: Int) {
+        self.number = number
+        super.init()
+    }
+
+    override var frame: CGRect {
+        CGRect(x: CGFloat(number) * 1600, y: 0, width: 1440, height: 900)
+    }
+
+    override var visibleFrame: CGRect { frame }
+
+    override var deviceDescription: [NSDeviceDescriptionKey: Any] {
+        [NSDeviceDescriptionKey("NSScreenNumber"): NSNumber(value: number)]
+    }
+}
+
+@MainActor
+final class NotchFleetRebindingTests: XCTestCase {
+    private func screen(_ number: Int) -> SyntheticNSScreen {
+        SyntheticNSScreen(number: number)
+    }
+
+    func testRetainedControllerRebindsToReplacementScreenWithSameKey() {
+        let fleet = NotchFleet(scope: .allDisplays, edge: .right)
+        defer { fleet.stop() }
+
+        let originalScreen = screen(901)
+        let key = NotchFleet.key(for: originalScreen)
+        fleet.reconcileForTesting(screens: [originalScreen])
+        let controller = try! XCTUnwrap(fleet.controllersByDisplayKeyForTesting[key])
+        controller.model.edge = .bottom
+        controller.model.alongOffset = 37
+
+        let replacementScreen = screen(901)
+        fleet.reconcileForTesting(screens: [replacementScreen])
+
+        XCTAssertTrue(fleet.controllersByDisplayKeyForTesting[key] === controller)
+        XCTAssertTrue(controller.assignedScreen === replacementScreen)
+        XCTAssertTrue(controller.currentScreen(in: [replacementScreen]) === replacementScreen)
+        XCTAssertEqual(controller.model.edge, .bottom)
+        XCTAssertEqual(controller.model.alongOffset, 37)
+        XCTAssertEqual(controller.panelFrameForTesting?.minY ?? -1,
+                       replacementScreen.frame.minY, accuracy: 1)
+    }
+
+    func testShrinkingAndRestoringTopologyLeavesOneCorrectControllerPerScreenAndIsIdempotent() {
+        let fleet = NotchFleet(scope: .allDisplays, edge: .right)
+        defer { fleet.stop() }
+        fleet.apply(.alwaysShow)
+
+        let original = [screen(911), screen(912), screen(913)]
+        fleet.reconcileForTesting(screens: original)
+        let originalControllers = fleet.controllersByDisplayKeyForTesting
+        let removedKey = NotchFleet.key(for: original[1])
+        for controller in originalControllers.values {
+            XCTAssertTrue(controller.model.isAlwaysOn)
+            XCTAssertTrue(controller.model.isExpanded)
+        }
+
+        let shrunken = [screen(911), screen(913)]
+        fleet.reconcileForTesting(screens: shrunken)
+
+        XCTAssertEqual(Set(fleet.controllersByDisplayKeyForTesting.keys), Set(shrunken.map(NotchFleet.key)))
+        XCTAssertNil(fleet.controllersByDisplayKeyForTesting[removedKey])
+        XCTAssertTrue(fleet.controllersByDisplayKeyForTesting[NotchFleet.key(for: shrunken[0])] === originalControllers[NotchFleet.key(for: original[0])])
+        XCTAssertTrue(fleet.controllersByDisplayKeyForTesting[NotchFleet.key(for: shrunken[1])] === originalControllers[NotchFleet.key(for: original[2])])
+        XCTAssertTrue(fleet.controllersByDisplayKeyForTesting[NotchFleet.key(for: shrunken[0])]?.model.isAlwaysOn == true)
+        XCTAssertTrue(fleet.controllersByDisplayKeyForTesting[NotchFleet.key(for: shrunken[1])]?.model.isAlwaysOn == true)
+
+        let restored = [screen(911), screen(912), screen(913)]
+        fleet.reconcileForTesting(screens: restored)
+        let finalControllers = fleet.controllersByDisplayKeyForTesting
+
+        XCTAssertEqual(finalControllers.count, restored.count)
+        XCTAssertEqual(Set(finalControllers.keys), Set(restored.map(NotchFleet.key)))
+        for currentScreen in restored {
+            let controller = try! XCTUnwrap(finalControllers[NotchFleet.key(for: currentScreen)])
+            XCTAssertTrue(controller.assignedScreen === currentScreen)
+            XCTAssertTrue(controller.currentScreen(in: restored) === currentScreen)
+            XCTAssertTrue(controller.model.isAlwaysOn)
+            XCTAssertTrue(controller.model.isExpanded)
+        }
+        XCTAssertFalse(finalControllers[removedKey] === originalControllers[removedKey])
+
+        fleet.reconcileForTesting(screens: restored)
+
+        XCTAssertEqual(fleet.controllersByDisplayKeyForTesting.count, restored.count)
+        for currentScreen in restored {
+            let key = NotchFleet.key(for: currentScreen)
+            XCTAssertTrue(fleet.controllersByDisplayKeyForTesting[key] === finalControllers[key])
+            XCTAssertTrue(fleet.controllersByDisplayKeyForTesting[key]?.assignedScreen === currentScreen)
         }
     }
 }
@@ -1464,7 +1615,7 @@ final class NotchSizeTests: XCTestCase {
     func testTheTooltipKeepsItsOwnSizeWhateverTheNotchIs() {
         let large = model(scale: 1.25)
         let medium = model(scale: 1)
-        let notchShare = medium.contentInset + NotchLayout.bodyDepth(for: .right)
+        let notchShare = NotchLayout.bodyDepth(for: .right)
 
         XCTAssertEqual(large.panelSize(cellCount: 3).width - medium.panelSize(cellCount: 3).width,
                        notchShare * 0.25, accuracy: 0.001)

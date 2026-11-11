@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Codenotch</title>
+<style>
+  /* The same surface and ink tokens as the notch's hover card. */
+  :root{
+    --card:#0a0a0a;--line:#242424;--ink:#fff;--muted:#c8c8c8;--ample:#00ff88;
+    --button:#252525;--button-hover:#383838;--focus:#83baff;
+  }
+  :root[data-theme="light"]{
+    --card:#fff;--line:#e4e4e8;--ink:#1d1d1f;--muted:#3c3c43;--ample:#007d42;
+    --button:#f0f0f2;--button-hover:#e6e6e9;--focus:#0a7aff;
+  }
+  *{box-sizing:border-box}
+  html,body{width:280px;height:150px;margin:0;background:transparent;overflow:hidden}
+  body{font:13px/1.35 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;color:var(--ink);user-select:none}
+  #card{position:absolute;width:246px;height:128px;background:var(--card);border:1px solid var(--line);
+    border-radius:16px;padding:13px 15px;overflow:hidden}
+  #tail{position:absolute;background:var(--card);width:34px;height:32px}
+  body[data-edge="right"] #card{left:0;top:11px}
+  body[data-edge="right"] #tail{left:245px;top:59px;clip-path:path('M0 0C0 8 19 12 34 16C19 20 0 24 0 32Z')}
+  body[data-edge="left"] #card{left:34px;top:11px}
+  body[data-edge="left"] #tail{left:1px;top:59px;clip-path:path('M34 0C34 8 15 12 0 16C15 20 34 24 34 32Z')}
+  body[data-edge="top"] #card{left:17px;top:22px}
+  body[data-edge="top"] #tail{left:123px;top:0;width:34px;height:23px;clip-path:path('M0 23C8 23 12 9 17 0C22 9 26 23 34 23Z')}
+  body[data-edge="bottom"] #card{left:17px;top:0}
+  body[data-edge="bottom"] #tail{left:123px;top:127px;width:34px;height:23px;clip-path:path('M0 0C8 0 12 14 17 23C22 14 26 0 34 0Z')}
+  body[data-attached="false"] #card{left:17px;top:11px}
+  body[data-attached="false"] #tail{display:none}
+  .head{display:flex;align-items:center;gap:9px;min-width:0}
+  #glyph{flex:none;width:21px;height:21px;display:grid;place-items:center;color:var(--ink);font-size:12px;font-weight:700}
+  #glyph svg{display:block;width:21px;height:21px;fill:currentColor}
+  #glyph img{display:block;width:21px;height:21px;object-fit:contain}
+  .heading{min-width:0;flex:1}
+  .title{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .subtitle{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #dismiss{flex:none;width:30px;height:30px;margin:-4px -6px 0 0;border:0;border-radius:7px;
+    background:transparent;color:var(--muted);display:grid;place-items:center;cursor:pointer}
+  #dismiss:hover{background:var(--button-hover);color:var(--ink)}
+  #dismiss:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+  #dismiss svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+  .status{display:flex;align-items:center;gap:8px;margin-top:13px;font-size:12px;color:var(--ample)}
+  .dot{width:8px;height:8px;flex:none;border-radius:50%;background:var(--ample)}
+  #next{font-size:11px;color:var(--muted);margin:8px 0 0 16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #next:empty{display:none}
+  @media (prefers-reduced-motion: no-preference){#card{animation:appear .18s ease-out both}@keyframes appear{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}}
+</style>
+</head>
+<body data-edge="right" data-attached="false">
+<div id="card" role="alert" aria-live="assertive">
+  <div class="head">
+    <span id="glyph" aria-hidden="true"></span>
+    <div class="heading"><div id="title" class="title"></div><div id="subtitle" class="subtitle"></div></div>
+    <button id="dismiss" type="button" aria-label="Dismiss"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13"/></svg></button>
+  </div>
+  <div class="status"><span class="dot" aria-hidden="true"></span><span id="status"></span></div>
+  <div id="next"></div>
+</div>
+<div id="tail" aria-hidden="true"></div>
+<script>
+// Every string here (title, subtitle, status, next, dismiss_label) already arrives translated from
+// Rust (reset_alert.rs), the same way the tray menu and hover card get their words — this page only
+// places them, so a new provider or language needs no changes here.
+const data = window.__RESET_ALERT__ || {
+  lang:'en', edge:'right', attached:false, glyph:{kind:'',svg:'',url:''}, token:1,
+  title:'Codex renewed', subtitle:'5h limit renewed', status:'Quota available · 0%', next:'', dismiss_label:'Dismiss',
+};
+document.documentElement.lang = data.lang || 'en';
+document.body.dataset.edge = ['left','right','top','bottom'].includes(data.edge) ? data.edge : 'right';
+document.body.dataset.attached = data.attached ? 'true' : 'false';
+document.getElementById('title').textContent = data.title;
+document.getElementById('subtitle').textContent = data.subtitle;
+document.getElementById('status').textContent = data.status;
+document.getElementById('next').textContent = data.next || '';
+document.getElementById('dismiss').setAttribute('aria-label', data.dismiss_label || 'Dismiss');
+const glyph = data.glyph || {};
+const glyphEl = document.getElementById('glyph');
+if(glyph.kind === 'svg' && typeof glyph.svg === 'string' && glyph.svg.startsWith('<svg')){
+  glyphEl.innerHTML = glyph.svg;
+}else if((glyph.kind === 'png' || glyph.kind === 'appicon') && /^data:image\/png;base64,/.test(glyph.url || '')){
+  const image = document.createElement('img'); image.src = glyph.url; image.alt = '';
+  glyphEl.replaceChildren(image);
+}else{
+  // No cached icon (rare — the provider is signed in, so the notch itself already fetched one):
+  // the provider's own initial, matching how the tray icon falls back to text on Windows.
+  glyphEl.textContent = (data.title || '?').trim().charAt(0).toUpperCase();
+}
+function fit(){document.documentElement.style.zoom = String(Math.min(innerWidth/280,innerHeight/150));}
+fit(); window.addEventListener('resize',fit);
+document.getElementById('dismiss').addEventListener('click', () => {
+  window.__TAURI__?.core?.invoke('dismiss_reset_alert',{token:data.token}).catch(() => {});
+});
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape') window.__TAURI__?.core?.invoke('dismiss_reset_alert',{token:data.token}).catch(() => {});
+});
+</script>
+</body>
+</html>

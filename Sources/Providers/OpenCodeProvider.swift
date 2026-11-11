@@ -1,8 +1,15 @@
 import Foundation
 import os
 
-/// Reads OpenCode Go plan usage from the official endpoint, with the key
-/// OpenCode itself stores on sign-in — see `OpenCodeCredentials`.
+/// Reads OpenCode Go plan usage from the official endpoint, with the
+/// credential OpenCode itself stores on sign-in — see `OpenCodeCredentials`.
+///
+/// Which credential that is decides the endpoint, because each route refuses
+/// the other's: the Go API key is for `zen/go`, while an OAuth sign-in is only
+/// accepted by the `inference/` route OpenCode itself uses. Both answer 401 to
+/// the wrong one, and that 401 is also what a valid account with no Go plan
+/// returns — so an OAuth 401 is checked against the console before it is called
+/// a sign-out.
 ///
 /// The numbers are OpenCode's, so this is `.official`. Like Claude's and
 /// GLM's, the endpoint throttles — so a 429 backs off on a schedule that
@@ -33,7 +40,7 @@ actor OpenCodeProvider: UsageProvider {
     }
 
     nonisolated var signInRoute: SignInRoute {
-        .guidance(L10n.t("Usage rides on the opencode-go key OpenCode stores on sign-in — connect Go inside OpenCode (`opencode auth login`) and the notch reads it."))
+        .command("opencode auth login", name: "OpenCode", install: URL(string: "https://opencode.ai"))
     }
 
     nonisolated func forgetCachedCredential() {
@@ -60,12 +67,12 @@ actor OpenCodeProvider: UsageProvider {
 
         // Re-read on every fetch. This is an ordinary file, not a keychain
         // item: reading it puts no prompt in front of anyone.
-        guard let credentials = OpenCodeCredentials.load() else {
+        guard let credential = OpenCodeCredentials.load() else {
             throw UsageProviderError.needsAuth
         }
 
         do {
-            let data = try await fetch(token: credentials.token)
+            let data = try await fetch(credential)
             guard let text = String(data: data, encoding: .utf8) else {
                 throw UsageProviderError.badResponse(status: 0)
             }
@@ -97,21 +104,48 @@ actor OpenCodeProvider: UsageProvider {
         }
     }
 
-    private func fetch(token: String) async throws -> Data {
-        var request = URLRequest(url: OpenCodeUsage.endpoint)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    /// The route this credential is for. Not a preference: each refuses the
+    /// other's credential, and refuses it with the same 401 a planless account
+    /// gets — so the wrong pairing is invisible from the response alone.
+    static func endpoint(for credential: OpenCodeCredentials.Credential) -> URL {
+        credential.oauth ? OpenCodeUsage.oauthEndpoint : OpenCodeUsage.endpoint
+    }
+
+    private func fetch(_ credential: OpenCodeCredentials.Credential) async throws -> Data {
+        let url = Self.endpoint(for: credential)
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(credential.token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        // Only an OAuth sign-in is issued against an org, and only the
+        // `inference/` routes want it.
+        if let org = credential.org {
+            request.setValue(org, forHTTPHeaderField: "x-opencode-org-id")
+        }
         request.timeoutInterval = 15
 
-        Log.usage.debug("GET opencode.ai/zen/go/v1/usage")
+        Log.usage.debug("GET \(url.absoluteString, privacy: .public)")
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         Log.usage.debug("go usage endpoint answered \(status)")
 
-        // Upstream serves a missing Go plan as 401 through the same branch as
-        // a bad key (its join finds no plan row either way). Both read as
-        // "nothing readable here", and the settings row says how to connect.
-        if status == 401 { throw UsageProviderError.needsAuth }
+        if status == 401 {
+            // Upstream serves a missing Go plan as 401 through the same branch as
+            // a bad credential — its join finds no plan row either way. Only the
+            // console can tell the two apart, and only for an OAuth sign-in: the
+            // Go key has no equivalent probe, so its 401 stays a sign-out, as
+            // before.
+            if credential.oauth, await signedIn(credential) {
+                throw UsageProviderError.nothingMetered(
+                    L10n.t("No OpenCode Go subscription on this account"))
+            }
+            // The token's own expiry is only a hint, but it is the difference
+            // between "sign in again" and "open OpenCode, it will renew this" —
+            // and the last reading is still true in the second case.
+            if let expires = credential.expires, expires <= Date() {
+                throw UsageProviderError.credentialExpired
+            }
+            throw UsageProviderError.needsAuth
+        }
         // A valid key that is not entitled to Go: readable, but metering
         // nothing — not an error, and it must not be shown as one.
         if status == 403 {
@@ -129,6 +163,41 @@ actor OpenCodeProvider: UsageProvider {
             throw UsageProviderError.badResponse(status: status)
         }
         return data
+    }
+
+    /// Is this OAuth sign-in still good? Asked only after the usage endpoint's
+    /// 401, which cannot tell a bad token from an account without a Go plan.
+    ///
+    /// The console's `/api/user` answers 401 only to a bad token, so a 200 here
+    /// means the sign-in is fine and the account simply has no Go plan. The Zen
+    /// model list cannot be used for this: it answers 200 to anything, including
+    /// a made-up token.
+    private func signedIn(_ credential: OpenCodeCredentials.Credential) async -> Bool {
+        let console = credential.console ?? OpenCodeUsage.defaultConsole
+        guard var components = URLComponents(
+            url: console.appendingPathComponent("api/user"), resolvingAgainstBaseURL: false)
+        else { return false }
+        components.query = nil
+        guard let url = components.url else { return false }
+
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(credential.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let org = credential.org {
+            request.setValue(org, forHTTPHeaderField: "x-opencode-org-id")
+        }
+        request.timeoutInterval = 15
+
+        do {
+            let (_, response) = try await session.data(for: request)
+            return (response as? HTTPURLResponse)?.statusCode == 200
+        } catch {
+            // A probe that cannot be made is not a verdict. Claiming "signed
+            // out" here would replace a planless account with a sign-in prompt,
+            // which is the worse of the two mistakes.
+            Log.usage.debug("opencode: console sign-in probe failed, treating 401 as a sign-out")
+            return false
+        }
     }
 
     /// How long to wait after a 429 — a minute, doubling per consecutive

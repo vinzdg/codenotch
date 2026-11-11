@@ -59,7 +59,7 @@ actor KiroProvider: UsageProvider {
     }
 
     nonisolated var signInRoute: SignInRoute {
-        .guidance(L10n.t("Run kiro-cli login — it writes and refreshes the session this reads."))
+        .command("kiro-cli login", name: "Kiro", install: URL(string: "https://kiro.dev/cli/"))
     }
 
     nonisolated func forgetCachedCredential() {

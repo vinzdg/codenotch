@@ -70,10 +70,6 @@ enum ClaudeTranscript {
 
     // MARK: - What it says
 
-    static func turn(at url: URL, bytes: Int = tailBytes) -> Turn? {
-        tail(of: url, bytes: bytes).flatMap(turn(inTail:))
-    }
-
     /// The last records of the file, without reading the rest of it.
     static func tail(of url: URL, bytes: Int = tailBytes) -> Data? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
@@ -124,6 +120,47 @@ enum ClaudeTranscript {
         return nil
     }
 
+    /// What the session is called: the name given with `/rename` if it has
+    /// one, the title Claude Code wrote for it otherwise. Nil when the tail
+    /// holds neither.
+    ///
+    /// The registry's own `name` is only the folder and two characters —
+    /// `marketing-hub-e0` — for every session started outside the desktop app,
+    /// so three sessions in one project read as three of the same row. Claude
+    /// Code keeps appending both kinds of title line as the session goes, so
+    /// the tail that already settles `turn` holds the current one too.
+    ///
+    /// A rename beats a generated title even when the generated one is newer:
+    /// Claude Code goes on writing `ai-title` after a `/rename`, and the name
+    /// somebody chose is the one they will look for.
+    static func title(inTail data: Data) -> String? {
+        // Most of a tail is conversation. Only a line that names one of the two
+        // kinds is worth decoding.
+        let marker = Data(#"-title""#.utf8)
+        var generated: String?
+        let lines = data.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: true)
+        for line in lines.reversed() {
+            guard line.range(of: marker) != nil,
+                  let json = (try? JSONSerialization.jsonObject(with: Data(line)))
+                    as? [String: Any] else { continue }
+            switch json["type"] as? String {
+            case "custom-title":
+                if let title = trimmed(json["customTitle"]) { return title }
+            case "ai-title":
+                if generated == nil { generated = trimmed(json["aiTitle"]) }
+            default:
+                continue
+            }
+        }
+        return generated
+    }
+
+    private static func trimmed(_ value: Any?) -> String? {
+        guard let text = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else { return nil }
+        return text
+    }
+
     /// Pressing Esc writes a user turn saying so, which is what makes "stopped"
     /// something the notch can know rather than wait out with a timeout. Two
     /// wordings exist, and both start the same way.
@@ -154,6 +191,7 @@ final class ClaudeTranscriptReader {
         let modified: Date
         let size: UInt64
         let turn: ClaudeTranscript.Turn?
+        let title: String?
     }
 
     private let projects: URL
@@ -184,28 +222,41 @@ final class ClaudeTranscriptReader {
     /// What the session is doing, and when it last moved. Nil when there is no
     /// transcript to read, or nothing said in it yet.
     func activity(sessionID: String, cwd: String) -> (turn: ClaudeTranscript.Turn, since: Date)? {
+        guard let read = current(sessionID: sessionID, cwd: cwd),
+              let turn = read.turn else { return nil }
+        if let previous = entered[sessionID], previous.turn == turn {
+            return (turn, previous.at)
+        }
+        // First sight of a change, so the file's own timestamp is the closest
+        // thing there is to when it happened.
+        entered[sessionID] = (turn, read.modified)
+        return (turn, read.modified)
+    }
+
+    /// The session's title, or nil when there is no transcript or no title in
+    /// it yet. See `ClaudeTranscript.title(inTail:)`.
+    func title(sessionID: String, cwd: String) -> String? {
+        current(sessionID: sessionID, cwd: cwd)?.title
+    }
+
+    /// One read of the tail answers both questions, and an unchanged file is
+    /// not read at all.
+    private func current(sessionID: String, cwd: String) -> Cached? {
         guard let url = path(sessionID: sessionID, cwd: cwd),
               let attributes = try? fileManager.attributesOfItem(atPath: url.path),
               let modified = attributes[.modificationDate] as? Date
         else { return nil }
         let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
 
-        let turn: ClaudeTranscript.Turn?
         if let cached = cache[sessionID], cached.modified == modified, cached.size == size {
-            turn = cached.turn
-        } else {
-            turn = ClaudeTranscript.turn(at: url)
-            cache[sessionID] = Cached(modified: modified, size: size, turn: turn)
+            return cached
         }
-
-        guard let turn else { return nil }
-        if let previous = entered[sessionID], previous.turn == turn {
-            return (turn, previous.at)
-        }
-        // First sight of a change, so the file's own timestamp is the closest
-        // thing there is to when it happened.
-        entered[sessionID] = (turn, modified)
-        return (turn, modified)
+        let tail = ClaudeTranscript.tail(of: url)
+        let read = Cached(modified: modified, size: size,
+                          turn: tail.flatMap(ClaudeTranscript.turn(inTail:)),
+                          title: tail.flatMap(ClaudeTranscript.title(inTail:)))
+        cache[sessionID] = read
+        return read
     }
 
     private func path(sessionID: String, cwd: String) -> URL? {

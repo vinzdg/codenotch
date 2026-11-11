@@ -121,9 +121,96 @@ struct ClaudeProfile: Equatable, Hashable {
     /// land in its own ring.
     var id: String { slug.map { "\(Self.defaultID)-\($0)" } ?? Self.defaultID }
 
-    /// `Claude`, or `Claude (work)`. The cell draws the same glyph for every
-    /// profile; this is what tells them apart in the tooltip and in Settings.
-    var displayName: String { slug.map { "Claude (\($0))" } ?? "Claude" }
+    /// `Claude Gmail`, `Claude Acme` — the account's own name where Claude Code
+    /// records one — and `Claude` or `Claude (work)` where it does not.
+    ///
+    /// The directory name was the only thing here before, and it cannot say
+    /// what a person actually wants to read. The default profile is always
+    /// `~/.claude`, so the account most people use every day was the one ring
+    /// with no name on it at all, and a second login could only be told apart
+    /// by whatever its directory happened to be called — `Claude (work)` for a
+    /// directory named `.claude-work`, whoever is signed in to it. The address
+    /// Claude Code has already written down is the real answer, it is read here
+    /// anyway for the Settings row, and it costs no keychain prompt. See
+    /// `signedInAddress()`.
+    ///
+    /// The old spelling is kept as the fallback rather than dropped: a profile
+    /// whose `.claude.json` has not been written yet, or was signed out, still
+    /// has to be named something, and the directory is all there is then.
+    ///
+    /// This is the name that tells a profile apart. Whether it needs telling
+    /// apart at all is for `displayNames(for:)`, which sees every profile.
+    var displayName: String {
+        guard let label = accountLabel() else {
+            return slug.map { "Claude (\($0))" } ?? "Claude"
+        }
+        return "Claude \(label)"
+    }
+
+    /// The one word that names this account: `Gmail` for a gmail.com address,
+    /// `Hotmail` for hotmail.com, `Acme` for someone@acme.co.uk.
+    ///
+    /// The domain rather than the local part, on purpose. A person's local part
+    /// is usually the same word on every account they own — it is the domain
+    /// that separates the personal login from the work one at a glance, which
+    /// is the question two Claude rings actually raise.
+    func accountLabel() -> String? {
+        Self.accountLabel(forAddress: signedInAddress())
+    }
+
+    /// Kept static and separate from the file it comes from so the rule can be
+    /// tested without a `.claude.json` on disk.
+    static func accountLabel(forAddress address: String?) -> String? {
+        guard let address, let at = address.lastIndex(of: "@") else { return nil }
+        let domain = address[address.index(after: at)...]
+        // Empty pieces kept, so a domain that starts with a dot is malformed
+        // rather than silently read as the piece after it.
+        guard let first = domain.split(separator: ".", omittingEmptySubsequences: false)
+                  .first.map(String.init),
+              !first.isEmpty,
+              // An address can be anything; a label that is punctuation or a
+              // lone digit names nothing, and `Claude` alone beats `Claude 1`.
+              first.rangeOfCharacter(from: .letters) != nil
+        else { return nil }
+        return first.prefix(1).uppercased() + first.dropFirst()
+    }
+
+    /// A name per profile id, with the whole address standing in wherever two
+    /// accounts would otherwise be called the same thing.
+    ///
+    /// Two logins on the same provider — two gmail.com accounts, or two on one
+    /// company domain — would draw two rings with identical names, which is
+    /// worse than the directory names this replaced. Only the profiles that
+    /// actually collide pay the longer name.
+    ///
+    /// And a lone account is just `Claude`. The label is there to tell one ring
+    /// from another; with nothing to tell it from, `Claude Gmail Usage` over
+    /// the only Claude card reads as a product that does not exist.
+    ///
+    /// Unless `anotherAccountInUse`: Claude Desktop signed in to an account no
+    /// profile here is (`ClaudeDesktopSessionIndex.untrackedAccounts`). That
+    /// account has no ring, so the lone one is not the only Claude account on
+    /// the Mac, and a bare `Claude` left nobody able to tell which of the two
+    /// it was showing (#509).
+    static func displayNames(for profiles: [ClaudeProfile],
+                             anotherAccountInUse: Bool = false) -> [String: String] {
+        if profiles.count == 1, let only = profiles.first, !anotherAccountInUse {
+            return [only.id: "Claude"]
+        }
+
+        var sharing: [String: Int] = [:]
+        for profile in profiles { sharing[profile.displayName, default: 0] += 1 }
+
+        var names: [String: String] = [:]
+        for profile in profiles {
+            let name = profile.displayName
+            guard sharing[name, default: 0] > 1,
+                  let address = profile.signedInAddress()
+            else { names[profile.id] = name; continue }
+            names[profile.id] = "Claude \(address)"
+        }
+        return names
+    }
 
     /// Whether a provider id names a Claude profile, default or otherwise.
     static func isClaude(providerID: String) -> Bool {
@@ -178,6 +265,13 @@ struct ClaudeProfile: Equatable, Hashable {
         struct Account: Decodable {
             let emailAddress: String?
             let organizationUuid: String?
+            /// The account itself, as distinct from the organization it belongs
+            /// to. This is the uuid the Claude desktop app files its own
+            /// sessions under — see `ClaudeDesktopSessionIndex`.
+            let accountUuid: String?
+            /// `claude_enterprise`, `claude_team` and so on: the kind of
+            /// organization the account belongs to.
+            let organizationType: String?
         }
         let oauthAccount: Account?
     }
@@ -213,6 +307,31 @@ struct ClaudeProfile: Equatable, Hashable {
     /// drawn on the work ring. See `ClaudeDesktopUsageCache`.
     func organizationID() -> String? {
         guard let uuid = account()?.organizationUuid, !uuid.isEmpty else { return nil }
+        return uuid
+    }
+
+    /// The kind of organization this profile's account belongs to, as Claude
+    /// Code recorded it — `claude_enterprise` comes back as `enterprise`.
+    ///
+    /// For a reading taken from Claude Desktop's cache, which carries no plan
+    /// of its own. That reading is matched to this profile by `organizationID`
+    /// from the same record, so the two cannot describe different accounts.
+    func organizationPlan() -> String? {
+        guard let type = account()?.organizationType?.nonEmptyPlan else { return nil }
+        let prefix = "claude_"
+        return type.hasPrefix(prefix) ? String(type.dropFirst(prefix.count)).nonEmptyPlan : type
+    }
+
+    /// Which Anthropic *account* this profile is signed in to.
+    ///
+    /// The thing that ties a session the Claude desktop app hosts back to the
+    /// profile it really belongs to. The app leaves `CLAUDE_CONFIG_DIR` unset,
+    /// so Claude Code files every desktop session under the default profile's
+    /// `sessions` directory whichever account the app is signed in to — and the
+    /// app records the truth one directory per account uuid. This is the uuid
+    /// on our side of that join. See `ClaudeDesktopSessionIndex`.
+    func accountID() -> String? {
+        guard let uuid = account()?.accountUuid, !uuid.isEmpty else { return nil }
         return uuid
     }
 
@@ -259,9 +378,23 @@ struct ClaudeProfile: Equatable, Hashable {
         slug == nil ? "Claude Code" : "Claude Code in \(displayPath)"
     }
 
-    /// The command that signs this profile in, for the row that has no button.
+    /// The command that signs this profile in.
+    ///
+    /// Quoted, because this is *run* and not merely printed. It was written
+    /// for a guidance line — "Run this in Terminal" — where an unquoted path
+    /// was only cosmetic. #323 put it behind a button that types it into the
+    /// user's shell, and at that point a config directory with a space or a
+    /// `;` in its name stops being a display bug: whatever follows the `;`
+    /// is a second command. `CodexProfile.signInCommand` already quoted its
+    /// own path for exactly this reason.
+    ///
+    /// The real path rather than `displayPath`, too: a quoted `~` does not
+    /// expand, so the abbreviation that reads well in a label would send the
+    /// CLI to a directory named `~`.
     var signInCommand: String {
-        slug == nil ? "claude" : "CLAUDE_CONFIG_DIR=\(displayPath) claude"
+        guard slug != nil else { return "claude" }
+        let path = "'" + configDirectory.path.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        return "CLAUDE_CONFIG_DIR=\(path) claude"
     }
 }
 
@@ -270,7 +403,7 @@ struct ClaudeProfile: Equatable, Hashable {
 /// Worth a type of its own because that file is not a small one. Claude Code
 /// keeps per-project prompt history in it, so on a machine with a long history
 /// it runs to tens or hundreds of megabytes — and `ClaudeProfile.account()` is
-/// on the polling path: `ClaudeOAuthProvider.desktopWindows()` asks for the
+/// on the polling path: `ClaudeOAuthProvider.desktopReading()` asks for the
 /// organization on every refresh, which is every sixty seconds for as long as
 /// any session is busy, once per profile. Reading and decoding the whole
 /// document each time to pull two strings out of it is the kind of cost that

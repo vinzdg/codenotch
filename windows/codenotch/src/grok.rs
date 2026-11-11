@@ -3,7 +3,12 @@
 //! Data path (the same bargain the other providers strike: borrow the CLI's own session):
 //!   1. Credential: Grok CLI signs in through `auth.x.ai` and writes the session to
 //!      `%USERPROFILE%\.grok\auth.json`. Codenotch only ever reads it — refreshing is the CLI's
-//!      job, and writing a new access token would race it for the file.
+//!      job, and writing a new access token would race it for the file. The access token lives
+//!      about six hours and only a running CLI renews it, so on a machine where grok is seldom run
+//!      the file goes stale and the endpoint rejects it. Shortly before expiry Codenotch therefore
+//!      runs `grok models` once, windowless (see "Token renewal"): the CLI renews the token from
+//!      its refresh token as it starts and rewrites the file itself, and listing models spends no
+//!      Grok Build allowance.
 //!      The file is an object keyed by `<issuer>::<client_id>`; each entry carries `key` (the
 //!      bearer token), `expires_at` and `email`.
 //!   2. Endpoint: `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`
@@ -24,7 +29,7 @@
 //! would hand someone else's credential to the wrong host, so entries are filtered by issuer.
 //! Read only, never written; token values never reach logs, events or the UI.
 
-use crate::usage::{LimitWindow, UsageSnapshot};
+use crate::usage::{duration_between_ms, LimitWindow, UsageSnapshot};
 use crate::AppState;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -140,6 +145,102 @@ fn read_credentials() -> Option<Creds> {
     pick(&root)
 }
 
+// ---------------- Token renewal (usage.rs's Claude renewer, pointed at the Grok CLI) ----------------
+
+const RENEW_TIMEOUT_SECS: u64 = 30;
+
+/// The Grok CLI: its own installer's `~/.grok/bin` first, then PATH
+pub fn find_cli() -> Option<PathBuf> {
+    let names = crate::usage::command_names("grok");
+    let mut v = Vec::new();
+    if let Some(h) = dirs::home_dir() {
+        for n in &names {
+            v.push(h.join(".grok").join("bin").join(n));
+        }
+    }
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            for n in &names {
+                v.push(dir.join(n));
+            }
+        }
+    }
+    v.into_iter().find(|p| p.is_file())
+}
+
+/// `grok models` starts up (where the CLI renews an aged token), prints the model list and exits:
+/// no session, no transcript, no allowance spent. Output goes nowhere.
+fn run_renewal(cli: &std::path::Path) -> std::io::Result<()> {
+    use std::process::{Command, Stdio};
+    let mut cmd = Command::new(cli);
+    cmd.arg("models").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    // Which session gets renewed is said here, never inherited: a GROK_HOME pointed elsewhere would
+    // renew that copy while the file read here stayed stale
+    if let Some(dir) = auth_path().as_deref().and_then(|p| p.parent()) {
+        cmd.env("GROK_HOME", dir);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let mut child = cmd.spawn()?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(RENEW_TIMEOUT_SECS);
+    while child.try_wait()?.is_none() {
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct Renewer {
+    attempted_for: Option<u64>,
+    last_attempt: Option<u64>,
+    /// Launches in a row that left `attempted_for` where it was
+    failures: u32,
+}
+
+impl Renewer {
+    /// Renews if the token is about to expire. Some(true) = the expiry moved; judged on the file, never on
+    /// the exit status
+    fn maybe_renew(&mut self, creds: &Creds) -> Option<bool> {
+        let expires_at = (creds.expires_at > 0).then_some(creds.expires_at);
+        let now = now_ms();
+        // The CLI renews at its own five-minute mark, as Claude Code does, so the Claude timing and
+        // retry policy carry over unchanged
+        if !crate::usage::should_renew(expires_at, now, self.attempted_for, self.last_attempt, self.failures) {
+            return None;
+        }
+        if self.attempted_for != expires_at {
+            self.failures = 0;
+        }
+        self.last_attempt = Some(now);
+        self.attempted_for = expires_at;
+        self.failures = self.failures.saturating_add(1);
+        let Some(cli) = find_cli() else {
+            crate::applog("grok: token about to expire and no grok CLI found to renew it");
+            return Some(false);
+        };
+        if let Err(e) = run_renewal(&cli) {
+            crate::applog(&format!("grok: token renewal could not start ({}): {e}", cli.display()));
+            return Some(false);
+        }
+        let after = read_credentials().map(|c| c.expires_at).unwrap_or(0);
+        let renewed = after > creds.expires_at;
+        crate::applog(&if renewed {
+            format!("grok: token renewed via {}", cli.display())
+        } else {
+            format!("grok: ran {} but the token expiry did not move", cli.display())
+        });
+        Some(renewed)
+    }
+}
+
 /// For doctor: contains no secret values
 pub fn probe() -> String {
     let Some(p) = auth_path() else { return "Grok: cannot locate the home directory".into() };
@@ -149,9 +250,13 @@ pub fn probe() -> String {
     match read_credentials() {
         // No account email: doctor output is what people paste into issues.
         Some(c) => format!(
-            "Grok: session borrowed (token {} chars, {})",
+            "Grok: session borrowed (token {} chars, {}); {}",
             c.token.len(),
-            if c.is_expired() { "expired — run grok login" } else { "live" }
+            if c.is_expired() { "expired — run grok login" } else { "live" },
+            match find_cli() {
+                Some(p) => format!("renews via {}", p.display()),
+                None => "no grok CLI found to renew it".into(),
+            }
         ),
         None => format!(
             "Grok: {} exists but holds no usable xAI session (only a customer IdP entry, or the CLI is signed out)",
@@ -186,6 +291,12 @@ pub fn parse_credits(v: &serde_json::Value) -> (Vec<LimitWindow>, String) {
     let current = config.get("currentPeriod");
     let current_end = iso_ms(current.and_then(|p| p.get("end")));
     let resets_at = current_end.or_else(|| iso_ms(config.get("billingPeriodEnd")));
+    let start = if current_end.is_some() {
+        iso_ms(current.and_then(|p| p.get("start")))
+    } else {
+        iso_ms(config.get("billingPeriodStart"))
+    };
+    let duration_ms = duration_between_ms(start, resets_at);
 
     let mut out: Vec<LimitWindow> = Vec::new();
     let products = config.get("productUsage").and_then(|x| x.as_array());
@@ -201,6 +312,7 @@ pub fn parse_credits(v: &serde_json::Value) -> (Vec<LimitWindow>, String) {
             label: headline_label.unwrap_or_else(|| "Grok Build".into()),
             used,
             resets_at,
+            duration_ms,
             ..Default::default()
         });
     } else if let Some(products) = products {
@@ -211,7 +323,7 @@ pub fn parse_credits(v: &serde_json::Value) -> (Vec<LimitWindow>, String) {
             // The ring reads the window whose id is "credits"; using the wire name for the first
             // one left a valid bar on the card and a dash on the cell.
             let id = if out.is_empty() { "credits".to_string() } else { wire.unwrap_or(&label).to_string() };
-            out.push(LimitWindow { id, label, used, resets_at, ..Default::default() });
+            out.push(LimitWindow { id, label, used, resets_at, duration_ms, ..Default::default() });
         }
     }
 
@@ -265,13 +377,18 @@ fn fetch_once(token: &str) -> Result<serde_json::Value, FetchErr> {
     }
 }
 
-fn read_once(prev: &UsageSnapshot) -> UsageSnapshot {
+fn read_once(prev: &UsageSnapshot, renewer: &mut Renewer) -> UsageSnapshot {
     let mut snap = prev.clone();
-    let Some(creds) = read_credentials() else {
+    let Some(mut creds) = read_credentials() else {
         snap.status = "needsAuth".into();
         snap.note = "Run grok login — it signs in and refreshes the token this reads.".into();
         return snap;
     };
+    if renewer.maybe_renew(&creds) == Some(true) {
+        if let Some(fresh) = read_credentials() {
+            creds = fresh;
+        }
+    }
     // An expired token is still worth sending: the CLI may have refreshed the file since it was
     // written, and only the endpoint can say. A 401 below is what actually decides it.
     match fetch_once(&creds.token) {
@@ -340,13 +457,14 @@ pub fn start(app: AppHandle) {
                 }
             }
         }
+        let mut renewer = Renewer::default();
         loop {
             let prev = {
                 let st = app.state::<AppState>();
                 let s = st.grok.lock().unwrap().clone();
                 s
             };
-            let snap = read_once(&prev);
+            let snap = read_once(&prev, &mut renewer);
             if snap.status == "error" || snap.status == "stale" {
                 crate::applog(&format!("grok: {}", snap.note));
             }
@@ -359,6 +477,29 @@ pub fn start(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn product_windows_use_matching_current_or_billing_bounds() {
+        for (period, expected) in [
+            (serde_json::json!({"start": "2026-09-05T08:21:18Z", "end": "2026-09-12T08:21:18Z"}),
+                Some(crate::usage::SEVEN_DAYS_MS)),
+            (serde_json::json!({"start": "2026-09-05T08:21:18Z", "end": "invalid"}), Some(30 * 86_400_000)),
+            (serde_json::json!({"end": "2026-09-12T08:21:18Z"}), None),
+            (serde_json::json!({"start": "2026-09-12T08:21:18Z", "end": "2026-09-12T08:21:18Z"}), None),
+            (serde_json::json!({"start": "2026-09-13T08:21:18Z", "end": "2026-09-12T08:21:18Z"}), None),
+        ] {
+            let (ws, _) = parse_credits(&serde_json::json!({"config": {
+                "currentPeriod": period,
+                "billingPeriodStart": "2026-09-01T00:00:00Z", "billingPeriodEnd": "2026-10-01T00:00:00Z",
+                "productUsage": [{"product": "GrokBuild", "usagePercent": 8}, {"product": "Other", "usagePercent": 5}]
+            }}));
+            assert_eq!(ws.len(), 2);
+            assert!(ws.iter().all(|w| w.duration_ms == expected), "{ws:?}");
+        }
+        let (ws, _) = parse_credits(&serde_json::json!({"config": {"creditUsagePercent": 8}}));
+        assert_eq!(ws[0].duration_ms, None);
+    }
+
 
     #[test]
     fn picks_only_the_xai_session_and_prefers_a_live_one() {
@@ -408,6 +549,7 @@ mod tests {
         assert_eq!(w[0].label, "Grok Build");
         assert!((w[0].used - 0.08).abs() < 1e-9);
         assert!(w[0].resets_at.is_some());
+        assert_eq!(w[0].duration_ms, Some(crate::usage::SEVEN_DAYS_MS));
     }
 
     #[test]
@@ -421,6 +563,7 @@ mod tests {
         assert_eq!(w.len(), 1);
         assert_eq!(w[0].id, "credits");
         assert_eq!(w[0].used, 0.0);
+        assert_eq!(w[0].duration_ms, None, "the Mac's fresh weekly fallback does not attach a duration");
     }
 
     #[test]
@@ -435,5 +578,24 @@ mod tests {
     fn wire_product_names_are_split_for_display() {
         assert_eq!(humanize("GrokBuild"), "Grok Build");
         assert_eq!(humanize("Usage"), "Usage");
+    }
+
+    fn creds(expires_at: u64) -> Creds {
+        Creds { token: "t".into(), expires_at, email: None }
+    }
+
+    // Neither case may reach the CLI: both are decided before any launch.
+    #[test]
+    fn a_session_without_an_expiry_is_never_renewed_on_a_guess() {
+        let mut r = Renewer::default();
+        assert_eq!(r.maybe_renew(&creds(0)), None);
+        assert_eq!(r.last_attempt, None);
+    }
+
+    #[test]
+    fn a_live_session_is_left_alone() {
+        let mut r = Renewer::default();
+        assert_eq!(r.maybe_renew(&creds(now_ms() + 60 * 60 * 1000)), None);
+        assert_eq!(r.last_attempt, None);
     }
 }

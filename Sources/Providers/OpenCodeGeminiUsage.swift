@@ -46,26 +46,21 @@ enum OpenCodeGeminiUsage {
         // `time_created` is indexed and holds milliseconds. Filtering on it in
         // SQL keeps the JSON extraction off every message the user ever sent.
         let startOfMonth = Int(GeminiTokenUsage.startOfMonth(now: now).timeIntervalSince1970 * 1000)
+        // Neither shape means a database that is not OpenCode's, which is the
+        // same "no database" answer as failing to open one.
+        guard let schema = OpenCodeSchema.of(db) else { return nil }
         let rows = SQLiteStore.rows(
             in: db,
-            sql: """
-            SELECT time_created,
-                   json_extract(data, '$.tokens.total'),
-                   json_extract(data, '$.tokens.input'),
-                   json_extract(data, '$.tokens.output'),
-                   json_extract(data, '$.tokens.reasoning'),
-                   json_extract(data, '$.tokens.cache.read'),
-                   json_extract(data, '$.tokens.cache.write')
-            FROM message
-            WHERE json_extract(data, '$.role') = 'assistant'
-              AND json_extract(data, '$.providerID') = 'google'
-              AND time_created >= \(startOfMonth)
-            """,
+            sql: schema.geminiUsageSQL(startOfMonth: startOfMonth),
             columns: 7
         )
 
         let entries: [(at: Date, tokens: Int, calls: Int)] = rows.compactMap { row in
             guard let milliseconds = Double(row[0]) else { return nil }
+            // A stored total wins: 1.x can record one without the breakdown.
+            // 2.x has no such key, so it reads as 0 and the five components are
+            // the whole figure — and where both are present they agree, because
+            // 1.x's `input` excludes the cache and the sum includes it.
             let total = Int(row[1]) ?? 0
             let tokens = total > 0 ? total : (2...6).reduce(0) { $0 + (Int(row[$1]) ?? 0) }
             return (at: Date(timeIntervalSince1970: milliseconds / 1000), tokens: tokens, calls: 1)

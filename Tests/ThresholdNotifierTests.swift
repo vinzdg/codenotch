@@ -42,14 +42,44 @@ final class ThresholdNotifierTests: XCTestCase {
     }
 
     func testCrossingHundredAfterEightyAlertsAgain() {
+        notifier.observe([snapshot("claude", "Claude", 0.5)])
         notifier.observe([snapshot("claude", "Claude", 0.85)])
         notifier.observe([snapshot("claude", "Claude", 1.02)])
         XCTAssertEqual(alerts.map(\.threshold), [80, 100])
     }
 
+    /// The archived reading published at launch is marked stale, and the live
+    /// one that follows is the baseline, not a crossing.
+    func testAnArchivedReadingIsNotTheBaseline() {
+        var archived = snapshot("codex", "Codex", 0.5)
+        archived.status = .stale(since: Date())
+        notifier.observe([archived])
+        notifier.observe([snapshot("codex", "Codex", 1.0)])
+        XCTAssertTrue(alerts.isEmpty)
+        notifier.observe([snapshot("codex", "Codex", 0.1)])
+        notifier.observe([snapshot("codex", "Codex", 0.9)])
+        XCTAssertEqual(alerts.map(\.threshold), [80])
+    }
+
+    /// The first reading is the baseline, whatever it says. After a restart it
+    /// is the archived reading, often already spent, and announcing it rang
+    /// "limit reached" on every launch.
+    func testTheFirstReadingOnlyRecordsEvenAtTheLimit() {
+        notifier.observe([snapshot("codex", "Codex", 1.0)])
+        XCTAssertTrue(alerts.isEmpty, "a launch is not a crossing")
+
+        // Still crossed: nothing to say. Rolled over and climbing again: news.
+        notifier.observe([snapshot("codex", "Codex", 1.0)])
+        XCTAssertTrue(alerts.isEmpty)
+        notifier.observe([snapshot("codex", "Codex", 0.05)])
+        notifier.observe([snapshot("codex", "Codex", 0.85)])
+        XCTAssertEqual(alerts.map(\.threshold), [80])
+    }
+
     /// A spent window that comes back is a new fact, not a re-announcement of
     /// the old one — so the memory clears and the next climb alerts again.
     func testARolledOverWindowAlertsAgain() {
+        notifier.observe([snapshot("claude", "Claude", 0.2)])
         notifier.observe([snapshot("claude", "Claude", 0.9)])
         notifier.observe([snapshot("claude", "Claude", 0.1)])
         XCTAssertEqual(alerts.count, 1)
@@ -59,6 +89,7 @@ final class ThresholdNotifierTests: XCTestCase {
     }
 
     func testMutedProvidersAreSilentButRemembered() {
+        notifier.observe([snapshot("claude", "Claude", 0.1)])
         muted = ["claude"]
         notifier.observe([snapshot("claude", "Claude", 0.85)])
         XCTAssertTrue(alerts.isEmpty)
@@ -84,6 +115,10 @@ final class ThresholdNotifierTests: XCTestCase {
     }
 
     func testSeveralProvidersAlertIndependently() {
+        notifier.observe([
+            snapshot("claude", "Claude", 0.3),
+            snapshot("cursor", "Cursor", 0.4)
+        ])
         notifier.observe([
             snapshot("claude", "Claude", 0.3),
             snapshot("cursor", "Cursor", 0.95)

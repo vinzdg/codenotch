@@ -1,6 +1,6 @@
 [package]
 name = "codenotch"
-version = "1.16.0"
+version = "1.25.0"
 edition = "2021"
 description = "Codenotch for Windows — usage notch for Claude, Codex, Cursor and Antigravity"
 license = "MIT"
@@ -19,28 +19,54 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls", "zip"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+semver = "1"
 tiny_http = "0.12"
 dirs = "5"
 notify = "6"
-ureq = { version = "2", features = ["json", "native-tls"] } # native-tls: the Antigravity local bridge's self-signed certificate is accepted for 127.0.0.1 only
+ureq = { version = "2", features = ["json", "native-tls", "proxy-from-env"] } # proxy-from-env: honour HTTPS_PROXY, so a machine that reaches api.anthropic.com only through a proxy still reads. # native-tls: the Antigravity local bridge's self-signed certificate is accepted for 127.0.0.1 only
 native-tls = "0.2"
 png = "0.17" # application icon → PNG (provider marks taken from the installed app's resources)
+ruzstd = "0.7" # pure-Rust zstd: reads the Harness transcripts (.jsonl.zstd)
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 # Cursor's credential lives in state.vscdb (SQLite); bundled = compile the SQLite C sources with the crate, which adds 1–2 minutes to the first build
 rusqlite = { version = "0.32", features = ["bundled"] }
+# ZCode seals its credentials with AES-256-GCM keyed by SHA-256 (see glm.rs); ring does both,
+# and base64 the base64url parts. (ring was already in the transitive closure via rustls.)
+ring = "0.17"
+base64 = "0.22"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
   "Win32_Foundation",
+  "Win32_UI_Accessibility",
+  "Win32_UI_Controls",
+  "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
   "Win32_System_Diagnostics_ToolHelp",
   "Win32_Security_Credentials",
+  "Win32_Graphics_Dwm",
   "Win32_Graphics_Gdi",
+  "Foundation_Numerics",
+  "Win32_Graphics_Direct3D",
+  "Win32_Graphics_Direct3D11",
+  "Win32_Graphics_Dxgi",
+  "Win32_Graphics_Dxgi_Common",
+  "Win32_Graphics_Direct2D",
+  "Win32_Graphics_Direct2D_Common",
+  "Win32_Graphics_DirectComposition",
+  "Win32_Graphics_DirectWrite",
   "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_HiDpi",
   "Win32_System_Threading",
   "Win32_System_JobObjects",
   "Win32_System_Pipes",
   "Win32_Globalization",
   "Win32_System_Console",
+  "Win32_System_Com",
+  "Win32_System_LibraryLoader",
   "Win32_System_Registry",
+  "Win32_System_Diagnostics_Debug",
 ] }

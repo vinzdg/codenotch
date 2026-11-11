@@ -14,14 +14,17 @@ import Foundation
 ///    token is a Z.ai one: `ANTHROPIC_AUTH_TOKEN` aimed at api.anthropic.com
 ///    is somebody's Anthropic key, and claiming it would read the wrong
 ///    account and report it under GLM's name.
-/// 2. **ZCode** — two files. `~/.zcode/v2/config.json` is where a plan key is
-///    pasted in directly: an enabled `builtin:*-coding-plan` entry with a
-///    plaintext `apiKey`, and the `baseURL` beside it says which console the
-///    key belongs to. `~/.zcode/v2/credentials.json` holds the token from
-///    signing into the plan through the app instead; recent builds encrypt it
-///    at rest behind an `enc:v1:` marker, and those are skipped rather than
-///    guessed at — decrypting them is ZCode's business, and a wrong guess
-///    would read as a signed-out plan.
+/// 2. **ZCode** — `~/.zcode/v2/credentials.json`. Older builds also read a
+///    plan key pasted into `~/.zcode/v2/config.json` — an enabled
+///    `builtin:*-coding-plan` entry whose `baseURL` says which console — and
+///    that file is still honoured where it exists, but recent ZCode no longer
+///    writes it: everything lives in the credentials file instead, one entry
+///    per account as `account-provider:…:api-key` plus the sign-in tokens
+///    `oauth:zai:access_token` and `oauth:bigmodel:access_token`. Every value
+///    is encrypted at rest behind an `enc:v1:` marker, and decrypted with
+///    `ZCodeCredentialCipher` — ZCode's own construction, mirrored rather
+///    than asked for. A value that does not decrypt is skipped rather than
+///    guessed at: a wrong guess would read as a signed-out plan.
 /// 3. **OpenCode** — `~/.local/share/opencode/auth.json`, keyed under a
 ///    handful of provider names for the global (`z.ai`) and China
 ///    (`bigmodel.cn`) consoles.
@@ -46,6 +49,9 @@ enum GLMCredentials {
     static var zcodeCredentialsURL: URL {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".zcode/v2/credentials.json")
     }
+    static var zcodeSettingsURL: URL {
+        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".zcode/v2/setting.json")
+    }
     static var openCodeAuthURL: URL {
         URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent(".local/share/opencode/auth.json")
@@ -60,12 +66,14 @@ enum GLMCredentials {
 
     /// Every path is a parameter so a test can point each source at its own
     /// fixture without touching a real one. A nil path simply drops that
-    /// source.
+    /// source, and a nil secret decrypts the ZCode file with this Mac's own —
+    /// tests pass the one they encrypted their fixtures with.
     static func load(claudeSettings: URL?, zcodeConfig: URL?,
-                     zcodeCredentials: URL?, openCodeAuth: URL?) -> Credential? {
+                     zcodeCredentials: URL?, openCodeAuth: URL?,
+                     zcodeSecret: String? = nil) -> Credential? {
         claudeSettings.flatMap(claudeCode)
             ?? zcodeConfig.flatMap(zcodePlanKey)
-            ?? zcodeCredentials.flatMap(zcode)
+            ?? zcodeCredentials.flatMap { zcode($0, secret: zcodeSecret) }
             ?? openCodeAuth.flatMap(openCode)
     }
 
@@ -91,8 +99,6 @@ enum GLMCredentials {
 
     // MARK: ZCode
 
-    static let encryptedMarker = "enc:v1:"
-
     /// `~/.zcode/v2/config.json` → an enabled `builtin:*-coding-plan` provider
     /// with the plan key pasted in. The `baseURL` beside it is the tool's own
     /// Anthropic endpoint — its *host* decides which console the usage is read
@@ -103,7 +109,7 @@ enum GLMCredentials {
         else { return nil }
 
         for (id, value) in providers.sorted(by: { $0.key < $1.key }) {
-            guard id.contains("coding-plan"), let provider = value as? [String: Any],
+            guard isPlanProvider(id), let provider = value as? [String: Any],
                   let options = provider["options"] as? [String: Any],
                   let key = string(options["apiKey"])
             else { continue }
@@ -119,13 +125,19 @@ enum GLMCredentials {
         return nil
     }
 
-    /// Whether ZCode has Z.ai's Start Plan switched on (#71).
+    /// ZCode uses separate provider ids for the paid Coding Plan and the
+    /// account's Start Plan. Both expose the same monitor shape now; a plain
+    /// `builtin:zai` entry remains pay-as-you-go and must not be claimed as a
+    /// plan quota.
+    static func isPlanProvider(_ id: String) -> Bool {
+        id.contains("coding-plan") || id.contains("start-plan")
+    }
+
+    /// Whether ZCode has Z.ai's Start Plan switched on.
     ///
-    /// Its key is not claimed as a credential: the monitor endpoint the Coding
-    /// Plan is read from answers a Start Plan key with `code: 401` inside an
-    /// HTTP 200, and no usage route for the Start Plan is published. Knowing
-    /// it is there is still worth something — the row can say that, rather
-    /// than asking someone who is signed in to set up a key.
+    /// Start Plan keys are handled by `zcodePlanKey`; this helper lets the row
+    /// distinguish an active Start Plan from no ZCode configuration when the
+    /// entry has no usable key.
     static func zcodeHasStartPlan(_ url: URL = zcodeConfigURL) -> Bool {
         guard let root = dictionary(at: url), let providers = root["provider"] as? [String: Any]
         else { return false }
@@ -138,17 +150,70 @@ enum GLMCredentials {
         }
     }
 
-    static func zcode(_ url: URL) -> Credential? {
+    /// Whether ZCode's current sign-in is the Start Plan only (#71, new layout).
+    ///
+    /// `config.json` is gone from recent ZCode — the plan choice moved to
+    /// `setting.json`'s `providerFamilyConnectionSelections`, one `{kind}` per
+    /// console (`start-plan`, `individual-coding-plan`, `team-coding-plan`).
+    /// True only when there is at least one selection and every one of them
+    /// is the Start Plan: a coding plan on either console is a plan with
+    /// published usage, and no selection at all is not a plan of any kind.
+    static func zcodeSettingsHasStartPlanOnly(_ url: URL = zcodeSettingsURL) -> Bool {
         guard let root = dictionary(at: url),
-              let token = string(root["oauth:zai:access_token"])
-        else { return nil }
+              let selections = root["providerFamilyConnectionSelections"] as? [String: Any],
+              !selections.isEmpty
+        else { return false }
+        return selections.values.allSatisfy {
+            ($0 as? [String: Any])?["kind"] as? String == "start-plan"
+        }
+    }
 
-        // Encrypted at rest: a string we cannot read is a string we must not
-        // send. Skipping the source means "not found", which the row reports
-        // honestly, rather than a 401 from the monitor that means nothing.
-        guard !token.hasPrefix(encryptedMarker) else { return nil }
+    /// `~/.zcode/v2/credentials.json` → the plan key, or the sign-in token.
+    ///
+    /// Recent ZCode files the plan key per account and encrypts every value
+    /// at rest, so each candidate is decrypted before it is trusted — and a
+    /// value that does not decrypt is skipped, not sent: it reads on the
+    /// monitor as a signed-out plan. Older builds wrote the token in the
+    /// clear, and those pass through untouched.
+    ///
+    /// The account key comes first: it is the plan's own credential, where
+    /// the sign-in token is a login session that happens to be accepted too.
+    /// With several accounts the keys sort, so the answer is stable rather
+    /// than a directory-listing lottery.
+    static func zcode(_ url: URL, secret: String? = nil) -> Credential? {
+        guard let root = dictionary(at: url) else { return nil }
+        let resolved = secret ?? ZCodeCredentialCipher.defaultSecret()
+        func read(_ value: Any?) -> String? {
+            guard let raw = string(value),
+                  let plain = ZCodeCredentialCipher.decrypt(raw, secret: resolved)
+            else { return nil }
+            return plain.isEmpty ? nil : plain
+        }
 
-        return Credential(token: token, baseURL: URL(string: "https://api.z.ai")!, source: "ZCode")
+        for key in root.keys.filter(isAccountAPIKey).sorted() {
+            if let token = read(root[key]) {
+                return Credential(token: token,
+                                  baseURL: key.lowercased().contains("bigmodel")
+                                    ? URL(string: "https://open.bigmodel.cn")!
+                                    : URL(string: "https://api.z.ai")!,
+                                  source: "ZCode")
+            }
+        }
+        if let token = read(root["oauth:zai:access_token"]) {
+            return Credential(token: token, baseURL: URL(string: "https://api.z.ai")!, source: "ZCode")
+        }
+        if let token = read(root["oauth:bigmodel:access_token"]) {
+            return Credential(token: token, baseURL: URL(string: "https://open.bigmodel.cn")!, source: "ZCode")
+        }
+        return nil
+    }
+
+    /// ZCode files the plan key per account as
+    /// `account-provider:coding-plan:<provider>:account:<id>:api-key` — the
+    /// shape its own store validates with `^account-provider:.+:api-key$`.
+    static func isAccountAPIKey(_ key: String) -> Bool {
+        key.hasPrefix("account-provider:") && key.hasSuffix(":api-key")
+            && key.count > "account-provider:".count + ":api-key".count
     }
 
     // MARK: OpenCode

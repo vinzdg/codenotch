@@ -84,40 +84,6 @@ struct CodexTokenUsage: Codable, Equatable, Sendable {
     }
 }
 
-/// Unused rate-limit resets on the Codex account.
-///
-/// The ChatGPT backend lists credits that can still reset a rate limit, under
-/// the same credential as `/wham/usage`.
-struct CodexResetCredits: Equatable, Sendable {
-    struct Credit: Equatable, Sendable, Identifiable {
-        let id: String
-        let status: String
-        let expiresAt: Date?
-
-        init(id: String, status: String, expiresAt: Date? = nil) {
-            self.id = id
-            self.status = status
-            self.expiresAt = expiresAt
-        }
-    }
-
-    let availableCount: Int
-    let credits: [Credit]
-
-    init(availableCount: Int, credits: [Credit] = []) {
-        self.availableCount = availableCount
-        self.credits = credits
-    }
-
-    /// Credits still available, soonest expiry first.
-    var available: [Credit] {
-        credits.filter { $0.status == "available" }
-            .sorted { ($0.expiresAt ?? .distantFuture) < ($1.expiresAt ?? .distantFuture) }
-    }
-
-    var nextExpiry: Date? { available.compactMap(\.expiresAt).min() }
-}
-
 /// The account's main rate-limit windows belong in the usage rings. Spark
 /// (`additional_rate_limits`) and code review belong on the hover card, not
 /// the rings.
@@ -127,12 +93,17 @@ enum CodexUsage {
         let plan_type: String?
         let additional_rate_limits: [AdditionalRateLimit]
         let code_review_rate_limit: RateLimit?
+        /// Business and Team seats have no rolling windows; they draw on
+        /// credits under a workspace spend control, which is the only
+        /// allowance that account can show.
+        let spend_control: SpendControl?
 
         private enum CodingKeys: String, CodingKey {
             case rate_limit
             case plan_type
             case additional_rate_limits
             case code_review_rate_limit
+            case spend_control
         }
 
         init(from decoder: Decoder) throws {
@@ -149,6 +120,31 @@ enum CodexUsage {
             code_review_rate_limit = try? container.decodeIfPresent(
                 RateLimit.self, forKey: .code_review_rate_limit
             )
+            spend_control = try? container.decodeIfPresent(SpendControl.self, forKey: .spend_control)
+        }
+    }
+
+    private struct SpendControl: Decodable {
+        let individual_limit: CreditLimit?
+    }
+
+    /// Amounts arrive as decimal strings ("374.92"); percentages as numbers.
+    private struct CreditLimit: Decodable {
+        let limit: Double?
+        let used: Double?
+        let used_percent: Double?
+        let reset_at: Double?
+
+        private enum CodingKeys: String, CodingKey { case limit, used, used_percent, reset_at }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            func number(_ key: CodingKeys) -> Double? {
+                if let d = try? c.decodeIfPresent(Double.self, forKey: key) { return d }
+                if let s = try? c.decodeIfPresent(String.self, forKey: key) { return Double(s) }
+                return nil
+            }
+            limit = number(.limit); used = number(.used); used_percent = number(.used_percent); reset_at = number(.reset_at)
         }
     }
 
@@ -320,6 +316,16 @@ enum CodexUsage {
                 to: &windows
             )
         }
+        // No rolling windows at all: a credit-based seat. Its cap is the ring.
+        if windows.isEmpty, let credit = response.spend_control?.individual_limit,
+           let pct = credit.used_percent {
+            let resets = credit.reset_at.map { Date(timeIntervalSince1970: $0) }
+            windows.append(LimitWindow(id: "credits", label: L10n.t("Credits"),
+                                       usedFraction: min(max(pct / 100, 0), 1),
+                                       remaining: credit.limit.flatMap { l in credit.used.map { Int((l - $0).rounded()) } },
+                                       used: credit.used.map { Int($0.rounded()) },
+                                       resetsAt: resets))
+        }
         guard !windows.isEmpty else {
             throw UsageProviderError.nothingMetered(L10n.t("Codex reported no usage windows"))
         }
@@ -360,23 +366,23 @@ enum CodexUsage {
     /// Same credential as `/wham/usage`. `available_count` is trusted even when
     /// the `credits` array is truncated. Throws only when the body is not JSON
     /// at all, so an unfamiliar payload cannot fail the usage fetch.
-    static func resetCredits(from data: Data) throws -> CodexResetCredits {
+    static func resetCredits(from data: Data) throws -> UsageResetCredits {
         let response: ResetCreditsResponse
         do {
             response = try JSONDecoder().decode(ResetCreditsResponse.self, from: data)
         } catch {
             if (try? JSONSerialization.jsonObject(with: data)) != nil {
-                return CodexResetCredits(availableCount: 0, credits: [])
+                return UsageResetCredits(availableCount: 0, credits: [])
             }
             throw UsageProviderError.badResponse(status: 0)
         }
 
         let credits = response.credits.map {
-            CodexResetCredits.Credit(id: $0.id, status: $0.status, expiresAt: $0.expiresAt)
+            UsageResetCredits.Credit(id: $0.id, status: $0.status, expiresAt: $0.expiresAt)
         }
         let availableCount = response.availableCount
             ?? credits.filter { $0.status == "available" }.count
-        return CodexResetCredits(availableCount: availableCount, credits: credits)
+        return UsageResetCredits(availableCount: availableCount, credits: credits)
     }
 
     /// The backend mixes whole-second and fractional ISO-8601 stamps; each

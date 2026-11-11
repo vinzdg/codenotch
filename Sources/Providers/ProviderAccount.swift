@@ -39,12 +39,16 @@ enum SignInRoute: Equatable {
     case openApp(bundleID: String, name: String)
     /// Nothing to launch; Claude Code is a command, not an application.
     case guidance(String)
+    /// A command-line tool signs in from the terminal: the button runs its
+    /// login command in a new terminal window, which opens the browser.
+    case command(String, name: String, install: URL? = nil)
 
     var actionTitle: String? {
         switch self {
         case .modal(let name):     return L10n.t("Sign in to \(name)")
         case .openApp(_, let name): return L10n.t("Open \(name)")
         case .guidance:            return nil
+        case .command(_, let name, _): return L10n.t("Sign in to \(name)")
         }
     }
 
@@ -57,6 +61,13 @@ enum SignInRoute: Equatable {
             }
             return L10n.t("Sign in with \(name) to read this account.")
         case .guidance(let text):   return text
+        case .command(let command, let name, _):
+            guard TerminalCommand.isInstalled(command: command) else {
+                return L10n.t("Install the \(name) CLI first; Sign in opens its install page.")
+            }
+            return command.hasSuffix("login")
+                ? L10n.t("Runs \(command) in your terminal; it opens the browser to sign in and saves the session this reads.")
+                : L10n.t("Runs \(command) in your terminal; sign in there with /login and the notch reads the session.")
         }
     }
 
@@ -69,7 +80,7 @@ enum SignInRoute: Equatable {
         switch self {
         case .modal(let name):      return L10n.t("Sign out in the \(name) window to use another account.")
         case .openApp(_, let name): return L10n.t("Switch accounts in \(name); the notch follows.")
-        case .guidance:             return L10n.t("Switch accounts in the tool that owns it; the notch follows.")
+        case .guidance, .command:   return L10n.t("Switch accounts in the tool that owns it; the notch follows.")
         }
     }
 
@@ -81,7 +92,7 @@ enum SignInRoute: Equatable {
             return L10n.t("Signs out of \(name) — the session belongs to Codenotch.")
         case .openApp(_, let name):
             return L10n.t("You stay signed in to \(name) — end that session in \(name) itself.")
-        case .guidance:
+        case .guidance, .command:
             return L10n.t("You stay signed in to the tool that owns the account.")
         }
     }
@@ -127,8 +138,16 @@ struct ProviderSummary: Identifiable, Equatable {
     /// are read from their own directory's `oauth_creds.json` or `agent.db`
     /// and never raise the dialogue, so offering to restore access there would
     /// point at a prompt that cannot appear.
+    ///
+    /// Apify's CLI files its token in the login keychain too, so a Deny is
+    /// possible there — and "Allow access…" is the only way back from one.
+    ///
+    /// Remote logins borrow their token over SSH and touch no local
+    /// keychain item at all — same exclusion, for the same reason.
     var usesKeychain: Bool {
-        ClaudeProfile.isClaude(providerID: id) || id == AntigravityProfile.defaultID || id == "cursor"
+        (ClaudeProfile.isClaude(providerID: id) && !RemoteHost.isRemoteClaude(providerID: id))
+            || id == AntigravityProfile.defaultID || id == "cursor" || id == "muse"
+            || id == "apify"
     }
 
     let id: String

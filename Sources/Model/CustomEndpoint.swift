@@ -32,6 +32,32 @@ public enum CustomEndpointTrackingUnit: String, Codable, CaseIterable, Sendable 
     case tokens = "tokens"
 }
 
+public enum CustomEndpointAPIType: String, Codable, CaseIterable, Sendable {
+    case openAICompatible = "openAICompatible"
+    case anthropic = "anthropic"
+    case google = "google"
+}
+
+public enum CustomEndpointUsageSource: String, Codable, CaseIterable, Sendable {
+    case manual = "manual"
+    case jsonEndpoint = "jsonEndpoint"
+}
+
+public enum CustomEndpointUsageAuthentication: String, Codable, CaseIterable, Sendable {
+    case apiKey = "apiKey"
+    case none = "none"
+}
+
+public struct CustomEndpointUsageDay: Codable, Equatable, Sendable {
+    public let day: String
+    public let totalTokens: Int
+
+    public init(day: String, totalTokens: Int) {
+        self.day = day
+        self.totalTokens = totalTokens
+    }
+}
+
 public struct CustomEndpoint: Identifiable, Codable, Equatable, Sendable {
     public static let keychainService = "com.vinzdg.codenotch.custom-endpoint"
 
@@ -53,12 +79,24 @@ public struct CustomEndpoint: Identifiable, Codable, Equatable, Sendable {
     public var name: String
     public var baseURL: String
     public var headerKey: String
+    public var apiType: CustomEndpointAPIType
     public var selectedModel: String
     public var availableModels: [String]
     public var isEnabled: Bool
     public var accentColorHex: String
     public var iconPreset: String?
+    /// Exact OpenCode provider key, set only when activity monitoring is enabled.
+    public var openCodeProviderID: String?
     public var customIconFilename: String?
+    public var usageSource: CustomEndpointUsageSource
+    public var usagePreset: CustomEndpointUsagePreset?
+    public var usageURL: String?
+    public var usageRecordsPath: String?
+    public var usageModelField: String?
+    public var usageTokenField: String?
+    public var usageModelFilter: String?
+    public var usageAuthentication: CustomEndpointUsageAuthentication
+    public var usageHistory: [CustomEndpointUsageDay]
     public var trackingUnit: CustomEndpointTrackingUnit
     public var monthlyBudgetUSD: Double?
     public var currentSpendUSD: Double?
@@ -75,12 +113,23 @@ public struct CustomEndpoint: Identifiable, Codable, Equatable, Sendable {
         name: String,
         baseURL: String,
         headerKey: String = "Authorization",
+        apiType: CustomEndpointAPIType = .openAICompatible,
         selectedModel: String = "",
         availableModels: [String] = [],
         isEnabled: Bool = true,
         accentColorHex: String = "#6366F1",
         iconPreset: String? = "openai",
+        openCodeProviderID: String? = nil,
         customIconFilename: String? = nil,
+        usageSource: CustomEndpointUsageSource = .manual,
+        usagePreset: CustomEndpointUsagePreset? = nil,
+        usageURL: String? = nil,
+        usageRecordsPath: String? = nil,
+        usageModelField: String? = nil,
+        usageTokenField: String? = nil,
+        usageModelFilter: String? = nil,
+        usageAuthentication: CustomEndpointUsageAuthentication = .apiKey,
+        usageHistory: [CustomEndpointUsageDay] = [],
         trackingUnit: CustomEndpointTrackingUnit = .currency,
         monthlyBudgetUSD: Double? = nil,
         currentSpendUSD: Double? = nil,
@@ -96,12 +145,23 @@ public struct CustomEndpoint: Identifiable, Codable, Equatable, Sendable {
         self.name = name
         self.baseURL = baseURL
         self.headerKey = headerKey
+        self.apiType = apiType
         self.selectedModel = selectedModel
         self.availableModels = availableModels
         self.isEnabled = isEnabled
         self.accentColorHex = accentColorHex
         self.iconPreset = iconPreset
+        self.openCodeProviderID = openCodeProviderID
         self.customIconFilename = customIconFilename
+        self.usageSource = usageSource
+        self.usagePreset = usagePreset
+        self.usageURL = usageURL
+        self.usageRecordsPath = usageRecordsPath
+        self.usageModelField = usageModelField
+        self.usageTokenField = usageTokenField
+        self.usageModelFilter = usageModelFilter
+        self.usageAuthentication = usageAuthentication
+        self.usageHistory = usageHistory
         self.trackingUnit = trackingUnit
         self.monthlyBudgetUSD = monthlyBudgetUSD
         self.currentSpendUSD = currentSpendUSD
@@ -214,12 +274,23 @@ public struct CustomEndpoint: Identifiable, Codable, Equatable, Sendable {
         case name
         case baseURL
         case headerKey
+        case apiType
         case selectedModel
         case availableModels
         case isEnabled
         case accentColorHex
         case iconPreset
+        case openCodeProviderID
         case customIconFilename
+        case usageSource
+        case usagePreset
+        case usageURL
+        case usageRecordsPath
+        case usageModelField
+        case usageTokenField
+        case usageModelFilter
+        case usageAuthentication
+        case usageHistory
         case trackingUnit
         case monthlyBudgetUSD
         case budgetMonthlyUSD
@@ -240,13 +311,24 @@ public struct CustomEndpoint: Identifiable, Codable, Equatable, Sendable {
         self.id = try container.decode(String.self, forKey: .id)
         self.name = try container.decode(String.self, forKey: .name)
         self.baseURL = try container.decode(String.self, forKey: .baseURL)
+        self.apiType = try container.decodeIfPresent(CustomEndpointAPIType.self, forKey: .apiType) ?? .openAICompatible
         self.headerKey = try container.decodeIfPresent(String.self, forKey: .headerKey) ?? "Authorization"
         self.selectedModel = try container.decodeIfPresent(String.self, forKey: .selectedModel) ?? ""
         self.availableModels = try container.decodeIfPresent([String].self, forKey: .availableModels) ?? []
         self.isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
         self.accentColorHex = try container.decodeIfPresent(String.self, forKey: .accentColorHex) ?? "#6366F1"
         self.iconPreset = try container.decodeIfPresent(String.self, forKey: .iconPreset)
+        self.openCodeProviderID = try container.decodeIfPresent(String.self, forKey: .openCodeProviderID)
         self.customIconFilename = try container.decodeIfPresent(String.self, forKey: .customIconFilename)
+        self.usageSource = try container.decodeIfPresent(CustomEndpointUsageSource.self, forKey: .usageSource) ?? .manual
+        self.usagePreset = try container.decodeIfPresent(CustomEndpointUsagePreset.self, forKey: .usagePreset)
+        self.usageURL = try container.decodeIfPresent(String.self, forKey: .usageURL)
+        self.usageRecordsPath = try container.decodeIfPresent(String.self, forKey: .usageRecordsPath)
+        self.usageModelField = try container.decodeIfPresent(String.self, forKey: .usageModelField)
+        self.usageTokenField = try container.decodeIfPresent(String.self, forKey: .usageTokenField)
+        self.usageModelFilter = try container.decodeIfPresent(String.self, forKey: .usageModelFilter)
+        self.usageAuthentication = try container.decodeIfPresent(CustomEndpointUsageAuthentication.self, forKey: .usageAuthentication) ?? .apiKey
+        self.usageHistory = try container.decodeIfPresent([CustomEndpointUsageDay].self, forKey: .usageHistory) ?? []
         self.trackingUnit = try container.decodeIfPresent(CustomEndpointTrackingUnit.self, forKey: .trackingUnit) ?? .currency
         self.monthlyBudgetUSD = try container.decodeIfPresent(Double.self, forKey: .monthlyBudgetUSD)
             ?? container.decodeIfPresent(Double.self, forKey: .budgetMonthlyUSD)
@@ -276,13 +358,28 @@ public struct CustomEndpoint: Identifiable, Codable, Equatable, Sendable {
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
         try container.encode(baseURL, forKey: .baseURL)
+        try container.encode(apiType, forKey: .apiType)
         try container.encode(headerKey, forKey: .headerKey)
         try container.encode(selectedModel, forKey: .selectedModel)
         try container.encode(availableModels, forKey: .availableModels)
         try container.encode(isEnabled, forKey: .isEnabled)
         try container.encode(accentColorHex, forKey: .accentColorHex)
         try container.encodeIfPresent(iconPreset, forKey: .iconPreset)
+        try container.encodeIfPresent(openCodeProviderID, forKey: .openCodeProviderID)
         try container.encodeIfPresent(customIconFilename, forKey: .customIconFilename)
+        if usageSource != .manual {
+            try container.encode(usageSource, forKey: .usageSource)
+        }
+        try container.encodeIfPresent(usagePreset, forKey: .usagePreset)
+        try container.encodeIfPresent(usageURL, forKey: .usageURL)
+        try container.encodeIfPresent(usageRecordsPath, forKey: .usageRecordsPath)
+        try container.encodeIfPresent(usageModelField, forKey: .usageModelField)
+        try container.encodeIfPresent(usageTokenField, forKey: .usageTokenField)
+        try container.encodeIfPresent(usageModelFilter, forKey: .usageModelFilter)
+        try container.encode(usageHistory, forKey: .usageHistory)
+        if usageSource == .jsonEndpoint {
+            try container.encode(usageAuthentication, forKey: .usageAuthentication)
+        }
         if trackingUnit != .currency {
             try container.encode(trackingUnit, forKey: .trackingUnit)
         }
@@ -303,6 +400,17 @@ public struct CustomEndpoint: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+extension Array where Element == CustomEndpointUsageDay {
+    var codexUsage: CodexTokenUsage {
+        var previous = 0
+        let buckets = sorted { $0.day < $1.day }.map { sample in
+            let delta = sample.totalTokens >= previous ? sample.totalTokens - previous : sample.totalTokens
+            previous = sample.totalTokens
+            return CodexTokenUsage.DailyBucket(startDate: sample.day, tokens: delta)
+        }
+        return CodexTokenUsage(dailyUsageBuckets: buckets)
+    }
+}
 public struct CustomEndpointPreset: Identifiable, Sendable {
     public let id: String
     public let name: String
@@ -373,7 +481,7 @@ public struct CustomEndpointPreset: Identifiable, Sendable {
             baseURL: "http://localhost:8080/v1",
             headerKey: "Authorization",
             defaultModel: "",
-            iconPreset: "lmstudio",
+            iconPreset: "llamacpp",
             accentColorHex: "#8B5CF6"
         ),
         CustomEndpointPreset(
@@ -384,6 +492,15 @@ public struct CustomEndpointPreset: Identifiable, Sendable {
             defaultModel: "",
             iconPreset: "ollama-local",
             accentColorHex: "#14B8A6"
+        ),
+        CustomEndpointPreset(
+            id: "xiaomimimo",
+            name: "Xiaomi MiMo",
+            baseURL: "https://token-plan-sgp.xiaomimimo.com/v1",
+            headerKey: "Authorization",
+            defaultModel: "mimo-v2.6-flash",
+            iconPreset: "openai",
+            accentColorHex: "#F97316"
         )
     ]
 }

@@ -51,7 +51,7 @@ final class GrokUsageTests: XCTestCase {
     }
 
     /// `creditUsagePercent` is absent; the product array is the reading. The
-    /// ring is still declared as `headlineID: "credits"`.
+    /// ring is still declared as both the headline and weekly allowance.
     func testProductOnlyCreditsStillUseTheHeadlineID() throws {
         let productOnly = """
         {"config":{"productUsage":[{"product":"GrokBuild","usagePercent":33.0}],\
@@ -64,9 +64,11 @@ final class GrokUsageTests: XCTestCase {
         XCTAssertEqual(credits.usedFraction ?? -1, 0.33, accuracy: 0.0001)
         let snap = ProviderSnapshot(
             id: "grok", displayName: "Grok", glyph: .grok,
-            fidelity: .official, status: .ok, windows: w, headlineID: "credits"
+            fidelity: .official, status: .ok, windows: w,
+            headlineID: "credits", weeklyID: "credits"
         )
         XCTAssertEqual(snap.headline?.id, "credits")
+        XCTAssertEqual(snap.weeklyLimitWindow?.id, "credits")
         XCTAssertEqual(snap.usedFraction ?? -1, 0.33, accuracy: 0.0001)
     }
 

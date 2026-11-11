@@ -5,16 +5,25 @@ import UniformTypeIdentifiers
 struct CustomEndpointsSettingsView: View {
     @ObservedObject var preferences: Preferences
     @State private var editingEndpoint: CustomEndpoint?
+    @State private var editingDraftID = UUID()
+    @State private var trackingUnitBeforeJSON: CustomEndpointTrackingUnit?
     @State private var draftAPIKey: String = ""
     @State private var urlValidationError: String? = nil
     @State private var isCreatingNew = false
+    @State private var openCodeBridgeMessage: String?
     @State private var isScanningPorts = false
     @State private var detectedPresets: [CustomEndpointPreset] = []
     @State private var isTesting = false
     @State private var testResult: (health: CustomEndpointHealth, latencyMs: Int, models: [String], error: String?)?
+    @State private var isDetectingUsage = false
+    @State private var usageDetectionResult: (message: String, failed: Bool)?
     @State private var showApiKey = false
     @State private var showTemplates = false
-
+    @State private var hasManuallySelectedSource = false
+    @State private var isDetectionEligible = false
+    @State private var showOtherUsageSources = false
+    @State private var debounceTask: Task<Void, Never>? = nil
+    @State private var detectionTask: Task<Void, Never>? = nil
     private static let presetColors: [String] = [
         "#6366F1", // Indigo
         "#10B981", // Emerald
@@ -35,6 +44,7 @@ struct CustomEndpointsSettingsView: View {
         "mistral",
         "ollama",
         "lmstudio",
+        "llamacpp",
         "qwen",
         "gemini-spark"
     ]
@@ -241,11 +251,21 @@ struct CustomEndpointsSettingsView: View {
                     .buttonStyle(SettingsButtonStyle(kind: .standard, compact: true))
 
                     Button(L10n.t("Edit")) {
+                        debounceTask?.cancel()
+                        detectionTask?.cancel()
+                        editingDraftID = UUID()
+                        isDetectingUsage = false
+                        trackingUnitBeforeJSON = nil
                         editingEndpoint = endpoint
+                        openCodeBridgeMessage = nil
                         draftAPIKey = endpoint.apiKey ?? ""
                         urlValidationError = nil
                         isCreatingNew = false
                         testResult = nil
+                        usageDetectionResult = nil
+                        hasManuallySelectedSource = true
+                        isDetectionEligible = false
+                        showOtherUsageSources = false
                     }
                     .buttonStyle(SettingsButtonStyle(kind: .standard, compact: true))
 
@@ -263,9 +283,14 @@ struct CustomEndpointsSettingsView: View {
                 }
             }
 
-            // Usage progress bar (Currency or Tokens)
+            // Usage summary; named presets do not have editable monthly totals.
             HStack(spacing: 8) {
-                switch endpoint.trackingUnit {
+                if endpoint.usageSource == .jsonEndpoint, let preset = endpoint.usagePreset {
+                    Text(usagePresetUnit(preset))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    switch endpoint.trackingUnit {
                 case .currency:
                     let spend = endpoint.computedSpendUSD
                     let budget = endpoint.monthlyBudgetUSD
@@ -320,6 +345,7 @@ struct CustomEndpointsSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                }
 
                 if !endpoint.selectedModel.isEmpty {
                     Spacer()
@@ -353,6 +379,25 @@ struct CustomEndpointsSettingsView: View {
                 }
 
                 HStack {
+                    Text(L10n.t("API type"))
+                        .frame(width: 120, alignment: .leading)
+                    Picker("", selection: Binding(
+                        get: { editingEndpoint?.apiType ?? .openAICompatible },
+                        set: { newType in
+                            editingEndpoint?.apiType = newType
+                            editingEndpoint?.availableModels = []
+                            editingEndpoint?.selectedModel = ""
+                            testResult = nil
+                        }
+                    )) {
+                        Text(L10n.t("OpenAI-compatible")).tag(CustomEndpointAPIType.openAICompatible)
+                        Text(L10n.t("Anthropic Messages")).tag(CustomEndpointAPIType.anthropic)
+                        Text(L10n.t("Google Gemini")).tag(CustomEndpointAPIType.google)
+                    }
+                    .pickerStyle(.menu)
+                }
+
+                HStack {
                     Text(L10n.t("Base URL"))
                         .frame(width: 120, alignment: .leading)
                     VStack(alignment: .leading, spacing: 4) {
@@ -360,8 +405,17 @@ struct CustomEndpointsSettingsView: View {
                             get: { editingEndpoint?.baseURL ?? "" },
                             set: {
                                 editingEndpoint?.baseURL = $0
+                                usageDetectionResult = nil
                                 if CustomEndpoint.isValidURL($0) {
                                     urlValidationError = nil
+                                    if !hasManuallySelectedSource {
+                                        isDetectionEligible = true
+                                        scheduleAutomaticDiscovery()
+                                    }
+                                } else {
+                                    debounceTask?.cancel()
+                                    detectionTask?.cancel()
+                                    isDetectingUsage = false
                                 }
                             }
                         ))
@@ -381,9 +435,21 @@ struct CustomEndpointsSettingsView: View {
                     HStack {
                         if showApiKey {
                             TextField(L10n.t("sk-... (optional for local)"), text: $draftAPIKey)
+                                .onChange(of: draftAPIKey) { _, _ in
+                                    usageDetectionResult = nil
+                                    if !hasManuallySelectedSource && isDetectionEligible {
+                                        scheduleAutomaticDiscovery()
+                                    }
+                                }
                                 .textFieldStyle(.roundedBorder)
                         } else {
                             SecureField(L10n.t("sk-... (optional for local)"), text: $draftAPIKey)
+                                .onChange(of: draftAPIKey) { _, _ in
+                                    usageDetectionResult = nil
+                                    if !hasManuallySelectedSource && isDetectionEligible {
+                                        scheduleAutomaticDiscovery()
+                                    }
+                                }
                                 .textFieldStyle(.roundedBorder)
                         }
 
@@ -397,16 +463,84 @@ struct CustomEndpointsSettingsView: View {
                     }
                 }
 
+                if (editingEndpoint?.apiType ?? .openAICompatible) == .openAICompatible {
+                    HStack {
+                        Text(L10n.t("Auth Header"))
+                            .frame(width: 120, alignment: .leading)
+                        TextField(L10n.t("Authorization"), text: Binding(
+                            get: { editingEndpoint?.headerKey ?? "Authorization" },
+                            set: {
+                                editingEndpoint?.headerKey = $0
+                                usageDetectionResult = nil
+                                if !hasManuallySelectedSource && isDetectionEligible {
+                                    scheduleAutomaticDiscovery()
+                                }
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                    }
+                }
+
                 HStack {
-                    Text(L10n.t("Auth Header"))
-                        .frame(width: 120, alignment: .leading)
-                    TextField(L10n.t("Authorization"), text: Binding(
-                        get: { editingEndpoint?.headerKey ?? "Authorization" },
-                        set: { editingEndpoint?.headerKey = $0 }
-                    ))
-                    .textFieldStyle(.roundedBorder)
+                    Text(L10n.t("Usage authentication"))
+                        .frame(width: 160, alignment: .leading)
+                    Picker("", selection: Binding(
+                        get: { editingEndpoint?.usageAuthentication ?? .apiKey },
+                        set: {
+                            editingEndpoint?.usageAuthentication = $0
+                            usageDetectionResult = nil
+                            if !hasManuallySelectedSource && isDetectionEligible {
+                                scheduleAutomaticDiscovery()
+                            }
+                        }
+                    )) {
+                        Text(L10n.t("API key")).tag(CustomEndpointUsageAuthentication.apiKey)
+                        Text(L10n.t("Public")).tag(CustomEndpointUsageAuthentication.none)
+                    }
+                    .pickerStyle(.segmented)
                 }
             }
+
+            // Discovery feedback & retry immediately below credentials
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    if isDetectingUsage {
+                        ProgressView().controlSize(.small)
+                        Text(L10n.t("Checking usage route..."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if let result = usageDetectionResult {
+                        Text(result.message)
+                            .font(.caption)
+                            .foregroundStyle(result.failed ? .red : .secondary)
+                    }
+
+                    Spacer()
+
+                    Button {
+                        runExplicitDetection()
+                    } label: {
+                        Label(L10n.t("Retry detection"), systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(SettingsButtonStyle(kind: .standard, compact: true))
+                    .disabled(isDetectingUsage || (editingEndpoint?.baseURL.isEmpty ?? true))
+                }
+
+                if editingEndpoint?.usageSource == .jsonEndpoint, let preset = editingEndpoint?.usagePreset {
+                    VStack(alignment: .leading, spacing: 2) {
+                        if let url = CustomEndpointPresetUsage.presetURL(preset, baseURL: editingEndpoint?.baseURL ?? "") {
+                            Text(String(format: L10n.t("Usage URL: %@"), url.absoluteString))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                        Text(usagePresetUnit(preset))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.vertical, 2)
 
             Divider()
 
@@ -459,6 +593,37 @@ struct CustomEndpointsSettingsView: View {
                         ))
                         .textFieldStyle(.roundedBorder)
                     }
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L10n.t("OpenCode activity"))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                TextField(L10n.t("OpenCode provider ID (optional)"), text: Binding(
+                    get: { editingEndpoint?.openCodeProviderID ?? "" },
+                    set: { value in
+                        let id = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                        editingEndpoint?.openCodeProviderID = id.isEmpty ? nil : id
+                    }
+                ))
+                .textFieldStyle(.roundedBorder)
+                Text(L10n.t("Use the provider key from OpenCode settings. Activity is matched to this provider and the selected model. Leave empty to disable."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button(L10n.t("Install OpenCode bridge")) {
+                    do {
+                        try OpenCodePluginInstaller.install()
+                        openCodeBridgeMessage = L10n.t("Bridge installed. Restart OpenCode, then save this endpoint.")
+                    } catch {
+                        openCodeBridgeMessage = L10n.t("Could not install the bridge.") + " " + error.localizedDescription
+                    }
+                }
+                .buttonStyle(SettingsButtonStyle(kind: .standard, compact: true))
+                if let openCodeBridgeMessage {
+                    Text(openCodeBridgeMessage).font(.caption).foregroundStyle(.secondary)
                 }
             }
 
@@ -546,24 +711,180 @@ struct CustomEndpointsSettingsView: View {
 
             // Budget & Usage configuration (Currency or Tokens)
             VStack(alignment: .leading, spacing: 10) {
-                Text(L10n.t("Monthly Budget & Spend Tracking"))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                DisclosureGroup(
+                    isExpanded: $showOtherUsageSources,
+                    content: {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Text(L10n.t("Usage source"))
+                                    .frame(width: 120, alignment: .leading)
+                                Picker("", selection: Binding(
+                                    get: { editingEndpoint?.usageSource ?? .manual },
+                                    set: {
+                                        debounceTask?.cancel()
+                                        detectionTask?.cancel()
+                                        isDetectingUsage = false
+                                        hasManuallySelectedSource = true
+                                        if $0 == .jsonEndpoint && editingEndpoint?.usageSource == .manual {
+                                            trackingUnitBeforeJSON = editingEndpoint?.trackingUnit
+                                        }
+                                        editingEndpoint?.usageSource = $0
+                                        if $0 == .jsonEndpoint && editingEndpoint?.usagePreset == nil {
+                                            editingEndpoint?.trackingUnit = .tokens
+                                        } else if $0 == .manual, let previous = trackingUnitBeforeJSON {
+                                            editingEndpoint?.trackingUnit = previous
+                                            trackingUnitBeforeJSON = nil
+                                        }
+                                        usageDetectionResult = nil
+                                    }
+                                )) {
+                                    Text(L10n.t("Manual")).tag(CustomEndpointUsageSource.manual)
+                                    Text(L10n.t("JSON endpoint")).tag(CustomEndpointUsageSource.jsonEndpoint)
+                                }
+                                .pickerStyle(.segmented)
+                            }
 
+                            if editingEndpoint?.usageSource == .jsonEndpoint {
+                                HStack {
+                                    Text(L10n.t("Usage preset"))
+                                        .frame(width: 120, alignment: .leading)
+                                    Picker("", selection: Binding<CustomEndpointUsagePreset?>(
+                                        get: { editingEndpoint?.usagePreset },
+                                        set: {
+                                            debounceTask?.cancel()
+                                            detectionTask?.cancel()
+                                            isDetectingUsage = false
+                                            hasManuallySelectedSource = true
+                                            editingEndpoint?.usagePreset = $0
+                                            if $0 == nil {
+                                                editingEndpoint?.trackingUnit = .tokens
+                                            } else if let previous = trackingUnitBeforeJSON {
+                                                editingEndpoint?.trackingUnit = previous
+                                            }
+                                            usageDetectionResult = nil
+                                        }
+                                    )) {
+                                        Text(L10n.t("Custom JSON fields")).tag(CustomEndpointUsagePreset?.none)
+                                        ForEach(CustomEndpointUsagePreset.allCases, id: \.self) { preset in
+                                            Text(usagePresetName(preset)).tag(Optional(preset))
+                                        }
+                                    }
+                                    .pickerStyle(.menu)
+                                }
+
+                                if let preset = editingEndpoint?.usagePreset {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        if let url = CustomEndpointPresetUsage.presetURL(preset, baseURL: editingEndpoint?.baseURL ?? "") {
+                                            Text(String(format: L10n.t("Usage URL: %@"), url.absoluteString))
+                                                .textSelection(.enabled)
+                                        } else {
+                                            Text(L10n.t("No usage URL for this base URL"))
+                                                .foregroundStyle(.red)
+                                        }
+                                        Text(usagePresetUnit(preset))
+                                        if preset == .litellm {
+                                            Text(L10n.t("LiteLLM key info may require a management credential; use Manual USD entry if unavailable."))
+                                        } else if preset == .llamaCpp {
+                                            Text(L10n.t("Requires --metrics on llama-server"))
+                                        }
+                                    }
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                } else {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        HStack(spacing: 8) {
+                                            Button(L10n.t("Import Custom JSON...")) {
+                                                importCustomJSONFile()
+                                            }
+                                            .buttonStyle(SettingsButtonStyle(kind: .standard, compact: true))
+                                            .disabled(editingEndpoint?.baseURL.isEmpty ?? true)
+
+                                            Button(L10n.t("Save JSON template...")) {
+                                                saveJSONTemplate()
+                                            }
+                                            .buttonStyle(SettingsButtonStyle(kind: .standard, compact: true))
+                                            .disabled(editingEndpoint?.baseURL.isEmpty ?? true)
+                                        }
+
+                                        TextField(L10n.t("Usage URL"), text: Binding(
+                                            get: { editingEndpoint?.usageURL ?? "" },
+                                            set: {
+                                                hasManuallySelectedSource = true
+                                                editingEndpoint?.usageURL = $0
+                                            }
+                                        ))
+                                        .textFieldStyle(.roundedBorder)
+                                        TextField(L10n.t("Records path"), text: Binding(
+                                            get: { editingEndpoint?.usageRecordsPath ?? "" },
+                                            set: {
+                                                hasManuallySelectedSource = true
+                                                editingEndpoint?.usageRecordsPath = $0
+                                            }
+                                        ))
+                                        .textFieldStyle(.roundedBorder)
+                                        HStack(spacing: 8) {
+                                            TextField(L10n.t("Model field"), text: Binding(
+                                                get: { editingEndpoint?.usageModelField ?? "" },
+                                                set: {
+                                                    hasManuallySelectedSource = true
+                                                    editingEndpoint?.usageModelField = $0
+                                                }
+                                            ))
+                                            .textFieldStyle(.roundedBorder)
+                                            TextField(L10n.t("Token field"), text: Binding(
+                                                get: { editingEndpoint?.usageTokenField ?? "" },
+                                                set: {
+                                                    hasManuallySelectedSource = true
+                                                    editingEndpoint?.usageTokenField = $0
+                                                }
+                                            ))
+                                            .textFieldStyle(.roundedBorder)
+                                        }
+                                        TextField(L10n.t("Model filter (optional)"), text: Binding(
+                                            get: { editingEndpoint?.usageModelFilter ?? "" },
+                                            set: {
+                                                hasManuallySelectedSource = true
+                                                editingEndpoint?.usageModelFilter = $0.isEmpty ? nil : $0
+                                            }
+                                        ))
+                                        .textFieldStyle(.roundedBorder)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.top, 4)
+                    },
+                    label: {
+                        Text(L10n.t("Other usage source"))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                )
+            }
+
+            if editingEndpoint?.usageSource != .jsonEndpoint || editingEndpoint?.usagePreset == nil {
                 HStack {
                     Text(L10n.t("Tracking Unit"))
                         .frame(width: 120, alignment: .leading)
                     Picker("", selection: Binding(
                         get: { editingEndpoint?.trackingUnit ?? .currency },
-                        set: { editingEndpoint?.trackingUnit = $0 }
+                        set: {
+                            if $0 == .currency && editingEndpoint?.usageSource == .jsonEndpoint {
+                                trackingUnitBeforeJSON = nil
+                                editingEndpoint?.usageSource = .manual
+                            }
+                            editingEndpoint?.trackingUnit = $0
+                        }
                     )) {
                         Text(L10n.t("USD ($)")).tag(CustomEndpointTrackingUnit.currency)
                         Text(L10n.t("Tokens (Millions)")).tag(CustomEndpointTrackingUnit.tokens)
                     }
                     .pickerStyle(.segmented)
                 }
+            }
 
-                if (editingEndpoint?.trackingUnit ?? .currency) == .tokens {
+                if (editingEndpoint?.usageSource != .jsonEndpoint || editingEndpoint?.usagePreset == nil)
+                    && (editingEndpoint?.trackingUnit ?? .currency) == .tokens {
                     HStack {
                         Text(L10n.t("Monthly Budget (M tokens)"))
                             .frame(width: 120, alignment: .leading)
@@ -627,7 +948,7 @@ struct CustomEndpointsSettingsView: View {
                         }
                         .buttonStyle(SettingsButtonStyle(kind: .standard, compact: true))
                     }
-                } else {
+                } else if editingEndpoint?.usageSource != .jsonEndpoint || editingEndpoint?.usagePreset == nil {
                     HStack {
                         Text(L10n.t("Monthly Budget ($)"))
                             .frame(width: 120, alignment: .leading)
@@ -678,18 +999,25 @@ struct CustomEndpointsSettingsView: View {
                         .buttonStyle(SettingsButtonStyle(kind: .standard, compact: true))
                     }
                 }
-            }
-
             Divider()
 
             // Save / Cancel Actions
             HStack {
                 Button(L10n.t("Cancel")) {
+                    debounceTask?.cancel()
+                    detectionTask?.cancel()
                     editingEndpoint = nil
+                    trackingUnitBeforeJSON = nil
+                    editingDraftID = UUID()
+                    isDetectingUsage = false
+                    usageDetectionResult = nil
                     draftAPIKey = ""
                     urlValidationError = nil
                     isCreatingNew = false
                     testResult = nil
+                    hasManuallySelectedSource = false
+                    isDetectionEligible = false
+                    showOtherUsageSources = false
                 }
                 .buttonStyle(SettingsButtonStyle(kind: .standard))
 
@@ -699,7 +1027,11 @@ struct CustomEndpointsSettingsView: View {
                     saveEditingEndpoint()
                 }
                 .buttonStyle(SettingsButtonStyle(kind: .prominent))
-                .disabled(editingEndpoint?.name.isEmpty ?? true || editingEndpoint?.baseURL.isEmpty ?? true)
+                .disabled(
+                    (editingEndpoint?.name.isEmpty ?? true)
+                    || (editingEndpoint?.baseURL.isEmpty ?? true)
+                    || (isDetectingUsage && isDetectionEligible && !hasManuallySelectedSource)
+                )
             }
             .padding(.top, 4)
         }
@@ -736,7 +1068,275 @@ struct CustomEndpointsSettingsView: View {
 
     // MARK: Actions
 
+    private func usagePresetName(_ preset: CustomEndpointUsagePreset) -> String {
+        switch preset {
+        case .litellm: return L10n.t("LiteLLM")
+        case .openRouter: return L10n.t("OpenRouter")
+        case .newAPI: return L10n.t("New-API")
+        case .vllm: return L10n.t("vLLM")
+        case .llamaCpp: return L10n.t("llama.cpp")
+        case .abacus: return L10n.t("Abacus.AI")
+        }
+    }
+
+    private func usagePresetUnit(_ preset: CustomEndpointUsagePreset) -> String {
+        switch preset {
+        case .litellm, .openRouter: return L10n.t("USD spend")
+        case .newAPI: return L10n.t("Quota units")
+        case .vllm: return L10n.t("Tokens since server start")
+        case .llamaCpp: return L10n.t("Generation speed, requests and token totals")
+        case .abacus: return L10n.t("Subscription credits")
+        }
+    }
+
+    private func scheduleAutomaticDiscovery() {
+        debounceTask?.cancel()
+        detectionTask?.cancel()
+        isDetectingUsage = false
+
+        guard isDetectionEligible, !hasManuallySelectedSource else { return }
+        guard let endpoint = editingEndpoint, CustomEndpoint.isValidURL(endpoint.baseURL) else {
+            return
+        }
+
+        let draftID = editingDraftID
+        let url = endpoint.baseURL
+        let key = draftAPIKey
+        let header = endpoint.headerKey
+        let apiType = endpoint.apiType
+        let auth = endpoint.usageAuthentication
+        let source = endpoint.usageSource
+        let preset = endpoint.usagePreset
+
+        isDetectingUsage = true
+        usageDetectionResult = nil
+
+        debounceTask = Task {
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            if Task.isCancelled { return }
+
+            detectionTask = Task {
+                let result = await CustomEndpointNetwork.shared.detectPreset(
+                    baseURL: url,
+                    apiKey: auth == .apiKey ? key : "",
+                    headerKey: header,
+                    apiType: apiType
+                )
+                if Task.isCancelled { return }
+
+                await MainActor.run {
+                    guard editingDraftID == draftID,
+                          editingEndpoint?.baseURL == url,
+                          editingEndpoint?.headerKey == header,
+                          editingEndpoint?.apiType == apiType,
+                          editingEndpoint?.usageAuthentication == auth,
+                          editingEndpoint?.usageSource == source,
+                          editingEndpoint?.usagePreset == preset,
+                          draftAPIKey == key,
+                          !hasManuallySelectedSource else {
+                        isDetectingUsage = false
+                        return
+                    }
+                    isDetectingUsage = false
+                    applyDetectionResult(result)
+                }
+            }
+            await detectionTask?.value
+        }
+    }
+
+    private func runExplicitDetection() {
+        debounceTask?.cancel()
+        detectionTask?.cancel()
+
+        guard let endpoint = editingEndpoint else { return }
+        guard CustomEndpoint.isValidURL(endpoint.baseURL) else {
+            usageDetectionResult = (
+                L10n.t("URL must start with http:// or https:// and have a valid host."), true
+            )
+            return
+        }
+
+        let draftID = editingDraftID
+        let url = endpoint.baseURL
+        let key = draftAPIKey
+        let header = endpoint.headerKey
+        let apiType = endpoint.apiType
+        let auth = endpoint.usageAuthentication
+        let source = endpoint.usageSource
+        let preset = endpoint.usagePreset
+
+        isDetectingUsage = true
+        usageDetectionResult = nil
+
+        detectionTask = Task {
+            let result = await CustomEndpointNetwork.shared.detectPreset(
+                baseURL: url,
+                apiKey: auth == .apiKey ? key : "",
+                headerKey: header,
+                apiType: apiType
+            )
+            if Task.isCancelled { return }
+
+            await MainActor.run {
+                guard editingDraftID == draftID,
+                      editingEndpoint?.baseURL == url,
+                      editingEndpoint?.headerKey == header,
+                      editingEndpoint?.apiType == apiType,
+                      editingEndpoint?.usageAuthentication == auth,
+                      editingEndpoint?.usageSource == source,
+                      editingEndpoint?.usagePreset == preset,
+                      draftAPIKey == key else {
+                    isDetectingUsage = false
+                    return
+                }
+                isDetectingUsage = false
+                applyDetectionResult(result)
+            }
+        }
+    }
+
+    private func applyDetectionResult(_ result: CustomEndpointDetectionResult) {
+        switch result {
+        case .matched(let preset):
+            editingEndpoint?.usageSource = .jsonEndpoint
+            editingEndpoint?.usagePreset = preset
+            if let previous = trackingUnitBeforeJSON {
+                editingEndpoint?.trackingUnit = previous
+            }
+            usageDetectionResult = (
+                String(format: L10n.t("Detected usage format: %@. Save Endpoint to apply."), usagePresetName(preset)),
+                false
+            )
+            showOtherUsageSources = false
+        case .needsAuth:
+            usageDetectionResult = (
+                L10n.t("Authentication required to inspect usage route"),
+                true
+            )
+            showOtherUsageSources = true
+        case .unavailable:
+            usageDetectionResult = (
+                L10n.t("Usage route unavailable or unreachable"),
+                true
+            )
+            showOtherUsageSources = true
+        case .unsupported:
+            usageDetectionResult = (
+                L10n.t("No supported usage schema detected"),
+                true
+            )
+            showOtherUsageSources = true
+        }
+    }
+
+    private func importCustomJSONFile() {
+        guard let endpoint = editingEndpoint, CustomEndpoint.isValidURL(endpoint.baseURL) else {
+            usageDetectionResult = (
+                L10n.t("URL must start with http:// or https:// and have a valid host."),
+                true
+            )
+            return
+        }
+
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+
+        if panel.runModal() == .OK, let fileURL = panel.url {
+            do {
+                let handle = try FileHandle(forReadingFrom: fileURL)
+                defer { try? handle.close() }
+                guard let data = try handle.read(upToCount: 65537) else {
+                    usageDetectionResult = (L10n.t("File contains malformed JSON."), true)
+                    return
+                }
+                let presetFile = try CustomEndpointJSONPresetFile.importMapping(data, baseURL: endpoint.baseURL)
+
+                editingEndpoint?.usageSource = .jsonEndpoint
+                editingEndpoint?.usagePreset = nil
+                editingEndpoint?.trackingUnit = .tokens
+                editingEndpoint?.usageURL = presetFile.usageURL
+                editingEndpoint?.usageRecordsPath = presetFile.recordsPath
+                editingEndpoint?.usageModelField = presetFile.modelField
+                editingEndpoint?.usageTokenField = presetFile.tokenField
+                editingEndpoint?.usageModelFilter = presetFile.modelFilter
+                editingEndpoint?.monthlyBudgetTokensM = nil
+                editingEndpoint?.currentTokensUsedM = 0
+                editingEndpoint?.usageHistory = []
+
+                hasManuallySelectedSource = true
+                usageDetectionResult = (L10n.t("Imported custom JSON preset mapping."), false)
+            } catch {
+                usageDetectionResult = (error.localizedDescription, true)
+            }
+        }
+    }
+
+    private func saveJSONTemplate() {
+        guard let endpoint = editingEndpoint, CustomEndpoint.isValidURL(endpoint.baseURL) else {
+            usageDetectionResult = (
+                L10n.t("URL must start with http:// or https:// and have a valid host."),
+                true
+            )
+            return
+        }
+
+        guard var components = URLComponents(string: endpoint.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return
+        }
+        var path = components.percentEncodedPath
+        while path.hasSuffix("/") { path.removeLast() }
+        if path == "/v1" {
+            path = ""
+        } else if path.hasSuffix("/v1") {
+            path.removeLast(3)
+        }
+        components.percentEncodedPath = path + "/usage"
+        let sampleURL = components.url?.absoluteString ?? "\(endpoint.baseURL)/usage"
+
+        let template = CustomEndpointJSONPresetFile(
+            version: 1,
+            unit: "tokens",
+            usageURL: sampleURL,
+            recordsPath: "model_token_usage",
+            modelField: "model",
+            tokenField: "total_tokens",
+            modelFilter: "optional-model-name"
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(template) else { return }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType.json]
+        panel.nameFieldStringValue = "custom-usage-preset.json"
+        panel.canCreateDirectories = true
+
+        if panel.runModal() == .OK, let saveURL = panel.url {
+            do {
+                try data.write(to: saveURL, options: .atomic)
+                usageDetectionResult = (L10n.t("Saved template. Edit it and click Import Custom JSON to load."), false)
+            } catch {
+                usageDetectionResult = (error.localizedDescription, true)
+            }
+        }
+    }
+
     private func startNewEndpoint() {
+        openCodeBridgeMessage = nil
+        debounceTask?.cancel()
+        detectionTask?.cancel()
+        trackingUnitBeforeJSON = nil
+        editingDraftID = UUID()
+        isDetectingUsage = false
+        usageDetectionResult = nil
+        hasManuallySelectedSource = false
+        isDetectionEligible = true
+        showOtherUsageSources = false
         editingEndpoint = CustomEndpoint(
             name: "",
             baseURL: "https://",
@@ -752,6 +1352,16 @@ struct CustomEndpointsSettingsView: View {
     }
 
     private func applyPreset(_ preset: CustomEndpointPreset) {
+        openCodeBridgeMessage = nil
+        debounceTask?.cancel()
+        detectionTask?.cancel()
+        trackingUnitBeforeJSON = nil
+        editingDraftID = UUID()
+        isDetectingUsage = false
+        usageDetectionResult = nil
+        hasManuallySelectedSource = false
+        isDetectionEligible = true
+        showOtherUsageSources = false
         editingEndpoint = CustomEndpoint(
             name: preset.name,
             baseURL: preset.baseURL,
@@ -765,6 +1375,9 @@ struct CustomEndpointsSettingsView: View {
         isCreatingNew = true
         showTemplates = false
         testResult = nil
+        if CustomEndpoint.isValidURL(preset.baseURL) {
+            scheduleAutomaticDiscovery()
+        }
     }
 
     private func saveEditingEndpoint() {
@@ -783,10 +1396,18 @@ struct CustomEndpointsSettingsView: View {
         } else {
             preferences.updateCustomEndpoint(endpoint)
         }
+        debounceTask?.cancel()
+        detectionTask?.cancel()
         editingEndpoint = nil
+        trackingUnitBeforeJSON = nil
+        editingDraftID = UUID()
+        usageDetectionResult = nil
         draftAPIKey = ""
         isCreatingNew = false
         testResult = nil
+        hasManuallySelectedSource = false
+        isDetectionEligible = false
+        showOtherUsageSources = false
     }
 
     private func runTestConnection() {
@@ -798,7 +1419,8 @@ struct CustomEndpointsSettingsView: View {
             let res = await CustomEndpointNetwork.shared.testEndpoint(
                 baseURL: endpoint.baseURL,
                 apiKey: draftAPIKey,
-                headerKey: endpoint.headerKey
+                headerKey: endpoint.headerKey,
+                apiType: endpoint.apiType
             )
             await MainActor.run {
                 self.isTesting = false
@@ -820,7 +1442,8 @@ struct CustomEndpointsSettingsView: View {
             let res = await CustomEndpointNetwork.shared.testEndpoint(
                 baseURL: endpoint.baseURL,
                 apiKey: endpoint.apiKey ?? "",
-                headerKey: endpoint.headerKey
+                headerKey: endpoint.headerKey,
+                apiType: endpoint.apiType
             )
             await MainActor.run {
                 var updated = endpoint

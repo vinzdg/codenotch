@@ -3,7 +3,7 @@
 ## Building
 
 ```sh
-brew install xcodegen   # once — project.yml generates the .xcodeproj
+brew install xcodegen create-dmg   # once — project.yml generates the .xcodeproj
 make build               # Debug build, ad-hoc signed
 make test                # unit tests
 make run                 # build and launch

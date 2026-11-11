@@ -52,6 +52,40 @@ final class UsageLimitWatcherTests: XCTestCase {
         XCTAssertTrue(alerts.isEmpty, "baseline observation records state and does not trigger false alerts on launch")
     }
 
+    /// The store's first publication for a provider can be a placeholder with
+    /// no window at all. Counting that as the baseline made the first real
+    /// reading a "crossing", and a Codex already spent at launch was announced.
+    func testAPlaceholderIsNotTheBaseline() {
+        let placeholder = ProviderSnapshot(id: "codex", displayName: "Codex", glyph: .openai,
+                                           fidelity: .official, status: .stale(since: Date()), windows: [])
+        watcher.observe([placeholder])
+        watcher.observe([snapshot("codex", "Codex", sessionFraction: 1.0, weeklyFraction: 1.0)])
+        XCTAssertTrue(alerts.isEmpty, "the first reading with a window is the baseline")
+
+        watcher.observe([snapshot("codex", "Codex", sessionFraction: 0.2, weeklyFraction: 0.2)])
+        watcher.observe([snapshot("codex", "Codex", sessionFraction: 1.0, weeklyFraction: 0.2)])
+        XCTAssertEqual(alerts.map(\.kind), [.sessionLimitReached])
+    }
+
+    /// The archived reading the store publishes at launch is marked stale and
+    /// is not a baseline; a limit spent between the archive and the first live
+    /// reading is not announced.
+    func testAnArchivedReadingIsNotTheBaseline() {
+        var archived = snapshot("codex", "Codex", sessionFraction: 0.9)
+        archived.status = .stale(since: Date())
+        watcher.observe([archived])
+        watcher.observe([snapshot("codex", "Codex", sessionFraction: 1.0)])
+        XCTAssertTrue(alerts.isEmpty)
+    }
+
+    /// The weekly window can arrive a fetch after the session one. Its own
+    /// first reading is its baseline, not the provider's.
+    func testAWeeklyWindowThatArrivesSpentIsSilent() {
+        watcher.observe([snapshot("claude", "Claude", sessionFraction: 0.5, weeklyFraction: 0)])
+        watcher.observe([snapshot("claude", "Claude", sessionFraction: 0.5, weeklyFraction: 1.0)])
+        XCTAssertTrue(alerts.isEmpty)
+    }
+
     func testAlertsWhenSessionLimitReached() {
         watcher.observe([snapshot("claude", "Claude", sessionFraction: 0.80)])
         watcher.observe([snapshot("claude", "Claude", sessionFraction: 1.00)])
@@ -79,6 +113,36 @@ final class UsageLimitWatcherTests: XCTestCase {
 
         XCTAssertEqual(alerts.count, 1)
         XCTAssertEqual(alerts[0].kind, .sessionLimitReached)
+    }
+
+    /// A spent week blocks the headline with it, but the session card must
+    /// not claim the session itself spent: the weekly alert is the accurate
+    /// one.
+    func testWeeklyCausedBlockDoesNotFireSessionAlert() {
+        watcher.observe([snapshot("claude", "Claude", sessionFraction: 0.50, weeklyFraction: 0.80)])
+        watcher.observe([snapshot("claude", "Claude", sessionFraction: 0.50, weeklyFraction: 1.00,
+                                  block: UsageBlock(reason: "Weekly limit reached", resetsAt: nil,
+                                                    isWeeklyExhaustion: true))])
+        XCTAssertEqual(alerts.map(\.kind), [.weeklyLimitReached])
+    }
+
+    /// Under the daily pace derivation the weekly id points at the session
+    /// window, so no weekly alert fires — and the weekly-caused block must
+    /// not fire a session one with the wrong copy either. Silent, as before.
+    func testWeeklyCausedBlockUnderPaceDerivationStaysSilent() {
+        let windows = [
+            LimitWindow(id: DailyPace.windowID, label: "Daily pace", usedFraction: 0.5),
+            LimitWindow(id: "session", label: "Session", usedFraction: 0.6),
+        ]
+        func paced(block: UsageBlock?) -> ProviderSnapshot {
+            ProviderSnapshot(id: "claude", displayName: "Claude", glyph: .claude,
+                             fidelity: .official, status: .ok, windows: windows,
+                             headlineID: DailyPace.windowID, weeklyID: "session", block: block)
+        }
+        watcher.observe([paced(block: nil)])
+        watcher.observe([paced(block: UsageBlock(reason: "Weekly limit reached", resetsAt: nil,
+                                                 isWeeklyExhaustion: true))])
+        XCTAssertTrue(alerts.isEmpty)
     }
 
     func testNoRepeatAlertWhileExhausted() {
@@ -111,6 +175,23 @@ final class UsageLimitWatcherTests: XCTestCase {
 
         watcher.observe([snapshot("claude", "Claude", sessionFraction: 1.00, sessionResetsAt: date2)])
         XCTAssertEqual(alerts.count, 2, "re-arms when window rolls over to new resetsAt")
+    }
+
+    /// A countdown-based reset date drifts forward a few seconds on every
+    /// refresh. While the window has not elapsed that is the same window, and
+    /// a limit that stays spent must not be announced again on every fetch.
+    func testNoRepeatAlertWhileResetDateDrifts() {
+        let resetsAt = Date().addingTimeInterval(3 * 86_400)
+
+        watcher.observe([snapshot("codex", "Codex", sessionFraction: 0.50, weeklyFraction: 0.90, weeklyResetsAt: resetsAt)])
+        watcher.observe([snapshot("codex", "Codex", sessionFraction: 0.50, weeklyFraction: 1.00, weeklyResetsAt: resetsAt)])
+        XCTAssertEqual(alerts.map(\.kind), [.weeklyLimitReached])
+
+        for drift in 1...5 {
+            watcher.observe([snapshot("codex", "Codex", sessionFraction: 0.50, weeklyFraction: 1.00,
+                                      weeklyResetsAt: resetsAt.addingTimeInterval(Double(drift)))])
+        }
+        XCTAssertEqual(alerts.count, 1, "a drifting reset date is not a new window")
     }
 
     func testMutedProviderDoesNotAlert() {

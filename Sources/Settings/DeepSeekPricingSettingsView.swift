@@ -6,6 +6,7 @@ import SwiftUI
 /// rather than silently converting the stored values to the Mac's timezone.
 struct DeepSeekPricingSettingsView: View {
     @ObservedObject var preferences: Preferences
+    @ObservedObject private var holidays = ChineseHolidays.shared
 
     private static let weekdayOrder = [2, 3, 4, 5, 6, 7, 1]
 
@@ -58,6 +59,14 @@ struct DeepSeekPricingSettingsView: View {
                 } label: {
                     Label(L10n.t("Add peak window"), systemImage: "plus")
                 }
+
+                Toggle(L10n.t("Off-peak all day on Chinese public holidays"),
+                       isOn: holidayBinding)
+
+                Text(holidayCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .disabled(!preferences.deepSeekPricingEnabled)
 
@@ -68,6 +77,31 @@ struct DeepSeekPricingSettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var holidayBinding: Binding<Bool> {
+        Binding(
+            get: { schedule.offPeakOnChineseHolidays },
+            set: { enabled in
+                var next = schedule
+                next.offPeakOnChineseHolidays = enabled
+                preferences.deepSeekPricingSchedule = next
+            }
+        )
+    }
+
+    /// Says which years are known, because a year the calendar does not cover
+    /// silently falls back to the weekday rule.
+    private var holidayCaption: String {
+        let source = L10n.t("Holiday dates follow the State Council's notices via holiday-cn, checked once a day.")
+        let years = holidays.calendar.years.sorted()
+        let thisYear = ChineseHolidayCalendar.beijingCalendar.component(.year, from: Date())
+        guard years.contains(thisYear) else {
+            return source + " " + String(format: L10n.t("No dates for %lld yet, so only the rule above applies."),
+                                         thisYear)
+        }
+        return source + " " + String(format: L10n.t("Known years: %@."),
+                                     years.map(String.init).joined(separator: ", "))
     }
 
     private func weekdayTitle(_ weekday: Int) -> String {

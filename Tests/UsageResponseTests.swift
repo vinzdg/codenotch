@@ -124,6 +124,160 @@ final class UsageResponseTests: XCTestCase {
         XCTAssertEqual(windows.first?.label, "Scoped")
     }
 
+    /// Trimmed from the real response of an Enterprise seat
+    /// (`enterprise_usage_based`, billed through a marketplace). Note what is
+    /// *not* there: `limits` is empty and both named windows are null, so
+    /// without the spend block such a seat has no reading at all.
+    private let enterprise = """
+    {
+      "limits": [],
+      "five_hour": null,
+      "seven_day": null,
+      "seven_day_opus": null,
+      "amber_ladder": { "limit_dollars": 25000, "used_dollars": 0,
+                        "remaining_dollars": 25000, "utilization": 0,
+                        "resets_at": "2026-10-02T06:59:59.000000+00:00", "locked_reason": null },
+      "nimbus_quill": { "limit_dollars": null, "used_dollars": null, "utilization": 0,
+                        "resets_at": null, "locked_reason": null },
+      "tangelo": null,
+      "extra_usage": { "is_enabled": true, "currency": "USD", "monthly_limit": 20000,
+                       "used_credits": 297, "utilization": 1.485, "decimal_places": 2 },
+      "spend": {
+        "enabled": true, "percent": 1, "severity": "normal",
+        "limit": { "amount_minor": 20000, "currency": "USD", "exponent": 2 },
+        "used":  { "amount_minor": 297, "currency": "USD", "exponent": 2 },
+        "cap": { "credits": { "amount_minor": 20000, "exponent": 2 }, "money": null },
+        "balance": null, "auto_reload": null, "can_purchase_credits": false
+      }
+    }
+    """
+
+    func testAnEnterpriseSeatReportsItsBalance() throws {
+        let windows = try decode(enterprise).limitWindows()
+        XCTAssertEqual(windows.map(\.id), ["spend"], "one ring, and only from `spend`")
+
+        let balance = try XCTUnwrap(windows.first)
+        let money = try XCTUnwrap(balance.money)
+        XCTAssertEqual(money.spent, 2.97, accuracy: 0.000001)
+        XCTAssertEqual(money.funded, 200, accuracy: 0.000001)
+        XCTAssertEqual(money.currency, "USD")
+        // 297/20000, not the `percent: 1` the response rounds it to.
+        XCTAssertEqual(balance.usedFraction ?? -1, 0.01485, accuracy: 0.00001)
+        XCTAssertNotNil(balance.resetsAt, "`monthly_limit` gives the balance a month")
+    }
+
+    private func utc(_ text: String) -> Date { ISO8601DateFormatter().date(from: text)! }
+
+    /// `spend` names no period, `extra_usage.monthly_limit` does: the balance
+    /// runs to midnight UTC on the 1st, over the whole calendar month.
+    func testAMonthlyBalanceRunsToTheFirstOfNextMonthInUTC() throws {
+        let windows = try decode(enterprise).limitWindows(readAt: utc("2026-10-12T07:29:56Z"))
+        let balance = try XCTUnwrap(windows.first)
+        XCTAssertEqual(balance.resetsAt, utc("2026-11-01T00:00:00Z"))
+        XCTAssertEqual(balance.duration, 31 * 86400)
+
+        let february = try XCTUnwrap(try decode(enterprise)
+            .limitWindows(readAt: utc("2027-02-10T12:00:00Z")).first)
+        XCTAssertEqual(february.resetsAt, utc("2027-03-01T00:00:00Z"))
+        XCTAssertEqual(february.duration, 28 * 86400)
+    }
+
+    /// The month is the one the reading was written in, not the one it is
+    /// decoded in: a reading from late on the 30th still ends on the 1st, so
+    /// read the next day it is recognisably over rather than passing for new.
+    func testTheMonthIsTheReadingsOwn() throws {
+        let windows = try decode(enterprise).limitWindows(readAt: utc("2026-09-30T23:59:00Z"))
+        XCTAssertEqual(windows.first?.resetsAt, utc("2026-10-01T00:00:00Z"))
+        XCTAssertTrue(ClaudeOAuthProvider.hasExpiredWindow(windows, at: utc("2026-10-01T00:00:01Z")))
+    }
+
+    /// Without `monthly_limit` nothing says the balance has a period, and none
+    /// is assumed for it.
+    func testABalanceWithoutAMonthlyLimitHasNoReset() throws {
+        let json = """
+        { "limits": [], "spend": { "enabled": true,
+            "limit": { "amount_minor": 20000, "currency": "USD", "exponent": 2 },
+            "used": { "amount_minor": 297, "currency": "USD", "exponent": 2 } } }
+        """
+        let balance = try XCTUnwrap(try decode(json).limitWindows().first)
+        XCTAssertNil(balance.resetsAt)
+        XCTAssertNil(balance.duration)
+    }
+
+    /// The ring has to *mean* the balance on a seat that reports only that.
+    /// Declaring "session" there left it showing a dash beside a tooltip full
+    /// of numbers — the window it named did not exist.
+    func testTheBalanceIsTheHeadlineWhenThereIsNoSession() throws {
+        let windows = try decode(enterprise).limitWindows()
+        XCTAssertEqual(UsageResponse.headlineID(for: windows), "spend")
+    }
+
+    /// And on a plan seat nothing moves: the session leads, and a session
+    /// merely missing from one response still shows a dash rather than
+    /// promoting the weekly into its place.
+    func testTheSessionStillLeadsWhereThereIsOne() throws {
+        XCTAssertEqual(UsageResponse.headlineID(for: try decode(live).limitWindows()), "session")
+
+        let weeklyOnly = [LimitWindow(id: "weekly_all", label: "All models", usedFraction: 0.3)]
+        XCTAssertEqual(UsageResponse.headlineID(for: weeklyOnly), "session",
+                       "a weekly percentage must not wear the session's place")
+    }
+
+    /// `amber_ladder`, `nimbus_quill` and friends carry `limit_dollars` and
+    /// `resets_at` and look exactly like windows. They are internal codenames
+    /// whose meaning is not published, and a ring drawn from one would be a
+    /// number presented as a limit without anybody knowing which limit.
+    func testCodenamedBlocksAreNotReadAsWindows() throws {
+        let windows = try decode(enterprise).limitWindows()
+        XCTAssertFalse(windows.contains { $0.id.contains("amber") || $0.id.contains("nimbus") })
+        XCTAssertFalse(windows.contains { $0.money?.funded == 25000 })
+    }
+
+    /// A seat with no credit spending gets no ring rather than one reading
+    /// "0 of 0", which would be an invention.
+    func testASeatWithoutCreditsHasNoBalanceWindow() throws {
+        let json = """
+        { "limits": [], "spend": { "enabled": false,
+            "limit": { "amount_minor": 0, "currency": "USD", "exponent": 2 },
+            "used": { "amount_minor": 0, "currency": "USD", "exponent": 2 } } }
+        """
+        XCTAssertTrue(try decode(json).limitWindows().isEmpty)
+    }
+
+    /// A malformed balance must not cost a plan seat its windows: the spend
+    /// block is an extra there, not the reading.
+    func testAMalformedSpendBlockDoesNotCostThePlanWindows() throws {
+        let json = """
+        { "limits": [ { "kind": "session", "percent": 52,
+                        "resets_at": "2026-08-28T09:50:00.316290+00:00" } ],
+          "spend": "unexpected" }
+        """
+        XCTAssertEqual(try decode(json).limitWindows().map(\.id), ["session"])
+    }
+
+    /// A subscription seat's response has no `spend` block at all, and must
+    /// keep reporting exactly what it did before.
+    func testASubscriptionSeatIsUnaffected() throws {
+        XCTAssertEqual(try decode(live).limitWindows().map(\.id), ["session", "weekly_all"])
+    }
+
+    /// On a seat that has both, the balance sorts last: it is not one of the
+    /// plan's periods.
+    func testTheBalanceSortsAfterThePlansWindows() throws {
+        let json = """
+        { "limits": [
+            { "kind": "weekly_all", "percent": 17,
+              "resets_at": "2026-09-02T17:00:00.316321+00:00" },
+            { "kind": "session", "percent": 52,
+              "resets_at": "2026-08-28T09:50:00.316290+00:00" } ],
+          "spend": { "enabled": true,
+            "limit": { "amount_minor": 20000, "currency": "USD", "exponent": 2 },
+            "used": { "amount_minor": 297, "currency": "USD", "exponent": 2 } } }
+        """
+        XCTAssertEqual(try decode(json).limitWindows().map(\.id),
+                       ["session", "weekly_all", "spend"])
+    }
+
     func testUnknownKindsGetAReadableLabel() {
         XCTAssertEqual(UsageResponse.label(forKind: "weekly_opus"), "Opus")
         XCTAssertEqual(UsageResponse.label(forKind: "weekly_cowork"), "Cowork")
@@ -230,6 +384,17 @@ final class UsageArchiveTests: XCTestCase {
         XCTAssertEqual(restored?.fetchedAt, taken)
     }
 
+    /// A remembered reading is exactly when "whose numbers are these?" is
+    /// hardest to answer, so the plan is kept with it.
+    func testThePlanRoundTrips() {
+        let defaults = makeDefaults()
+        var withPlan = reading
+        withPlan.plan = "Enterprise"
+        UsageArchive(defaults: defaults).save(["claude": (withPlan, Date())])
+
+        XCTAssertEqual(UsageArchive(defaults: defaults).load()["claude"]?.snapshot.plan, "Enterprise")
+    }
+
     func testCodexDailyUsageRoundTripsWithTheQuotaReading() {
         let defaults = makeDefaults()
         let usage = CodexTokenUsage(
@@ -267,6 +432,67 @@ final class UsageArchiveTests: XCTestCase {
         XCTAssertTrue(UsageArchive(defaults: makeDefaults()).load().isEmpty)
     }
 
+    func testLegacyPerplexityEntryIsPrunedOnLoad() throws {
+        let defaults = makeDefaults()
+        let taken = Date(timeIntervalSince1970: 1_787_900_000)
+        let perplexity = ProviderSnapshot(
+            id: "perplexity", displayName: "Perplexity", glyph: .third,
+            fidelity: .official, status: .ok,
+            windows: [LimitWindow(id: "queries", label: "Queries", used: 2)]
+        )
+        struct LegacyEntry: Codable {
+            let id: String
+            let displayName: String
+            let glyph: ProviderGlyph
+            let fidelity: Fidelity
+            let windows: [LimitWindow]
+            let fetchedAt: Date
+            let headlineID: String?
+            let weeklyID: String?
+            let tokenUsage: CodexTokenUsage?
+            let usageDetail: ProviderUsageDetail?
+            let plan: String?
+        }
+        let legacy = [
+            LegacyEntry(id: "claude", displayName: "Claude", glyph: .claude,
+                        fidelity: .official, windows: reading.windows, fetchedAt: taken,
+                        headlineID: nil, weeklyID: nil, tokenUsage: nil, usageDetail: nil, plan: nil),
+            LegacyEntry(id: "perplexity", displayName: "Perplexity", glyph: .third,
+                        fidelity: .official, windows: perplexity.windows, fetchedAt: taken,
+                        headlineID: nil, weeklyID: nil, tokenUsage: nil, usageDetail: nil, plan: nil)
+        ]
+        let data = try JSONEncoder().encode(legacy)
+        defaults.set(data, forKey: "lastGoodReadings")
+
+        let loaded = UsageArchive(defaults: defaults).load()
+        XCTAssertNil(loaded["perplexity"], "Obsolete perplexity readings must be pruned on load")
+        XCTAssertNotNil(loaded["claude"], "Active provider readings must survive")
+
+        // The stored cache in defaults must also be cleaned up immediately
+        let savedData = try XCTUnwrap(defaults.data(forKey: "lastGoodReadings"))
+        let rawEntries = try JSONDecoder().decode([LegacyEntry].self, from: savedData)
+        XCTAssertFalse(rawEntries.contains { $0.id == "perplexity" },
+                       "Stored cache in UserDefaults must not retain obsolete perplexity entry")
+        XCTAssertEqual(rawEntries.map(\.id), ["claude"])
+    }
+
+    func testPerplexityEntryIsNotSavedToArchive() throws {
+        let defaults = makeDefaults()
+        let taken = Date(timeIntervalSince1970: 1_787_900_000)
+        let perplexity = ProviderSnapshot(
+            id: "perplexity", displayName: "Perplexity", glyph: .third,
+            fidelity: .official, status: .ok,
+            windows: [LimitWindow(id: "queries", label: "Queries", used: 2)]
+        )
+        UsageArchive(defaults: defaults).save([
+            "perplexity": (perplexity, taken),
+            "claude": (reading, taken)
+        ])
+
+        let loaded = UsageArchive(defaults: defaults).load()
+        XCTAssertNil(loaded["perplexity"])
+        XCTAssertNotNil(loaded["claude"])
+    }
 }
 
 /// `Retry-After: 0` is the endpoint's actual answer, and obeying it literally is
@@ -289,6 +515,11 @@ final class BackoffTests: XCTestCase {
     /// A server that asks for longer than our own schedule gets its way.
     func testAGenerousHintWins() {
         XCTAssertEqual(ClaudeOAuthProvider.backoff(forAttempt: 0, retryAfter: 600), 600)
+    }
+
+    func testALongHintIsNotCapped() {
+        XCTAssertEqual(ClaudeOAuthProvider.backoff(forAttempt: 0, retryAfter: 3000), 3000)
+        XCTAssertEqual(ClaudeOAuthProvider.backoff(forAttempt: 99, retryAfter: 3000), 3000)
     }
 }
 
@@ -367,6 +598,245 @@ final class RefreshScheduleTests: XCTestCase {
         XCTAssertFalse(UsageStore.shouldRefresh(
             isBusy: false, sinceLastAttempt: 60, idleInterval: idle, resetDue: false
         ))
+    }
+
+    /// The tick is now four times a minute, so "busy" can no longer mean "fetch
+    /// on every tick" — that would be four fetches a minute at a provider that
+    /// answers a 429. Busy means the busy interval, and nothing shorter.
+    @MainActor
+    func testBusyPollsAtTheBusyIntervalRatherThanEveryTick() {
+        let busy: TimeInterval = 30
+        XCTAssertFalse(UsageStore.shouldRefresh(isBusy: true, sinceLastAttempt: 15,
+                                                idleInterval: idle, busyInterval: busy))
+        XCTAssertTrue(UsageStore.shouldRefresh(isBusy: true, sinceLastAttempt: 30,
+                                               idleInterval: idle, busyInterval: busy))
+        // And a reset still overrules the wait, busy or not.
+        XCTAssertTrue(UsageStore.shouldRefresh(isBusy: true, sinceLastAttempt: 1,
+                                               idleInterval: idle, busyInterval: busy,
+                                               resetDue: true))
+    }
+
+    /// Attention is not a budget: four rings hovered in four seconds is four
+    /// looks and one fetch.
+    @MainActor
+    func testALookIsSpacedFromTheLastFetch() {
+        XCTAssertFalse(UsageStore.shouldRefreshOnEvent(sinceLastRefresh: 3, spacing: 15))
+        XCTAssertTrue(UsageStore.shouldRefreshOnEvent(sinceLastRefresh: 15, spacing: 15))
+        XCTAssertTrue(UsageStore.shouldRefreshOnEvent(sinceLastRefresh: .greatestFiniteMagnitude,
+                                                      spacing: 15))
+    }
+
+    /// The shipped numbers, held to the shape they claim rather than to
+    /// whatever they happen to be: a tick fine enough to express the busy
+    /// interval, a busy interval well inside the idle one, and a look spaced by
+    /// no more than the busy interval — a look that had to wait longer than the
+    /// schedule already does would be worse than not asking.
+    @MainActor
+    func testTheShippedScheduleHangsTogether() {
+        let store = UsageStore(providers: [])
+        XCTAssertLessThanOrEqual(store.refreshIntervalForTesting, store.busyRefreshIntervalForTesting)
+        XCTAssertLessThan(store.busyRefreshIntervalForTesting, store.idleRefreshIntervalForTesting)
+        XCTAssertLessThanOrEqual(store.onLookIntervalForTesting, store.busyRefreshIntervalForTesting)
+    }
+}
+
+/// What the store is prepared to be told by a cache, and when it is not.
+///
+/// The schedule above decides how often it asks; this decides what counts as an
+/// answer. Both have to be right for a ring to follow a session that is running:
+/// a fetch every thirty seconds served from a half-hour-old file is still a
+/// half-hour-old number.
+final class UsageFreshnessTests: XCTestCase {
+    /// Answers anything, and remembers what it was asked for.
+    private final class RecordingProvider: UsageProvider, @unchecked Sendable {
+        let id = "recorder"
+        let displayName = "Recorder"
+        let glyph = ProviderGlyph.claude
+        private(set) var asked: [UsageFreshness] = []
+
+        func fetchSnapshot() async throws -> ProviderSnapshot {
+            try await fetchSnapshot(freshness: .standard)
+        }
+
+        func fetchSnapshot(freshness: UsageFreshness) async throws -> ProviderSnapshot {
+            asked.append(freshness)
+            return ProviderSnapshot(id: id, displayName: displayName, glyph: glyph,
+                                    fidelity: .official, status: .ok,
+                                    windows: [LimitWindow(id: "session", label: "Current session",
+                                                          usedFraction: 0.1)])
+        }
+        nonisolated func account() -> ProviderAccount? { nil }
+        nonisolated var signInRoute: SignInRoute { .guidance("") }
+        func signOut() async {}
+        func presentSignIn() {}
+        nonisolated func forgetCachedCredential() {}
+    }
+
+    private func makeDefaults() -> UserDefaults {
+        let name = "UsageFreshnessTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return defaults
+    }
+
+    @MainActor
+    private func store(_ provider: RecordingProvider) -> UsageStore {
+        UsageStore(providers: [provider], archive: UsageArchive(defaults: makeDefaults()))
+    }
+
+    /// Nothing is running, so nothing has moved, so a provider's own cache is
+    /// the best answer available — free, and not wrong about a still number.
+    @MainActor
+    func testAnIdleRefreshTakesWhateverTheProviderHasCached() async {
+        let provider = RecordingProvider()
+        let store = store(provider)
+        store.isBusy = { false }
+
+        await store.refresh()
+
+        XCTAssertEqual(provider.asked, [.standard])
+    }
+
+    /// Something is running, so the cached number is the one thing it cannot be:
+    /// current.
+    @MainActor
+    func testARefreshWhileBusyWillNotTakeACachedReading() async {
+        let provider = RecordingProvider()
+        let store = store(provider)
+        store.isBusy = { true }
+
+        await store.refresh()
+
+        XCTAssertEqual(provider.asked, [.live])
+    }
+
+    /// A look is the least excusable moment to answer from a cache, whether or
+    /// not anything is running.
+    @MainActor
+    func testALookAsksForALiveReading() async {
+        let provider = RecordingProvider()
+        let store = store(provider)
+        store.isBusy = { false }
+
+        store.refreshBecauseSomeoneIsLooking()
+        await store.settleForTesting()
+
+        XCTAssertEqual(provider.asked, [.live])
+    }
+
+    /// And a second look a moment later is answered by the first one's fetch.
+    @MainActor
+    func testASecondLookInsideTheSpacingAsksForNothing() async {
+        let provider = RecordingProvider()
+        let store = store(provider)
+        store.isBusy = { false }
+
+        store.refreshBecauseSomeoneIsLooking()
+        await store.settleForTesting()
+        store.refreshBecauseSomeoneIsLooking()
+        await store.settleForTesting()
+
+        XCTAssertEqual(provider.asked.count, 1, "hovering twice cost two fetches")
+    }
+
+    /// Work stopping is the falling edge the idle schedule is about to sit on
+    /// for five minutes. It gets one fetch, and it is a live one.
+    @MainActor
+    func testWorkFinishingAsksForALiveReadingOnce() async {
+        let provider = RecordingProvider()
+        let store = store(provider)
+
+        store.refreshBecauseWorkFinished(providerID: provider.id)
+        await store.settleForTesting()
+        // A transcript-read session state legitimately flickers; the second edge
+        // inside the spacing must not cost a second fetch.
+        store.refreshBecauseWorkFinished(providerID: provider.id)
+        await store.settleForTesting()
+
+        XCTAssertEqual(provider.asked, [.live])
+    }
+
+    /// Refetching one provider is an event, not a schedule, so it asks for now.
+    @MainActor
+    func testRefreshingOneProviderAsksForALiveReading() async {
+        let provider = RecordingProvider()
+        let store = store(provider)
+
+        await store.refresh(providerID: provider.id)?.value
+
+        XCTAssertEqual(provider.asked, [.live])
+    }
+
+    /// And a caller that is somebody's own click — Refresh now, a ring clicked,
+    /// the settings row's refresh — says so, and is answered from nothing held.
+    @MainActor
+    func testAClickAsksTheSourceItself() async {
+        let provider = RecordingProvider()
+        let store = store(provider)
+
+        await store.refresh(providerID: provider.id, freshness: .fromSource)?.value
+
+        XCTAssertEqual(provider.asked, [.fromSource])
+    }
+
+    // MARK: - Ask the provider every time you look
+
+    /// The setting's whole purpose: a look stops accepting anything a provider
+    /// is holding, however new, and asks the provider.
+    @MainActor
+    func testTheSettingMakesALookAskTheSourceItself() async {
+        let provider = RecordingProvider()
+        let store = store(provider)
+        store.isBusy = { false }
+        store.asksProviderOnLook = { true }
+
+        store.refreshBecauseSomeoneIsLooking()
+        await store.settleForTesting()
+
+        XCTAssertEqual(provider.asked, [.fromSource])
+    }
+
+    /// Off — the shipped default — a look still asks for a live reading, which a
+    /// cache newer than a couple of minutes may still answer.
+    @MainActor
+    func testWithoutTheSettingALookStillAsksForALiveReading() async {
+        let provider = RecordingProvider()
+        let store = store(provider)
+        store.isBusy = { false }
+
+        store.refreshBecauseSomeoneIsLooking()
+        await store.settleForTesting()
+
+        XCTAssertEqual(provider.asked, [.live])
+    }
+
+    /// It reaches the look and nothing else. A setting that also applied to the
+    /// schedule would spend an uncached request every thirty seconds through a
+    /// long session, at a provider that answers a 429 — which is how asking for
+    /// fresher numbers ends up producing staler ones.
+    @MainActor
+    func testTheSettingDoesNotReachTheSchedule() async {
+        let provider = RecordingProvider()
+        let store = store(provider)
+        store.isBusy = { true }
+        store.asksProviderOnLook = { true }
+
+        await store.refresh()
+
+        XCTAssertEqual(provider.asked, [.live])
+    }
+
+    /// The switch is off until somebody turns it on, and stays where it is put.
+    @MainActor
+    func testTheSettingIsOffByDefaultAndPersists() throws {
+        let name = "UsageFreshnessTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let preferences = Preferences(defaults: defaults)
+        XCTAssertFalse(preferences.asksProviderOnLook)
+        preferences.asksProviderOnLook = true
+        XCTAssertTrue(Preferences(defaults: defaults).asksProviderOnLook)
     }
 }
 

@@ -30,6 +30,17 @@ pub fn find_agy() -> Option<PathBuf> {
     None
 }
 
+/// The copy Antigravity IDE and VS Code's extension install, and run as `--hub`. Not part of
+/// `find_agy`: an install it finds reads through the CLI alone, and this one has a live server to
+/// read from whenever Antigravity is open.
+pub fn bundled_agy() -> Option<PathBuf> {
+    bundled_agy_in(&dirs::home_dir()?)
+}
+
+fn bundled_agy_in(home: &Path) -> Option<PathBuf> {
+    Some(home.join(".gemini").join("bin").join("agy.exe")).filter(|p| p.is_file())
+}
+
 /// Helper for testing discovery in explicit directories without touching environment.
 fn find_agy_in(dirs: &[PathBuf]) -> Option<PathBuf> {
     for dir in dirs {
@@ -112,9 +123,7 @@ fn parse_quota(text: &str) -> Result<Vec<LimitWindow>, String> {
         if !remaining.is_finite() || !(0.0..=100.0).contains(&remaining) {
             return Err("Quota percentage is out of range".into());
         }
-        let reset = chrono::DateTime::parse_from_rfc3339(reset.trim())
-            .map_err(|_| "Invalid quota reset time")?
-            .timestamp_millis();
+        let reset = parse_reset_time(reset)?;
         if reset <= 0 {
             return Err("Invalid quota reset time".into());
         }
@@ -138,6 +147,7 @@ fn parse_quota(text: &str) -> Result<Vec<LimitWindow>, String> {
         out.push(LimitWindow {
             label: lane.map_or(short_label, String::from),
             group,
+            duration_ms: crate::antigravity::lane_duration_ms(&label),
             id: label,
             used: ((100.0 - remaining) / 100.0).clamp(0.0, 1.0),
             resets_at: Some(reset as u64),
@@ -149,6 +159,81 @@ fn parse_quota(text: &str) -> Result<Vec<LimitWindow>, String> {
     }
     crate::antigravity::order_lanes(&mut out);
     Ok(out)
+}
+
+/// CLI 1.2.16 prints wall-clock times with a display timezone abbreviation.
+/// Resolve those in the host timezone at the reset date, not today's UTC offset.
+fn parse_reset_time(text: &str) -> Result<i64, String> {
+    use chrono::TimeZone;
+    parse_reset_time_with(text, |local| {
+        chrono::Local.from_local_datetime(local).map(|dt| dt.fixed_offset())
+    })
+}
+
+fn parse_reset_time_with(
+    text: &str,
+    resolve_local: impl FnOnce(&chrono::NaiveDateTime) -> chrono::LocalResult<chrono::DateTime<chrono::FixedOffset>>,
+) -> Result<i64, String> {
+    use chrono::{DateTime, LocalResult, NaiveDateTime};
+
+    let text = text.trim();
+    if let Ok(dt) = DateTime::parse_from_rfc3339(text) {
+        return Ok(dt.timestamp_millis());
+    }
+
+    let parts: Vec<_> = text.split_whitespace().collect();
+    if parts.len() != 3 {
+        return Err("Invalid quota reset time".into());
+    }
+    let local_text = format!("{} {}", parts[0], parts[1]);
+    let local = NaiveDateTime::parse_from_str(&local_text, "%Y-%m-%d %H:%M")
+        .map_err(|_| "Invalid quota reset time")?;
+    // Require the advertised format; Chrono also accepts unpadded fields.
+    if local.format("%Y-%m-%d %H:%M").to_string() != local_text {
+        return Err("Invalid quota reset time".into());
+    }
+    let zone = parts[2];
+    if matches!(zone, "UTC" | "GMT" | "Z") {
+        return Ok(local.and_utc().timestamp_millis());
+    }
+    // A zone with no abbreviation (Bangkok, Sri Lanka, Nepal) is labelled by its
+    // UTC offset instead: "+07", "+0530", "+0545". An offset, unlike an
+    // abbreviation, is unambiguous, and it is the one the CLI applied.
+    if zone.starts_with(['+', '-']) {
+        let offset = numeric_zone_offset(zone).ok_or("Invalid quota reset timezone")?;
+        return match local.and_local_timezone(offset) {
+            LocalResult::Single(dt) => Ok(dt.timestamp_millis()),
+            _ => Err("Invalid quota reset time".into()),
+        };
+    }
+    if !zone.bytes().all(|c| c.is_ascii_alphabetic()) {
+        return Err("Invalid quota reset timezone".into());
+    }
+    // Abbreviations such as CST are not globally unique. The CLI runs locally,
+    // so its display label is not a timezone database key or a fixed offset.
+    match resolve_local(&local) {
+        LocalResult::Single(dt) => Ok(dt.timestamp_millis()),
+        LocalResult::Ambiguous(_, _) => Err("Ambiguous local quota reset time".into()),
+        LocalResult::None => Err("Invalid local quota reset time".into()),
+    }
+}
+
+/// Reads a `±HH` or `±HHMM` zone label. No real zone is further than 14 hours
+/// from UTC, so anything beyond that is not an offset.
+fn numeric_zone_offset(zone: &str) -> Option<chrono::FixedOffset> {
+    let (sign, digits) = match zone.strip_prefix('+') {
+        Some(digits) => (1, digits),
+        None => (-1, zone.strip_prefix('-')?),
+    };
+    if !matches!(digits.len(), 2 | 4) || !digits.bytes().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let hours: i32 = digits[..2].parse().ok()?;
+    let minutes: i32 = digits[2..].parse().unwrap_or(0);
+    if hours > 14 || minutes > 59 || (hours == 14 && minutes != 0) {
+        return None;
+    }
+    chrono::FixedOffset::east_opt(sign * (hours * 3600 + minutes * 60))
 }
 
 /// Atomically writes data to `dest` by writing to a temporary file in the same directory,
@@ -226,6 +311,30 @@ fn quote_arg(arg: &str) -> String {
     res
 }
 
+/// When its 15-minute check is due, `agy` starts a background updater, and started from Codenotch,
+/// which has no console to lend it, that updater opens a terminal window: the flash at the first read
+/// of the day. Updating `agy` is for Antigravity and the CLI's own runs to do. It takes "true" and
+/// ignores "1".
+const NO_AUTO_UPDATE: (&str, &str) = ("AGY_CLI_DISABLE_AUTO_UPDATE", "true");
+
+/// This process's environment plus `extra`, as the sorted, double-NUL-terminated UTF-16 block
+/// `CreateProcessW` takes with `CREATE_UNICODE_ENVIRONMENT`
+#[cfg_attr(not(windows), allow(dead_code))]
+fn environment_block(vars: impl IntoIterator<Item = (String, String)>, extra: (&str, &str)) -> Vec<u16> {
+    let mut vars: Vec<(String, String)> = vars
+        .into_iter()
+        .filter(|(k, _)| !k.is_empty() && !k.eq_ignore_ascii_case(extra.0))
+        .chain(std::iter::once((extra.0.to_string(), extra.1.to_string())))
+        .collect();
+    vars.sort_by_key(|(k, _)| k.to_uppercase());
+    let mut block: Vec<u16> = vars
+        .iter()
+        .flat_map(|(k, v)| format!("{k}={v}").encode_utf16().chain(std::iter::once(0)).collect::<Vec<_>>())
+        .collect();
+    block.push(0);
+    block
+}
+
 /// Spawns a hidden process connected to a native Windows ConPTY (Pseudo Console) inside a JobObject.
 /// Drains up to 64 KB of stdout concurrently, enforces timeout, and cleans up all descendants.
 #[cfg(windows)]
@@ -251,7 +360,7 @@ fn run_cmd_conpty(
     use windows::Win32::System::Threading::{
         CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
         InitializeProcThreadAttributeList, ResumeThread, UpdateProcThreadAttribute,
-        WaitForSingleObject, CREATE_SUSPENDED,
+        WaitForSingleObject, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
         EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST,
         PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, STARTUPINFOEXW,
         STARTF_USESTDHANDLES,
@@ -400,6 +509,10 @@ fn run_cmd_conpty(
     si_ex.lpAttributeList = attr_list;
 
     let mut proc_info = PROCESS_INFORMATION::default();
+    let env_u16 = environment_block(
+        std::env::vars_os().map(|(k, v)| (k.to_string_lossy().into_owned(), v.to_string_lossy().into_owned())),
+        NO_AUTO_UPDATE,
+    );
 
     let spawn_res = unsafe {
         CreateProcessW(
@@ -408,8 +521,10 @@ fn run_cmd_conpty(
             None,
             None,
             false,
-            EXTENDED_STARTUPINFO_PRESENT | CREATE_SUSPENDED,
-            None,
+            // Not CREATE_NO_WINDOW: with it the child gets a hidden console of its own instead of the
+            // pseudoconsole, so nothing it prints is captured (test_bounded_runner_and_no_deadlock).
+            EXTENDED_STARTUPINFO_PRESENT | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
+            Some(env_u16.as_ptr() as *const core::ffi::c_void),
             cwd_u16.as_ref().map_or(PCWSTR::null(), |v| PCWSTR(v.as_ptr())),
             &si_ex.StartupInfo,
             &mut proc_info,
@@ -493,16 +608,58 @@ fn run_cmd_conpty(
 
 /// Executes official `agy --print /usage` via native ConPTY.
 pub fn read_quota() -> Result<Vec<LimitWindow>, String> {
-    let agy = find_agy().ok_or("Antigravity CLI is not installed")?;
+    read_quota_with(&find_agy().ok_or("Antigravity CLI is not installed")?)
+}
+
+pub fn read_quota_with(agy: &Path) -> Result<Vec<LimitWindow>, String> {
     let dir = crate::config::config_path().with_file_name("quota-work");
     std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create CLI working directory: {e}"))?;
-    let output = run_cmd_conpty(&agy, &["--sandbox", "--print-timeout", "30s", "--print", "/usage"], Some(&dir), Duration::from_secs(70))?;
+    let output = run_cmd_conpty(agy, &["--sandbox", "--print-timeout", "30s", "--print", "/usage"], Some(&dir), Duration::from_secs(70))?;
     parse_quota(&output)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unknown_cli_lane_durations_are_not_guessed() {
+        let windows = parse_quota("Quota:\nGemini Models Monthly Limit Remaining 90% 2026-10-12T01:47:23Z").unwrap();
+        assert_eq!(windows[0].duration_ms, None);
+    }
+
+
+    #[test]
+    fn agy_runs_with_its_auto_update_off_and_the_rest_of_the_environment_kept() {
+        let vars = [("Path", "C:\\bin"), ("agy_cli_disable_auto_update", "0"), ("APPDATA", "C:\\a")]
+            .map(|(k, v)| (k.to_string(), v.to_string()));
+        let block = environment_block(vars, NO_AUTO_UPDATE);
+        assert_eq!(block[block.len() - 2..], [0, 0]);
+        let text = String::from_utf16(&block[..block.len() - 2]).unwrap();
+        assert_eq!(text.split('\0').collect::<Vec<_>>(), ["AGY_CLI_DISABLE_AUTO_UPDATE=true", "APPDATA=C:\\a", "Path=C:\\bin"]);
+    }
+
+    #[test]
+    fn the_bundled_copy_is_found_under_gemini_bin() {
+        let home = std::env::temp_dir().join(format!("codenotch-agy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        assert_eq!(bundled_agy_in(&home), None);
+        let bin = home.join(".gemini").join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(bin.join("agy.exe"), "").unwrap();
+        assert_eq!(bundled_agy_in(&home), Some(bin.join("agy.exe")));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    #[ignore = "Runs Antigravity's own signed-in copy; opt in for integration verification"]
+    fn live_bundled_quota() {
+        let windows = read_quota_with(&bundled_agy().expect("bundled agy")).expect("bundled quota");
+        for w in &windows {
+            println!("{:?} / {}: used {:.2}", w.group, w.label, w.used);
+        }
+        assert!(!windows.is_empty());
+    }
 
     #[test]
     fn quoted_paths_keep_backslashes() {
@@ -524,6 +681,9 @@ mod tests {
         let text = "Quota:\nGemini Models Weekly Limit Remaining 94% 2026-09-12T01:47:23Z\nGemini Models Five Hour Limit Remaining 78% 2026-09-10T06:12:31Z\nClaude and GPT models Weekly Limit Remaining 100% 2026-09-17T01:47:23Z\nClaude and GPT models Five Hour Limit Remaining 100% 2026-09-10T08:13:44Z";
         let windows = parse_quota(text).expect("valid sample quota");
         assert_eq!(windows.len(), 4);
+        assert_eq!(windows.iter().map(|w| w.duration_ms).collect::<Vec<_>>(),
+            [Some(crate::usage::FIVE_HOURS_MS), Some(crate::usage::SEVEN_DAYS_MS),
+             Some(crate::usage::FIVE_HOURS_MS), Some(crate::usage::SEVEN_DAYS_MS)]);
 
         // Grouped by model and named by lane, 5-hour first, as the Mac card shows them
         assert_eq!(windows[0].id, "Gemini Models Five Hour Limit");
@@ -561,6 +721,133 @@ mod tests {
         ] {
             assert!(parse_quota(bad).is_err());
         }
+    }
+
+    #[test]
+    fn test_parse_quota_cli_1_2_16_local_reset_times() {
+        // agy 1.2.16 under ConPTY prints the reset as local wall-clock time with a zone abbreviation
+        let text = "Quota:\nGemini Models          Weekly Limit Remaining     95%   2026-10-10 22:31 AEDT\nGemini Models          Five Hour Limit Remaining  100%  2026-10-06 21:01 AEDT\nClaude and GPT models  Weekly Limit Remaining     37%   2026-10-11 01:09 AEDT\nClaude and GPT models  Five Hour Limit Remaining  100%  2026-10-06 21:01 AEDT";
+        let windows = parse_quota(text).expect("CLI 1.2.16 quota");
+        assert_eq!(windows.len(), 4);
+        assert!(windows.iter().all(|w| w.resets_at.is_some()));
+        assert!((windows[1].used - 0.05).abs() < 1e-5);
+        assert!((windows[3].used - 0.63).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_parse_quota_cli_1_3_0_numeric_zone_labels() {
+        // agy 1.3.0 under ConPTY on a host in "SE Asia Standard Time", which has no abbreviation
+        let text = "Quota:\nGemini Models          Weekly Limit Remaining     51%   2026-10-08 07:23 +07\nGemini Models          Five Hour Limit Remaining  79%   2026-10-07 12:49 +07\nClaude and GPT models  Weekly Limit Remaining     98%   2026-10-11 06:00 +07\nClaude and GPT models  Five Hour Limit Remaining  100%  2026-10-07 13:36 +07\n";
+        let windows = parse_quota(text).expect("CLI 1.3.0 quota");
+        assert_eq!(windows.len(), 4);
+        assert_eq!(windows[0].id, "Gemini Models Five Hour Limit");
+        assert!((windows[0].used - 0.21).abs() < 1e-5);
+        let reset = |text| chrono::DateTime::parse_from_rfc3339(text).unwrap().timestamp_millis() as u64;
+        assert_eq!(windows[0].resets_at, Some(reset("2026-10-07T05:49:00Z")));
+        assert_eq!(windows[1].resets_at, Some(reset("2026-10-08T00:23:00Z")));
+        assert_eq!(windows[2].resets_at, Some(reset("2026-10-07T06:36:00Z")));
+        assert_eq!(windows[3].resets_at, Some(reset("2026-10-10T23:00:00Z")));
+    }
+
+    #[test]
+    fn numeric_zone_label_is_the_offset_applied() {
+        for (text, expected) in [
+            ("2026-10-10 22:31 +07", "2026-10-10T15:31:00Z"),
+            ("2026-10-10 22:31 -03", "2026-10-11T01:31:00Z"),
+            ("2026-10-10 22:31 +0530", "2026-10-10T17:01:00Z"),
+            ("2026-10-10 22:31 +0545", "2026-10-10T16:46:00Z"),
+            ("2026-10-10 22:31 -0930", "2026-10-11T08:01:00Z"),
+            ("2026-10-10 22:31 +1245", "2026-10-10T09:46:00Z"),
+            ("2026-10-10 22:31 +14", "2026-10-10T08:31:00Z"),
+            ("2026-10-10 22:31 +1400", "2026-10-10T08:31:00Z"),
+            ("2026-10-10 22:31 +0700", "2026-10-10T15:31:00Z"),
+            ("2026-10-10 22:31 +00", "2026-10-10T22:31:00Z"),
+            ("2026-10-10 22:31 -00", "2026-10-10T22:31:00Z"),
+        ] {
+            // The host timezone plays no part, whatever it is.
+            let actual = parse_reset_time_with(text, |_| panic!("numeric zone uses no local lookup")).unwrap();
+            assert_eq!(actual, chrono::DateTime::parse_from_rfc3339(expected).unwrap().timestamp_millis(), "{text}");
+        }
+    }
+
+    #[test]
+    fn reset_time_preserves_explicit_utc_and_rfc3339_offsets() {
+        let expected = chrono::DateTime::parse_from_rfc3339("2026-10-10T11:31:00Z")
+            .unwrap().timestamp_millis();
+        for text in [
+            "2026-10-10T11:31:00Z",
+            "2026-10-10T22:31:00+11:00",
+            "2026-10-10 11:31 UTC",
+            "2026-10-10 11:31 GMT",
+            " 2026-10-10 11:31 Z ",
+        ] {
+            assert_eq!(parse_reset_time_with(text, |_| panic!("explicit zone uses no local lookup")).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn localized_reset_uses_timezone_at_reset_date() {
+        use chrono::{Datelike, FixedOffset, TimeZone};
+        // Simulate a host whose reset dates cross the southern DST boundary.
+        // No system timezone or process environment is changed by this test.
+        for (text, expected) in [
+            ("2026-10-03 22:31 AEST", "2026-10-03T12:31:00Z"),
+            ("2026-10-10 22:31 AEDT", "2026-10-10T11:31:00Z"),
+        ] {
+            let actual = parse_reset_time_with(text, |local| {
+                let hours = if local.day() < 4 { 10 } else { 11 };
+                FixedOffset::east_opt(hours * 3600).unwrap().from_local_datetime(local)
+            }).unwrap();
+            assert_eq!(actual, chrono::DateTime::parse_from_rfc3339(expected).unwrap().timestamp_millis());
+        }
+        // CST has different meanings worldwide; the host is authoritative.
+        let actual = parse_reset_time_with("2026-10-10 22:31 CST", |local| {
+            FixedOffset::west_opt(6 * 3600).unwrap().from_local_datetime(local)
+        }).unwrap();
+        assert_eq!(actual, chrono::DateTime::parse_from_rfc3339("2026-10-11T04:31:00Z").unwrap().timestamp_millis());
+    }
+
+    #[test]
+    fn localized_reset_rejects_malformed_text() {
+        for bad in [
+            "2026-10-10 9:31 AEDT",
+            "2026-10-10 22:31",
+            "2026-10-10 22:31 AEDT extra",
+            "2026-10-10 22:31 +",
+            "2026-10-10 22:31 +7",
+            "2026-10-10 22:31 +070",
+            "2026-10-10 22:31 +07:00",
+            "2026-10-10 22:31 +070000",
+            "2026-10-10 22:31 +0760",
+            "2026-10-10 22:31 +15",
+            "2026-10-10 22:31 +1401",
+            "2026-10-10 22:31 -1459",
+            "2026-10-10 22:31 +०७",
+            "2026-10-10 22:31 -99",
+            "2026-10-10 22:31 +0x",
+            "2026-10-10 22:31 ++07",
+            "2026-10-10 22:31 07",
+            "2026-10-10 22:31 UTC+7",
+            "2026-10-10 22:31 +07 extra",
+            "not-a-date",
+        ] {
+            assert!(parse_reset_time_with(bad, |_| panic!("malformed text uses no local lookup")).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn localized_reset_rejects_dst_gaps_and_overlaps() {
+        use chrono::{FixedOffset, LocalResult, TimeZone};
+        assert_eq!(
+            parse_reset_time_with("2026-10-04 02:30 AEDT", |_| LocalResult::None).unwrap_err(),
+            "Invalid local quota reset time"
+        );
+        let error = parse_reset_time_with("2026-04-05 02:30 AEST", |local| {
+            let early = FixedOffset::east_opt(11 * 3600).unwrap().from_local_datetime(local).unwrap();
+            let late = FixedOffset::east_opt(10 * 3600).unwrap().from_local_datetime(local).unwrap();
+            LocalResult::Ambiguous(early, late)
+        }).unwrap_err();
+        assert_eq!(error, "Ambiguous local quota reset time");
     }
 
     #[test]
@@ -610,6 +897,7 @@ mod tests {
                 label: "Gemini · Weekly".into(),
                 used: 0.06,
                 resets_at: Some(1700000000000),
+                duration_ms: Some(crate::usage::SEVEN_DAYS_MS),
                 ..Default::default()
             }],
             fetched_at: 1700000000000,
@@ -619,6 +907,8 @@ mod tests {
         assert!(save_persisted_to(&dest, &snap).is_ok());
         let read_back = std::fs::read_to_string(&dest).unwrap();
         assert!(read_back.contains("Gemini · Weekly"));
+        let restored: UsageSnapshot = serde_json::from_str(&read_back).unwrap();
+        assert_eq!(restored.windows[0].duration_ms, Some(crate::usage::SEVEN_DAYS_MS));
 
         #[cfg(windows)]
         {

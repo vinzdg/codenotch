@@ -145,6 +145,7 @@ final class LocalModelPerformanceSourcesTests: XCTestCase {
         XCTAssertEqual(rate.band, .slow)
         XCTAssertFalse(rate.isApproximate)
         XCTAssertEqual(rate.speedText, "\(17.9.formatted(.number.precision(.fractionLength(0...1)))) tok/s")
+        XCTAssertEqual(rate.headlineText, "18 tok/s")
         for seconds in [0, -1, Double.nan, Double.infinity, 2e9] {
             XCTAssertNil(LocalModelPerformance(outputTokens: 10, seconds: seconds), "\(seconds)")
         }
@@ -155,12 +156,26 @@ final class LocalModelPerformanceSourcesTests: XCTestCase {
     func testATimedReadingSaysSo() throws {
         let timed = try XCTUnwrap(LocalModelPerformance(outputTokens: 60, seconds: 2, isApproximate: true))
         XCTAssertEqual(timed.speedText, "~\(30.0.formatted(.number.precision(.fractionLength(0...1)))) tok/s")
-        XCTAssertEqual(timed.headlineText, "~30 tok/s")
+        XCTAssertEqual(timed.headlineText, "30 tok/s")
         XCTAssertEqual(timed.band, .smooth)
         let exact = try XCTUnwrap(LocalModelPerformance(outputTokens: 60, seconds: 2))
         XCTAssertNotEqual(timed, exact, "the qualifier is part of the reading")
         let fast = try XCTUnwrap(LocalModelPerformance(outputTokens: 2400, seconds: 1, isApproximate: true))
         // Built the way the label is, so a comma-decimal Mac agrees with a point-decimal one.
-        XCTAssertEqual(fast.headlineText, "~\(2400.0.formatted(.number.notation(.compactName).precision(.significantDigits(1...2)))) t/s")
+        XCTAssertEqual(fast.headlineText, "\(2400.0.formatted(.number.notation(.compactName).precision(.significantDigits(1...2)))) t/s")
+    }
+
+    func testTheHeadlineDropsTheTenthAndTheTooltipKeepsIt() throws {
+        let tenth = try XCTUnwrap(LocalModelPerformance(outputTokens: 300, tokensPerSecond: 42.8))
+        XCTAssertEqual(tenth.headlineText, "43 tok/s")
+        XCTAssertEqual(tenth.speedText, "\(42.8.formatted(.number.precision(.fractionLength(0...1)))) tok/s")
+        let hundreds = try XCTUnwrap(LocalModelPerformance(outputTokens: 300, tokensPerSecond: 123.4))
+        XCTAssertEqual(hundreds.headlineText, "123 tok/s")
+        let slow = try XCTUnwrap(LocalModelPerformance(outputTokens: 300, tokensPerSecond: 0.5))
+        XCTAssertEqual(slow.headlineText, "<1 tok/s")
+        let edge = try XCTUnwrap(LocalModelPerformance(outputTokens: 300, tokensPerSecond: 999.6))
+        XCTAssertEqual(edge.headlineText, "\(1000.0.formatted(.number.notation(.compactName).precision(.significantDigits(1...2)))) t/s")
+        let approximate = try XCTUnwrap(LocalModelPerformance(outputTokens: 5, seconds: 2, isApproximate: true))
+        XCTAssertEqual(approximate.headlineText, "3 tok/s")
     }
 }

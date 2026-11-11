@@ -5,15 +5,18 @@ import SwiftUI
 /// Guards the QianwenAI Token Plan answer and the site that fetches it.
 ///
 /// **Recorded — with the account's own numbers taken out.** Every envelope here
-/// is a recording from 2026-09-18: the failure bodies from running the shipped
+/// is a recording from the platform: the failure bodies from running the shipped
 /// script against the live gateway with only the `sec_token` call stubbed, and
-/// the success shape from the first live signed-in read, taken from the app's
-/// own log (`Log.usage`, "usage -> …"). `per1WeekPercentage`,
-/// `per1WeekResetTime` and the `requestId`s in that success fixture are
-/// synthetic — this repository is public, and the recorded ones are the user's
-/// own usage and account traffic. Everything that is protocol rather than
-/// personal is left as the platform sent it: the `ret` message, `"Success."`,
-/// the `SUCCESS` code and the Api name.
+/// the success shapes from live signed-in reads taken from the app's own log
+/// (`Log.usage`, "usage -> …"). The weekly success shape is the first such read
+/// (2026-09-18); the monthly one is a read of the same call once the account
+/// moved to a monthly plan, captured 2026-09-23 against the console's own
+/// 1.1.43 build. `per1WeekPercentage`, `per1WeekResetTime`,
+/// `per1MonthPercentage`, `per1MonthResetTime` and the `requestId`s in those
+/// success fixtures are synthetic — this repository is public, and the recorded
+/// ones are the user's own usage and account traffic. Everything that is
+/// protocol rather than personal is left as the platform sent it: the `ret`
+/// message, `"Success."`, the `SUCCESS` code and the Api name.
 ///
 /// The console publishes no usage API, no schema and no documentation, so these
 /// recordings are the whole of the contract, and each fixture is pinned as far
@@ -42,8 +45,8 @@ final class QianwenUsageTests: XCTestCase {
         super.tearDown()
     }
 
-    /// A success envelope in the shape the first live signed-in read answered
-    /// with (2026-09-18), with `payload` where the numbers sit:
+    /// A success envelope in the shape both live signed-in reads answered with
+    /// (2026-09-18 and 2026-09-23), with `payload` where the numbers sit:
     /// `data.DataV2.data.data`. The wrapper around them — `DataV2.ret`'s
     /// platform message, and `msg`/`code`/`requestId`/`success` of its own — is
     /// as recorded, and the console's own client reads straight through it. So
@@ -92,8 +95,8 @@ final class QianwenUsageTests: XCTestCase {
 
     /// The first live signed-in read, as the app logged it on 2026-09-18:
     /// `per1WeekPercentage`, `per1WeekResetTime` and both `requestId`s replaced
-    /// with synthetic values, everything else as the platform sent it. It parsed
-    /// into exactly one window then, and this is that reading.
+    /// with synthetic values, everything else as the platform sent it. This is
+    /// the weekly plan's reading, and a weekly account still gets exactly it.
     func testTheRecordedSuccessReadsAsOneSevenDayWindow() throws {
         let recorded = """
         { "code": "200", "successResponse": true, "httpStatusCode": "200",
@@ -115,15 +118,133 @@ final class QianwenUsageTests: XCTestCase {
         XCTAssertEqual(windows.count, 1)
         let window = try XCTUnwrap(windows.first)
         XCTAssertEqual(window.id, "week")
+        XCTAssertEqual(window.label, "Weekly limit")
         XCTAssertEqual(window.duration, 7 * 86_400)
         XCTAssertEqual(window.usedFraction ?? -1, 0.42, accuracy: 0.0001)
         XCTAssertEqual(window.resetsAt, Date(timeIntervalSince1970: 1_700_179_200))
     }
 
+    /// The same call read on 2026-09-23, once the account's Token Plan was
+    /// monthly: the payload's own pair carries `per1Month*` and there is no
+    /// `per1Week*` field at all, which is exactly what the parser used to read
+    /// as nothing metered — the ring reported no usage. Same envelope through
+    /// `envelope(payload:)`, same synthetic percentage and reset time as the
+    /// weekly fixture.
+    func testTheMonthlyPlanReadsAsOneThirtyDayWindow() throws {
+        let windows = try QianwenUsage.windows(
+            fromJSON: envelope(
+                payload: #"{"per1MonthPercentage":0.42,"per1MonthResetTime":1700179200000}"#
+            ),
+            now: now
+        )
+
+        XCTAssertEqual(windows.count, 1)
+        let window = try XCTUnwrap(windows.first)
+        // The id is the role, not the period: `Sites.qianwen` resolves its
+        // headline and weekly rings by it, so "week" is what makes the ring
+        // draw this monthly reading at all. The period is what the label says.
+        XCTAssertEqual(window.id, "week")
+        XCTAssertEqual(window.label, "Monthly limit")
+        XCTAssertEqual(window.duration, 30 * 86_400)
+        XCTAssertEqual(window.usedFraction ?? -1, 0.42, accuracy: 0.0001)
+        XCTAssertEqual(window.resetsAt, Date(timeIntervalSince1970: 1_700_179_200))
+    }
+
+    /// Both pairs present is not a tie to break by preference: the console's
+    /// own card takes the weekly branch whenever `per1WeekPercentage` is there
+    /// (`t = e.per1WeekPercentage != null`), so the percentage and the reset
+    /// time have to be read from that same branch rather than per field.
+    func testWeeklyWinsWhenBothPairsArePresent() throws {
+        let window = try XCTUnwrap(try QianwenUsage.windows(
+            fromJSON: envelope(payload: """
+                {"per1WeekPercentage":0.42,"per1WeekResetTime":1700179200000,
+                 "per1MonthPercentage":0.9,"per1MonthResetTime":1704067200000}
+                """),
+            now: now
+        ).first)
+
+        XCTAssertEqual(window.label, "Weekly limit")
+        XCTAssertEqual(window.duration, 7 * 86_400)
+        XCTAssertEqual(window.usedFraction ?? -1, 0.42, accuracy: 0.0001)
+        XCTAssertEqual(window.resetsAt, Date(timeIntervalSince1970: 1_700_179_200),
+                       "the weekly branch's own reset time, not the monthly one")
+    }
+
+    /// An explicit JSON `null` is the *absence* of the weekly pair, not a
+    /// present-but-unreadable one. The console says the same thing —
+    /// `e.per1WeekPercentage != null` is false for `null` — so a monthly plan
+    /// that also answers a nulled weekly field still reads as monthly. Pinned
+    /// separately from the missing-key case because the two are only the same
+    /// answer if the `NSNull` check is actually there.
+    func testANulledWeeklyFieldStillReadsAsMonthly() throws {
+        let window = try XCTUnwrap(try QianwenUsage.windows(
+            fromJSON: envelope(payload: """
+                {"per1WeekPercentage":null,"per1MonthPercentage":0.42,
+                 "per1MonthResetTime":1700179200000}
+                """),
+            now: now
+        ).first)
+
+        XCTAssertEqual(window.label, "Monthly limit")
+        XCTAssertEqual(window.duration, 30 * 86_400)
+        XCTAssertEqual(window.usedFraction ?? -1, 0.42, accuracy: 0.0001)
+    }
+
+    /// The branch is chosen by the field's *presence*, not by whether its value
+    /// can be read — the one rule that separates this from a plausible
+    /// alternative (`number(weeklyValue) != nil`), which no other test here can
+    /// tell apart, since a readable weekly field makes both rules agree.
+    ///
+    /// An unreadable weekly field is a failed read of a weekly plan: falling
+    /// through to the monthly number would report a *different period's* usage
+    /// as this one's, which is worse than reporting nothing. So this is
+    /// `nothingMetered`, and specifically not a monthly reading of 0.42.
+    func testAnUnreadableWeeklyFieldDoesNotFallThroughToTheMonthlyOne() {
+        XCTAssertThrowsError(try QianwenUsage.windows(
+            fromJSON: envelope(payload: """
+                {"per1WeekPercentage":"abc","per1MonthPercentage":0.42,
+                 "per1MonthResetTime":1700179200000}
+                """)
+        )) { error in
+            guard case UsageProviderError.nothingMetered = error else {
+                return XCTFail("expected nothingMetered, got \(error)")
+            }
+        }
+    }
+
+    /// The whole path the ring takes, for the monthly payload: parsed windows
+    /// plus the roles `Sites.qianwen` declares for them. A read that labelled
+    /// the period correctly but reported it under an id of its own would pass
+    /// every assertion above and still draw an empty ring — `headline` returns
+    /// nil when no window matches `headlineID`. This is the assertion that
+    /// catches that class of bug rather than the parser's shape.
+    func testTheMonthlyPayloadStillResolvesTheSitesDeclaredRings() throws {
+        let windows = try QianwenUsage.windows(
+            fromJSON: envelope(
+                payload: #"{"per1MonthPercentage":0.42,"per1MonthResetTime":1700179200000}"#
+            ),
+            now: now
+        )
+        let site = Sites.qianwen
+        let snapshot = ProviderSnapshot(
+            id: site.id, displayName: site.displayName, glyph: site.glyph,
+            fidelity: site.fidelity, status: .ok,
+            windows: windows, headlineID: site.headlineID, weeklyID: site.weeklyID
+        )
+
+        let headline = try XCTUnwrap(snapshot.headline, "the main ring resolves no window")
+        XCTAssertEqual(headline.usedFraction ?? -1, 0.42, accuracy: 0.0001)
+        XCTAssertEqual(snapshot.weeklyLimitWindow?.usedFraction ?? -1, 0.42, accuracy: 0.0001)
+        // Same id in both roles, so the second ring is suppressed rather than
+        // drawing the one allowance twice.
+        XCTAssertNil(snapshot.weeklyWindow)
+    }
+
     /// `per1WeekPercentage` is the fraction of the 7-day allowance already
     /// spent — the console draws remaining as `1 - it` — and both ends are
     /// clamped, because the platform stops the work at the limit instead of
-    /// reporting past it.
+    /// reporting past it. The monthly field is the same kind of number and gets
+    /// the same clamp.
     func testPercentageIsTheSpentFractionAndIsClamped() throws {
         let window = try XCTUnwrap(try QianwenUsage.windows(
             fromJSON: envelope(payload: #"{"per1WeekPercentage":0.42}"#), now: now
@@ -137,11 +258,16 @@ final class QianwenUsageTests: XCTestCase {
         XCTAssertNil(window.remaining, "no credits in the payload, so no count to invent")
         XCTAssertNil(window.used)
 
-        for (percentage, expected) in [(1.4, 1.0), (-0.3, 0.0)] {
-            let clamped = try QianwenUsage.windows(
-                fromJSON: envelope(payload: #"{"per1WeekPercentage":\#(percentage)}"#), now: now
-            )
-            XCTAssertEqual(clamped.first?.usedFraction ?? -1, expected, accuracy: 0.0001)
+        for (field, duration) in [("per1WeekPercentage", 7 * 86_400 as TimeInterval),
+                                  ("per1MonthPercentage", 30 * 86_400 as TimeInterval)] {
+            for (percentage, expected) in [(1.4, 1.0), (-0.3, 0.0)] {
+                let clamped = try QianwenUsage.windows(
+                    fromJSON: envelope(payload: #"{"\#(field)":\#(percentage)}"#), now: now
+                )
+                XCTAssertEqual(clamped.first?.usedFraction ?? -1, expected,
+                               accuracy: 0.0001, field)
+                XCTAssertEqual(clamped.first?.duration, duration, field)
+            }
         }
     }
 
@@ -227,6 +353,42 @@ final class QianwenUsageTests: XCTestCase {
             #"{"plan":"lite"}"#,
             #"{"totalCredits":0,"remainingCredits":0}"#,
             #"{"totalCredits":"0.00","remainingCredits":"0.00"}"#
+        ] {
+            XCTAssertThrowsError(try QianwenUsage.windows(fromJSON: envelope(payload: payload))) { error in
+                guard case UsageProviderError.nothingMetered = error else {
+                    return XCTFail("expected nothingMetered for \(payload), got \(error)")
+                }
+            }
+        }
+    }
+
+    /// A number nobody can read is not a reading, and the console's own client
+    /// says so first: it refuses this very field unless
+    /// `typeof n == 'number' && Number.isFinite(n)` — so `"nan"`, which
+    /// `Double(_:)` happily parses, is refused there too.
+    ///
+    /// Without the same refusal here the fraction is not merely wrong, it is
+    /// fatal: `min(max(.nan, 0), 1)` is `NaN`, not a clamp, so the value passes
+    /// the parser's `guard` and reaches `Percent.text(for:)` /
+    /// `Percent.halves(for:)`, whose `Int(_: Double)` conversion aborts the
+    /// process — "Fatal error: Double value cannot be converted to Int because
+    /// it is either infinite or NaN". The same applies to a JSON number the
+    /// platform's own serialization cannot represent, which arrives as
+    /// `-infinity` rather than as a failure to parse.
+    func testNonFiniteNumbersAreNotReadings() {
+        for payload in [
+            // The string spellings `Double(_:)` accepts and JSON does not send.
+            #"{"per1WeekPercentage":"nan"}"#,
+            #"{"per1WeekPercentage":"inf"}"#,
+            #"{"per1MonthPercentage":"nan"}"#,
+            #"{"per1MonthPercentage":"-inf"}"#,
+            // Parsed as a number by `JSONSerialization`, and not a finite one:
+            // -1e400 saturates to -infinity rather than throwing.
+            #"{"per1WeekPercentage":-1e400}"#,
+            // The credit counts, where the string path reaches the same trap
+            // through `Int(_: Double)` instead: "1e30" parses as a double and
+            // aborts on the conversion.
+            #"{"totalCredits":"1e30","remainingCredits":"0"}"#
         ] {
             XCTAssertThrowsError(try QianwenUsage.windows(fromJSON: envelope(payload: payload))) { error in
                 guard case UsageProviderError.nothingMetered = error else {
@@ -356,6 +518,8 @@ final class QianwenUsageTests: XCTestCase {
         // A console session we hold, not a published API — the same reading
         // MiniMax's cookie path gets.
         XCTAssertEqual(site.fidelity, .derived)
+        XCTAssertEqual(site.headlineID, "week")
+        XCTAssertEqual(site.weeklyID, "week")
         XCTAssertEqual(site.associatedHosts,
                        ["platform-home.qianwenai.com", "cs-data.qianwenai.com",
                         "account.qianwenai.com", "account.aliyun.com"])

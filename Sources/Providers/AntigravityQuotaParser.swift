@@ -107,7 +107,7 @@ enum AntigravityQuotaParser {
             if let remaining = bucket.fraction, (0...1).contains(remaining) {
                 return LimitWindow(
                     id: rawID,
-                    group: groupName?.isEmpty == false ? groupName : nil,
+                    group: self.groupName(groupName),
                     label: self.label(for: bucket, fallback: "Usage"),
                     usedFraction: 1 - remaining,
                     resetsAt: reset,
@@ -118,7 +118,7 @@ enum AntigravityQuotaParser {
             else { return nil }
             return LimitWindow(
                 id: rawID,
-                group: groupName?.isEmpty == false ? groupName : nil,
+                group: self.groupName(groupName),
                 label: self.label(for: bucket, fallback: rawID),
                 usedFraction: used / limit,
                 resetsAt: reset,
@@ -169,22 +169,22 @@ enum AntigravityQuotaParser {
 
         var windows: [LimitWindow] = []
         if let window = self.aggregate(
-            geminiHourly, id: "gemini-hourly", group: "Gemini Models", label: "5-hour Limit", weekly: false)
+            geminiHourly, id: "gemini-hourly", group: L10n.t("Gemini Models"), label: L10n.t("5-hour Limit"), weekly: false)
         {
             windows.append(window)
         }
         if let window = self.aggregate(
-            geminiWeekly, id: "gemini-weekly", group: "Gemini Models", label: "Weekly Limit", weekly: true)
+            geminiWeekly, id: "gemini-weekly", group: L10n.t("Gemini Models"), label: L10n.t("Weekly Limit"), weekly: true)
         {
             windows.append(window)
         }
         if let window = self.aggregate(
-            thirdPartyHourly, id: "3p-hourly", group: "Claude and GPT models", label: "5-hour Limit", weekly: false)
+            thirdPartyHourly, id: "3p-hourly", group: L10n.t("Claude and GPT models"), label: L10n.t("5-hour Limit"), weekly: false)
         {
             windows.append(window)
         }
         if let window = self.aggregate(
-            thirdPartyWeekly, id: "3p-weekly", group: "Claude and GPT models", label: "Weekly Limit", weekly: true)
+            thirdPartyWeekly, id: "3p-weekly", group: L10n.t("Claude and GPT models"), label: L10n.t("Weekly Limit"), weekly: true)
         {
             windows.append(window)
         }
@@ -258,12 +258,29 @@ enum AntigravityQuotaParser {
         }
     }
 
+    /// The server names its windows in English whatever the app's language,
+    /// so the ones it is known to send are looked up in the catalog. Any other
+    /// name is shown as the server spelled it.
     private static func label(for bucket: Bucket, fallback: String) -> String {
         var value = bucket.displayName ?? fallback
         if value.hasSuffix(" Remaining") {
             value = String(value.dropLast(" Remaining".count))
         }
-        return value == "Five Hour Limit" ? "5-hour Limit" : value
+        switch value {
+        case "Five Hour Limit", "5-hour Limit": return L10n.t("5-hour Limit")
+        case "Weekly Limit": return L10n.t("Weekly Limit")
+        default: return value
+        }
+    }
+
+    /// The same for the groups the windows sit under.
+    private static func groupName(_ name: String?) -> String? {
+        guard let name, !name.isEmpty else { return nil }
+        switch name {
+        case "Gemini Models": return L10n.t("Gemini Models")
+        case "Claude and GPT models": return L10n.t("Claude and GPT models")
+        default: return name
+        }
     }
 
     private static func id(for bucket: Bucket, group: String?) -> String {

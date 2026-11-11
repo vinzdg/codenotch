@@ -32,6 +32,16 @@ struct UsageMoneyBreakdown: Codable, Equatable, Sendable {
         guard funded > 0 else { return 0 }
         return min(max(spent / funded, 0), 1)
     }
+
+    /// The bar's headline: spent by default, what is left when the notch is
+    /// set that way. The left half derives from the *rounded* spent figure,
+    /// the same rule as the window rows, so the two never disagree by a
+    /// point. The Spent/Remaining/Funded stats below stay labeled either way.
+    func headlineText(showingRemaining: Bool) -> String {
+        showingRemaining
+            ? "\(Percent.halves(for: spentFraction).left)% left"
+            : "\(Percent.text(for: spentFraction))% used"
+    }
 }
 
 enum ProviderStatus: Equatable {
@@ -93,6 +103,30 @@ enum Percent {
         if value > 0, value < 1 { return "<1" }
         if value > 99, value < 100 { return "99" }
         return "\(Int(value.rounded()))"
+    }
+
+    /// The same figure from the other end, for a menu bar set to read what is
+    /// left. Derived from the *rounded* used half, the rule `halves` follows,
+    /// so the bar and the tooltip under it never disagree by a point — and
+    /// with `whole`'s two guards answered from this end: a window barely
+    /// touched says ">99" rather than a full hundred, and one with a little
+    /// left says "<1" rather than "0".
+    static func wholeRemaining(for fraction: Double) -> String {
+        let value = max(0, fraction * 100)
+        if value > 0, value < 1 { return ">99" }
+        if value > 99, value < 100 { return "<1" }
+        return "\(max(0, 100 - Int(value.rounded())))"
+    }
+
+    /// The share of the allowance the meters draw: spent by default, what is
+    /// left when the notch is set that way. The one rule behind the ring's
+    /// sweep, the card's bars, and every flipped figure — callers clamp to
+    /// what they draw, so an overspent limit reads empty rather than
+    /// negative. Bands and pace never come through here: how bad a reading
+    /// is, and whether it is ahead of the clock, are questions about what
+    /// was spent, whichever end the meters draw from.
+    static func metered(_ fraction: Double, showingRemaining: Bool) -> Double {
+        showingRemaining ? 1 - fraction : fraction
     }
 
     private static func small(_ value: Double) -> String {
@@ -219,9 +253,14 @@ struct LimitWindow: Identifiable, Codable, Equatable {
     }
 
     /// What the tooltip says on the line under the bar.
-    var summary: String { summary(locale: L10n.locale) }
+    var summary: String { summary() }
 
-    func summary(locale: Locale = L10n.locale) -> String {
+    /// Both ends stay on the line either way — the card is the detailed view,
+    /// and dropping a figure there would hide information. The setting only
+    /// decides which end leads: the remaining figure first when the notch is
+    /// set that way, so the bar, the line, and the figure under the ring all
+    /// read from the same end.
+    func summary(locale: Locale = L10n.locale, showingRemaining: Bool = false) -> String {
         if let usedFraction {
             // Both ends of the same figure. Vendors do not agree on which to
             // show — Codex writes "87% remaining", Claude writes "% used" — so
@@ -230,6 +269,9 @@ struct LimitWindow: Identifiable, Codable, Equatable {
             // different numbers rather than one seen from either end. That is
             // what made a correct reading look wrong.
             let halves = Percent.halves(for: usedFraction)
+            if showingRemaining {
+                return L10n.t("\(halves.left)% left · \(halves.used)% Used", locale: locale)
+            }
             return L10n.t("\(halves.used)% Used · \(halves.left)% left", locale: locale)
         }
         if let remaining {
@@ -258,13 +300,16 @@ struct UsageBlock: Equatable {
     let reason: String
     /// When it lifts, where the vendor says.
     let resetsAt: Date?
+    /// Set when the store derived this block from a spent weekly allowance
+    /// rather than a provider reporting a pause. The ring and the card treat
+    /// both the same; the limit watcher tells them apart, because a spent
+    /// week has its own alert and must not also fire the session one.
+    var isWeeklyExhaustion = false
 
     /// The line the tooltip leads with.
     func summary(now: Date = Date(), calendar: Calendar = .current,
                  locale: Locale = L10n.locale) -> String {
         guard let resetsAt, resetsAt > now else { return reason }
-        let formatter = ResetCopy.formatter(for: calendar)
-        formatter.locale = locale
         // The same clock the vendor's own banner uses — "4:13 PM" — rather
         // than a countdown, because that is what you are waiting for. `j`
         // rather than `h` so the hour cycle is the region's, as in
@@ -272,14 +317,17 @@ struct UsageBlock: Equatable {
         let template = ResetCopy.daysApart(from: now, to: resetsAt,
                                            calendar: calendar) >= 1
             ? "E j:mm" : "j:mm"
-        formatter.setLocalizedDateFormatFromTemplate(template)
-        return L10n.t("\(reason) until \(formatter.string(from: resetsAt))", locale: locale)
+        let stamp = ResetCopy.formatter(template: template, calendar: calendar,
+                                        locale: locale).string(from: resetsAt)
+        return L10n.t("\(reason) until \(stamp)", locale: locale)
     }
 }
 
 struct ProviderSnapshot: Identifiable, Equatable {
     let id: String
-    let displayName: String
+    /// The provider's own name, or the one chosen for the account in
+    /// Settings; the store swaps it in before anything reads the snapshot.
+    var displayName: String
     let glyph: ProviderGlyph
     let fidelity: Fidelity
     var status: ProviderStatus
@@ -338,20 +386,27 @@ struct ProviderSnapshot: Identifiable, Equatable {
     /// the tooltip title. Nil when there is nothing to name.
     var plan: String? = nil
 
-    /// Unused rate-limit resets on this Codex account, listed by the same
-    /// backend as usage.
-    var resetCredits: CodexResetCredits? = nil
+    /// Unused rate-limit resets reported for this account.
+    var resetCredits: UsageResetCredits? = nil
 
-    /// Whether the Codex tooltip has a reset-credit section to draw.
+    /// Whether the tooltip has a reset-credit section to draw.
     ///
     /// The endpoint can successfully return an empty result. That is data,
     /// but it is not useful card content and must not reserve layout space.
     var hasAvailableResetCredits: Bool {
-        (resetCredits?.availableCount ?? 0) > 0
+        availableResetCredits(at: Date()) != nil
     }
+    func availableResetCredits(at now: Date) -> UsageResetCredits? {
+        guard let credits = resetCredits?.unexpired(at: now), credits.availableCount > 0 else { return nil }
+        return credits
+    }
+
     /// Provider-owned online usage detail, such as DeepSeek's API key/model
     /// breakdown and daily token/cost series.
     var usageDetail: ProviderUsageDetail? = nil
+
+    /// Locally sampled cumulative token usage for a custom endpoint.
+    var customUsageHistory: [CustomEndpointUsageDay]? = nil
 
     /// The number on the cell: the provider's declared primary window — for
     /// Claude, the current session.
@@ -385,6 +440,18 @@ struct ProviderSnapshot: Identifiable, Equatable {
         return windows.first { $0.isFiveHour && $0.group == nil }
     }
 
+    /// The provider-declared weekly allowance, whether or not another surface
+    /// is already using it as its headline.
+    ///
+    /// Kept separate from `weeklyWindow`: the notch deliberately suppresses a
+    /// duplicate second ring when the weekly allowance is already its headline,
+    /// while compact summaries still need to know that a valid weekly reading
+    /// exists alongside their own five-hour figure.
+    var weeklyLimitWindow: LimitWindow? {
+        guard let weeklyID else { return nil }
+        return windows.first { $0.id == weeklyID }
+    }
+
     /// The window the second ring draws, when one is switched on.
     ///
     /// Declared by the provider, exactly like `headlineID`, and for the same
@@ -396,28 +463,74 @@ struct ProviderSnapshot: Identifiable, Equatable {
     /// Nil means this provider has no second window worth a ring, which is a
     /// real answer rather than a missing one.
     var weeklyWindow: LimitWindow? {
-        guard let weeklyID else { return nil }
+        guard let weeklyLimitWindow else { return nil }
         // Never the window the headline is already drawing. Providers that pick
         // their headline by which limit is tightest — Antigravity does — will
         // sometimes land on the weekly one, and two rings reporting the same
         // number is worse than one: it reads as a second fact that happens to
         // agree, rather than as the same fact twice.
         guard weeklyID != headlineID else { return nil }
-        return windows.first { $0.id == weeklyID }
+        return weeklyLimitWindow
     }
 
     /// Nil when there is no weekly window, or when the provider reports one
     /// without a denominator — the same rule the headline ring follows.
     var weeklyFraction: Double? { weeklyWindow?.usedFraction }
 
-    /// What the cell prints under the ring.
-    var headlineText: String {
+    /// The weekly allowance is spent, shutting the headline with it even
+    /// where the headline still shows room. Nil unless the provider declared
+    /// a weekly window and reported it spent — without a denominator there
+    /// is no exhaustion to claim. A block the provider set itself is never
+    /// replaced: its own pause outranks a derived one.
+    var spentWeeklyBlock: UsageBlock? {
+        guard block == nil,
+              let weekly = weeklyLimitWindow,
+              let used = weekly.usedFraction, used >= 1 else { return nil }
+        return UsageBlock(reason: L10n.t("Weekly limit reached"), resetsAt: weekly.resetsAt,
+                          isWeeklyExhaustion: true)
+    }
+
+    /// Nothing left to spend: the headline window or the weekly allowance is
+    /// at 0% remaining, so the account cannot be used until a window resets.
+    /// Stale readings never count — an old number is not proof the account
+    /// is empty now; it may hold tokens the last fetch has not seen yet.
+    var isDepleted: Bool {
+        guard !status.isStale else { return false }
+        return (headline?.usedFraction ?? 0) >= 1
+            || (weeklyLimitWindow?.usedFraction ?? 0) >= 1
+    }
+
+    /// The snapshot with a spent week attached as a block, so every surface
+    /// that reads `block` — ring, card, menu, phone — treats the headline as
+    /// shut. Applied by the store on publication, before any derivation
+    /// swaps the headline and weekly ids around.
+    func blockingSpentWeek() -> ProviderSnapshot {
+        guard let spent = spentWeeklyBlock else { return self }
+        var snapshot = self
+        snapshot.block = spent
+        return snapshot
+    }
+
+    /// What the cell prints under the ring: the used percentage, unless the
+    /// notch is set to show what is left instead.
+    var headlineText: String { headlineText(showingRemaining: false) }
+
+    /// The same figure from the other end. Only the percentage line flips —
+    /// local runtimes report memory and speed rather than a quota, and an
+    /// explicit used-text or count line has no remaining figure to show.
+    func headlineText(showingRemaining: Bool) -> String {
         if kind == .localRuntime {
             return showsLocalPerformance ? (localPerformance?.headlineText ?? "— tok/s")
                 : (localModel?.memoryText ?? "—")
         }
         if headline?.prefersUsedText == true, let usedText = headline?.usedText { return usedText }
-        if let usedFraction { return Percent.text(for: usedFraction) + "%" }
+        if let usedFraction {
+            // The tooltip's own left half, not one minus the fraction: it
+            // derives from the *rounded* used figure, so the notch and the
+            // card never disagree by a point. See `Percent.halves`.
+            if showingRemaining { return Percent.halves(for: usedFraction).left + "%" }
+            return Percent.text(for: usedFraction) + "%"
+        }
         if let remaining = headline?.remaining { return LimitWindow.compact(remaining) }
         if let usedText = headline?.usedText { return usedText }
         if let used = headline?.used { return LimitWindow.compact(used) }
@@ -452,15 +565,25 @@ struct ProviderSnapshot: Identifiable, Equatable {
         let locale = L10n.locale
         switch id {
         case "claude":     return L10n.t("Sign in to Claude Code to read your usage", locale: locale)
+        // A remote login is signed in where it lives, over ssh — and only the
+        // stored host knows where that is.
+        case _ where RemoteHost.isRemoteClaude(providerID: id):
+            let destination = RemoteHost.destination(forProviderID: id) ?? "that server"
+            return L10n.t("Sign in to Claude Code on \(destination) to read this account's usage", locale: locale)
         // A profile is signed in by running Claude Code against its directory,
         // which is worth saying: plain `claude` signs the default one in.
         case _ where ClaudeProfile.isClaude(providerID: id):
             let slug = ClaudeProfile.slug(fromProviderID: id) ?? ""
             return L10n.t("Sign in to Claude Code in ~/.claude-\(slug) to read your usage", locale: locale)
         case "cursor":     return L10n.t("Sign in to Cursor in the editor", locale: locale)
+        case "grokbot":    return L10n.t("Sign in to Grok Bot in the app", locale: locale)
         case "codex":      return L10n.t("Sign in to Codex to read your usage", locale: locale)
         case "deepseek":   return L10n.t("Sign in to DeepSeek Platform to read your usage", locale: locale)
+        case "qoder": return L10n.t("Sign in to Qoder to read your credit usage", locale: locale)
         case "qianwenai":  return L10n.t("Sign in to QianwenAI to read your Token Plan usage", locale: locale)
+        case _ where RemoteHost.isRemoteCodex(providerID: id):
+            let destination = RemoteHost.destination(forProviderID: id) ?? "that server"
+            return L10n.t("Sign in to Codex on \(destination) to read this account's usage", locale: locale)
         case _ where CodexProfile.slug(fromProviderID: id) != nil:
             let slug = CodexProfile.slug(fromProviderID: id)!
             return L10n.t("Sign in to Codex in ~/.codex-\(slug) to read your usage", locale: locale)
@@ -472,12 +595,21 @@ struct ProviderSnapshot: Identifiable, Equatable {
         case "copilot":    return L10n.t("Sign in with GitHub CLI to read your Copilot usage", locale: locale)
         case "opencode":   return L10n.t("Connect the Go plan in OpenCode to read your usage", locale: locale)
         case "commandcode": return L10n.t("Sign in with the Command Code app to read your usage", locale: locale)
+        case _ where CommandCodeProfile.slug(fromProviderID: id) != nil:
+            let slug = CommandCodeProfile.slug(fromProviderID: id)!
+            return L10n.t("Sign in to Command Code in ~/.commandcode-\(slug) to read your usage", locale: locale)
         case "kiro":       return L10n.t("Sign in with kiro-cli to read your usage", locale: locale)
+        case "amp":        return L10n.t("Run amp login in Terminal to read your usage", locale: locale)
+        case "apify":      return L10n.t("Run apify login in Terminal, or paste an Apify API token in Settings", locale: locale)
+        case "kilo":       return L10n.t("Sign in with the Kilo CLI to read your usage", locale: locale)
+        case "higgsfield": return L10n.t("Run hf auth login in Terminal, or paste a Higgsfield API key in Settings", locale: locale)
+        case "krea":       return L10n.t("Run krea auth login in Terminal, or paste a Krea API key in Settings", locale: locale)
         // Two Ollamas, and they are stuck for different reasons: the hosted
         // one wants a key, the local one wants the daemon running.
         case "ollama":       return L10n.t("Enter an Ollama API key in Settings, or export OLLAMA_API_KEY", locale: locale)
         case "ollama-local": return L10n.t("Start Ollama to monitor your local models", locale: locale)
         case "lmstudio":     return L10n.t("Start LM Studio's server to monitor your local models", locale: locale)
+        case "omlx":         return L10n.t("Start oMLX's server to monitor your local models", locale: locale)
         default:           return L10n.t("Sign in to \(displayName) to read your usage", locale: locale)
         }
     }

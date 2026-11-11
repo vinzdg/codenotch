@@ -1,7 +1,7 @@
 //! "Is it working?" for the non-Claude providers (Claude's local sessions go through the hooks +
 //! transcript-watcher engine, not here).
 //!
-//! None of the three has a state field like Claude Code's, so each is labelled with whatever it
+//! None of these has a state field like Claude Code's, so each is labelled with whatever it
 //! can honestly provide (the same trade-off upstream made):
 //!   - Cursor: the `composerHeaders` rows (JSON) in the editor's `state.vscdb` — `unfinishedRunAt`
 //!     is set for the duration of a run and cleared when it ends; `hasBlockingPendingActions` /
@@ -17,6 +17,8 @@
 //!   - Antigravity: transcript.jsonl is appended during a run (each step is written only once it
 //!     completes, so status is always DONE and useless); written within the last 45 s = working
 //!     (the model can think for a long time between steps, hence the wide window).
+//!   - OpenCode: `time_updated` on a non-idle `session_v2` row in opencode.db, touched within the
+//!     last 2 minutes = working; the card names the session, its model and its recorded cost.
 //!
 //! Polled every 2 s (upstream cadence), broadcast only on change. Cost discipline: database
 //! connections stay open, nothing is re-queried unless the file's mtime changed, the rollout tail
@@ -33,7 +35,7 @@ const ANTIGRAVITY_STALE_MS: u64 = 45_000;
 
 #[derive(Clone, Serialize, Debug, PartialEq)]
 pub struct Activity {
-    /// Provider id other than claude: codex / cursor / gemini
+    /// Provider id other than claude: codex / cursor / gemini / opencode
     pub provider: String,
     /// busy | waiting
     pub state: String,
@@ -119,6 +121,7 @@ struct Ctx {
     rollout_checked_at: u64,
     rollout_sig: u64,
     rollout_last: Vec<Activity>,
+    opencode: DbCache,
 }
 
 impl Ctx {
@@ -132,6 +135,7 @@ impl Ctx {
             rollout_checked_at: 0,
             rollout_sig: 0,
             rollout_last: Vec::new(),
+            opencode: DbCache::new(crate::opencode::db_path().unwrap_or_default()),
         }
     }
 }
@@ -514,6 +518,73 @@ fn antigravity_activity() -> Vec<Activity> {
     vec![Activity { provider: "gemini".into(), state: "busy".into(), name: "Antigravity".into(), detail: "Working".into(), since: at }]
 }
 
+// ---------------- OpenCode ----------------
+
+/// A session row touched this recently is a run in progress: OpenCode streams assistant parts,
+/// so an active turn keeps `time_updated` moving. Wider than Antigravity's 45 s because an
+/// external model can think for minutes between writes.
+const OPENCODE_ACTIVE_WINDOW_MS: u64 = 120_000;
+
+/// session_v2 rows the CLI/Desktop wrote recently and has not marked idle: real per-session
+/// model usage, taken from the local database, never invented. A "waiting" state is not derived:
+/// OpenCode's pending-permission shape is not documented, and guessing a table layout would
+/// report sessions that are not waiting.
+fn opencode_activity(ctx: &mut Ctx) -> Vec<Activity> {
+    if !ctx.opencode.path.is_file() {
+        // OpenCode may have been installed after the probe thread started: re-locate the database.
+        if let Some(p) = crate::opencode::db_path() {
+            ctx.opencode = DbCache::new(p);
+        } else {
+            return Vec::new();
+        }
+    }
+    // "Working" is a two-minute window, not something the file says: a session that stops without
+    // marking itself idle (a crash, a killed terminal) writes nothing more, so the mtime gate would
+    // keep serving it as working forever. Once the last update ages out, ask again.
+    let now = now_ms();
+    if ctx.opencode.last.iter().any(|a| now.saturating_sub(a.since) >= OPENCODE_ACTIVE_WINDOW_MS) {
+        ctx.opencode.checked_once = false;
+    }
+    ctx.opencode.refresh(|conn| {
+        let mut stmt = conn
+            .prepare(
+                "SELECT title, model, cost, time_updated FROM session_v2
+                 WHERE time_idle IS NULL AND time_archived IS NULL AND time_updated >= ?1
+                 ORDER BY time_updated DESC LIMIT 6",
+            )
+            .ok()?;
+        let floor = now_ms().saturating_sub(OPENCODE_ACTIVE_WINDOW_MS) as i64;
+        let rows = stmt
+            .query_map([floor], |r| {
+                Ok((
+                    r.get::<_, Option<String>>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, Option<f64>>(2)?,
+                    r.get::<_, Option<i64>>(3)?,
+                ))
+            })
+            .ok()?;
+        let mut out = Vec::new();
+        for (title, model, cost, updated) in rows.flatten() {
+            let Some(at) = updated.filter(|t| *t >= 0).map(|t| t as u64) else { continue };
+            let detail = match (model.as_deref(), cost) {
+                (Some(m), Some(c)) => format!("{m} · ${c:.2}"),
+                (Some(m), None) => m.to_string(),
+                (None, Some(c)) => format!("${c:.2}"),
+                (None, None) => "Working".into(),
+            };
+            out.push(Activity {
+                provider: "opencode".into(),
+                state: "busy".into(),
+                name: title.unwrap_or_else(|| "Untitled session".into()),
+                detail,
+                since: at,
+            });
+        }
+        Some(out)
+    })
+}
+
 // ---------------- Putting it together ----------------
 
 #[derive(Clone, Copy, Default)]
@@ -521,10 +592,16 @@ pub struct Presence {
     cursor: bool,
     codex: bool,
     gemini: bool,
+    opencode: bool,
 }
 
 fn presence() -> Presence {
-    Presence { cursor: crate::cursor::present(), codex: crate::codex::present(), gemini: crate::antigravity::present() }
+    Presence {
+        cursor: crate::cursor::present(),
+        codex: crate::codex::present(),
+        gemini: crate::antigravity::present(),
+        opencode: crate::opencode::present(),
+    }
 }
 
 fn read_all(p: Presence, ctx: &mut Ctx) -> Vec<Activity> {
@@ -538,6 +615,9 @@ fn read_all(p: Presence, ctx: &mut Ctx) -> Vec<Activity> {
     }
     if p.gemini {
         all.extend(antigravity_activity());
+    }
+    if p.opencode {
+        all.extend(opencode_activity(ctx));
     }
     all
 }
@@ -617,4 +697,84 @@ pub fn start(app: AppHandle) {
             std::thread::sleep(INTERVAL);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_db(tag: &str, setup: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("cn-opencode-{}-{tag}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("opencode.db");
+        let _ = std::fs::remove_file(&p);
+        let conn = rusqlite::Connection::open(&p).unwrap();
+        conn.execute_batch(setup).unwrap();
+        drop(conn);
+        p
+    }
+
+    fn session_table() -> String {
+        "CREATE TABLE session_v2(id TEXT, title TEXT, model TEXT, cost REAL, time_updated INTEGER, time_idle INTEGER, time_archived INTEGER);".into()
+    }
+
+    #[test]
+    fn opencode_working_means_a_fresh_non_idle_session() {
+        let now = now_ms() as i64;
+        let p = temp_db(
+            "fresh",
+            &format!(
+                "{}
+                 INSERT INTO session_v2 VALUES ('a','Fix bug','openrouter/deepseek',0.42,{now},NULL,NULL);
+                 INSERT INTO session_v2 VALUES ('b','Idle one','x',0.10,{now},1700000000000,NULL);
+                 INSERT INTO session_v2 VALUES ('c','Archived one','x',0.10,{now},NULL,1700000000000);
+                 INSERT INTO session_v2 VALUES ('d','Old one','x',0.00,{},NULL,NULL);",
+                session_table(),
+                now - 600_000
+            ),
+        );
+        let mut ctx = Ctx::new();
+        ctx.opencode = DbCache::new(p);
+        let acts = opencode_activity(&mut ctx);
+        assert_eq!(acts.len(), 1, "only the fresh, non-idle, non-archived row counts");
+        let a = &acts[0];
+        assert_eq!(a.provider, "opencode");
+        assert_eq!(a.state, "busy");
+        assert_eq!(a.name, "Fix bug");
+        assert!(a.detail.contains("openrouter/deepseek") && a.detail.contains("$0.42"), "{}", a.detail);
+    }
+
+    #[test]
+    fn an_opencode_session_that_stops_writing_ages_out_without_a_file_change() {
+        let now = now_ms() as i64;
+        let p = temp_db(
+            "ages",
+            &format!(
+                "{}
+                 INSERT INTO session_v2 VALUES ('a','Crashed','x',0.0,{},NULL,NULL);",
+                session_table(),
+                now - 60_000
+            ),
+        );
+        let mut ctx = Ctx::new();
+        ctx.opencode = DbCache::new(p.clone());
+        assert_eq!(opencode_activity(&mut ctx).len(), 1, "a minute old: still working");
+        // The same file, untouched, read after the row has aged past the window.
+        for a in ctx.opencode.last.iter_mut() {
+            a.since = a.since.saturating_sub(OPENCODE_ACTIVE_WINDOW_MS);
+        }
+        let conn = rusqlite::Connection::open(&p).unwrap();
+        conn.execute("UPDATE session_v2 SET time_updated = ?1", [now - 600_000]).unwrap();
+        drop(conn);
+        ctx.opencode.sig = ctx.opencode.signature();
+        assert!(opencode_activity(&mut ctx).is_empty(), "no write since, so no longer working");
+    }
+
+    #[test]
+    fn opencode_without_the_table_is_silence_not_an_error() {
+        let p = temp_db("notable", "CREATE TABLE kv(x INTEGER);");
+        let mut ctx = Ctx::new();
+        ctx.opencode = DbCache::new(p);
+        assert!(opencode_activity(&mut ctx).is_empty());
+    }
 }

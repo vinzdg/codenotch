@@ -25,21 +25,13 @@ enum KiroUsage {
         // ASCII phrases, POSIX folding: Turkish `I` → `ı` would miss "in" / "login".
         let lowered = stripped.lowercased(with: posix)
 
-        if lowered.contains("not logged in")
-            || lowered.contains("login required")
-            || lowered.contains("failed to initialize auth portal")
-            || lowered.contains("kiro-cli login")
-            || lowered.contains("oauth error") {
-            throw UsageProviderError.needsAuth
-        }
-
         let planRaw = planName(in: stripped)
-        let percent = firstDouble(in: stripped, pattern: #"█+\s*(\d+)%"#)
+        let percent = percentValue(in: stripped)
         let credits = creditPair(in: stripped)
         let resetsAt = resetDate(in: stripped, now: now)
         let bonus = bonusCredits(in: stripped)
         let overageEnabled = overageFlag(in: stripped)
-        let overageUsedCLI = firstDouble(in: stripped, pattern: #"(?i)Credits used:\s*(\d+\.?\d*)"#)
+        let overageUsedCLI = firstDouble(in: stripped, pattern: #"(?i)Credits used:\s*([\d,]+\.?\d*)"#)
 
         // Percent wins when both are present. `(X of Y covered)` is used of
         // total — the dashboard's "X used / Y covered" — not remaining.
@@ -49,7 +41,15 @@ enum KiroUsage {
             return credits.used / credits.total
         }()
         let hasUsageMetrics = usedFraction != nil
+
         if planRaw == nil, !hasUsageMetrics, bonus.used == nil {
+            if lowered.contains("not logged in")
+                || lowered.contains("login required")
+                || lowered.contains("failed to initialize auth portal")
+                || lowered.contains("kiro-cli login")
+                || lowered.contains("oauth error") {
+                throw UsageProviderError.needsAuth
+            }
             throw UsageProviderError.nothingMetered(L10n.t("Kiro CLI reported no usage"))
         }
 
@@ -141,28 +141,50 @@ enum KiroUsage {
     /// `Plan:` is not anchored at column 0 — the TUI wraps the line in box
     /// drawing. Horizontal whitespace only on the pipe form, so `| KIRO`
     /// cannot swallow the next line.
+    private static func percentValue(in text: String) -> Double? {
+        if let val = firstDouble(in: text, pattern: #"[█▓▒░■#=\-─━]+\s*(\d+(?:\.\d+)?)\s*%"#) {
+            return val
+        }
+        if let val = firstDouble(in: text, pattern: #"(?i)Credits[^\n%]*?\s+(\d+(?:\.\d+)?)\s*%"#) {
+            return val
+        }
+        if let val = firstDouble(in: text, pattern: #"(?:^|\n)[^\n%]*?[█▓▒░■#=\-─━\s]{3,}\s*(\d+(?:\.\d+)?)\s*%"#) {
+            return val
+        }
+        return nil
+    }
+
+    /// `Plan:` is not anchored at column 0 — the TUI wraps the line in box
+    /// drawing. Horizontal whitespace only on the pipe form, so `| KIRO`
+    /// cannot swallow the next line.
     private static func planName(in text: String) -> String? {
         if let name = firstCapture(
             in: text,
-            pattern: #"Plan:[ \t]*([^|\r\n]+?)[ \t]*\|[ \t]*[0-9]+[ \t]+usage breakdowns?"#
+            pattern: #"(?i)Plan:[ \t]*([^|│┃\r\n]+?)[ \t]*[|│┃][ \t]*[0-9]+[ \t]+usage breakdowns?"#
+        ), !name.isEmpty {
+            return name
+        }
+        if let line = text.components(separatedBy: .newlines).first(where: {
+            $0.range(of: "Estimated Usage", options: .caseInsensitive) != nil
+        }) {
+            let parts = line.split(whereSeparator: { $0 == "|" || $0 == "│" || $0 == "┃" })
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            for part in parts.dropFirst() {
+                if part.range(of: "resets on", options: .caseInsensitive) == nil {
+                    return part
+                }
+            }
+        }
+        if let name = firstCapture(
+            in: text,
+            pattern: #"(?i)(?:^|\n)[ \t]*[|│┃][ \t]*((?:KIRO)(?:[ \t]+[A-Za-z0-9+]+)+)"#
         ), !name.isEmpty {
             return name
         }
         if let name = firstCapture(
             in: text,
-            pattern: #"Estimated Usage[ \t]*\|[^\n|]*\|[ \t]*([A-Z][A-Z0-9+ ]+)"#
-        ), !name.isEmpty {
-            return name
-        }
-        if let name = firstCapture(
-            in: text,
-            pattern: #"\|[ \t]*(KIRO(?:[ \t]+[A-Za-z0-9+]+)+)"#
-        ), !name.isEmpty {
-            return name
-        }
-        if let name = firstCapture(
-            in: text,
-            pattern: #"Plan:[ \t]*([^|\r\n]+)"#
+            pattern: #"(?i)Plan:[ \t]*([^|│┃\r\n]+)"#
         ), !name.isEmpty {
             return name
         }
@@ -170,24 +192,31 @@ enum KiroUsage {
     }
 
     private static func creditPair(in text: String) -> (used: Double, total: Double)? {
-        let values = captures(in: text, pattern: #"\((\d+\.?\d*)\s+of\s+(\d+)\s+covered"#)
+        let values = captures(
+            in: text,
+            pattern: #"(?:\(|\b)([\d,]+\.?\d*)\s*(?:of|/)\s*([\d,]+\.?\d*)\s*(?:credits\s+)?covered"#
+        )
         guard values.count >= 2,
-              let used = Double(values[0]),
-              let total = Double(values[1])
+              let used = parseNumber(values[0]),
+              let total = parseNumber(values[1])
         else { return nil }
         return (used, total)
     }
 
+    private static func parseNumber(_ text: String) -> Double? {
+        Double(text.replacingOccurrences(of: ",", with: ""))
+    }
+
     private static func bonusCredits(in text: String) -> (used: Double?, total: Double?, expiryDays: Int?) {
-        let pair = captures(in: text, pattern: #"Bonus credits:\s*(\d+\.?\d*)/(\d+)"#)
-        let used = pair.count >= 2 ? Double(pair[0]) : nil
-        let total = pair.count >= 2 ? Double(pair[1]) : nil
-        let expiryDays = firstCapture(in: text, pattern: #"expires in (\d+) days?"#).flatMap(Int.init)
+        let pair = captures(in: text, pattern: #"(?i)Bonus credits:\s*([\d,]+\.?\d*)\s*(?:/|of)\s*([\d,]+\.?\d*)"#)
+        let used = pair.count >= 2 ? parseNumber(pair[0]) : nil
+        let total = pair.count >= 2 ? parseNumber(pair[1]) : nil
+        let expiryDays = firstCapture(in: text, pattern: #"(?i)expires in (\d+) days?"#).flatMap(Int.init)
         return (used, total, expiryDays)
     }
 
     private static func overageFlag(in text: String) -> Bool? {
-        guard let status = firstCapture(in: text, pattern: #"(?i)Overages:\s*([^\n]+)"#) else {
+        guard let status = firstCapture(in: text, pattern: #"(?i)Overages?:\s*([^\n]+)"#) else {
             return nil
         }
         let lower = status.lowercased(with: posix)
@@ -203,17 +232,18 @@ enum KiroUsage {
     private static func resetDate(in text: String, now: Date) -> Date? {
         guard let stamp = firstCapture(
             in: text,
-            pattern: #"resets on (\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2})"#
+            pattern: #"(?i)resets on\s*:?\s*(\d{4}[-/]\d{2}[-/]\d{2}|\d{1,2}/\d{1,2})"#
         ) else { return nil }
 
         let calendar = gregorian
-        if stamp.contains("-") {
+        if stamp.contains("-") || stamp.count >= 8 {
+            let normalized = stamp.replacingOccurrences(of: "/", with: "-")
             let formatter = DateFormatter()
             formatter.calendar = calendar
             formatter.locale = posix
             formatter.timeZone = calendar.timeZone
             formatter.dateFormat = "yyyy-MM-dd"
-            return formatter.date(from: stamp)
+            return formatter.date(from: normalized)
         }
 
         let parts = stamp.split(separator: "/")
@@ -234,7 +264,7 @@ enum KiroUsage {
     }
 
     private static func firstDouble(in text: String, pattern: String) -> Double? {
-        firstCapture(in: text, pattern: pattern).flatMap(Double.init)
+        firstCapture(in: text, pattern: pattern).flatMap(parseNumber)
     }
 
     private static func firstCapture(in text: String, pattern: String) -> String? {

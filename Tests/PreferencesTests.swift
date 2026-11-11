@@ -66,6 +66,7 @@ final class PreferencesMigrationTests: XCTestCase {
         let preferences = Preferences(defaults: fresh)
         XCTAssertTrue(preferences.isFirstLaunch)
         XCTAssertEqual(preferences.notchVisibility, .onHover)
+        XCTAssertEqual(preferences.autoHideMode, .onFullscreen)
         XCTAssertTrue(preferences.foldsForFullScreen)
         XCTAssertEqual(preferences.appPresence, .dock)
         XCTAssertEqual(preferences.notchEdge, .right)
@@ -269,6 +270,18 @@ final class PreferencesMigrationTests: XCTestCase {
         XCTAssertEqual(reloaded.deepSeekPricingSchedule, .current)
     }
 
+    func testTurningOffTheHolidayRuleSurvivesARelaunch() {
+        let (fresh, name) = makeDefaults()
+        XCTAssertTrue(Preferences(defaults: fresh).deepSeekPricingSchedule.offPeakOnChineseHolidays)
+
+        var schedule = DeepSeekPricing.Schedule.current
+        schedule.offPeakOnChineseHolidays = false
+        Preferences(defaults: fresh).deepSeekPricingSchedule = schedule
+
+        let reloaded = Preferences(defaults: UserDefaults(suiteName: name)!)
+        XCTAssertFalse(reloaded.deepSeekPricingSchedule.offPeakOnChineseHolidays)
+    }
+
     /// Off by default, and it has to stay chosen once it is chosen: an extra
     /// arc in a 44pt circle changes how every reading looks, so it is not
     /// something to switch on for somebody, nor to forget they switched on.
@@ -281,15 +294,61 @@ final class PreferencesMigrationTests: XCTestCase {
         XCTAssertEqual(Preferences(defaults: UserDefaults(suiteName: name)!).weeklyRing, .outside)
     }
 
-    /// On by default — it is how the notch is carried to another edge — and
-    /// once somebody hides it, it has to stay hidden across a relaunch.
-    func testTheMoveHandleShowsUntilHiddenAndStaysHidden() {
+    /// The arc is what every existing install already shows, so the disc has
+    /// to be asked for, and has to stay chosen once it is.
+    func testTheWorkingIndicatorIsTheArcUntilAskedForAndThenSurvivesARelaunch() {
         let (fresh, name) = makeDefaults()
-        XCTAssertTrue(Preferences(defaults: fresh).showsMoveHandle)
+        XCTAssertEqual(Preferences(defaults: fresh).busyIndicatorStyle, .arc)
 
-        Preferences(defaults: fresh).showsMoveHandle = false
+        Preferences(defaults: fresh).busyIndicatorStyle = .breath
 
-        XCTAssertFalse(Preferences(defaults: UserDefaults(suiteName: name)!).showsMoveHandle)
+        XCTAssertEqual(Preferences(defaults: UserDefaults(suiteName: name)!).busyIndicatorStyle, .breath)
+    }
+
+    /// Off by default — used is what the notch has always drawn — and once
+    /// somebody flips it, it has to stay flipped across a relaunch.
+    func testRemainingStaysUsedUntilAskedForAndThenSurvivesARelaunch() {
+        let (fresh, name) = makeDefaults()
+        XCTAssertFalse(Preferences(defaults: fresh).showsRemainingInNotch)
+
+        Preferences(defaults: fresh).showsRemainingInNotch = true
+
+        XCTAssertTrue(Preferences(defaults: UserDefaults(suiteName: name)!).showsRemainingInNotch)
+    }
+
+    /// On by default — a spent window pretending its rings are usable is the
+    /// worse surprise — and it has to stay off across a relaunch once asked.
+    func testShutRingsDefaultOnAndSurviveARelaunch() {
+        let (fresh, name) = makeDefaults()
+        XCTAssertTrue(Preferences(defaults: fresh).shutRingsWhenSpent)
+
+        Preferences(defaults: fresh).shutRingsWhenSpent = false
+
+        XCTAssertFalse(Preferences(defaults: UserDefaults(suiteName: name)!).shutRingsWhenSpent)
+    }
+
+    /// Manual by default — the manual arrangement is what dragging built —
+    /// and once somebody picks a sort, it has to stay picked across a
+    /// relaunch.
+    func testAutoOrderStaysManualUntilAskedForAndThenSurvivesARelaunch() {
+        let (fresh, name) = makeDefaults()
+        XCTAssertEqual(Preferences(defaults: fresh).ringOrder, .manual)
+
+        Preferences(defaults: fresh).ringOrder = .remaining
+
+        XCTAssertEqual(Preferences(defaults: UserDefaults(suiteName: name)!).ringOrder, .remaining)
+    }
+
+    /// Off by default — rings disappearing unasked would strand the manual
+    /// arrangement — and once somebody flips it, it has to stay flipped
+    /// across a relaunch.
+    func testDepletedAccountsStayVisibleUntilAskedToHideAndThenSurvivesARelaunch() {
+        let (fresh, name) = makeDefaults()
+        XCTAssertFalse(Preferences(defaults: fresh).hideDepletedAccounts)
+
+        Preferences(defaults: fresh).hideDepletedAccounts = true
+
+        XCTAssertTrue(Preferences(defaults: UserDefaults(suiteName: name)!).hideDepletedAccounts)
     }
 
     /// The size has to outlive the launch that chose it, or it reads as a
@@ -422,6 +481,7 @@ final class MenuBarLimitsPreferenceTests: XCTestCase {
         upgraded.set(AppPresence.menuBar.rawValue, forKey: "appPresence")
         let preferences = Preferences(defaults: upgraded)
         XCTAssertFalse(preferences.showsLimitsInMenuBar)
+        XCTAssertFalse(preferences.showsWeeklyLimitInMenuBar)
         XCTAssertNil(preferences.menuBarProviders, "never chosen, not chosen as none")
     }
 
@@ -430,10 +490,12 @@ final class MenuBarLimitsPreferenceTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: name) }
         let preferences = Preferences(defaults: defaults)
         preferences.showsLimitsInMenuBar = true
+        preferences.showsWeeklyLimitInMenuBar = true
         preferences.setInMenuBar(false, for: "claude", among: ["claude", "codex"])
 
         let reopened = try reopen(name)
         XCTAssertTrue(reopened.showsLimitsInMenuBar)
+        XCTAssertTrue(reopened.showsWeeklyLimitInMenuBar)
         XCTAssertEqual(reopened.menuBarProviders, ["codex"])
         XCTAssertFalse(reopened.isInMenuBar("claude"))
         XCTAssertTrue(reopened.isInMenuBar("codex"))
@@ -496,5 +558,65 @@ final class MenuBarLimitsPreferenceTests: XCTestCase {
         XCTAssertTrue(reopened.isConnected("claude"))
         XCTAssertFalse(reopened.isConnected("codex"))
         XCTAssertEqual(reopened.menuBarProviders, ["codex", "gemini"])
+    }
+}
+
+/// One channel for every notification. The notch is the default because it
+/// is what every earlier version did; the choice has to survive a relaunch.
+@MainActor
+final class NotificationChannelPreferenceTests: XCTestCase {
+    private func makeDefaults() -> UserDefaults {
+        let name = "PreferencesTests.channel.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return defaults
+    }
+
+    func testTheNotchIsTheDefault() {
+        XCTAssertEqual(Preferences(defaults: makeDefaults()).notificationChannel, .notch)
+    }
+
+    func testTheChoiceIsKept() {
+        let defaults = makeDefaults()
+        Preferences(defaults: defaults).notificationChannel = .mac
+        XCTAssertEqual(Preferences(defaults: defaults).notificationChannel, .mac)
+    }
+
+    func testEveryChannelExplainsItself() {
+        for channel in NotificationChannel.allCases {
+            XCTAssertFalse(channel.title.isEmpty)
+            XCTAssertFalse(channel.explanation.isEmpty)
+        }
+    }
+}
+
+/// How small the notch may be made.
+final class NotchScaleRangeTests: XCTestCase {
+    /// The floor was 0.75, set there because the percentage under each ring
+    /// stopped being readable below it. That reading is its own setting now,
+    /// so the floor no longer has to protect type that can be switched off.
+    func testTheSliderReachesHalfSize() {
+        XCTAssertEqual(Preferences.customScaleRange.lowerBound, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(Preferences.customScaleRange.upperBound, 1.5, accuracy: 0.0001)
+    }
+
+    /// The presets stay inside it, or a preset would be unreachable by slider.
+    func testEveryPresetIsInsideTheSliderRange() {
+        for size in NotchSize.allCases {
+            XCTAssertTrue(Preferences.customScaleRange.contains(Double(size.scale)),
+                          "\(size.rawValue) at \(size.scale) is outside the slider's range")
+        }
+    }
+
+    /// And a half-size notch is still a target you can hit: the wake band has
+    /// a floor of its own, so the pill does not shrink out of reach with it.
+    @MainActor
+    func testAHalfSizeNotchIsStillReachable() {
+        let m = NotchViewModel()
+        m.edge = .right
+        m.sizeScale = 0.5
+        XCTAssertGreaterThanOrEqual(m.wakeDepth, NotchLayout.pillHotZone,
+                                    "the hot zone shrank with the notch")
+        XCTAssertGreaterThanOrEqual(m.wakeLength, NotchLayout.pillHotZone)
     }
 }

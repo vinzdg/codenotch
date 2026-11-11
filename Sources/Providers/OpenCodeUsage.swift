@@ -16,7 +16,17 @@ import Foundation
 /// inversion. `resetsAt` carries milliseconds, which the plain ISO8601
 /// formatter refuses to read, so both fractional and plain forms are tried.
 enum OpenCodeUsage {
+    /// The Go plan's API key. This is the route the key is for.
     static let endpoint = URL(string: "https://opencode.ai/zen/go/v1/usage")!
+    /// The same figures for an OAuth sign-in — the `inference/` routes OpenCode
+    /// itself uses once signed in. The pairing is not interchangeable:
+    /// `zen/go` answers an OAuth token 401 even on an account that has Go, and
+    /// `inference/go` answers a Go key the same way. Both 401s are
+    /// indistinguishable from "no Go plan", so sending the wrong one reads as
+    /// a signed-out app rather than as a bug. See `OpenCodeProvider`.
+    static let oauthEndpoint = URL(string: "https://opencode.ai/inference/go/v1/usage")!
+    /// Where an OAuth sign-in's `metadata.server` points when it names none.
+    static let defaultConsole = URL(string: "https://opencode.ai/console")!
 
     /// Window ids in headline order. The ring means the rolling window — the
     /// current one, the same subject Claude's session and Codex's primary are.

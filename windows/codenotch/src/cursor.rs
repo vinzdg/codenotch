@@ -24,7 +24,7 @@
 //! then the WAL has been checkpointed, so ignoring it costs nothing).
 //! Read only, never written; token values never reach logs, events or the UI.
 
-use crate::usage::{LimitWindow, UsageSnapshot};
+use crate::usage::{duration_between_ms, LimitWindow, UsageSnapshot};
 use crate::AppState;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -158,16 +158,17 @@ fn parse_iso(v: Option<&serde_json::Value>) -> Option<u64> {
 /// usage-summary → (windows, note). When there are no windows the note says why (Unlimited / free plan without an allowance)
 pub fn parse_summary(v: &serde_json::Value) -> (Vec<LimitWindow>, String) {
     let resets_at = parse_iso(v.get("billingCycleEnd"));
+    let duration_ms = duration_between_ms(parse_iso(v.get("billingCycleStart")), resets_at);
     let usage = v.get("individualUsage").cloned().unwrap_or(serde_json::Value::Null);
     let plan = usage.get("plan").cloned().unwrap_or(serde_json::Value::Null);
     let mut out = Vec::new();
     // Headline = the dashboard number; 0 is a reading too
     if let Some(total) = pct(plan.get("totalPercentUsed")) {
-        out.push(LimitWindow { id: "included".into(), label: "Included usage".into(), used: total, resets_at, ..Default::default() });
+        out.push(LimitWindow { id: "included".into(), label: "Included usage".into(), used: total, resets_at, duration_ms, ..Default::default() });
     }
     if let Some(api) = pct(plan.get("apiPercentUsed")) {
         if api > 0.0 {
-            out.push(LimitWindow { id: "api".into(), label: "API usage".into(), used: api, resets_at, ..Default::default() });
+            out.push(LimitWindow { id: "api".into(), label: "API usage".into(), used: api, resets_at, duration_ms, ..Default::default() });
         }
     }
     if let Some(od) = usage.get("onDemand") {
@@ -180,7 +181,7 @@ pub fn parse_summary(v: &serde_json::Value) -> (Vec<LimitWindow>, String) {
                     id: "on_demand".into(),
                     label: "On demand".into(),
                     used: (u / limit).clamp(0.0, 1.0),
-                    resets_at, ..Default::default()
+                    resets_at, duration_ms, ..Default::default()
                 });
             }
         }
@@ -304,4 +305,38 @@ pub fn start(app: AppHandle) {
             sleep_interruptible(POLL_SECS);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn summary(start: serde_json::Value, end: serde_json::Value) -> Vec<LimitWindow> {
+        parse_summary(&serde_json::json!({
+            "billingCycleStart": start, "billingCycleEnd": end,
+            "individualUsage": {"plan": {"totalPercentUsed": 10, "apiPercentUsed": 20},
+                "onDemand": {"enabled": true, "used": 5, "limit": 10}}
+        })).0
+    }
+
+    #[test]
+    fn every_cursor_window_uses_the_reported_billing_cycle() {
+        let ws = summary(serde_json::json!("2024-02-24T03:32:15.933Z"),
+            serde_json::json!("2024-03-24T04:32:15.933+01:00"));
+        assert_eq!(ws.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(), ["included", "api", "on_demand"]);
+        assert!(ws.iter().all(|w| w.duration_ms == Some(29 * 86_400_000)));
+    }
+
+    #[test]
+    fn missing_invalid_or_nonpositive_billing_cycles_are_unknown() {
+        let end = serde_json::json!("2026-10-01T00:00:00Z");
+        for start in [serde_json::Value::Null, serde_json::json!("invalid"), end.clone(),
+            serde_json::json!("2026-10-02T00:00:00Z")] {
+            assert!(summary(start, end.clone()).iter().all(|w| w.duration_ms.is_none()));
+        }
+        for end in [serde_json::Value::Null, serde_json::json!("invalid")] {
+            assert!(summary(serde_json::json!("2026-09-01T00:00:00Z"), end)
+                .iter().all(|w| w.duration_ms.is_none()));
+        }
+    }
 }

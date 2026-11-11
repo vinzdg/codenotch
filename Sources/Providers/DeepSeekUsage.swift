@@ -39,14 +39,30 @@ enum DeepSeekUsage {
     static func reading(fromJSON json: String) throws -> Reading {
         guard let data = json.data(using: .utf8) else { throw ParseError.malformed }
         let envelope = try JSONDecoder().decode(Envelope.self, from: data)
-        guard let summary = envelope.data?.bizData,
-              let wallet = summary.normalWallets.first else { throw ParseError.noWallet }
-        let spent = summary.totalCosts.first(where: { $0.currency == wallet.currency })
-            .flatMap { Double($0.amount) } ?? 0
-        guard let balance = Double(wallet.balance), spent >= 0, balance >= 0 else {
-            throw ParseError.malformed
+        guard let summary = envelope.data?.bizData else { throw ParseError.noWallet }
+        // One wallet per currency, and which of them is listed first is the
+        // server's choice rather than anything about the account. Taking the
+        // first meant an account holding a funded CNY wallet and an empty USD
+        // one showed 0%: the empty wallet was chosen, and the currency it named
+        // is the one `total_costs` is looked up in, so a real balance and a real
+        // cost in another currency were both read as zero.
+        //
+        // So the wallet that is actually funded or used is chosen instead, and
+        // where more than one is, the largest — one figure is all the card
+        // carries, and the biggest one is the one that means something. An
+        // account with nothing in any wallet still reads as zero rather than
+        // failing, which is the answer it had before.
+        let candidates = summary.normalWallets.compactMap { wallet -> (Wallet, Double, Double)? in
+            guard let balance = Double(wallet.balance), balance >= 0 else { return nil }
+            let spent = summary.totalCosts.first { $0.currency == wallet.currency }
+                .flatMap { Double($0.amount) } ?? 0
+            guard spent >= 0 else { return nil }
+            return (wallet, spent, balance)
         }
-        return Reading(currency: wallet.currency, spent: spent, balance: balance,
+        guard let funded = candidates.max(by: { ($0.1 + $0.2) < ($1.1 + $1.2) }) ?? candidates.first
+        else { throw ParseError.noWallet }
+
+        return Reading(currency: funded.0.currency, spent: funded.1, balance: funded.2,
                        availableTokens: summary.totalAvailableTokenEstimation.flatMap(Int.init))
     }
 

@@ -10,8 +10,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var phoneLinkPairing: PhoneLinkPairing?
     var phoneLinkRegistry: PhoneLinkRegistry?
     private var activityCoordinator: ActivityCoordinator?
+    private var piResponseMonitor: PiResponseMonitor?
+    private var openCodeActivityBridge: OpenCodeActivityBridge?
     private var ollamaRelay: OllamaActivityRelay?
     private var lmstudioMetrics: LMStudioMetrics?
+    private var omlxMetrics: OMLXMetrics?
     private var preferences: Preferences?
     private var settings: SettingsWindowController?
     private var whatsNew: WhatsNewWindowController?
@@ -28,6 +31,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Turns the monitors' running commentary into the one event worth
     /// interrupting for: an agent that has just stopped working.
     private var completions = SessionCompletionWatcher()
+    /// Which providers were working as of the last thing a monitor said, so the
+    /// moment one stops can be told apart from the many moments it is still
+    /// going. Held here rather than asked of `ActivityCoordinator`, which
+    /// reports the state after the change and cannot answer what it was before.
+    private var busyProviderIDs: Set<String> = []
 
     /// The unit bundle is hosted by this app, so `xcodebuild test` launches it
     /// for real. Without this guard every test run put a live request on the
@@ -62,6 +70,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// The snapshots as the rings draw them: the vendor's own, with the weekly
+    /// window leading where that is switched on, and the daily pace laid over
+    /// that where it is. One place, so the notch and the phone agree on what a
+    /// ring means. The menu bar and the alert watchers are deliberately fed the
+    /// vendor's own order instead — see their sink.
+    static func drawn(_ snapshots: [ProviderSnapshot], weekly: Bool, paced: Bool)
+    -> [ProviderSnapshot] {
+        DailyPace.apply(to: WeeklyHeadline.apply(to: snapshots, enabled: weekly), enabled: paced)
+    }
+
     /// Every Claude Code configuration directory on this Mac — `~/.claude` and
     /// any `~/.claude-<slug>` — found once at launch. Each gets a usage
     /// provider and a session monitor of its own, keyed by the same id, so a
@@ -69,12 +87,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let claudeProfiles = ClaudeProfile.discover()
     private let codexProfiles = CodexProfile.discover()
     private let antigravityProfiles = AntigravityProfile.discover()
+    private let commandCodeProfiles = CommandCodeProfile.discover()
+    private let grokProfiles = GrokProfile.discover()
     /// Held as concrete providers, not just handed to the store: the token
     /// refresher needs to ask one of them how long its token has left, and the
     /// protocol has no business carrying that.
     private var claudeProviders: [ClaudeOAuthProvider] = []
     /// MiniMax Platform sign-in sheet. Not a UsageProvider — that is MiniMaxProvider.
     private var miniMaxWeb: WebSessionProvider?
+    private var manualProvider: ManualProvider?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set here, not in the Info.plist: this call is applied at launch and
@@ -85,6 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         guard !isRunningTests else { return }
         Self.retireOlderInstances()
+        ChannelNotifications.installPresenter()
 
         // Before Preferences reads anything, or the first launch flag and
         // every choice would be read from an empty domain.
@@ -100,10 +122,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let fleet = NotchFleet(scope: preferences.notchScope, edge: preferences.notchEdge)
         self.notchFleet = fleet
 
-        // `CODENOTCH_DEMO=1` puts the design frame's three providers on screen
-        // with its numbers, for screenshots and for eyeballing the layout.
-        if ProcessInfo.processInfo.environment["CODENOTCH_DEMO"] == "1" {
+        // `CODENOTCH_DEMO=1` puts the design frame's three providers and one
+        // local model on screen with its numbers, for screenshots and for
+        // eyeballing the layout.
+        // The queued local model and the stale ring are there so the busy
+        // indicator's two edge cases can be eyeballed.
+        let isDemo = ProcessInfo.processInfo.environment["CODENOTCH_DEMO"] == "1"
+        if isDemo {
             fleet.setSnapshots(Fixtures.snapshots())
+            for (id, sessions) in Fixtures.sessions() {
+                fleet.setSessions(providerID: id, sessions: sessions)
+            }
+            fleet.setLocalActivities(Fixtures.localActivities())
         } else {
             // DeepSeek's Platform usage page is a browser-session provider:
             // login is explicit, stays in Codenotch's own WKWebView store, and
@@ -114,6 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // this app's own WKWebView. Unlike MiniMax's sheet below, its ring
             // *is* this adapter, so it belongs in `webProviders` — exactly once.
             let qianwen = WebSessionProvider(site: Sites.qianwen)
+            let qoder = WebSessionProvider(site: Sites.qoder(region: preferences.qoderRegion))
             // MiniMax's ring is MiniMaxProvider. The sheet is the same kind of
             // WebView DeepSeek uses, but it must not join `webProviders`:
             // those are appended to `allProviders`, and two adapters with
@@ -122,8 +153,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Settings changes it, because the fetch URLs live on the site.
             let miniMaxWeb = WebSessionProvider(site: Sites.minimax(region: preferences.minimaxRegion))
             self.miniMaxWeb = miniMaxWeb
-            let webProviders: [WebSessionProvider] = [deepSeek, qianwen]
-            fleet.signInItems = [deepSeek, miniMaxWeb, qianwen].map { provider in
+            let webProviders: [WebSessionProvider] = [deepSeek, qianwen, qoder]
+            fleet.signInItems = [deepSeek, miniMaxWeb, qianwen, qoder].map { provider in
                 let name = provider.displayName
                 return (title: L10n.t("Sign in to \(name)…"),
                         action: { [weak provider] in provider?.presentSignIn() })
@@ -140,28 +171,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Log.usage.info("claude profiles: \(self.claudeProfiles.map(\.displayPath).joined(separator: ", "), privacy: .public)")
             Log.usage.info("codex profiles: \(self.codexProfiles.map(\.displayPath).joined(separator: ", "), privacy: .public)")
             Log.usage.info("antigravity profiles: \(self.antigravityProfiles.map(\.displayPath).joined(separator: ", "), privacy: .public)")
-            let claudeProviders = claudeProfiles.map { ClaudeOAuthProvider(profile: $0) }
+            // Named together rather than one by one: a name derived from the
+            // signed-in address can collide with another profile's, and a lone
+            // profile needs no name beyond "Claude" — only a caller holding
+            // every profile can see either.
+            //
+            // Claude Desktop can be signed in to an account that has no
+            // profile here, and so no ring (#509). Then the lone ring is not
+            // the only account in use, and is named for its own.
+            let desktopOnly = ClaudeDesktopSessionIndex().untrackedAccounts(among: claudeProfiles)
+            if !desktopOnly.isEmpty {
+                Log.usage.info("claude desktop: \(desktopOnly.count, privacy: .public) account(s) with no profile, so no ring; `CLAUDE_CONFIG_DIR=~/.claude-<name> claude` adds one")
+            }
+            let claudeNames = ClaudeProfile.displayNames(for: claudeProfiles,
+                                                         anotherAccountInUse: !desktopOnly.isEmpty)
+            let claudeProviders = claudeProfiles.map {
+                ClaudeOAuthProvider(profile: $0, displayName: claudeNames[$0.id])
+            }
             self.claudeProviders = claudeProviders
             let customProviders: [UsageProvider] = preferences.customEndpoints.filter(\.isEnabled).map { endpoint in
                 CustomEndpointProvider(endpoint: endpoint)
             }
+            let remoteProviders: [UsageProvider] = preferences.remoteHosts
+                .filter { $0.isEnabled && $0.isConfigured }
+                .map { $0.makeProvider() }
             let allProviders: [UsageProvider] = claudeProviders
                 + [CursorLocalProvider()]
                 + codexProfiles.map { CodexLocalProvider(profile: $0) }
                 + antigravityProfiles.map { AntigravityProvider(profile: $0) }
-                + [GLMProvider(), MiniMaxProvider(web: miniMaxWeb), GrokLocalProvider(), DevinLocalProvider(), OpenCodeProvider(),
-                   CommandCodeProvider(), GitHubCopilotProvider(), KimiProvider(), KiroProvider(),
+                + [GLMProvider(), MiniMaxProvider(web: miniMaxWeb), GrokBotProvider(), DevinLocalProvider(), OpenCodeProvider()]
+                + grokProfiles.map { GrokLocalProvider(profile: $0) }
+                + commandCodeProfiles.map { CommandCodeProvider(profile: $0) }
+                + [GitHubCopilotProvider(), KimiProvider(), KiroProvider(), AmpProvider(),
+                   ApifyProvider(), KiloProvider(), HiggsfieldProvider(), KreaProvider(),
+                   MuseLocalProvider(),
                    OllamaLocalProvider(endpoint: URL(string: preferences.ollamaEndpoint)!),
                    LMStudioLocalProvider(endpoint: URL(string: preferences.lmstudioEndpoint)!),
+                   OMLXLocalProvider(endpoint: URL(string: preferences.omlxEndpoint)!),
                    OllamaProvider(),
                    // A closure, not the value: the provider is an actor and
                    // re-reads the budget on every fetch, so a ceiling typed
                    // into Settings applies without a restart.
                    GeminiAPIProvider(budget: {
-                       Preferences.storedGeminiAPIMonthlyTokenBudget()
+                       Preferences.storedEffectiveCeiling(for: "gemini-api")
                    })]
+                + {
+                    let manual = ManualProvider(
+                        limitProvider: { Preferences.storedManualProviderLimit() },
+                        scheduleProvider: { Preferences.storedManualProviderSchedule() }
+                    )
+                    self.manualProvider = manual
+                    return [manual as UsageProvider]
+                }()
                 + webProviders
                 + customProviders
+                + remoteProviders
             preferences.reconcile(discoveredIDs: allProviders.map(\.id))
             let store = UsageStore(
                 providers: allProviders,
@@ -172,10 +236,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // order for a frame and then visibly shuffles.
                 order: preferences.providerOrder
             )
+            self.manualProvider?.onChanged = { [weak store] in
+                Task { @MainActor in
+                    _ = store?.refresh(providerID: "manual")
+                }
+            }
             preferences.$customEndpoints
                 .map { endpoints in
                     endpoints.filter(\.isEnabled).map {
-                        "\($0.id):\($0.name):\($0.baseURL):\($0.trackingUnit.rawValue):\($0.monthlyBudgetUSD ?? -1):\($0.currentSpendUSD ?? -1):\($0.monthlyBudgetTokensM ?? -1):\($0.currentTokensUsedM ?? -1):\($0.displayRemaining):\($0.showCurrency):\($0.iconPreset ?? ""):\($0.customIconFilename ?? ""):\($0.accentColorHex):\($0.selectedModel)"
+                        "\($0.id):\($0.name):\($0.baseURL):\($0.apiType.rawValue):\($0.trackingUnit.rawValue):\($0.monthlyBudgetUSD ?? -1):\($0.currentSpendUSD ?? -1):\($0.monthlyBudgetTokensM ?? -1):\($0.currentTokensUsedM ?? -1):\($0.displayRemaining):\($0.showCurrency):\($0.iconPreset ?? ""):\($0.customIconFilename ?? ""):\($0.accentColorHex):\($0.selectedModel):\($0.usageSource.rawValue):\($0.usagePreset?.rawValue ?? ""):\($0.usageURL ?? ""):\($0.usageRecordsPath ?? ""):\($0.usageModelField ?? ""):\($0.usageTokenField ?? ""):\($0.usageModelFilter ?? ""):\($0.usageAuthentication.rawValue)"
                     }
                 }
                 .removeDuplicates()
@@ -187,11 +256,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     store?.registerCustomProviders(providers)
                 }
                 .store(in: &cancellables)
+            preferences.$remoteHosts
+                .map { hosts in
+                    hosts.filter { $0.isEnabled && $0.isConfigured }.map {
+                        "\($0.id):\($0.kind):\($0.name):\($0.host):\($0.user):\($0.port):\($0.identityFile ?? "")"
+                    }
+                }
+                .removeDuplicates()
+                .receive(on: RunLoop.main)
+                .sink { [weak store] _ in
+                    let stored = Preferences.storedRemoteHosts()
+                    let active = stored.filter { $0.isEnabled && $0.isConfigured }
+                    let providers: [UsageProvider] = active.map { $0.makeProvider() }
+                    store?.registerRemoteProviders(providers)
+                }
+                .store(in: &cancellables)
+            Costs.attach(to: store)
             deepSeek.onAuthenticated = { [weak store] in
                 store?.providerAuthenticationChanged(providerID: "deepseek")
             }
             qianwen.onAuthenticated = { [weak store] in
                 store?.providerAuthenticationChanged(providerID: "qianwenai")
+            }
+            qoder.onAuthenticated = { [weak store] in
+                store?.providerAuthenticationChanged(providerID: "qoder")
             }
             miniMaxWeb.onAuthenticated = { [weak store] in
                 store?.providerAuthenticationChanged(providerID: "minimax")
@@ -199,6 +287,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             let updater = Updater()
             self.updater = updater
+            // An update is offered in the notch, and installed there — see
+            // `UpdateCard`. Checked for as it launches; never under test, where
+            // it would reach for the real feed.
+            updater.$prompt
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet] in fleet?.apply(updatePrompt: $0) }
+                .store(in: &cancellables)
+            fleet.onUpdateChoice = { [weak updater] in updater?.respond($0) }
+            // Put off: a red dot on the settings button until it is taken.
+            Publishers.CombineLatest(updater.$pending, updater.$prompt)
+                .map { pending, prompt in pending != nil && prompt == nil }
+                .removeDuplicates()
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet] in fleet?.apply(updatePending: $0) }
+                .store(in: &cancellables)
+            if !isRunningTests { updater.start() }
 
             let relay = OllamaActivityRelay()
             self.ollamaRelay = relay
@@ -255,7 +359,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .store(in: &cancellables)
             lmstudio.$activities
                 .receive(on: RunLoop.main)
-                .sink { [weak fleet] in fleet?.setLocalActivities($0) }
+                .sink { [weak fleet] in fleet?.setLocalActivities($0, source: LMStudioMetrics.providerID) }
                 .store(in: &cancellables)
             lmstudio.$performances
                 .receive(on: RunLoop.main)
@@ -266,7 +370,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .store(in: &cancellables)
             lmstudio.$ledger
                 .receive(on: RunLoop.main)
-                .sink { [weak fleet] in fleet?.setLedger($0) }
+                .sink { [weak fleet] in fleet?.setLedger($0, source: LMStudioMetrics.providerID) }
+                .store(in: &cancellables)
+
+            // oMLX the same way: its admin activity endpoint says what each
+            // model is doing, its server log says what every request cost.
+            let omlx = OMLXMetrics()
+            self.omlxMetrics = omlx
+            // Split like the relay's chain above, and for the same reason.
+            let omlxPreferences = Publishers.CombineLatest(
+                preferences.$connectedProviders, preferences.$omlxEndpoint)
+            let omlxConfiguration = omlxPreferences.map { values in
+                (enabled: values.0.contains(OMLXMetrics.providerID), endpoint: values.1)
+            }.eraseToAnyPublisher()
+            omlxConfiguration
+                .removeDuplicates { $0.enabled == $1.enabled && $0.endpoint == $1.endpoint }
+                .receive(on: RunLoop.main)
+                .sink { [weak omlx] configuration in
+                    omlx?.configure(enabled: configuration.enabled, endpoint: configuration.endpoint)
+                }
+                .store(in: &cancellables)
+            omlx.$activities
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet] in fleet?.setLocalActivities($0, source: OMLXMetrics.providerID) }
+                .store(in: &cancellables)
+            omlx.$performances
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet, weak store] measurements in
+                    fleet?.setPerformances(measurements, source: OMLXMetrics.providerID)
+                    if !measurements.isEmpty { store?.refresh(providerID: OMLXMetrics.providerID) }
+                }
+                .store(in: &cancellables)
+            omlx.$ledger
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet] in fleet?.setLedger($0, source: OMLXMetrics.providerID) }
                 .store(in: &cancellables)
 
             let dir: URL
@@ -293,8 +430,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     guard let store, let fleet, let preferences else { return nil }
                     let snap = await MainActor.run {
                         PhoneLinkSnapshotBuilder.build(
-                            snapshots: DailyPace.apply(to: store.snapshots,
-                                                       enabled: preferences.claudeDailyPaceRing),
+                            snapshots: Self.drawn(store.snapshots,
+                                                  weekly: preferences.weeklyHeadline,
+                                                  paced: preferences.claudeDailyPaceRing),
                             sessions: Array(fleet.sessions.values.flatMap { $0 }),
                             disconnected: store.disconnected,
                             order: preferences.providerOrder,
@@ -307,7 +445,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 },
                 refreshAndGetSnapshot: { @Sendable [weak store, weak fleet, weak preferences] in
                     guard let store, let fleet, let preferences else { return nil }
-                    await MainActor.run { store.refreshNow() }
+                    // A phone asking to refresh is the same gesture as opening
+                    // the menu here, and it is about to render these numbers on
+                    // another screen. Nothing cached will do.
+                    await MainActor.run { store.refreshNow(freshness: .fromSource) }
                     for _ in 0..<20 {
                         let isRef = await MainActor.run { !store.refreshing.isEmpty }
                         if !isRef { break }
@@ -315,8 +456,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                     let snap = await MainActor.run {
                         PhoneLinkSnapshotBuilder.build(
-                            snapshots: DailyPace.apply(to: store.snapshots,
-                                                       enabled: preferences.claudeDailyPaceRing),
+                            snapshots: Self.drawn(store.snapshots,
+                                                  weekly: preferences.weeklyHeadline,
+                                                  paced: preferences.claudeDailyPaceRing),
                             sessions: Array(fleet.sessions.values.flatMap { $0 }),
                             disconnected: store.disconnected,
                             order: preferences.providerOrder,
@@ -362,7 +504,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 previewWeeklyLimitAlert: { [weak self] in
                     self?.previewWeeklyLimitAlert()
                 },
-                usageStore: store, ollamaRelay: relay, lmstudioMetrics: lmstudio,
+                sendTestNotification: { [weak self] in
+                    self?.sendTestNotification()
+                },
+                usageStore: store, ollamaRelay: relay, lmstudioMetrics: lmstudio, omlxMetrics: omlx,
                 phoneLinkPairing: phonePairing, phoneLinkRegistry: phoneRegistry, phoneLinkServerStatus: serverStatus
             )
             // The gear toggles; everything else that opens settings opens it.
@@ -398,8 +543,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             let statusItem = StatusItemController { [weak settings] in settings?.show() }
             self.statusItem = statusItem
-            statusItem.onRefreshProvider = { [weak store] id in store?.refresh(providerID: id) }
-            statusItem.onRefreshAll = { [weak store] in store?.refreshNow() }
+            // The cards in the menu are drawn from the fleet's panel-less
+            // model — the very snapshots and Appearance settings the notches
+            // are handed. No provider is read to open the menu and no second
+            // store is kept: the menu is another reader of the one the notch
+            // already reads, which is what keeps the two from disagreeing.
+            statusItem.model = fleet.menuModel
+            // Somebody's own click, so it is not answered from anything held:
+            // see `UsageFreshness.fromSource`.
+            statusItem.onRefreshAll = { [weak store] in store?.refreshNow(freshness: .fromSource) }
+            statusItem.onLook = { [weak store] in store?.refreshBecauseSomeoneIsLooking() }
+            // The menu's tick writes to the same preference Settings writes to,
+            // and reads nothing back of its own: the sink below carries the new
+            // value to the item, and Settings — a published property away —
+            // redraws its own switch from it in the same breath.
+            statusItem.onToggleLimits = { [weak preferences] in preferences?.showsLimitsInMenuBar = $0 }
+            // A card's own switch, written back the same way: into Preferences,
+            // and read back through the sink below. The controller keeps no
+            // copy, so the switch and what the card draws cannot disagree.
+            statusItem.onToggleDetail = { [weak preferences] id, expanded in
+                preferences?.setDetailExpanded(expanded, for: id)
+            }
+            statusItem.expandedDetail = preferences.expandedDetailProviders
             // Read when the menu opens, so a model's line is as current as its cell.
             statusItem.cells = { [weak fleet] in fleet?.menuModel.snapshots ?? [] }
             statusItem.activity = { [weak fleet] in fleet?.menuModel.activity(for: $0) }
@@ -408,6 +573,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // up as one thing and then change its mind.
             statusItem.limits = preferences.menuBarLimits
             statusItem.resetTimeFormat = preferences.resetTimeFormat
+            statusItem.showsWeeklyLimit = preferences.showsWeeklyLimitInMenuBar
+            statusItem.showsRemaining = preferences.showsRemainingInNotch
+            statusItem.hidesDepleted = preferences.hideDepletedAccounts
+            statusItem.clickAction = preferences.menuBarClickAction
+            statusItem.autoOrders = preferences.ringOrder == .remaining
+            statusItem.reading = preferences.menuBarReading
+            statusItem.activityStyle = preferences.menuBarActivityStyle
 
             preferences.$appPresence
                 .receive(on: RunLoop.main)
@@ -424,8 +596,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Publishers.CombineLatest(preferences.$showsLimitsInMenuBar, preferences.$menuBarProviders)
                 .map { MenuBarLimits(isOn: $0, chosen: $1) }
                 .removeDuplicates()
-                .receive(on: RunLoop.main)
+                // Dispatch, not the run loop: switched from the menu's own
+                // tick, this has to land while AppKit is still tracking that
+                // menu, which the run loop's default mode would hold back.
+                .receive(on: DispatchQueue.main)
                 .sink { [weak statusItem] in statusItem?.limits = $0 }
+                .store(in: &cancellables)
+
+            // Dispatch, not the run loop, for the reason the limit switch
+            // above gives: this lands while AppKit is still tracking the menu
+            // the card is in, which is exactly when a card is opened.
+            preferences.$expandedDetailProviders
+                .removeDuplicates()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak statusItem] in statusItem?.expandedDetail = $0 }
+                .store(in: &cancellables)
+
+            // Presentation only, like the parent limit switch: redraw from the
+            // current snapshots immediately and never start another fetch.
+            preferences.$showsWeeklyLimitInMenuBar
+                .removeDuplicates()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak statusItem] in statusItem?.showsWeeklyLimit = $0 }
+                .store(in: &cancellables)
+
+            // The notch's own two display choices, which the item's face now
+            // answers as well. Presentation only, like everything above: the
+            // same readings, read from the other end or one account shorter.
+            preferences.$showsRemainingInNotch
+                .removeDuplicates()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak statusItem] in statusItem?.showsRemaining = $0 }
+                .store(in: &cancellables)
+
+            preferences.$hideDepletedAccounts
+                .removeDuplicates()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak statusItem] in statusItem?.hidesDepleted = $0 }
+                .store(in: &cancellables)
+
+            preferences.$menuBarClickAction
+                .removeDuplicates()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak statusItem] in statusItem?.clickAction = $0 }
+                .store(in: &cancellables)
+
+            preferences.$ringOrder
+                .map { $0 == .remaining }
+                .removeDuplicates()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak statusItem] in statusItem?.autoOrders = $0 }
+                .store(in: &cancellables)
+
+            preferences.$menuBarReading
+                .removeDuplicates()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak statusItem] in statusItem?.reading = $0 }
+                .store(in: &cancellables)
+
+            preferences.$menuBarActivityStyle
+                .removeDuplicates()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak statusItem] in statusItem?.activityStyle = $0 }
                 .store(in: &cancellables)
 
             preferences.$notchVisibility
@@ -433,9 +665,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak fleet] in fleet?.apply($0) }
                 .store(in: &cancellables)
 
-            preferences.$foldsForFullScreen
+            preferences.$autoHideMode
                 .receive(on: RunLoop.main)
-                .sink { [weak fleet] in fleet?.apply(foldsForFullScreen: $0) }
+                .sink { [weak fleet] in fleet?.apply(autoHideMode: $0) }
                 .store(in: &cancellables)
 
             preferences.$deepSeekPricingEnabled
@@ -446,6 +678,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             preferences.$deepSeekPricingSchedule
                 .receive(on: RunLoop.main)
                 .sink { [weak fleet] in fleet?.apply(deepSeekPricingSchedule: $0) }
+                .store(in: &cancellables)
+
+            preferences.$qoderRegion
+                .dropFirst()
+                .removeDuplicates()
+                .receive(on: RunLoop.main)
+                .sink { [weak qoder, weak store] region in
+                    guard let qoder else { return }
+                    store?.providerContextChanged(providerID: "qoder") {
+                        qoder.apply(site: Sites.qoder(region: region))
+                    }
+                }
+                .store(in: &cancellables)
+
+            // The holiday check is a network request, so it runs only for
+            // someone who has DeepSeek on and is shown its pricing. Received on
+            // the run loop so `isConnected` reads the value just published.
+            Publishers.CombineLatest3(preferences.$deepSeekPricingEnabled,
+                                      preferences.$deepSeekPricingSchedule,
+                                      preferences.$connectedProviders)
+                .receive(on: RunLoop.main)
+                .sink { [weak preferences] enabled, schedule, _ in
+                    let active = enabled && schedule.offPeakOnChineseHolidays
+                        && (preferences?.isConnected("deepseek") ?? false)
+                    ChineseHolidays.shared.setActive(active)
+                }
                 .store(in: &cancellables)
 
             preferences.$minimaxRegion
@@ -523,7 +781,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Writing the preference is the whole of it: `notchEdge` is
             // `@Published` and the fleet already follows it, so the notch
             // relocates by the same path the Settings picker uses.
-            fleet.onMoveToEdge = { [weak preferences] edge in
+            fleet.onMoveToEdge = { [weak preferences] edge, offset in
+                // Where along it first, so the edge's sink reads it back and
+                // the notch lands under the pointer that carried it there.
+                if let offset { preferences?.setOffset(offset, for: edge) }
                 preferences?.notchEdge = edge
             }
 
@@ -548,9 +809,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 .store(in: &cancellables)
 
+            preferences.$showsNotchReadings
+                .dropFirst()
+                .sink { [weak fleet] in fleet?.apply(showsNotchReadings: $0) }
+                .store(in: &cancellables)
+
+            preferences.$showsRemainingInNotch
+                .dropFirst()
+                .sink { [weak fleet] in fleet?.apply(showsRemainingInNotch: $0) }
+                .store(in: &cancellables)
+
+            preferences.$shutRingsWhenSpent
+                .dropFirst()
+                .sink { [weak fleet] in fleet?.apply(shutRingsWhenSpent: $0) }
+                .store(in: &cancellables)
+
             preferences.$weeklyRingDashed
                 .receive(on: RunLoop.main)
                 .sink { [weak fleet] in fleet?.apply(weeklyRingDashed: $0) }
+                .store(in: &cancellables)
+
+            preferences.$weeklyReading
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet] in fleet?.apply(weeklyReading: $0) }
                 .store(in: &cancellables)
 
             preferences.$weeklyRing
@@ -558,14 +839,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak fleet] in fleet?.apply(weeklyRing: $0) }
                 .store(in: &cancellables)
 
-            preferences.$showsMoveHandle
-                .receive(on: RunLoop.main)
-                .sink { [weak fleet] in fleet?.apply(showsMoveHandle: $0) }
-                .store(in: &cancellables)
                 
             preferences.$notchSurfaceStyle
                 .receive(on: RunLoop.main)
                 .sink { [weak fleet] in fleet?.apply(surfaceStyle: $0) }
+                .store(in: &cancellables)
+
+            preferences.$colorTransitionStyle
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet] in fleet?.apply(colorTransitionStyle: $0) }
+                .store(in: &cancellables)
+
+            preferences.$busyIndicatorStyle
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet] in fleet?.apply(busyIndicatorStyle: $0) }
                 .store(in: &cancellables)
 
             Publishers.CombineLatest(preferences.$connectedProviders, preferences.$disabledModels)
@@ -574,6 +861,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     guard let store, let preferences else { return }
                     store.disconnected = preferences.disconnectedIDs(among: store.knownIDs)
                 }
+                .store(in: &cancellables)
+
+            preferences.$accountNicknames
+                .receive(on: RunLoop.main)
+                .sink { [weak store] in store?.nicknames = $0 }
                 .store(in: &cancellables)
 
             preferences.$ollamaEndpoint
@@ -589,6 +881,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak store] address in
                     guard let endpoint = try? LMStudioEndpoint.parse(address) else { return }
                     store?.updateLMStudioEndpoint(endpoint)
+                }
+                .store(in: &cancellables)
+
+            preferences.$omlxEndpoint
+                .receive(on: RunLoop.main)
+                .sink { [weak store] address in
+                    guard let endpoint = try? OMLXEndpoint.parse(address) else { return }
+                    store?.updateOMLXEndpoint(endpoint)
                 }
                 .store(in: &cancellables)
 
@@ -610,13 +910,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak store] _ in store?.refresh(providerID: "gemini-api") }
                 .store(in: &cancellables)
 
+            preferences.$planCeilingMode
+                .dropFirst()
+                .receive(on: RunLoop.main)
+                .sink { [weak store] _ in store?.refresh(providerID: "gemini-api") }
+                .store(in: &cancellables)
+
             // Limit crossings become notifications here rather than inside
             // the store: the store fetches, the notifier decides what is
             // worth interrupting someone for, and neither needs to know the
             // other.
             let notifier = ThresholdNotifier(
+                warningThreshold: { [weak preferences] in preferences?.ceilingWarningThreshold ?? 80 },
                 isMuted: { [weak preferences] in preferences?.isMutedAlerts(for: $0) ?? false },
-                deliver: { ThresholdAlerts.deliver($0) }
+                deliver: { [weak self] in self?.announceThreshold($0) }
             )
             self.thresholdNotifier = notifier
 
@@ -644,30 +951,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // on the way out, rather than inside a provider: it is a reading
             // of a preference as much as of the account, and the store keeps
             // what the vendor said. Paired with the preference so flipping the
-            // toggle redraws at once, without a fetch.
+            // toggle redraws at once, without a fetch. The weekly-first ring
+            // is laid the same way, and for the same reasons — see `drawn`.
+            // Auto-order rides along after the derivations, so "most left"
+            // means the window actually leading each ring.
+            // The preferences ride as one publisher: `combineLatest` takes four
+            // publishers at most, and the snapshots plus the four display
+            // choices are five.
+            let displayOptions = preferences.$claudeDailyPaceRing.combineLatest(
+                preferences.$weeklyHeadline, preferences.$ringOrder,
+                preferences.$hideDepletedAccounts)
             store.$notchSnapshots
-                .combineLatest(preferences.$claudeDailyPaceRing)
+                .combineLatest(displayOptions)
                 .receive(on: RunLoop.main)
-                .sink { [weak fleet] snapshots, paced in
-                    fleet?.setSnapshots(DailyPace.apply(to: snapshots, enabled: paced))
+                .sink { [weak fleet] snapshots, options in
+                    let (paced, weekly, order, hideDepleted) = options
+                    // Before the derivations: the daily pace ring is advisory,
+                    // not a spending gate, and judging off it would hide an
+                    // account that overspent today's share while the session
+                    // still has room.
+                    let usable = hideDepleted ? snapshots.filter { !$0.isDepleted } : snapshots
+                    var drawn = Self.drawn(usable, weekly: weekly, paced: paced)
+                    switch order.canonical {
+                    case .deficit:   drawn = ProviderOrder.byBurnDeficit(drawn, now: Date())
+                    case .expiring:  drawn = ProviderOrder.byExpiringFirst(drawn, now: Date())
+                    case .remaining: drawn = ProviderOrder.byRemainingUsage(drawn)
+                    case .manual:    break
+                    default:         break
+                    }
+                    fleet?.setSnapshots(drawn)
                 }
                 .store(in: &cancellables)
 
+            // Not `drawn`: the weekly-first ring is for the rings alone. The
+            // menu bar already shows the week beside the short window, under a
+            // "Weekly Limit" label that would name the session after a swap.
+            // The alert watchers track one headline per provider and tell
+            // "session" from "week" by which window leads, so a swap under them
+            // re-fires thresholds, announces a reset that did not happen, and
+            // leaves a spent session with no "available again" to follow it.
             store.$snapshots
                 .combineLatest(preferences.$claudeDailyPaceRing)
                 .receive(on: RunLoop.main)
-                .sink { [weak statusItem] snapshots, paced in
+                .sink { [weak statusItem, weak preferences] snapshots, paced in
                     let snapshots = DailyPace.apply(to: snapshots, enabled: paced)
                     statusItem?.snapshots = snapshots
                     notifier.observe(snapshots)
                     resetWatcher.observe(snapshots)
                     limitWatcher.observe(snapshots)
+                    for snapshot in snapshots {
+                        if let used = snapshot.headline?.used, used > 0 {
+                            preferences?.recordPeakUsage(providerID: snapshot.id, used: used)
+                        }
+                    }
                 }
                 .store(in: &cancellables)
             store.start()
-            fleet.onRefresh = { [weak store] in store?.refreshNow() }
+            fleet.onRefresh = { [weak store] in store?.refreshNow(freshness: .fromSource) }
+            fleet.onLook = { [weak store] in store?.refreshBecauseSomeoneIsLooking() }
             fleet.onRefreshProvider = { [weak store] id in
-                await store?.refresh(providerID: id)?.value
+                await store?.refresh(providerID: id, freshness: .fromSource)?.value
             }
             store.$refreshing
                 .receive(on: RunLoop.main)
@@ -693,24 +1036,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // still working without you switching to it.
         var monitors: [String: any AgentActivityMonitor] = [
             "cursor": CursorActivityMonitor(),
-            "grok": GrokActivityMonitor(),
             "gemini-api": GeminiAPIActivityMonitor(),
             "kimi": KimiActivityMonitor(),
         ]
+        for profile in grokProfiles {
+            monitors[profile.id] = GrokActivityMonitor(
+                activeURL: profile.configDirectory.appendingPathComponent("active_sessions.json"),
+                sessionsRoot: profile.configDirectory.appendingPathComponent("sessions")
+            )
+        }
         for profile in antigravityProfiles {
             monitors[profile.id] = AntigravityActivityMonitor(profile: profile)
         }
         var claudeMonitors: [ClaudeSessionMonitor] = []
+        var claudeMonitorsByProfile: [(ClaudeProfile, ClaudeSessionMonitor)] = []
         for profile in claudeProfiles {
             let monitor = ClaudeSessionMonitor(
                 directory: profile.sessionsDirectory,
                 projects: profile.projectsDirectory
             )
             claudeMonitors.append(monitor)
+            claudeMonitorsByProfile.append((profile, monitor))
             monitors[profile.id] = monitor
+        }
+
+        // With one profile there is nothing to attribute: every session in the
+        // directory is that account's, by definition. With two or more there
+        // is, because the Claude desktop app files the sessions it hosts under
+        // the *default* profile's directory whichever account it is signed in
+        // to — so the second account's work spun the first account's ring, and
+        // switching account in the app did not move it. See
+        // `ClaudeSessionOwnership`.
+        if claudeProfiles.count > 1 {
+            let index = ClaudeDesktopSessionIndex()
+            let directories = claudeProfiles.map(\.sessionsDirectory)
+            var accounts: [String: String] = [:]
+            var transcripts: [String: ClaudeTranscriptReader] = [:]
+            for profile in claudeProfiles {
+                let path = profile.sessionsDirectory.path
+                if let account = profile.accountID() { accounts[path] = account }
+                transcripts[path] = ClaudeTranscriptReader(projects: profile.projectsDirectory)
+            }
+            let profileIDs = Dictionary(uniqueKeysWithValues: claudeProfiles.map {
+                ($0.sessionsDirectory.path, $0.id)
+            })
+            for (profile, monitor) in claudeMonitorsByProfile {
+                var ownership = ClaudeSessionOwnership(
+                    own: profile.sessionsDirectory,
+                    directories: directories,
+                    accounts: accounts,
+                    transcripts: transcripts,
+                    index: index
+                )
+                ownership.isShown = { [weak preferences] directory in
+                    guard let preferences, let id = profileIDs[directory.path] else { return true }
+                    return preferences.isConnected(id)
+                }
+                monitor.ownership = ownership
+            }
+            let named = accounts.count, total = claudeProfiles.count
+            Log.sessions.info("claude session ownership: \(named, privacy: .public) of \(total, privacy: .public) profiles name an account")
         }
         for profile in codexProfiles {
             monitors[profile.id] = CodexActivityMonitor(profile: profile)
+        }
+
+        // The `/usage` probe is a Claude Code process too, and files a session
+        // for the seconds it runs. Every Claude monitor steps over it by pid
+        // and by its scratch directory, whether or not a token refresher runs
+        // below. Without this the probe showed as a `busy` session, vanished,
+        // and was announced as a turn that finished.
+        for monitor in claudeMonitors {
+            monitor.ignoredPIDs = { ClaudeUsageCLI.runningPIDs }
+            monitor.ignoredWorkingDirectories = [ClaudeUsageCLI.scratchLocation().path]
         }
 
         // Renewing the token runs the Claude command, which registers a session
@@ -730,8 +1128,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
             for monitor in claudeMonitors {
                 monitor.ignoredPIDs = { [weak refresher] in
-                    guard let pid = refresher?.launchedPID else { return [] }
-                    return [pid]
+                    var pids = ClaudeUsageCLI.runningPIDs
+                    if let pid = refresher?.launchedPID { pids.insert(pid) }
+                    return pids
                 }
             }
             // The one place the failure becomes visible. The store carries the
@@ -751,21 +1150,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let activity = ActivityCoordinator(monitors: monitors) { [weak self, weak fleet] id, sessions in
             guard let fleet else { return }
             fleet.setSessions(providerID: id, sessions: sessions)
+            self?.statusItem?.setActivity(providerID: id, sessions: sessions)
             self?.announceCompletions(sessions: fleet.sessions)
+            self?.noteWorkState(providerID: id, sessions: sessions)
         }
         self.activityCoordinator = activity
-        let monitorIDs = Set(monitors.keys)
-        activity.setEnabled(Set(monitorIDs.filter { preferences.isConnected($0) }))
-        preferences.$connectedProviders
-            .removeDuplicates()
+        // Demo mode shows fixed sample data. A live monitor publishes on
+        // subscribe, so its first emission (usually no sessions at all) would
+        // overwrite the fixture sessions under the same provider id. Never
+        // enabling the coordinator also keeps Pi's supplemental sessions out,
+        // since it drops them for any provider that is not enabled.
+        if !isDemo {
+            activity.setEnabled(preferences.connectedProviders)
+            preferences.$connectedProviders
+                .removeDuplicates()
+                .receive(on: RunLoop.main)
+                .sink { [weak activity] connected in
+                    activity?.setEnabled(connected)
+                }
+                .store(in: &cancellables)
+        }
+
+        let openCodeBridge = OpenCodeActivityBridge { [weak activity] id, sessions in
+            activity?.setSupplementalSessions(providerID: id, source: "opencode", sessions: sessions)
+        }
+        self.openCodeActivityBridge = openCodeBridge
+        Publishers.CombineLatest(preferences.$customEndpoints, preferences.$connectedProviders)
             .receive(on: RunLoop.main)
-            .sink { [weak activity, weak preferences] _ in
-                guard let preferences else { return }
-                activity?.setEnabled(Set(monitorIDs.filter { preferences.isConnected($0) }))
+            .sink { [weak openCodeBridge] endpoints, enabled in
+                openCodeBridge?.configure(endpoints: endpoints, enabled: enabled)
             }
             .store(in: &cancellables)
+
+        let piResponseMonitor = PiResponseMonitor(
+            onResponse: { [weak self] providerID in
+                _ = self?.store?.refresh(providerID: providerID)
+            },
+            onActivity: { [weak activity] providerID, snapshots in
+                let sessions = snapshots.map {
+                    AgentSession(
+                        id: $0.id,
+                        name: $0.model,
+                        detail: L10n.t("Working"),
+                        state: .busy,
+                        waitingFor: nil,
+                        since: $0.since
+                    )
+                }
+                activity?.setSupplementalSessions(
+                    providerID: providerID,
+                    source: "pi",
+                    sessions: sessions
+                )
+            }
+        )
+        piResponseMonitor.start()
+        self.piResponseMonitor = piResponseMonitor
+
         store?.isBusy = { [weak self, weak activity] in
             (activity?.isBusy ?? false) || (self?.lmstudioMetrics?.isBusy ?? false)
+                || (self?.omlxMetrics?.isBusy ?? false)
+        }
+        // Read on every look rather than carried in by a sink, for the reason
+        // `isBusy` is: a stored copy answers with whatever the preference was
+        // when it was last delivered, and this one is a switch somebody flips to
+        // compare two numbers on screen right now.
+        store?.asksProviderOnLook = { [weak self] in
+            self?.preferences?.asksProviderOnLook ?? false
         }
 
         // Applied last, right before the panel goes up: every one of these
@@ -782,6 +1233,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // repositions an existing controller — it does not re-copy them —
         // so this has to be the very last thing that can create one.
         
+        // Banners need permission; ask the moment banners are chosen, not on
+        // the first event, and never of someone who keeps to the notch.
+        preferences.$notificationChannel
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { channel in
+                if channel == .mac { ChannelNotifications.requestAuthorizationIfNeeded() }
+            }
+            .store(in: &cancellables)
+
         preferences.$phoneLinkEnabled
             .receive(on: RunLoop.main)
             .sink { [weak self] enabled in
@@ -810,10 +1271,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fleet.apply(resetTimeFormat: preferences.resetTimeFormat)
         fleet.apply(accentColor: preferences.accentColor)
         fleet.apply(watchLimit: preferences.watchLimit, criticalLimit: preferences.criticalLimit)
+        fleet.apply(colorTransitionStyle: preferences.colorTransitionStyle)
+        fleet.apply(busyIndicatorStyle: preferences.busyIndicatorStyle)
         fleet.apply(weeklyRing: preferences.weeklyRing)
         fleet.apply(weeklyRingDashed: preferences.weeklyRingDashed)
-        fleet.apply(showsMoveHandle: preferences.showsMoveHandle)
-        fleet.apply(foldsForFullScreen: preferences.foldsForFullScreen)
+        fleet.apply(showsNotchReadings: preferences.showsNotchReadings)
+        fleet.apply(weeklyReading: preferences.weeklyReading)
+        fleet.apply(showsRemainingInNotch: preferences.showsRemainingInNotch)
+        fleet.apply(shutRingsWhenSpent: preferences.shutRingsWhenSpent)
+        fleet.apply(autoHideMode: preferences.autoHideMode)
         fleet.apply(surfaceStyle: preferences.notchSurfaceStyle)
         fleet.apply(deepSeekPricingEnabled: preferences.deepSeekPricingEnabled)
         fleet.apply(deepSeekPricingSchedule: preferences.deepSeekPricingSchedule)
@@ -843,8 +1309,76 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               : preferences.sessionEndSoundName)
         }
         guard preferences.announceSessionEnd else { return }
+        if preferences.notificationChannel == .mac {
+            ChannelNotifications.sessionEnded(name: event.session.name, blocked: event.reason == .blocked)
+            return
+        }
         fleet.peek(for: preferences.peekDuration.seconds,
                    focusing: event.session.processID)
+    }
+
+    /// Takes one reading on the falling edge of a provider's work.
+    ///
+    /// The rising edge needs nothing: work that has just started has not spent
+    /// anything yet, and the busy schedule is already polling. The falling edge
+    /// is where the schedule drops to the idle interval and leaves the figure
+    /// somebody actually came to look at — what that run cost — alone for five
+    /// minutes. The store decides whether to spend a fetch on it; see
+    /// `UsageStore.refreshBecauseWorkFinished`.
+    @MainActor
+    private func noteWorkState(providerID: String, sessions: [AgentSession]) {
+        let isBusy = sessions.contains { $0.state == .busy }
+        if busyProviderIDs.contains(providerID), !isBusy {
+            store?.refreshBecauseWorkFinished(providerID: providerID)
+        }
+        if isBusy {
+            busyProviderIDs.insert(providerID)
+        } else {
+            busyProviderIDs.remove(providerID)
+        }
+    }
+
+    /// A crossing is a banner on the Mac channel, as it always was; on the
+    /// notch channel it is a card beside the notch, so choosing the notch
+    /// really does keep Notification Center empty. The banner remains the
+    /// fallback for a notch that cannot show the card (hidden).
+    @MainActor
+    private func announceThreshold(_ alert: ThresholdAlert) {
+        guard let preferences, let fleet = notchFleet,
+              preferences.notificationChannel == .notch else {
+            ThresholdAlerts.deliver(alert)
+            return
+        }
+        var notice = UsageResetEvent(providerID: alert.providerID, providerName: alert.providerName,
+                                     windowLabel: alert.windowLabel, glyph: alert.glyph,
+                                     previousFraction: 0, currentFraction: Double(alert.usedPercent) / 100,
+                                     resetsAt: alert.resetsAt)
+        notice.noticeTitle = alert.threshold >= 100
+            ? L10n.t("\(alert.providerName) limit reached")
+            : L10n.t("\(alert.providerName) is at \(alert.usedPercent)%")
+        notice.noticeSubtitle = alert.windowLabel
+        notice.noticeStatus = L10n.t("\(alert.usedPercent)% used")
+        if !fleet.showResetAlert(notice, duration: 6.0) {
+            ThresholdAlerts.deliver(alert)
+        }
+    }
+
+    /// The test from Settings, on whichever channel is chosen.
+    @MainActor
+    private func sendTestNotification() {
+        guard let preferences, let fleet = notchFleet else { return }
+        guard preferences.notificationChannel == .notch else {
+            ChannelNotifications.test()
+            return
+        }
+        if preferences.sessionEndSound { SessionChime.play(preferences.sessionEndSoundName) }
+        var notice = UsageResetEvent(providerID: "codenotch", providerName: "Codenotch",
+                                     windowLabel: "", glyph: .claude,
+                                     previousFraction: 0, currentFraction: 0, resetsAt: nil)
+        notice.noticeTitle = L10n.t("Codenotch test")
+        notice.noticeSubtitle = L10n.t("This is what one looks like.")
+        notice.noticeStatus = ""
+        fleet.showResetAlert(notice, duration: 5.0)
     }
 
     /// Open the notch and show a usage reset notification modal when a limit resets.
@@ -857,7 +1391,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             SessionChime.play(preferences.usageResetSoundName)
         }
         guard preferences.announceUsageReset else { return }
-        if !fleet.showResetAlert(event, duration: 5.0) {
+        // The channel decides the form: a banner, or the notch's card with
+        // the banner only where the notch cannot show it.
+        if preferences.notificationChannel == .mac || !fleet.showResetAlert(event, duration: 5.0) {
             UsageAlertNotifications.deliver(event)
         }
     }
@@ -902,7 +1438,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if preferences.limitReachedSound {
             SessionChime.play(preferences.limitReachedSoundName)
         }
-        if !fleet.showResetAlert(event, duration: 6.0) {
+        if preferences.notificationChannel == .mac || !fleet.showResetAlert(event, duration: 6.0) {
             UsageAlertNotifications.deliver(event)
         }
     }
@@ -976,10 +1512,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         ollamaRelay?.configure(enabled: false, endpoint: OllamaEndpoint.defaultAddress)
         lmstudioMetrics?.stop()
+        omlxMetrics?.stop()
         tokenRefresher?.stop()
+        piResponseMonitor?.stop()
         store?.stop()
+        openCodeActivityBridge?.stop()
         activityCoordinator?.stop()
         notchFleet?.stop()
+        // A language server this app started, if any. Left running it would
+        // outlive the reason it exists and keep answering on loopback to
+        // nothing.
+        AntigravityBridge.owned.stop()
         Task { await phoneLinkServer?.stop() }
     }
 }

@@ -104,7 +104,162 @@ final class ClaudeOAuthProviderTests: XCTestCase {
                        "the provider stopped asking after the first failure")
     }
 
+    func testEndpointReusesWithinEveryFreshnessFloor() async throws {
+        for freshness: UsageFreshness in [.standard, .live, .fromSource] {
+            StubEndpoint.reset([.init(status: 200, body: Self.usagePayload)])
+            let provider = makeProvider(source: CredentialSource(readable: true),
+                                        endpointIntervals: (300, 120))
+            for _ in 0..<10 {
+                let snapshot = try await provider.fetchSnapshot(freshness: freshness)
+                XCTAssertEqual(snapshot.usedFraction, 0.42)
+            }
+            XCTAssertEqual(StubEndpoint.requestCount, 1)
+            let url = try XCTUnwrap(StubEndpoint.requestURLs.first)
+            XCTAssertEqual(url.path, "/api/oauth/usage")
+            XCTAssertNil(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        }
+    }
+
+    func testLiveEndpointFloorCanBeShorterThanStandard() async throws {
+        StubEndpoint.reset(Array(repeating: .init(status: 200, body: Self.usagePayload), count: 2))
+        let provider = makeProvider(source: CredentialSource(readable: true), endpointIntervals: (300, 0))
+        _ = try await provider.fetchSnapshot()
+        _ = try await provider.fetchSnapshot()
+        XCTAssertEqual(StubEndpoint.requestCount, 1)
+        _ = try await provider.fetchSnapshot(freshness: .live)
+        XCTAssertEqual(StubEndpoint.requestCount, 2)
+    }
+
+    func testExpiredEndpointWindowIsNotReused() async throws {
+        let expired = Data(#"{"limits":[{"kind":"session","percent":80,"resets_at":"2000-01-01T00:00:00Z"}]}"#.utf8)
+        StubEndpoint.reset([.init(status: 200, body: expired), .init(status: 200, body: Self.usagePayload)])
+        let provider = makeProvider(source: CredentialSource(readable: true), endpointIntervals: (300, 120))
+        _ = try await provider.fetchSnapshot()
+        let next = try await provider.fetchSnapshot()
+        XCTAssertEqual(next.usedFraction, 0.42)
+        XCTAssertEqual(StubEndpoint.requestCount, 2)
+    }
+
+    func testAskingForPermissionReadsCredentialsButDoesNotBypassEndpointFloor() async throws {
+        StubEndpoint.reset([.init(status: 200, body: Self.usagePayload)])
+        let source = CredentialSource(readable: true)
+        let provider = makeProvider(source: source, endpointIntervals: (300, 120))
+        _ = try await provider.fetchSnapshot()
+        provider.forgetCachedCredential()
+        _ = try await provider.fetchSnapshot(freshness: .fromSource)
+        XCTAssertEqual(source.reads, 2)
+        XCTAssertEqual(StubEndpoint.requestCount, 1)
+    }
+
+    func testChangedTokenDoesNotReusePreviousAccountReading() async throws {
+        StubEndpoint.reset(Array(repeating: .init(status: 200, body: Self.usagePayload), count: 2))
+        let source = CredentialSource(readable: true)
+        let provider = makeProvider(source: source, endpointIntervals: (300, 120))
+        _ = try await provider.fetchSnapshot()
+        source.setToken("new-token")
+        _ = await provider.reloadTokenExpiry()
+        _ = try await provider.fetchSnapshot()
+        XCTAssertEqual(StubEndpoint.requestCount, 2)
+    }
+
+    func testEndpointCacheIsPerProvider() async throws {
+        StubEndpoint.reset(Array(repeating: .init(status: 200, body: Self.usagePayload), count: 2))
+        let first = makeProvider(source: CredentialSource(readable: true), endpointIntervals: (300, 120))
+        let second = makeProvider(source: CredentialSource(readable: true), endpointIntervals: (300, 120))
+        _ = try await first.fetchSnapshot()
+        _ = try await second.fetchSnapshot()
+        _ = try await first.fetchSnapshot()
+        _ = try await second.fetchSnapshot()
+        XCTAssertEqual(StubEndpoint.requestCount, 2)
+    }
+
+    func testBackoffWinsOverCachedEndpointReading() async throws {
+        StubEndpoint.reset([.init(status: 200, body: Self.usagePayload), .init(status: 429)])
+        let provider = makeProvider(source: CredentialSource(readable: true), endpointIntervals: (300, 0))
+        _ = try await provider.fetchSnapshot()
+        for freshness: UsageFreshness in [.live, .standard] {
+            do {
+                _ = try await provider.fetchSnapshot(freshness: freshness)
+                XCTFail("the endpoint penalty must take precedence over reuse")
+            } catch UsageProviderError.rateLimited { }
+        }
+        XCTAssertEqual(StubEndpoint.requestCount, 2)
+    }
+
+
     // MARK: - Helpers
+
+    func testOAuthResetCreditsReachTheSnapshotAndDisappearAfterUse() async throws {
+        let spent = String(decoding: ClaudeResetFixture.futureUsage, as: UTF8.self)
+            .replacingOccurrences(of: "\"resets_left\":1", with: "\"resets_left\":0")
+        StubEndpoint.reset([
+            .init(status: 200, body: ClaudeResetFixture.futureUsage),
+            .init(status: 200, body: Data(spent.utf8))
+        ])
+        let provider = makeProvider(source: CredentialSource(readable: true))
+        let available = try await provider.fetchSnapshot()
+        XCTAssertEqual(available.resetCredits?.availableCount, 1)
+        XCTAssertTrue(available.hasAvailableResetCredits)
+        let used = try await provider.fetchSnapshot()
+        XCTAssertFalse(used.hasAvailableResetCredits)
+    }
+
+    func testDesktopResetCreditsReachTheSnapshotWithoutReadingCredentials() async throws {
+        let directory = makeCacheDirectory()
+        writeResetEntry(into: directory, body: ClaudeResetFixture.availableCacheBody)
+        let source = CredentialSource(readable: false)
+        let provider = makeProvider(source: source, profile: desktopProfile(),
+                                    desktopCache: ClaudeDesktopUsageCache(directory: directory))
+        let snapshot = try await provider.fetchSnapshot()
+        XCTAssertEqual(snapshot.resetCredits?.availableCount, 1)
+        XCTAssertEqual(snapshot.windows.first?.usedFraction, 0.08)
+        XCTAssertEqual(source.reads, 0)
+        XCTAssertEqual(StubEndpoint.requestCount, 0)
+
+        writeResetEntry(into: directory, body: ClaudeResetFixture.spentCacheBody)
+        let spent = try await provider.fetchSnapshot()
+        XCTAssertFalse(spent.hasAvailableResetCredits)
+    }
+
+    func testExpiredDesktopWindowsStillEnrichTheCLIFallbackWithFreshResets() async throws {
+        let directory = makeCacheDirectory()
+        writeResetEntry(into: directory, body: ClaudeResetFixture.expiredWindowsCacheBody)
+        let source = CredentialSource(readable: false)
+        let provider = makeProvider(source: source, cli: Self.cli { Self.cliUsage },
+                                    profile: desktopProfile(),
+                                    desktopCache: ClaudeDesktopUsageCache(directory: directory))
+        let snapshot = try await provider.fetchSnapshot()
+        XCTAssertEqual(snapshot.windows.first?.usedFraction, 0.38)
+        XCTAssertEqual(snapshot.resetCredits?.availableCount, 1)
+        XCTAssertEqual(source.reads, 0)
+    }
+
+    func testUnsupportedOAuthSurfaceKeepsDatedDesktopResetsWhenUsageIsStale() async throws {
+        let payload = Data(#"{"limits":[{"kind":"session","percent":42,"resets_at":"2099-01-01T00:00:00Z"}],"cedar_ember":{"eligible":false,"ineligible_reason":"surface","grants":[]}}"#.utf8)
+        for age: TimeInterval in [0, 3 * 3600] {
+            StubEndpoint.reset([.init(status: 200, body: payload)])
+            let directory = makeCacheDirectory()
+            writeResetEntry(into: directory, body: ClaudeResetFixture.expiredWindowsCacheBody, age: age)
+            let provider = makeProvider(source: CredentialSource(readable: true), profile: desktopProfile(),
+                                        desktopCache: ClaudeDesktopUsageCache(directory: directory))
+            let snapshot = try await provider.fetchSnapshot()
+            XCTAssertEqual(snapshot.windows.first?.usedFraction, 0.42)
+            XCTAssertEqual(snapshot.resetCredits?.availableCount, 1)
+            XCTAssertEqual(Date().timeIntervalSince(try XCTUnwrap(snapshot.resetCredits?.checkedAt)),
+                           age, accuracy: 3)
+        }
+    }
+
+    private func writeResetEntry(into directory: URL, body: Data, age: TimeInterval = 0) {
+        var entry = ClaudeDesktopUsageCacheTests.Entry()
+        entry.body = body
+        entry.responseDate = nil
+        entry.key += "&cedar_ember=1"
+        let file = directory.appendingPathComponent("resets_0")
+        try? entry.data().write(to: file)
+        try? FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-age)],
+                                             ofItemAtPath: file.path)
+    }
 
     private static let usagePayload = Data("""
     {"limits":[{"kind":"session","percent":42,"resets_at":"2099-01-01T00:00:00Z"}]}
@@ -113,10 +268,13 @@ final class ClaudeOAuthProviderTests: XCTestCase {
     private func makeProvider(source: CredentialSource,
                               cli: ClaudeUsageCLI? = nil,
                               cliRefreshInterval: TimeInterval = 5 * 60,
+                              liveCLIRefreshInterval: TimeInterval = 90,
                               profile: ClaudeProfile = .default(),
                               desktopCache: ClaudeDesktopUsageCache? = nil,
                               desktopFreshness: TimeInterval = 30 * 60,
-                              desktopRescanInterval: TimeInterval = 5 * 60) -> ClaudeOAuthProvider {
+                              liveDesktopFreshness: TimeInterval = 2 * 60,
+                              desktopRescanInterval: TimeInterval = 5 * 60,
+                              endpointIntervals: (standard: TimeInterval, live: TimeInterval) = (0, 0)) -> ClaudeOAuthProvider {
         // A private defaults suite per test: the archive persists the 429 back-off
         // deadline, and a leaked one would silently skip fetches in the next test.
         let name = "ClaudeOAuthProviderTests.\(UUID().uuidString)"
@@ -139,9 +297,13 @@ final class ClaudeOAuthProviderTests: XCTestCase {
                                    loadCredentials: { try source.read() },
                                    cli: cli,
                                    cliRefreshInterval: cliRefreshInterval,
+                                   liveCLIRefreshInterval: liveCLIRefreshInterval,
                                    desktopCache: desktopCache,
                                    desktopFreshness: desktopFreshness,
-                                   desktopRescanInterval: desktopRescanInterval)
+                                   liveDesktopFreshness: liveDesktopFreshness,
+                                   desktopRescanInterval: desktopRescanInterval,
+                                   minEndpointInterval: endpointIntervals.standard,
+                                   liveMinEndpointInterval: endpointIntervals.live)
     }
 
     /// #178: a signed-in account whose answer names no limit gets a message,
@@ -177,6 +339,22 @@ final class ClaudeOAuthProviderTests: XCTestCase {
         XCTAssertEqual(StubEndpoint.requestCount, 0, "the endpoint was called even though the CLI answered")
     }
 
+    /// #519: a plan with no five-hour window. Its weekly-only answer is the
+    /// reading, not a reason to ask an endpoint that was answering it with
+    /// 429s, so the weekly ring keeps moving.
+    func testAWeeklyOnlyCLIAnswerIsTheReading() async throws {
+        StubEndpoint.reset([.init(status: 429)])
+        let source = CredentialSource(readable: true)
+        let provider = makeProvider(source: source, cli: Self.cli(answering: Self.cliWeeklyOnlyUsage))
+
+        let snapshot = try await provider.fetchSnapshot()
+
+        XCTAssertEqual(snapshot.windows.map(\.id), ["weekly_all", "weekly_fable"])
+        XCTAssertEqual(snapshot.weeklyLimitWindow?.usedFraction, 0.15)
+        XCTAssertEqual(source.reads, 0, "a weekly-only answer still fell back to the keychain")
+        XCTAssertEqual(StubEndpoint.requestCount, 0, "a weekly-only answer still fell back to the endpoint")
+    }
+
     /// A CLI that cannot answer is a reason to ask the endpoint, never a reason
     /// to fail the refresh — otherwise installing Claude Code and signing out
     /// of it would take the ring down on a machine whose token is fine.
@@ -193,8 +371,9 @@ final class ClaudeOAuthProviderTests: XCTestCase {
         XCTAssertEqual(StubEndpoint.requestCount, 1)
     }
 
-    /// `UsageStore` polls every 60s while a session is busy, and each ask is a
-    /// subprocess. The windows do not move enough in a minute to be worth one.
+    /// `UsageStore` polls twice a minute while a session is busy, and each ask
+    /// is a subprocess. The windows do not move enough in half a minute to be
+    /// worth one.
     func testTheCLIIsNotSpawnedOnEveryTick() async throws {
         let spawns = Counter()
         let provider = makeProvider(source: CredentialSource(readable: true),
@@ -220,6 +399,76 @@ final class ClaudeOAuthProviderTests: XCTestCase {
 
         XCTAssertEqual(spawns.value, 2)
     }
+
+    /// A CLI that is signed out fails with `needsAuth`. It should fall back to the token
+    /// and throttle subsequent spawns for `cliRefreshInterval`, rather than spawning a
+    /// subprocess on every tick.
+    func testASignedOutCLIDoesNotSpawnOnEveryTick() async throws {
+        StubEndpoint.reset(Array(repeating: .init(status: 200, body: Self.usagePayload), count: 3))
+        let source = CredentialSource(readable: true)
+        let spawns = Counter()
+        let provider = makeProvider(source: source,
+                                    cli: Self.cli {
+                                        spawns.increment()
+                                        throw UsageProviderError.needsAuth
+                                    })
+
+        _ = try await provider.fetchSnapshot()
+        _ = try await provider.fetchSnapshot()
+        _ = try await provider.fetchSnapshot()
+
+        XCTAssertEqual(spawns.value, 1, "a signed-out CLI was spawned repeatedly")
+        XCTAssertEqual(StubEndpoint.requestCount, 3, "fallback to endpoint did not occur on each tick")
+    }
+
+    /// A transient CLI failure (e.g. unparseable output or unexpected error) falls back
+    /// to the token on that tick, but must not lock out the CLI for 5 minutes.
+    func testATransientCLIFailureAllowsImmediateRetryOnNextTick() async throws {
+        StubEndpoint.reset(Array(repeating: .init(status: 200, body: Self.usagePayload), count: 2))
+        let source = CredentialSource(readable: true)
+        let shouldFail = Counter()
+        let spawns = Counter()
+        let provider = makeProvider(source: source,
+                                    cli: Self.cli {
+                                        spawns.increment()
+                                        if shouldFail.value == 0 {
+                                            shouldFail.increment()
+                                            return "Temporary blip: retry later"
+                                        }
+                                        return Self.cliUsage
+                                    })
+
+        // First tick: transient CLI failure, falls back to token path.
+        let first = try await provider.fetchSnapshot()
+        XCTAssertEqual(first.windows.first?.id, "session")
+        XCTAssertEqual(source.reads, 1)
+        XCTAssertEqual(spawns.value, 1)
+
+        // Second tick: CLI is asked again immediately and succeeds without keychain read.
+        let second = try await provider.fetchSnapshot()
+        XCTAssertEqual(second.usedFraction, 0.38)
+        XCTAssertEqual(source.reads, 1, "the second tick should have used CLI instead of reading keychain")
+        XCTAssertEqual(spawns.value, 2)
+    }
+
+    /// When Desktop cache is stale and CLI is available, usage must be read via
+    /// CLI without touching the keychain or endpoint.
+    func testAStaleDesktopSnapshotUsesCLIWhenAvailableWithoutKeychainRead() async throws {
+        StubEndpoint.reset([.init(status: 200, body: Self.usagePayload)])
+        let source = CredentialSource(readable: true)
+        let provider = makeProvider(source: source,
+                                    cli: Self.cli(answering: Self.cliUsage),
+                                    profile: desktopProfile(),
+                                    desktopCache: desktopCache(age: 4 * 3600))
+
+        let snapshot = try await provider.fetchSnapshot()
+
+        // 38% is CLI's session window; 42% would be the endpoint fixture.
+        XCTAssertEqual(snapshot.usedFraction, 0.38)
+        XCTAssertEqual(source.reads, 0, "the keychain was read even though CLI was available")
+        XCTAssertEqual(StubEndpoint.requestCount, 0, "the endpoint was called even though CLI was available")
+    }
+
 
     // MARK: - The Claude Desktop cache path
 
@@ -279,6 +528,144 @@ final class ClaudeOAuthProviderTests: XCTestCase {
         XCTAssertEqual(StubEndpoint.requestCount, 1)
     }
 
+    // MARK: - What a live fetch will accept
+
+    /// Ten minutes is comfortably inside the thirty an idle ring may show, and
+    /// comfortably outside the two a watched one may. The same cache, the same
+    /// provider, two answers — which is the whole point of `UsageFreshness`.
+    func testALiveFetchWillNotServeACacheAnIdleOneWould() async throws {
+        StubEndpoint.reset([.init(status: 200, body: Self.usagePayload)])
+        let source = CredentialSource(readable: true)
+        let provider = makeProvider(source: source, profile: desktopProfile(),
+                                    desktopCache: desktopCache(age: 10 * 60))
+
+        // 30% is Desktop's cached reading; 42% is what the endpoint answers now.
+        let standard = try await provider.fetchSnapshot(freshness: .standard)
+        XCTAssertEqual(standard.usedFraction, 0.30)
+        XCTAssertEqual(StubEndpoint.requestCount, 0)
+
+        let live = try await provider.fetchSnapshot(freshness: .live)
+        XCTAssertEqual(live.usedFraction, 0.42, "a ten-minute-old cache answered a live fetch")
+        XCTAssertEqual(StubEndpoint.requestCount, 1)
+    }
+
+    /// A cache written seconds ago is the best answer there is to either
+    /// question: free, unrefusable, and current. `.live` must not spend a
+    /// request to be told the same number.
+    func testALiveFetchStillTakesACacheThatIsActuallyCurrent() async throws {
+        StubEndpoint.reset([.init(status: 200, body: Self.usagePayload)])
+        let source = CredentialSource(readable: true)
+        let provider = makeProvider(source: source, profile: desktopProfile(),
+                                    desktopCache: desktopCache(age: 5))
+
+        let snapshot = try await provider.fetchSnapshot(freshness: .live)
+
+        XCTAssertEqual(snapshot.usedFraction, 0.30)
+        XCTAssertEqual(source.reads, 0)
+        XCTAssertEqual(StubEndpoint.requestCount, 0)
+    }
+
+    /// The CLI's own reuse window shortens the same way. Five minutes of one
+    /// answer is right for a ring nobody is watching; it is most of a session
+    /// window's movement for one somebody is.
+    func testALiveFetchAsksTheCLIAgainInsideItsOrdinaryInterval() async throws {
+        let spawns = Counter()
+        let provider = makeProvider(source: CredentialSource(readable: true),
+                                    cli: Self.cli { spawns.increment(); return Self.cliUsage },
+                                    cliRefreshInterval: 5 * 60,
+                                    liveCLIRefreshInterval: 0)
+
+        _ = try await provider.fetchSnapshot(freshness: .standard)
+        _ = try await provider.fetchSnapshot(freshness: .standard)
+        XCTAssertEqual(spawns.value, 1, "the ordinary interval stopped holding its answer")
+
+        _ = try await provider.fetchSnapshot(freshness: .live)
+        XCTAssertEqual(spawns.value, 2, "a live fetch reused an answer from the ordinary interval")
+    }
+
+    /// And a live fetch is still not licence to spawn one per poll: inside its
+    /// own interval it reuses, like everything else here.
+    func testALiveFetchReusesTheCLIInsideItsOwnInterval() async throws {
+        let spawns = Counter()
+        let provider = makeProvider(source: CredentialSource(readable: true),
+                                    cli: Self.cli { spawns.increment(); return Self.cliUsage },
+                                    liveCLIRefreshInterval: 90)
+
+        _ = try await provider.fetchSnapshot(freshness: .live)
+        _ = try await provider.fetchSnapshot(freshness: .live)
+
+        XCTAssertEqual(spawns.value, 1, "a live fetch spawned a subprocess per call")
+    }
+
+    // MARK: - Ask the provider every time you look
+
+    /// `.fromSource` skips a cache written seconds ago — the one thing `.live`
+    /// deliberately does not do. That is the setting's whole point: the figure
+    /// comes from the account, not from a file, however current the file is.
+    func testFromSourceSkipsEvenACacheWrittenSecondsAgo() async throws {
+        StubEndpoint.reset([.init(status: 200, body: Self.usagePayload)])
+        let source = CredentialSource(readable: true)
+        let provider = makeProvider(source: source, profile: desktopProfile(),
+                                    desktopCache: desktopCache(age: 5))
+
+        let snapshot = try await provider.fetchSnapshot(freshness: .fromSource)
+
+        XCTAssertEqual(snapshot.usedFraction, 0.42, "a cached reading answered .fromSource")
+        XCTAssertEqual(StubEndpoint.requestCount, 1)
+    }
+
+    /// And it may not leave the ring emptier than not asking would have. On a
+    /// Mac with Claude Desktop and no usable token — no Claude Code, an expired
+    /// keychain item, or a 429 — the cache is the only source there is, and
+    /// skipping it must not turn a filled ring into a failed refresh.
+    func testFromSourceFallsBackToTheCacheWhenNoLiveSourceCanAnswer() async throws {
+        StubEndpoint.reset([.init(status: 429)])
+        let source = CredentialSource(readable: true)
+        let provider = makeProvider(source: source, profile: desktopProfile(),
+                                    desktopCache: desktopCache(age: 60))
+
+        let snapshot = try await provider.fetchSnapshot(freshness: .fromSource)
+
+        XCTAssertEqual(snapshot.usedFraction, 0.30, "the held reading was thrown away with the request")
+        XCTAssertEqual(StubEndpoint.requestCount, 1, "the source was not asked first")
+    }
+
+    /// A cache past the ordinary thirty minutes is not resurrected by the
+    /// fallback: it was not showable before the request and it is not showable
+    /// after it. The store re-shows the last good reading, dimmed and dated.
+    func testTheFallbackDoesNotResurrectACacheTooOldToShow() async {
+        StubEndpoint.reset([.init(status: 429)])
+        let provider = makeProvider(source: CredentialSource(readable: true),
+                                    profile: desktopProfile(),
+                                    desktopCache: desktopCache(age: 4 * 3600))
+
+        do {
+            let snapshot = try await provider.fetchSnapshot(freshness: .fromSource)
+            XCTFail("a four-hour-old cache was shown as a reading: \(snapshot.usedFraction ?? -1)")
+        } catch UsageProviderError.rateLimited {
+            // The honest outcome: nothing live answered, and nothing held was
+            // fit to stand in.
+        } catch {
+            XCTFail("unexpected \(error)")
+        }
+    }
+
+    /// Skipping the cache is not the same as missing it. Counting it as a miss
+    /// armed the rescan throttle, which then stopped the cache being read at all
+    /// for five minutes — so one look with the setting on would have taken the
+    /// Desktop source away from every poll after it.
+    func testSkippingTheCacheDoesNotSuppressTheNextScan() async throws {
+        StubEndpoint.reset(Array(repeating: .init(status: 200, body: Self.usagePayload), count: 2))
+        let provider = makeProvider(source: CredentialSource(readable: true),
+                                    profile: desktopProfile(),
+                                    desktopCache: desktopCache(age: 30))
+
+        _ = try await provider.fetchSnapshot(freshness: .fromSource)
+        let next = try await provider.fetchSnapshot(freshness: .standard)
+
+        XCTAssertEqual(next.usedFraction, 0.30, "the cache was no longer being read")
+    }
+
     /// Claude Desktop is signed into one account; Codenotch draws a ring per
     /// Claude Code profile. A profile whose organization does not match the
     /// cached URL gets nothing from Desktop — the alternative is the personal
@@ -330,8 +717,8 @@ final class ClaudeOAuthProviderTests: XCTestCase {
         XCTAssertEqual(StubEndpoint.requestCount, 1)
     }
 
-    /// `UsageStore` polls every 60s while a session is busy, and a miss means a
-    /// scan of a few thousand directory entries. Missing once must not mean
+    /// `UsageStore` polls twice a minute while a session is busy, and a miss
+    /// means a scan of a few thousand directory entries. Missing once must not mean
     /// scanning on every tick afterwards.
     ///
     /// Asserted by behaviour rather than by counting: an entry that appears
@@ -428,6 +815,15 @@ final class ClaudeOAuthProviderTests: XCTestCase {
         """
     }
 
+    /// What a plan without a five-hour window prints (#519): the weeks only.
+    private static var cliWeeklyOnlyUsage: String {
+        let reset = jakarta(Date().addingTimeInterval(6 * 86_400))
+        return """
+        Current week (all models): 15% used · resets \(reset) (Asia/Jakarta)
+        Current week (Fable): 0% used · resets \(reset) (Asia/Jakarta)
+        """
+    }
+
     /// The wording `claude "/usage"` prints, in the zone the line names.
     private static func jakarta(_ date: Date) -> String {
         let formatter = DateFormatter()
@@ -442,9 +838,9 @@ final class ClaudeOAuthProviderTests: XCTestCase {
         cli { text }
     }
 
-    private static func cli(_ answer: @escaping @Sendable () -> String) -> ClaudeUsageCLI {
+    private static func cli(_ answer: @escaping @Sendable () throws -> String) -> ClaudeUsageCLI {
         // The path is never run — `output` is what the provider reaches.
-        ClaudeUsageCLI(binary: URL(fileURLWithPath: "/nonexistent/claude")) { _ in answer() }
+        ClaudeUsageCLI(binary: URL(fileURLWithPath: "/nonexistent/claude")) { _ in try answer() }
     }
 
     private func assertNeedsAuth(from provider: ClaudeOAuthProvider,
@@ -484,6 +880,11 @@ private final class CredentialSource: @unchecked Sendable {
     private let lock = NSLock()
     private var readable: Bool
     private var readCount = 0
+    private var token = "token"
+
+    func setToken(_ token: String) {
+        lock.lock(); self.token = token; lock.unlock()
+    }
 
     init(readable: Bool) { self.readable = readable }
 
@@ -500,12 +901,13 @@ private final class CredentialSource: @unchecked Sendable {
         lock.lock()
         readCount += 1
         let allowed = readable
+        let token = self.token
         lock.unlock()
 
         // The shape a dark-wake or not-found read takes by the time it leaves
         // `ClaudeCredentials.read()`.
         guard allowed else { throw UsageProviderError.needsAuth }
-        return ClaudeCredentials(accessToken: "token",
+        return ClaudeCredentials(accessToken: token,
                                  expiresAt: .distantFuture,
                                  subscriptionType: "max")
     }
@@ -523,9 +925,15 @@ private final class StubEndpoint: URLProtocol {
     private static let lock = NSLock()
     private static var queued: [Answer] = []
     private static var served = 0
+    private static var urls: [URL] = []
+
+    static var requestURLs: [URL] {
+        lock.lock(); defer { lock.unlock() }
+        return urls
+    }
 
     static func reset(_ answers: [Answer]) {
-        lock.lock(); queued = answers; served = 0; lock.unlock()
+        lock.lock(); queued = answers; served = 0; urls = []; lock.unlock()
     }
 
     static var requestCount: Int {
@@ -539,9 +947,10 @@ private final class StubEndpoint: URLProtocol {
         return URLSession(configuration: configuration)
     }
 
-    private static func next() -> Answer {
+    private static func next(for request: URLRequest) -> Answer {
         lock.lock(); defer { lock.unlock() }
         served += 1
+        if let url = request.url { urls.append(url) }
         // Running dry is a test bug, and a 500 says so more clearly than a crash
         // inside URLSession's callback would.
         return queued.isEmpty ? Answer(status: 500) : queued.removeFirst()
@@ -551,7 +960,7 @@ private final class StubEndpoint: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        let answer = Self.next()
+        let answer = Self.next(for: request)
         let response = HTTPURLResponse(url: request.url!,
                                        statusCode: answer.status,
                                        httpVersion: "HTTP/1.1",
@@ -782,5 +1191,23 @@ final class ClaudeExpiredWindowTests: XCTestCase {
             window(resetsAt: now.addingTimeInterval(86_400)),
             window(resetsAt: now.addingTimeInterval(-30))
         ], at: now))
+    }
+}
+
+/// `claude /usage` answers for the whole machine, whatever CLAUDE_CONFIG_DIR
+/// says, so it can only stand in for a ring while there is one login for it
+/// to describe. With two, each ring has to read its own token.
+final class ClaudeCLIEstimateScopeTests: XCTestCase {
+    func testTheOnlyLoginMayUseTheEstimate() {
+        XCTAssertTrue(ClaudeOAuthProvider.cliEstimateApplies(slug: nil, loginCount: 1))
+    }
+
+    func testANamedProfileNeverDoes() {
+        XCTAssertFalse(ClaudeOAuthProvider.cliEstimateApplies(slug: "work", loginCount: 1))
+        XCTAssertFalse(ClaudeOAuthProvider.cliEstimateApplies(slug: "work", loginCount: 2))
+    }
+
+    func testTheDefaultLoginStopsUsingItOnceThereIsASecondOne() {
+        XCTAssertFalse(ClaudeOAuthProvider.cliEstimateApplies(slug: nil, loginCount: 2))
     }
 }

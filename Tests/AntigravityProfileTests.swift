@@ -79,6 +79,7 @@ final class AntigravityProfileTests: XCTestCase {
         XCTAssertNil(AntigravityProfile.slug(fromDirectoryName: "antigravity-"), "empty slug")
         XCTAssertNil(AntigravityProfile.slug(fromDirectoryName: "antigravity-ide"), "ide is internal flavour")
         XCTAssertNil(AntigravityProfile.slug(fromDirectoryName: "antigravity-cli"), "cli is internal flavour")
+        XCTAssertNil(AntigravityProfile.slug(fromDirectoryName: "antigravity-acp"), "acp is internal flavour")
         XCTAssertNil(AntigravityProfile.slug(fromDirectoryName: "antigravity-backup"), "backup is internal flavour")
         XCTAssertNil(AntigravityProfile.slug(fromDirectoryName: "antigravity-api"), "api is internal flavour")
         XCTAssertNil(AntigravityProfile.slug(fromDirectoryName: "not-antigravity-work"))
@@ -93,6 +94,7 @@ final class AntigravityProfileTests: XCTestCase {
             "antigravity-alpha": ["oauth_creds.json"],
             "antigravity-ide": ["oauth_creds.json"],
             "antigravity-cli": ["oauth_creds.json"],
+            "antigravity-acp": ["oauth_creds.json"],
             "antigravity-backup": ["agent.db"],
             "antigravity-empty": [],
             "antigravity-settings-only": ["settings.json"],

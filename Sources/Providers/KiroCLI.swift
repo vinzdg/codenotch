@@ -29,13 +29,21 @@ struct KiroCLI: Sendable {
 
     /// Non-interactive chat, one `/usage` prompt. `--no-interactive` is what
     /// stops it waiting on a TTY this app does not have.
-    static let arguments = ["chat", "--no-interactive", "/usage"]
+    ///
+    /// The engine is named because the V3 engine does not run `/usage` itself
+    /// in a headless chat: it hands it to the model as a prompt, and every poll
+    /// then spends credits until the timeout kills it (#520). A saved
+    /// `chat.agentEngine v3`, which kiro-cli's own upgrade prompt writes, is
+    /// enough to get there. `--agent-engine` outranks that setting for this one
+    /// call without changing it, and is accepted on `chat` only, not before it.
+    static let arguments = ["chat", "--agent-engine", "v2", "--no-interactive", "/usage"]
 
     // MARK: - Finding the binary
 
     private static let systemPaths = [
         "/opt/homebrew/bin/kiro-cli",
-        "/usr/local/bin/kiro-cli"
+        "/usr/local/bin/kiro-cli",
+        "/usr/bin/kiro-cli"
     ]
 
     /// Nil means kiro-cli is not installed in any of the places it installs
@@ -67,8 +75,10 @@ struct KiroCLI: Sendable {
         let home = environment["HOME"].map { URL(fileURLWithPath: $0) }
             ?? fileManager.homeDirectoryForCurrentUser
 
-        let candidates = [home.appendingPathComponent(".local/bin/kiro-cli")]
-            + systemPaths.map { URL(fileURLWithPath: $0) }
+        let candidates = [
+            home.appendingPathComponent(".local/bin/kiro-cli"),
+            home.appendingPathComponent(".cargo/bin/kiro-cli")
+        ] + systemPaths.map { URL(fileURLWithPath: $0) }
         if let found = candidates.first(where: { isRunnable($0.path, fileManager: fileManager) }) {
             return found
         }
@@ -190,8 +200,19 @@ struct KiroCLI: Sendable {
 
         guard process.terminationStatus == 0 else {
             Log.usage.debug("kiro-cli /usage exited \(process.terminationStatus)")
-            // A non-zero exit is the CLI declining to answer, which in
-            // practice means it has no login of its own.
+            let said = (String(data: collected.value, encoding: .utf8) ?? "")
+                + (String(data: collectedErrors.value, encoding: .utf8) ?? "")
+            // A CLI that does not take the engine pin says so by name before
+            // it runs anything. That is not a missing login, and asking again
+            // without the pin is not safe: that is the call a V3 engine sends
+            // to the model.
+            if said.contains("--agent-engine") {
+                throw UsageProviderError.apiError(
+                    L10n.t("Kiro CLI rejected --agent-engine v2. Update kiro-cli to read usage.")
+                )
+            }
+            // Otherwise a non-zero exit is the CLI declining to answer, which
+            // in practice means it has no login of its own.
             throw UsageProviderError.needsAuth
         }
         guard let text = usageText(
@@ -203,13 +224,34 @@ struct KiroCLI: Sendable {
         return text
     }
 
+    private static let cardMarkers = [
+        "Estimated Usage",
+        "covered in plan",
+        "usage breakdown",
+        "Bonus credits",
+        "Overages:",
+        "KIRO",
+        "Kiro",
+        "Plan:"
+    ]
+
+    private static func hasCardMarkers(in text: String) -> Bool {
+        cardMarkers.contains { text.contains($0) }
+    }
+
     /// Whichever stream carries the card. Older CLIs print it to stdout and
     /// newer ones to stderr; either may also hold stray warnings, so the one
     /// with the card's heading wins, and otherwise whatever was said at all.
     static func usageText(stdout: String, stderr: String) -> String? {
         let marker = "Estimated Usage"
-        if stdout.contains(marker) { return stdout }
-        if stderr.contains(marker) { return stderr }
+        if stdout.contains(marker) && !stderr.contains(marker) { return stdout }
+        if stderr.contains(marker) && !stdout.contains(marker) { return stderr }
+
+        let stdoutCard = hasCardMarkers(in: stdout)
+        let stderrCard = hasCardMarkers(in: stderr)
+        if stdoutCard && !stderrCard { return stdout }
+        if stderrCard && !stdoutCard { return stderr }
+
         let said = stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? stderr : stdout
         return said.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : said
     }

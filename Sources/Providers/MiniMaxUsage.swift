@@ -265,22 +265,52 @@ enum MiniMaxUsage {
         return Date(timeIntervalSince1970: seconds)
     }
 
+    /// A reading has to be a *finite* number to be one. `Double("nan")` and
+    /// `Double("-inf")` both parse where the body said neither, and the
+    /// caller's `max(0, (100 - remaining) / 100)` is not a finiteness check:
+    /// `max` answers its *first* argument when the comparison is false, so an
+    /// ordering that happens to swallow `NaN` when `0` comes first still lets
+    /// `-inf` through as a `+inf` fraction, which reaches
+    /// `Percent.text(for:)`/`Percent.halves(for:)` and aborts the process on
+    /// `Int(_: Double)` instead of drawing a ring. The `NSNumber` path needs
+    /// the guard too: `JSONSerialization` answers `-1e400` with an `NSNumber`
+    /// carrying `-infinity` rather than refusing it. `date(fromEpoch:)` reads
+    /// through here as well, where a non-finite epoch would be a reset that is
+    /// not one.
     private static func number(_ any: Any?) -> Double? {
-        if let number = any as? NSNumber { return number.doubleValue }
-        if let text = any as? String {
-            return Double(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        var parsed: Double?
+        if let number = any as? NSNumber {
+            parsed = number.doubleValue
+        } else if let text = any as? String {
+            parsed = Double(text.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-        return nil
+        guard let parsed, parsed.isFinite else { return nil }
+        return parsed
     }
 
+    /// Both paths need a bound. `Int("1e30")` fails where `Double("1e30")`
+    /// succeeds, and `Int(_: Double)` aborts the process on that value rather
+    /// than answering — the same trap `"1e400"` and `"nan"` reach. And while
+    /// `NSNumber.intValue` saturates instead of aborting, a saturated count is
+    /// both invented and dangerous: `Int.min` reaches `total - remaining` and
+    /// traps there instead.
     private static func int(_ any: Any?) -> Int? {
-        if let number = any as? NSNumber { return number.intValue }
-        if let text = any as? String {
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let value = Int(trimmed) { return value }
-            if let value = Double(trimmed) { return Int(value) }
+        if let number = any as? NSNumber {
+            // `intValue` saturates rather than aborting, which is worse here than
+            // aborting would be: `-1e400` arrives from JSONSerialization as a
+            // non-finite NSNumber, saturates to `Int.min`, and the caller's
+            // `total - remaining` then traps on overflow. A count nobody can
+            // represent is not a count.
+            let value = number.doubleValue
+            guard value.isFinite, value >= Double(Int.min), value < Double(Int.max) else { return nil }
+            return number.intValue
         }
-        return nil
+        guard let text = any as? String else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let value = Int(trimmed) { return value }
+        guard let value = Double(trimmed), value >= Double(Int.min),
+              value < Double(Int.max) else { return nil }
+        return Int(value)
     }
 
     private static func string(_ any: Any?) -> String? {

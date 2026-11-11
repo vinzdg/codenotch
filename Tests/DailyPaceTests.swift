@@ -123,3 +123,90 @@ final class DailyPacePreferenceTests: XCTestCase {
         XCTAssertTrue(Preferences(defaults: defaults).claudeDailyPaceRing)
     }
 }
+
+/// The weekly limit as the big ring, for every provider that has one beside a
+/// shorter window — decided by how long the window runs, never by its name.
+@MainActor
+final class WeeklyHeadlineTests: XCTestCase {
+    private func window(_ id: String, _ used: Double, hours: Double?) -> LimitWindow {
+        LimitWindow(id: id, label: id, usedFraction: used,
+                    resetsAt: Date(timeIntervalSince1970: 1_800_000_000),
+                    duration: hours.map { $0 * 3600 })
+    }
+
+    private func snapshot(_ id: String = "claude", windows: [LimitWindow],
+                          headline: String?, weekly: String?) -> ProviderSnapshot {
+        ProviderSnapshot(id: id, displayName: id, glyph: .claude, fidelity: .official,
+                         status: .ok, windows: windows, headlineID: headline, weeklyID: weekly)
+    }
+
+    private var claude: ProviderSnapshot {
+        snapshot(windows: [window("session", 0.01, hours: 5), window("weekly_all", 0.94, hours: 168)],
+                 headline: "session", weekly: "weekly_all")
+    }
+
+    /// The reported case: the big ring said 1% while the week was at 94%.
+    func testTheWeekLeadsAndTheSessionMovesToTheThinRing() {
+        let led = WeeklyHeadline.apply(to: claude)
+        XCTAssertEqual(led.headlineID, "weekly_all")
+        XCTAssertEqual(led.usedFraction ?? -1, 0.94, accuracy: 1e-9)
+        XCTAssertEqual(led.weeklyID, "session", "the thin ring, when on, draws the session now")
+        XCTAssertEqual(led.windows, claude.windows, "nothing leaves the card")
+    }
+
+    func testOffLeavesEverySnapshotAsTheVendorSentIt() {
+        XCTAssertEqual(WeeklyHeadline.apply(to: [claude], enabled: false), [claude])
+    }
+
+    /// Codex can report the week as its *primary* window and the five hours as
+    /// its second. Swapping by name would put the five hours on the big ring —
+    /// the opposite of the point.
+    func testAWeekAlreadyLeadingIsLeftAlone() {
+        let codex = snapshot("codex", windows: [window("primary", 0.95, hours: 168),
+                                                window("secondary", 0.10, hours: 5)],
+                             headline: "primary", weekly: "secondary")
+        XCTAssertEqual(WeeklyHeadline.apply(to: codex), codex)
+    }
+
+    /// And a Codex plan that only reports the week has nothing to swap.
+    func testASecondWindowThatIsNotThereIsNotSwappedIn() {
+        let codex = snapshot("codex", windows: [window("primary", 0.95, hours: 168)],
+                             headline: "primary", weekly: "secondary")
+        XCTAssertEqual(WeeklyHeadline.apply(to: codex), codex)
+    }
+
+    /// Grok's second ring is its credits, not a week.
+    func testASecondRingThatIsNotAWeekIsLeftAlone() {
+        let grok = snapshot("grok", windows: [window("daily", 0.3, hours: 24),
+                                              window("credits", 0.8, hours: nil)],
+                            headline: "daily", weekly: "credits")
+        XCTAssertEqual(WeeklyHeadline.apply(to: grok), grok)
+
+        let monthly = snapshot("x", windows: [window("day", 0.3, hours: 24),
+                                              window("month", 0.8, hours: 720)],
+                               headline: "day", weekly: "month")
+        XCTAssertEqual(WeeklyHeadline.apply(to: monthly), monthly)
+    }
+
+    /// Cursor has one window, its monthly cycle, and no second one at all.
+    func testAProviderWithNoSecondWindowIsUnchanged() {
+        let cursor = snapshot("cursor", windows: [window("auto", 0, hours: 720)],
+                              headline: "auto", weekly: nil)
+        XCTAssertEqual(WeeklyHeadline.apply(to: cursor), cursor)
+    }
+
+    /// Where both are on, the daily pace — Claude's alone, and the more
+    /// specific of the two — still leads.
+    func testTheDailyPaceStillLeadsWhereItIsOn() {
+        let drawn = AppDelegate.drawn([claude], weekly: true, paced: true)
+        XCTAssertEqual(drawn.first?.headlineID, DailyPace.windowID)
+        XCTAssertEqual(drawn.first?.weeklyID, "session")
+    }
+
+    func testThePreferenceIsOffByDefaultAndRemembered() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "WeeklyHeadlineTests.\(UUID().uuidString)"))
+        XCTAssertFalse(Preferences(defaults: defaults).weeklyHeadline)
+        Preferences(defaults: defaults).weeklyHeadline = true
+        XCTAssertTrue(Preferences(defaults: defaults).weeklyHeadline)
+    }
+}

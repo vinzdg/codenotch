@@ -7,28 +7,44 @@ import os
 /// The numbers are Command Code's, so this is `.official`. The older
 /// `/internal` cookie path is gone; a Chrome session is not a credential.
 actor CommandCodeProvider: UsageProvider {
-    nonisolated let id = "commandcode"
-    nonisolated let displayName = "Command Code"
+    nonisolated let id: String
+    nonisolated let displayName: String
     nonisolated let glyph = ProviderGlyph.commandcode
+    nonisolated let profile: CommandCodeProfile
 
     private let session: URLSession
     private let archive: UsageArchive
-    private let authURL: URL
+    nonisolated private let authURL: URL
+    nonisolated private let environment: [String: String]
     private var retryNoEarlierThan: Date?
     private var consecutiveRateLimits = 0
     nonisolated(unsafe) private var lastKnownPlan: String?
     nonisolated(unsafe) private var lastKnownUser: String?
 
-    init(session: URLSession = .shared,
+    init(profile: CommandCodeProfile = .default(),
+         session: URLSession = .shared,
          archive: UsageArchive = UsageArchive(),
-         authURL: URL = CommandCodeCredentials.authURL) {
+         authURL: URL? = nil,
+         environment: [String: String] = ProcessInfo.processInfo.environment) {
+        self.profile = profile
+        self.id = profile.id
+        self.displayName = profile.displayName
         self.session = session
         self.archive = archive
-        self.authURL = authURL
-        self.retryNoEarlierThan = archive.loadBackoffUntil(providerID: id)
+        self.authURL = authURL ?? profile.authURL
+        // `COMMAND_CODE_API_KEY` names one account. Only the default profile
+        // may take it, or every profile would show that same account.
+        self.environment = profile.slug == nil ? environment : [:]
+        self.retryNoEarlierThan = archive.loadBackoffUntil(providerID: profile.id)
     }
 
     nonisolated var signInRoute: SignInRoute {
+        guard profile.slug != nil else { return defaultSignInRoute }
+        return .command(profile.signInCommand, name: displayName,
+                        install: URL(string: "https://commandcode.ai"))
+    }
+
+    nonisolated private var defaultSignInRoute: SignInRoute {
         .guidance(L10n.t("Sign in with the Command Code app — it writes ~/.commandcode/auth.json and the notch reads it."))
     }
 
@@ -38,7 +54,7 @@ actor CommandCodeProvider: UsageProvider {
     }
 
     nonisolated func account() -> ProviderAccount? {
-        guard let base = CommandCodeCredentials.account(from: authURL) else { return nil }
+        guard let base = CommandCodeCredentials.account(from: authURL, environment: environment, source: profile.sourceName) else { return nil }
         return ProviderAccount(
             label: lastKnownUser ?? base.label,
             plan: lastKnownPlan ?? base.plan,
@@ -54,7 +70,7 @@ actor CommandCodeProvider: UsageProvider {
             throw UsageProviderError.rateLimited(retryAfter: remaining)
         }
 
-        guard let credentials = try? CommandCodeCredentials.load(from: authURL) else {
+        guard let credentials = try? CommandCodeCredentials.load(from: authURL, environment: environment) else {
             throw UsageProviderError.needsAuth
         }
 

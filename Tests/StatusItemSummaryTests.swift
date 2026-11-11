@@ -56,15 +56,31 @@ final class StatusItemSummaryTests: XCTestCase {
     /// tests are about what the bar says, not about who asked for it.
     private func summary(_ snapshots: [ProviderSnapshot],
                          limits: MenuBarLimits? = nil,
-                         format: ResetTimeFormat = .automatic) -> StatusItemSummary {
+                         format: ResetTimeFormat = .automatic,
+                         weekly: Bool = false,
+                         remaining: Bool = false,
+                         hideDepleted: Bool = false,
+                         reading: MenuBarReading = .automatic,
+                         autoOrder: Bool = false) -> StatusItemSummary {
         StatusItemSummary.make(
             from: snapshots,
             showing: limits ?? MenuBarLimits(isOn: true, chosen: Set(snapshots.map(\.id))),
-            now: now, format: format)
+            now: now, format: format, showingWeeklyLimit: weekly,
+            showingRemaining: remaining, hidingDepleted: hideDepleted, reading: reading,
+            autoOrdering: autoOrder)
     }
 
     private func on(_ chosen: Set<String>?) -> MenuBarLimits {
         MenuBarLimits(isOn: true, chosen: chosen)
+    }
+
+    /// A defaults domain of this test's own, so a stored choice is read back
+    /// from the same place it was written and never from the installed app's.
+    private func scratchDefaults() -> UserDefaults {
+        let name = "StatusItemSummaryTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return defaults
     }
 
     // MARK: - Which providers
@@ -184,6 +200,24 @@ final class StatusItemSummaryTests: XCTestCase {
                        StatusItemSummary.make(from: [account],
                                               showing: on(nil), now: now,
                                               format: .remaining).entries.first?.detail)
+    }
+
+    /// And so do the menu's own rows. They are built by a static function that
+    /// cannot read the controller's copy of the setting, so the setting has to
+    /// be handed to it — and was not: the menu said "Resets Tue 17:25" under a
+    /// card and a tooltip that both said "Resets in 4h 52m".
+    func testTheMenusRowsFollowTheChosenResetWording() throws {
+        let account = claude(0.53, resetIn: 4 * hour + 52 * minute)
+
+        let automatic = StatusItemController.detailLines(for: account, now: now, format: .automatic)
+        let remaining = StatusItemController.detailLines(for: account, now: now, format: .remaining)
+
+        let session = try XCTUnwrap(remaining.first)
+        XCTAssertTrue(session.contains("Resets in 4h 52m"), session)
+        XCTAssertNotEqual(automatic, remaining)
+        // The tooltip beside it is built from the same choice, so the two agree.
+        let detail = try XCTUnwrap(summary([account], format: .remaining).entries.first?.detail)
+        XCTAssertTrue(detail.contains("4h 52m"), detail)
     }
 
     // MARK: - What Settings chose
@@ -316,9 +350,22 @@ final class StatusItemSummaryTests: XCTestCase {
         XCTAssertNil(result.nextChange)
     }
 
-    func testTheCountdownRunsDownToUnderAMinute() throws {
+    func testTheCountdownRunsDownThroughTheLastMinuteInSeconds() throws {
         XCTAssertEqual(try XCTUnwrap(summary([claude(0.66, resetIn: 47 * minute + 50)]).entries.first).countdown, "47m")
-        XCTAssertEqual(try XCTUnwrap(summary([claude(0.93, resetIn: 42)]).entries.first).countdown, "<1m")
+        XCTAssertEqual(try XCTUnwrap(summary([claude(0.93, resetIn: 42)]).entries.first).countdown, "42s")
+    }
+
+    /// The last minute ticks every second, and a figure that changed width as
+    /// it fell would push every status item to its left along with it, once a
+    /// second. The item is as wide as what it says — see `StatusItemArtwork.size`
+    /// — so it may step once as "1m" becomes "59s", as it does whenever a
+    /// figure changes shape; through the seconds themselves it holds still.
+    func testTheItemHoldsOneWidthThroughTheLastMinute() throws {
+        let widths = [59, 42, 10, 9, 1].map { seconds in
+            StatusItemArtwork(summary: summary([claude(0.5, resetIn: TimeInterval(seconds))])).size.width
+        }
+        XCTAssertEqual(Set(widths).count, 1,
+                       "the item changes width as the last minute counts down: \(widths)")
     }
 
     /// A remembered reading is dimmed, as the notch dims its ring, and says
@@ -336,6 +383,267 @@ final class StatusItemSummaryTests: XCTestCase {
         let result = summary([claude(0.72, resetIn: 2 * hour + 18 * minute + 20),
                               codex(0.41, resetIn: 4 * hour + 5 * minute + 30)])
         XCTAssertEqual(result.nextChange, now.addingTimeInterval(20))
+    }
+
+    /// A wake-up scheduled a minute out may be a second late; the whole point of
+    /// one scheduled a second out is that it is not. A second of slack there let
+    /// the timer wake having already skipped the figure it woke up to show.
+    @MainActor
+    func testTheWakeUpTakesLessSlackWhenItIsCountingSeconds() {
+        XCTAssertEqual(StatusItemController.tolerance(untilChange: 60), 1)
+        XCTAssertEqual(StatusItemController.tolerance(untilChange: 20), 1)
+        XCTAssertLessThan(StatusItemController.tolerance(untilChange: 1), 1)
+        XCTAssertLessThan(StatusItemController.tolerance(untilChange: 0.2), 1)
+    }
+
+    // MARK: - Weekly ring
+
+    func testWeeklyRingUsesTheProvidersDeclaredConsumedFraction() throws {
+        let off = try XCTUnwrap(summary([claude(0.32, resetIn: hour)]).entries.first)
+        let on = try XCTUnwrap(summary([claude(0.32, resetIn: hour)], weekly: true).entries.first)
+        XCTAssertNil(off.weeklyFraction, "the new presentation is opt-in")
+        XCTAssertEqual(on.weeklyFraction, 0.31)
+        // The window's own label, which for Claude's second window is the one
+        // the provider declared. The line used to say "Weekly Limit" whatever
+        // the window was, which misnamed this one and would misname a monthly
+        // allowance too.
+        XCTAssertTrue(on.detail.contains("All models: 31% Used · 69% left"), on.detail)
+        XCTAssertEqual(on.percent, "32%", "weekly usage never replaces the existing session share")
+    }
+
+    /// A provider whose second window is not a week still gets its own name for
+    /// it: the label comes from the window, not from a string baked into the
+    /// menu bar.
+    func testTheWeeklyLineNamesWhateverWindowTheProviderDeclared() throws {
+        var snapshot = claude(0.32, resetIn: hour)
+        snapshot.windows[1] = LimitWindow(id: "weekly_all", label: "Monthly limit",
+                                          usedFraction: 0.31, duration: 30 * 86400)
+        let entry = try XCTUnwrap(summary([snapshot], weekly: true).entries.first)
+        XCTAssertTrue(entry.detail.contains("Monthly limit: 31% Used · 69% left"), entry.detail)
+        XCTAssertFalse(entry.detail.contains("Weekly"), entry.detail)
+    }
+
+    func testWeeklyRingOmitsUnavailableInvalidAndExpiredReadings() throws {
+        XCTAssertNil(try XCTUnwrap(summary([
+            other("glm", glyph: .glm, length: 5 * hour)
+        ], weekly: true).entries.first).weeklyFraction)
+
+        var invalid = claude(0.32, resetIn: hour)
+        invalid.windows[1] = LimitWindow(id: "weekly_all", label: "All models",
+                                         usedFraction: .nan, duration: 7 * 86400)
+        XCTAssertNil(try XCTUnwrap(summary([invalid], weekly: true).entries.first).weeklyFraction)
+
+        var expired = claude(0.32, resetIn: hour)
+        expired.windows[1] = LimitWindow(id: "weekly_all", label: "All models",
+                                         usedFraction: 0.67,
+                                         resetsAt: now.addingTimeInterval(-1), duration: 7 * 86400)
+        XCTAssertNil(try XCTUnwrap(summary([expired], weekly: true).entries.first).weeklyFraction)
+    }
+
+    func testWeeklyRingCoversEmptyLowHalfFullAndOverLimit() throws {
+        for (fraction, expected) in [(0.0, 0.0), (0.03, 0.03), (0.5, 0.5),
+                                     (1.0, 1.0), (1.08, 1.08)] {
+            var snapshot = claude(0.32, resetIn: hour)
+            snapshot.windows[1] = LimitWindow(id: "weekly_all", label: "All models",
+                                               usedFraction: fraction, duration: 7 * 86400)
+            XCTAssertEqual(try XCTUnwrap(summary([snapshot], weekly: true).entries.first).weeklyFraction,
+                           expected, "\(fraction)")
+        }
+    }
+
+    /// Antigravity may choose its weekly allowance as the notch headline. The
+    /// status item still leads with its independent five-hour reading, so the
+    /// declared weekly allowance remains useful rather than becoming a duplicate.
+    func testWeeklyRingStillWorksWhenTheNotchHeadlineIsWeekly() throws {
+        let snapshot = ProviderSnapshot(
+            id: "antigravity", displayName: "Antigravity", glyph: .antigravity,
+            fidelity: .official, status: .ok,
+            windows: [
+                LimitWindow(id: "five", label: "5-hour Limit", usedFraction: 0.21,
+                            resetsAt: now.addingTimeInterval(hour), duration: 5 * hour),
+                LimitWindow(id: "week", label: "Weekly Limit", usedFraction: 0.67,
+                            resetsAt: now.addingTimeInterval(3 * 86400), duration: 7 * 86400),
+            ],
+            headlineID: "week", weeklyID: "week")
+        XCTAssertNil(snapshot.weeklyWindow, "the notch still avoids drawing the same ring twice")
+        XCTAssertEqual(snapshot.weeklyLimitWindow?.usedFraction, 0.67)
+        let entry = try XCTUnwrap(summary([snapshot], weekly: true).entries.first)
+        XCTAssertEqual(entry.percent, "21%")
+        XCTAssertEqual(entry.weeklyFraction, 0.67)
+    }
+
+    func testEachProviderKeepsItsOwnWeeklyReading() {
+        var first = claude(0.32, resetIn: hour)
+        first.windows[1] = LimitWindow(id: "weekly_all", label: "All models",
+                                       usedFraction: 0.67, duration: 7 * 86400)
+        var second = codex(0.14, resetIn: 2 * hour)
+        second.windows[1] = LimitWindow(id: "secondary", label: "Weekly limit",
+                                        usedFraction: 0.28, duration: 7 * 86400)
+        let entries = summary([first, second], weekly: true).entries
+        XCTAssertEqual(entries.map(\.weeklyFraction), [0.67, 0.28])
+    }
+
+    // MARK: - Reading what is left
+
+    /// One account must not read two ways in one app: the notch, the cards in
+    /// the menu and now the item's own face all answer from the same end.
+    func testTheFaceReadsWhatIsLeftWhenTheAppIsSetThatWay() throws {
+        let spent = try XCTUnwrap(summary([claude(0.72, resetIn: 2 * hour + 18 * minute + 20)]).entries.first)
+        let left = try XCTUnwrap(summary([claude(0.72, resetIn: 2 * hour + 18 * minute + 20)],
+                                         remaining: true).entries.first)
+        XCTAssertEqual(spent.percent, "72%")
+        XCTAssertEqual(left.percent, "28%")
+        // Only the figure flips. The countdown is a time, not a share of one.
+        XCTAssertEqual(left.countdown, spent.countdown)
+    }
+
+    /// The tooltip carries both ends either way — it is the detailed view —
+    /// and leads with the one the bar above it is showing.
+    func testTheTooltipLeadsWithTheEndTheBarIsShowing() throws {
+        let left = try XCTUnwrap(summary([claude(0.72, resetIn: 2 * hour)], remaining: true).entries.first)
+        XCTAssertEqual(left.detail, "Claude — Current session: 28% left · 72% Used · 2h 00m")
+    }
+
+    /// Derived from the rounded used half, the rule `Percent.halves` follows,
+    /// so the figure on the bar and the one in the tooltip under it always add
+    /// up to a hundred.
+    func testTheFigureAndItsTooltipAlwaysAddUp() throws {
+        for used in [0.0, 0.004, 0.095, 0.5, 0.994, 1.0, 1.2] {
+            let entry = try XCTUnwrap(summary([claude(used, resetIn: hour)], remaining: true).entries.first)
+            let halves = Percent.halves(for: used)
+            XCTAssertTrue(entry.detail.contains("\(halves.left)% left · \(halves.used)% Used"),
+                          "\(used): \(entry.detail)")
+        }
+    }
+
+    /// The two figures `Percent.whole` protects, answered from the other end:
+    /// a window barely touched is not a full hundred left, and one nearly
+    /// spent still has something left rather than none.
+    func testTheRemainingFigureNeverRoundsToAFullHundredOrToNothing() throws {
+        let barelyTouched = try XCTUnwrap(summary([claude(0.003, resetIn: hour)], remaining: true).entries.first)
+        XCTAssertEqual(barelyTouched.percent, ">99%")
+        let nearlySpent = try XCTUnwrap(summary([claude(0.994, resetIn: hour)], remaining: true).entries.first)
+        XCTAssertEqual(nearlySpent.percent, "<1%")
+        let overspent = try XCTUnwrap(summary([claude(1.2, resetIn: hour)], remaining: true).entries.first)
+        XCTAssertEqual(overspent.percent, "0%", "an overspent window has nothing left, not less than nothing")
+    }
+
+    /// The ring sweeps from the end the figure beside it is read from, as the
+    /// notch's own rings do.
+    func testTheWeeklyRingSweepsFromTheSameEndAsTheFigure() throws {
+        let spent = try XCTUnwrap(summary([claude(0.32, resetIn: hour)], weekly: true).entries.first)
+        let left = try XCTUnwrap(summary([claude(0.32, resetIn: hour)], weekly: true,
+                                         remaining: true).entries.first)
+        XCTAssertEqual(spent.weeklyFraction, 0.31)
+        XCTAssertEqual(try XCTUnwrap(left.weeklyFraction), 0.69, accuracy: 0.0001)
+        XCTAssertTrue(left.detail.contains("All models: 69% left · 31% Used"), left.detail)
+    }
+
+    /// A provider with no five-hour reading is a dash whichever end the bar
+    /// reads from: there is no figure to turn around.
+    func testADashStaysADashWhenReadingWhatIsLeft() throws {
+        let entry = try XCTUnwrap(summary([claude(nil, resetIn: nil)], remaining: true).entries.first)
+        XCTAssertEqual(entry.percent, "—")
+        XCTAssertTrue(entry.isBlank)
+    }
+
+    // MARK: - Accounts with nothing left to spend
+
+    /// The same switch that takes an empty account's ring out of the notch.
+    func testAnEmptyAccountLeavesTheFaceWhenTheAppHidesDepletedOnes() {
+        let full = claude(1.0, resetIn: hour)
+        let codex = codex(0.41, resetIn: 2 * hour)
+        XCTAssertEqual(summary([full, codex]).entries.map(\.id), ["claude", "codex"])
+        XCTAssertEqual(summary([full, codex], hideDepleted: true).entries.map(\.id), ["codex"])
+    }
+
+    /// A spent week empties the account as surely as a spent session does,
+    /// which is the rule `ProviderSnapshot.isDepleted` already applies in the
+    /// notch.
+    func testASpentWeekEmptiesTheAccountToo() {
+        var spentWeek = claude(0.12, resetIn: hour)
+        spentWeek.windows[1] = LimitWindow(id: "weekly_all", label: "All models",
+                                           usedFraction: 1.0, duration: 7 * 86400)
+        XCTAssertEqual(summary([spentWeek], hideDepleted: true).entries.count, 0)
+    }
+
+    /// Stale readings stay: an old number is not proof the account is empty.
+    func testAStaleFullReadingIsNotProofTheAccountIsEmpty() {
+        let stale = claude(1.0, resetIn: hour, status: .stale(since: .distantPast))
+        XCTAssertEqual(summary([stale], hideDepleted: true).entries.map(\.id), ["claude"])
+    }
+
+    /// Dropped before the count, so an empty account never takes one of the
+    /// four places from an account there is still something to say about.
+    func testAnEmptyAccountDoesNotTakeAPlaceInTheBar() {
+        let spent = (1...3).map { claude(1.0, resetIn: hour, id: "claude-\($0)") }
+        let live = [codex(0.41, resetIn: hour), other("glm", glyph: .glm, length: 5 * hour)]
+        XCTAssertEqual(summary(spent + live).entries.map(\.id),
+                       ["claude-1", "claude-2", "claude-3", "codex"])
+        XCTAssertEqual(summary(spent + live, hideDepleted: true).entries.map(\.id), ["codex", "glm"])
+    }
+
+    /// Hiding is the item's face alone. The menu behind it lists every
+    /// provider read, because the item is the way into an app that has left
+    /// the Dock and an account that cannot be reached is not hidden but lost.
+    func testHidingAnEmptyAccountNeverTakesItOutOfTheMenu() {
+        let controller = StatusItemController(onOpenSettings: {})
+        controller.hidesDepleted = true
+        controller.snapshots = [claude(1.0, resetIn: hour), codex(0.41, resetIn: 2 * hour)]
+        let menu = NSMenu()
+        controller.rebuild(menu: menu, now: now)
+        let listed = menu.items.compactMap { $0.representedObject as? String }
+        XCTAssertEqual(listed, ["claude", "codex"])
+    }
+
+    // MARK: - Working indicator
+
+    /// What the item has always done, and what Reduce Motion has always made
+    /// of it, now said out loud so Settings can ask for either outright.
+    func testThePulseIsTheDefaultAndReduceMotionStillOverridesIt() {
+        XCTAssertEqual(Preferences(defaults: scratchDefaults()).menuBarActivityStyle, .pulse)
+        XCTAssertTrue(MenuBarActivityStyle.pulse.animates(reducesMotion: false))
+        XCTAssertFalse(MenuBarActivityStyle.pulse.showsStillBadge(reducesMotion: false))
+        XCTAssertFalse(MenuBarActivityStyle.pulse.animates(reducesMotion: true))
+        XCTAssertTrue(MenuBarActivityStyle.pulse.showsStillBadge(reducesMotion: true))
+    }
+
+    /// The still dot is the Reduce Motion treatment, chosen outright: a badge
+    /// and no animation, whatever the Mac's own setting says.
+    func testTheStillDotNeverAnimatesAndTheBadgeIsAlwaysThere() {
+        for reduced in [false, true] {
+            XCTAssertFalse(MenuBarActivityStyle.dot.animates(reducesMotion: reduced), "\(reduced)")
+            XCTAssertTrue(MenuBarActivityStyle.dot.showsStillBadge(reducesMotion: reduced), "\(reduced)")
+        }
+    }
+
+    /// Off is off: nothing moves and nothing is drawn.
+    func testNoneLeavesTheMarkAlone() {
+        for reduced in [false, true] {
+            XCTAssertFalse(MenuBarActivityStyle.off.animates(reducesMotion: reduced), "\(reduced)")
+            XCTAssertFalse(MenuBarActivityStyle.off.showsStillBadge(reducesMotion: reduced), "\(reduced)")
+        }
+    }
+
+    func testTheChosenIndicatorSurvivesARestart() {
+        let defaults = scratchDefaults()
+        Preferences(defaults: defaults).menuBarActivityStyle = .off
+        XCTAssertEqual(Preferences(defaults: defaults).menuBarActivityStyle, .off)
+    }
+
+    /// A working mark is dimmed and brought back, so the ink in its box moves
+    /// between frames; with the indicator off, the same mark is drawn exactly
+    /// as it is when nothing is working at all.
+    func testTheWorkingDotIsDrawnForTheStillDotAndNotForNone() throws {
+        let result = summary([claude(0.72, resetIn: hour)])
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        let idle = StatusItemArtwork(summary: result, font: font, height: 22)
+        let dotted = StatusItemArtwork(summary: result, font: font, height: 22,
+                                       activityBadgeProviderIDs: ["claude"])
+        let glyph = try XCTUnwrap(idle.glyphFrame(for: "claude")).insetBy(dx: -3, dy: -3)
+        XCTAssertGreaterThan(ink(dotted.image(), in: glyph), ink(idle.image(), in: glyph),
+                             "the still dot adds ink to the mark")
+        XCTAssertEqual(dotted.size, idle.size, "and never moves the items beside it")
     }
 
     // MARK: - Room in the bar
@@ -357,21 +665,225 @@ final class StatusItemSummaryTests: XCTestCase {
         XCTAssertFalse(summary(Array(many.prefix(2))).isCompact)
     }
 
+    // MARK: - Which readings get the room
+
+    /// Off, the bar keeps the order Accounts was dragged into.
+    func testTheBarKeepsTheManualOrderUntilAutoOrderIsOn() {
+        let snapshots = [claude(0.80, resetIn: hour), codex(0.10, resetIn: hour)]
+        XCTAssertEqual(summary(snapshots).entries.map(\.id), ["claude", "codex"])
+        XCTAssertEqual(summary(snapshots, autoOrder: true).entries.map(\.id), ["codex", "claude"])
+    }
+
+    /// The order is taken before the four places are, so auto-order decides
+    /// who is on the bar at all and not merely where.
+    func testAutoOrderDecidesWhichFourAreOnTheBar() {
+        let crowded = [claude(0.99, resetIn: hour, id: "claude-1"),
+                       claude(0.98, resetIn: hour, id: "claude-2"),
+                       claude(0.97, resetIn: hour, id: "claude-3"),
+                       claude(0.96, resetIn: hour, id: "claude-4"),
+                       claude(0.05, resetIn: hour, id: "claude-5")]
+        XCTAssertFalse(summary(crowded).entries.map(\.id).contains("claude-5"),
+                       "the manual order leaves the emptiest account out")
+        XCTAssertEqual(summary(crowded, autoOrder: true).entries.first?.id, "claude-5")
+        XCTAssertEqual(summary(crowded, autoOrder: true).entries.count, 4)
+    }
+
+    /// And before the countdowns, which only the first readings carry.
+    func testAutoOrderDecidesWhoKeepsTheCountdown() throws {
+        let three = [claude(0.90, resetIn: hour, id: "claude-1"),
+                     claude(0.80, resetIn: 2 * hour, id: "claude-2"),
+                     claude(0.10, resetIn: 3 * hour, id: "claude-3")]
+        let ordered = summary(three, autoOrder: true)
+        XCTAssertEqual(ordered.entries.map(\.id), ["claude-3", "claude-2", "claude-1"])
+        XCTAssertTrue(ordered.isCompact, "three readings still drop the countdowns from the face")
+        XCTAssertFalse(summary(Array(three.prefix(2)), autoOrder: true).isCompact)
+    }
+
+    /// The bar sorts by the window it prints, not by the one leading the
+    /// notch's ring — see `ProviderOrderTests` for the rule itself.
+    func testTheBarSortsByTheWindowItPrints() {
+        var weeklyLed = claude(0.90, resetIn: hour, id: "claude-week")
+        weeklyLed.headlineID = "weekly_all"
+        weeklyLed.weeklyID = "session"
+        let other = claude(0.50, resetIn: hour, id: "claude-plain")
+        XCTAssertEqual(summary([weeklyLed, other], autoOrder: true).entries.map(\.id),
+                       ["claude-plain", "claude-week"])
+    }
+
+    // MARK: - How much of each reading is printed
+
+    /// The rule the item has always followed, which is now one answer of
+    /// three rather than the only one there is.
+    func testAutomaticIsTheDefaultAndStillCountsToTwo() {
+        XCTAssertEqual(Preferences(defaults: scratchDefaults()).menuBarReading, .automatic)
+        for count in 1...4 {
+            XCTAssertEqual(MenuBarReading.automatic.isCompact(entryCount: count), count > 2, "\(count)")
+        }
+    }
+
+    /// Share only is the narrow answer: no countdown, however few there are.
+    func testShareOnlyDropsTheCountdownEvenFromASingleReading() {
+        let one = summary([claude(0.72, resetIn: 2 * hour)], reading: .share)
+        XCTAssertTrue(one.isCompact)
+        // Dropped from the face, not from the reading: the tooltip still has
+        // it, and so does the entry the menu and VoiceOver are built from.
+        XCTAssertEqual(try? XCTUnwrap(one.entries.first).countdown, "2h 00m")
+        XCTAssertTrue(try XCTUnwrap(one.entries.first?.detail).contains("2h 00m"))
+    }
+
+    /// Share and countdown is the wide answer: the countdown stays past the
+    /// two the automatic rule would have stopped at.
+    func testShareAndCountdownKeepsTheCountdownPastTwo() {
+        let four = [claude(0.72, resetIn: hour), codex(0.41, resetIn: hour),
+                    other("glm", glyph: .glm, length: 5 * hour), other("kimi", glyph: .kimi, length: 5 * hour)]
+        XCTAssertTrue(summary(four).isCompact, "the automatic rule stops at two")
+        XCTAssertFalse(summary(four, reading: .full).isCompact)
+    }
+
+    /// The ceiling Settings cannot move: a fifth reading only ever lengthens
+    /// the item, so it stays in the menu whatever is chosen here.
+    func testTheFourReadingCeilingHoldsWhicheverAnswerIsChosen() {
+        let five = [claude(0.72, resetIn: hour), codex(0.41, resetIn: hour),
+                    other("glm", glyph: .glm, length: 5 * hour), other("kimi", glyph: .kimi, length: 5 * hour),
+                    other("opencode", glyph: .opencode, length: 5 * hour)]
+        for reading in MenuBarReading.allCases {
+            XCTAssertEqual(summary(five, reading: reading).entries.count, 4, "\(reading)")
+        }
+    }
+
+    /// What the answer actually buys, in the only currency the menu bar deals
+    /// in. Two readings: narrow drops both countdowns, wide keeps them, and
+    /// automatic sits where it always did.
+    func testTheAnswerIsWidthAndTheWidthsAreOrdered() {
+        let two = [claude(0.72, resetIn: 2 * hour + 18 * minute), codex(0.41, resetIn: 4 * hour + 5 * minute)]
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        func width(_ reading: MenuBarReading, _ snapshots: [ProviderSnapshot]) -> CGFloat {
+            StatusItemArtwork(summary: summary(snapshots, reading: reading), font: font, height: 22).size.width
+        }
+        XCTAssertLessThan(width(.share, two), width(.automatic, two))
+        XCTAssertEqual(width(.full, two), width(.automatic, two), "two is where the automatic rule is wide")
+
+        let four = two + [other("glm", glyph: .glm, length: 5 * hour),
+                          other("kimi", glyph: .kimi, length: 5 * hour)]
+        XCTAssertEqual(width(.share, four), width(.automatic, four), "four is where it is narrow")
+        XCTAssertGreaterThan(width(.full, four), width(.automatic, four))
+    }
+
+    /// A change of answer is a change of summary, so the item redraws for it
+    /// rather than deciding nothing has happened.
+    func testChangingTheAnswerIsAChangeTheItemNotices() {
+        let two = [claude(0.72, resetIn: hour), codex(0.41, resetIn: hour)]
+        XCTAssertNotEqual(summary(two, reading: .automatic), summary(two, reading: .share))
+    }
+
+    func testTheChosenReadingSurvivesARestart() {
+        let defaults = scratchDefaults()
+        Preferences(defaults: defaults).menuBarReading = .share
+        XCTAssertEqual(Preferences(defaults: defaults).menuBarReading, .share)
+    }
+
     /// The items to the left of this one shift whenever it changes width, so
     /// it keeps one width through the ordinary run of a window: single-digit
     /// shares, the last hour, the last minute, an unknown reset.
-    func testTheItemKeepsOneWidthAsTheFiguresMove() {
+    /// Replaces `testTheItemKeepsOneWidthAsTheFiguresMove`, deliberately and in
+    /// the other direction. That test guarded padding each figure to the widest
+    /// reading it could take, so the item held one width for a whole window.
+    /// The room that buys is empty whenever the figures are shorter, and there
+    /// is nowhere inside the item to put it that does not read as a hole. The
+    /// item is as wide as what it says instead; how often that moves is
+    /// measured in the test below, not assumed.
+    func testTheItemFollowsTheFiguresItPrints() {
         let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
         func width(_ used: Double, _ resetIn: TimeInterval?) -> CGFloat {
             StatusItemArtwork(summary: summary([claude(used, resetIn: resetIn)]), font: font, height: 22).size.width
         }
-        let reference = width(0.72, 2 * hour + 18 * minute)
-        for (used, resetIn) in [(0.07, 2 * hour + 18 * minute), (0.0, 4 * hour + 59 * minute),
-                                (0.003, 3 * hour), (0.72, 47 * minute), (0.72, 8 * minute),
-                                (0.72, 30), (0.72, nil)] as [(Double, TimeInterval?)] {
-            XCTAssertEqual(width(used, resetIn), reference, "\(used) with \(String(describing: resetIn))s left")
+        // A digit fewer in either figure is a digit narrower in the item.
+        let digit = ("0" as NSString).size(withAttributes: [.font: font]).width
+        let reference = width(0.72, 2 * hour + 18 * minute)   // "72% · 2h 18m"
+        XCTAssertEqual(width(0.07, 2 * hour + 18 * minute),   // "7% · 2h 18m"
+                       reference - digit, accuracy: 1)
+        XCTAssertEqual(width(1.0, 2 * hour + 18 * minute),    // "100% · 2h 18m"
+                       reference + digit, accuracy: 1)
+        // The same figure in the same shape is the same width, whatever it
+        // reads — monospaced digits are the whole reason the width moves as
+        // rarely as it does.
+        for used in [0.07, 0.72, 0.99] {
+            XCTAssertEqual(width(used, 2 * hour + 18 * minute), width(used, 4 * hour + 5 * minute),
+                           "\(used): two countdowns of the same shape")
         }
         XCTAssertLessThan(width(0.72, nil), 150, "one reading should stay compact")
+    }
+
+    /// What the menu bar is actually given, rather than what the artwork
+    /// measures: the item is its artwork and nothing besides.
+    ///
+    /// An `NSStatusBarButton` left to size itself pads an image by 7pt a side.
+    /// That is what a lone icon wants; either end of a line of figures it is
+    /// dead space, and it lands against the next status item's own padding, so
+    /// a reading ended a clear 14pt before anything else began.
+    func testTheItemIsGivenExactlyItsArtworksWidth() throws {
+        let controller = StatusItemController(onOpenSettings: {})
+        controller.show()
+        defer { controller.hide() }
+        guard let item = controller.item, let button = item.button else {
+            throw XCTSkip("no status item on this host")
+        }
+        // Windows against the wall clock, because setting `snapshots` redraws
+        // the button against `Date()`.
+        let live = Date()
+        func reading(_ id: String, _ glyph: ProviderGlyph, _ used: Double,
+                     _ left: TimeInterval) -> ProviderSnapshot {
+            ProviderSnapshot(id: id, displayName: id, glyph: glyph, fidelity: .official,
+                             status: .ok,
+                             windows: [LimitWindow(id: "session", label: "Current session",
+                                                   usedFraction: used,
+                                                   resetsAt: live.addingTimeInterval(left),
+                                                   duration: 5 * hour)],
+                             headlineID: "session")
+        }
+        func length(_ snapshots: [ProviderSnapshot]) -> (given: CGFloat, drawn: CGFloat) {
+            controller.limits = MenuBarLimits(isOn: true, chosen: Set(snapshots.map(\.id)))
+            controller.snapshots = snapshots
+            return (item.length, button.image?.size.width ?? 0)
+        }
+        let long = length([reading("claude", .claude, 0.72, 2 * hour + 18 * minute),
+                           reading("codex", .openai, 0.41, 4 * hour + 5 * minute)])
+        XCTAssertEqual(long.given, long.drawn, "the item is the artwork, with nothing added")
+        // And it gives the room back as the reading gets shorter.
+        let short = length([reading("claude", .claude, 0.7, 8 * minute)])
+        XCTAssertEqual(short.given, short.drawn)
+        XCTAssertLessThan(short.given, long.given)
+    }
+
+    /// What following the figures actually costs the items beside it, counted
+    /// rather than guessed: a five-hour window walked minute by minute, filling
+    /// as it goes, and every width the item takes along the way.
+    ///
+    /// Monospaced digits mean the width can only move when a figure gains or
+    /// loses a *character*, not when it changes value. Over 300 minutes the
+    /// shapes a window passes through are 2/6 → 3/6 → 2/6 → 3/6 → 3/3 → 3/2
+    /// (percent characters over countdown characters): five steps, one an
+    /// hour. A second provider on its own schedule brings the pair to eleven,
+    /// about one every twenty-seven minutes.
+    func testTheItemChangesWidthOnlyAsTheFiguresChangeShape() {
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        func width(_ snapshots: [ProviderSnapshot]) -> CGFloat {
+            StatusItemArtwork(summary: summary(snapshots), font: font, height: 22).size.width
+        }
+        var alone: [CGFloat] = []
+        var paired: [CGFloat] = []
+        for minutesLeft in stride(from: 300, through: 1, by: -1) {
+            let filling = claude(Double(300 - minutesLeft) / 300,
+                                 resetIn: TimeInterval(minutesLeft) * minute)
+            // Half a window out of step, the way two providers actually are.
+            let other = ((minutesLeft + 150) % 300) + 1
+            alone.append(width([filling]))
+            paired.append(width([filling, codex(Double(300 - other) / 300,
+                                                resetIn: TimeInterval(other) * minute)]))
+        }
+        func steps(_ widths: [CGFloat]) -> Int { zip(widths, widths.dropFirst()).filter { $0 != $1 }.count }
+        XCTAssertEqual(steps(alone), 5, "one provider, across a whole window")
+        XCTAssertEqual(steps(paired), 11, "two providers, across a whole window")
     }
 
     /// A template, as the icon it stands in for is, so macOS tints it for
@@ -386,6 +898,117 @@ final class StatusItemSummaryTests: XCTestCase {
         XCTAssertGreaterThan(image.size.width, 0)
     }
 
+    private func ink(_ image: NSImage, in rect: NSRect) -> Int {
+        let scale: CGFloat = 2
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                   pixelsWide: Int(image.size.width * scale),
+                                   pixelsHigh: Int(image.size.height * scale),
+                                   bitsPerSample: 8, samplesPerPixel: 4,
+                                   hasAlpha: true, isPlanar: false,
+                                   colorSpaceName: .deviceRGB,
+                                   bytesPerRow: 0, bitsPerPixel: 0)!
+        rep.size = image.size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        image.draw(in: NSRect(origin: .zero, size: image.size))
+        NSGraphicsContext.restoreGraphicsState()
+        var count = 0
+        for y in 0..<rep.pixelsHigh {
+            for x in 0..<rep.pixelsWide {
+                let point = NSPoint(x: CGFloat(x) / scale,
+                                    y: image.size.height - CGFloat(y) / scale)
+                if rect.contains(point),
+                   (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.5 {
+                    count += 1
+                }
+            }
+        }
+        return count
+    }
+
+    func testReduceMotionUsesAStaticBadgeOnOnlyTheActiveProvider() throws {
+        let result = summary([claude(0.72, resetIn: hour), codex(0.41, resetIn: 2 * hour)])
+        let plain = StatusItemArtwork(summary: result,
+                                      font: .monospacedDigitSystemFont(ofSize: 13, weight: .regular),
+                                      height: 22)
+        let badged = StatusItemArtwork(summary: result,
+                                       font: .monospacedDigitSystemFont(ofSize: 13, weight: .regular),
+                                       height: 22,
+                                       activityBadgeProviderIDs: ["codex"])
+        let claude = try XCTUnwrap(plain.glyphFrame(for: "claude")).insetBy(dx: -2, dy: -2)
+        let codex = try XCTUnwrap(plain.glyphFrame(for: "codex")).insetBy(dx: -2, dy: -2)
+
+        XCTAssertEqual(badged.size, plain.size, "activity never moves other menu bar items")
+        XCTAssertEqual(ink(badged.image(), in: claude), ink(plain.image(), in: claude),
+                       "the idle provider is unchanged")
+        XCTAssertNotEqual(ink(badged.image(), in: codex), ink(plain.image(), in: codex),
+                          "the active provider carries a still badge")
+        XCTAssertTrue(badged.image().isTemplate)
+    }
+
+    func testPulseRunsFromFullToSubtleAndBackThroughTheArtworkMask() throws {
+        let result = summary([claude(0.72, resetIn: hour), codex(0.41, resetIn: 2 * hour)])
+        let artwork = StatusItemArtwork(summary: result,
+                                        font: .monospacedDigitSystemFont(ofSize: 13, weight: .regular),
+                                        height: 22)
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: artwork.size.width + 14, height: 22))
+        view.wantsLayer = true
+        let glyphs = Dictionary(uniqueKeysWithValues: result.entries.compactMap { entry in
+            artwork.glyphFrame(for: entry.id).map { (entry.id, $0) }
+        })
+        let pulse = StatusItemPulse()
+        pulse.update(view: view, imageSize: artwork.size, glyphs: glyphs, working: ["codex"])
+
+        XCTAssertEqual(pulse.pulsing, ["codex"])
+        let mask = try XCTUnwrap(view.layer?.mask)
+        let marks = (mask.sublayers ?? []).filter { !($0 is CAShapeLayer) }
+        let mark = try XCTUnwrap(marks.first)
+        let animation = try XCTUnwrap(
+            mark.animation(forKey: StatusItemPulse.animationKey) as? CABasicAnimation)
+        XCTAssertEqual(animation.keyPath, "opacity")
+        XCTAssertEqual(animation.fromValue as? Float, 1)
+        XCTAssertEqual(animation.toValue as? Float, StatusItemPulse.dimmest)
+        // Deep enough to be noticed without looking straight at it: a shallow
+        // dip on a glyph this small read as no change at all.
+        XCTAssertLessThanOrEqual(StatusItemPulse.dimmest, 0.3)
+        XCTAssertTrue(animation.autoreverses)
+        XCTAssertEqual(animation.repeatCount, .infinity)
+        XCTAssertEqual(animation.duration * 2, StatusItemPulse.period)
+        XCTAssertGreaterThan(animation.beginTime, 0)
+
+        pulse.update(view: view, imageSize: artwork.size, glyphs: glyphs, working: ["codex"])
+        let redrawnMask = try XCTUnwrap(view.layer?.mask)
+        let redrawnMarks = (redrawnMask.sublayers ?? []).filter { !($0 is CAShapeLayer) }
+        let redrawnMark = try XCTUnwrap(redrawnMarks.first)
+        let redrawnAnimation = try XCTUnwrap(
+            redrawnMark.animation(forKey: StatusItemPulse.animationKey) as? CABasicAnimation)
+        XCTAssertTrue(redrawnMask === mask, "routine redraws retain the mask layer")
+        XCTAssertEqual(redrawnMarks.count, 1)
+        XCTAssertTrue(redrawnMark === mark, "routine redraws retain the provider layer")
+        XCTAssertEqual(redrawnAnimation.beginTime, animation.beginTime,
+                       "routine redraws preserve the animation phase")
+
+        pulse.clear()
+        XCTAssertNil(view.layer?.mask, "Reduce Motion can remove the animation synchronously")
+        XCTAssertTrue(pulse.pulsing.isEmpty)
+    }
+
+    func testWeeklyRingAddsNoMenuBarWidth() {
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        let snapshot = claude(0.72, resetIn: hour)
+        let ordinary = StatusItemArtwork(summary: summary([snapshot]), font: font, height: 22).size.width
+        let weekly = StatusItemArtwork(summary: summary([snapshot], weekly: true), font: font, height: 22).size.width
+        XCTAssertEqual(weekly, ordinary, "the ring occupies the provider glyph's existing box")
+
+        var full = snapshot
+        full.windows[1] = LimitWindow(id: "weekly_all", label: "All models",
+                                      usedFraction: 1, duration: 7 * 86400)
+        XCTAssertEqual(
+            StatusItemArtwork(summary: summary([full], weekly: true), font: font, height: 22).size.width,
+            weekly,
+            "fill changes in place instead of moving other menu bar items")
+    }
+
     /// "72% · 2h 18m | 41% · 4h 05m": a second reading costs its own width
     /// and a rule between the two, and nothing more.
     func testASecondReadingSitsBesideTheFirstPastARule() {
@@ -397,6 +1020,181 @@ final class StatusItemSummaryTests: XCTestCase {
         let two = width([claude(0.72, resetIn: 2 * hour), codex(0.41, resetIn: 4 * hour)])
         XCTAssertGreaterThan(two, one * 2, "the rule and its gaps sit between the readings")
         XCTAssertLessThan(two, one * 2 + 20, "and take no more room than that")
+    }
+
+    /// Opt-in visual QA fixture. The status artwork is drawn at four times its
+    /// menu-bar dimensions so a reviewer can inspect its actual vector output.
+    func testRenderWeeklyRingContactSheetWhenRequested() throws {
+        guard let path = ProcessInfo.processInfo.environment["CODENOTCH_WEEKLY_RENDER"] else { return }
+        let levels: [(String, Double)] = [
+            ("0%", 0), ("3%", 0.03), ("50%", 0.5), ("87%", 0.87), ("100%", 1),
+        ]
+        let scale: CGFloat = 4
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 13 * scale, weight: .regular)
+        let rows: [(String, StatusItemArtwork)] = levels.map { label, fraction in
+            var snapshot = claude(0.32, resetIn: 2 * hour + 18 * minute)
+            snapshot.windows[1] = LimitWindow(id: "weekly_all", label: "All models",
+                                               usedFraction: fraction, duration: 7 * 86400)
+            return (label, StatusItemArtwork(summary: summary([snapshot], weekly: true),
+                                             font: font, height: 22 * scale))
+        }
+        let two = StatusItemArtwork(
+            summary: summary([claude(0.32, resetIn: hour), codex(0.14, resetIn: 2 * hour)], weekly: true),
+            font: font, height: 22 * scale)
+        let all = rows + [("2 providers", two)]
+        let labelWidth: CGFloat = 140
+        let rowHeight: CGFloat = 112
+        let canvas = NSImage(size: NSSize(width: labelWidth + (all.map { $0.1.size.width }.max() ?? 0) + 32,
+                                          height: rowHeight * CGFloat(all.count)), flipped: false) { rect in
+            NSColor.white.setFill(); rect.fill()
+            for (index, row) in all.enumerated() {
+                let y = rect.maxY - CGFloat(index + 1) * rowHeight + 12
+                NSAttributedString(string: row.0, attributes: [
+                    .font: NSFont.systemFont(ofSize: 18, weight: .medium), .foregroundColor: NSColor.black,
+                ]).draw(at: NSPoint(x: 12, y: y + 30))
+                row.1.image().draw(at: NSPoint(x: labelWidth, y: y),
+                                   from: .zero, operation: .sourceOver, fraction: 1)
+            }
+            return true
+        }
+        let data = try XCTUnwrap(canvas.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: data))
+        try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: path))
+    }
+
+    // MARK: - Waiting on a reply
+
+    func testAWaitingProviderGetsAClearHoleInItsTopTrailingCorner() throws {
+        let result = summary([claude(0.72, resetIn: hour), codex(0.41, resetIn: 2 * hour)])
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        let plain = StatusItemArtwork(summary: result, font: font, height: 22)
+        let waiting = StatusItemArtwork(summary: result, font: font, height: 22,
+                                        waitingBadgeProviderIDs: ["claude"])
+
+        XCTAssertEqual(waiting.size, plain.size, "a wait never moves other menu bar items")
+        XCTAssertTrue(waiting.image().isTemplate)
+        XCTAssertEqual(Set(waiting.waitingBadgeFrames.keys), ["claude"])
+        let dot = try XCTUnwrap(waiting.waitingBadgeFrames["claude"])
+        let glyph = try XCTUnwrap(waiting.glyphFrame(for: "claude"))
+        // Top trailing — the image is not flipped, so up is +y — and the
+        // opposite corner from Reduce Motion's working dot.
+        XCTAssertGreaterThan(dot.midX, glyph.midX)
+        XCTAssertGreaterThan(dot.midY, glyph.midY)
+        XCTAssertLessThanOrEqual(dot.maxY, waiting.size.height, "the dot is cut off by the bar")
+        // Left empty for the red dot, which the template cannot carry.
+        XCTAssertGreaterThan(ink(plain.image(), in: dot), 0, "the glyph reaches the corner")
+        XCTAssertEqual(ink(waiting.image(), in: dot), 0)
+        let codex = try XCTUnwrap(plain.glyphFrame(for: "codex")).insetBy(dx: -2, dy: -2)
+        XCTAssertEqual(ink(waiting.image(), in: codex), ink(plain.image(), in: codex),
+                       "the provider that is not waiting is unchanged")
+    }
+
+    func testAWaitTakesTheMarkFromReduceMotionsWorkingDot() throws {
+        let result = summary([claude(0.72, resetIn: hour)])
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        let both = StatusItemArtwork(summary: result, font: font, height: 22,
+                                     activityBadgeProviderIDs: ["claude"],
+                                     waitingBadgeProviderIDs: ["claude"])
+        let waitingOnly = StatusItemArtwork(summary: result, font: font, height: 22,
+                                            waitingBadgeProviderIDs: ["claude"])
+        let glyph = try XCTUnwrap(both.glyphFrame(for: "claude")).insetBy(dx: -3, dy: -3)
+        XCTAssertEqual(ink(both.image(), in: glyph), ink(waitingOnly.image(), in: glyph),
+                       "one signal per mark: the wait, not the wait and the work")
+    }
+
+    func testTheRedDotLandsInTheHoleTheArtworkLeft() throws {
+        let result = summary([claude(0.72, resetIn: hour), codex(0.41, resetIn: 2 * hour)])
+        let artwork = StatusItemArtwork(summary: result,
+                                        font: .monospacedDigitSystemFont(ofSize: 13, weight: .regular),
+                                        height: 22, waitingBadgeProviderIDs: ["codex"])
+        let hole = try XCTUnwrap(artwork.waitingBadgeFrames["codex"])
+        let inset = 7.0
+
+        let upright = NSView(frame: NSRect(x: 0, y: 0, width: artwork.size.width + 2 * inset, height: 22))
+        let badges = StatusItemWaitingBadges()
+        badges.update(view: upright, imageSize: artwork.size, badges: artwork.waitingBadgeFrames)
+        XCTAssertEqual(badges.showing, ["codex"])
+        XCTAssertEqual(badges.frame(for: "codex"), hole.offsetBy(dx: inset, dy: 0))
+
+        // A button's coordinates run top-down; the dot must still find the hole.
+        final class Flipped: NSView { override var isFlipped: Bool { true } }
+        let flipped = Flipped(frame: upright.frame)
+        let flippedBadges = StatusItemWaitingBadges()
+        flippedBadges.update(view: flipped, imageSize: artwork.size, badges: artwork.waitingBadgeFrames)
+        XCTAssertEqual(flippedBadges.frame(for: "codex"),
+                       NSRect(x: hole.minX + inset, y: 22 - hole.maxY, width: hole.width, height: hole.height))
+
+        badges.update(view: upright, imageSize: artwork.size, badges: [:])
+        XCTAssertTrue(badges.showing.isEmpty)
+        XCTAssertTrue(upright.subviews.isEmpty, "a wait that ended leaves no dot behind")
+    }
+
+    func testAWaitArrivesWithTwoDipsAndNoPulse() throws {
+        let result = summary([claude(0.72, resetIn: hour), codex(0.41, resetIn: 2 * hour)])
+        let artwork = StatusItemArtwork(summary: result,
+                                        font: .monospacedDigitSystemFont(ofSize: 13, weight: .regular),
+                                        height: 22)
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: artwork.size.width + 14, height: 22))
+        view.wantsLayer = true
+        let glyphs = Dictionary(uniqueKeysWithValues: result.entries.compactMap { entry in
+            artwork.glyphFrame(for: entry.id).map { (entry.id, $0) }
+        })
+        let pulse = StatusItemPulse()
+        pulse.update(view: view, imageSize: artwork.size, glyphs: glyphs, working: [])
+        pulse.nudge(["claude"])
+
+        XCTAssertEqual(pulse.nudging, ["claude"])
+        XCTAssertTrue(pulse.pulsing.isEmpty, "a nudge is not a breath")
+        let mask = try XCTUnwrap(view.layer?.mask)
+        let mark = try XCTUnwrap((mask.sublayers ?? []).first { !($0 is CAShapeLayer) })
+        let dips = try XCTUnwrap(mark.animation(forKey: StatusItemPulse.nudgeKey) as? CAKeyframeAnimation)
+        XCTAssertEqual(dips.values as? [Float], [1, StatusItemPulse.nudgeDimmest, 1, StatusItemPulse.nudgeDimmest, 1])
+        XCTAssertEqual(dips.repeatCount, 0, "it happens once")
+
+        // A redraw while it runs does not cut it short.
+        pulse.update(view: view, imageSize: artwork.size, glyphs: glyphs, working: [])
+        XCTAssertEqual(pulse.nudging, ["claude"])
+
+        pulse.clear()
+        XCTAssertTrue(pulse.nudging.isEmpty)
+        XCTAssertNil(view.layer?.mask)
+    }
+
+    func testFinishedWorkBlinksTwiceThreeTimesAsItsBreathStops() throws {
+        let result = summary([claude(0.72, resetIn: hour), codex(0.41, resetIn: 2 * hour)])
+        let artwork = StatusItemArtwork(summary: result,
+                                        font: .monospacedDigitSystemFont(ofSize: 13, weight: .regular),
+                                        height: 22)
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: artwork.size.width + 14, height: 22))
+        view.wantsLayer = true
+        let glyphs = Dictionary(uniqueKeysWithValues: result.entries.compactMap { entry in
+            artwork.glyphFrame(for: entry.id).map { (entry.id, $0) }
+        })
+        let pulse = StatusItemPulse()
+        pulse.update(view: view, imageSize: artwork.size, glyphs: glyphs, working: ["codex"])
+        // Work ends: the breath stops, and the blinks take its column.
+        pulse.update(view: view, imageSize: artwork.size, glyphs: glyphs, working: [])
+        pulse.nudge(["codex"], .finished)
+
+        XCTAssertEqual(pulse.nudge(for: "codex"), .finished)
+        XCTAssertTrue(pulse.pulsing.isEmpty)
+        let mask = try XCTUnwrap(view.layer?.mask)
+        let marks = (mask.sublayers ?? []).filter { !($0 is CAShapeLayer) }
+        XCTAssertEqual(marks.count, 1, "one column for the mark, not a settling breath under the blinks")
+        let blinks = try XCTUnwrap(marks.first?.animation(forKey: StatusItemPulse.nudgeKey) as? CAKeyframeAnimation)
+        let values = try XCTUnwrap(blinks.values as? [Float])
+        let times = try XCTUnwrap(blinks.keyTimes).map(\.doubleValue)
+        XCTAssertEqual(values.filter { $0 == StatusItemPulse.nudgeDimmest }.count, 6, "three double blinks")
+        XCTAssertEqual(times.first, 0)
+        XCTAssertEqual(try XCTUnwrap(times.last), 1, accuracy: 1e-9)
+        XCTAssertEqual(times, times.sorted(), "keyframes run forward")
+        XCTAssertEqual(blinks.repeatCount, 0)
+        XCTAssertEqual(blinks.duration, StatusItemPulse.Nudge.finished.duration)
+
+        // Back to work mid-blink: the breath takes over at once.
+        pulse.update(view: view, imageSize: artwork.size, glyphs: glyphs, working: ["codex"])
+        XCTAssertNil(pulse.nudge(for: "codex"))
+        XCTAssertEqual(pulse.pulsing, ["codex"])
     }
 }
 

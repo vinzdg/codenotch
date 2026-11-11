@@ -1,0 +1,11 @@
+{
+  "identifier": "carry",
+  "description": "The overlay the notch is drawn on while it is carried round the screen's border: it only listens for where the notch is, so it gets event listening and nothing else (not core:default)",
+  "windows": [
+    "carry"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

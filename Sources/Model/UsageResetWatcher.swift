@@ -17,6 +17,12 @@ struct UsageAlertEvent: Equatable {
     let previousFraction: Double
     let currentFraction: Double
     let resetsAt: Date?
+    /// Set for a notice that is not a reset or a limit (a threshold crossing
+    /// on the notch channel, a test): the card shows these words instead of
+    /// the kind's own.
+    var noticeTitle: String? = nil
+    var noticeSubtitle: String? = nil
+    var noticeStatus: String? = nil
 
     init(
         kind: UsageAlertKind = .reset,
@@ -74,6 +80,16 @@ final class UsageResetWatcher {
     }
 
     private func observe(_ snapshot: ProviderSnapshot) {
+        // An archived reading is not a baseline: at launch the store publishes
+        // the last run's snapshot, marked stale, and the live fetch that
+        // follows carries a newer reset date or a lower fraction, both of
+        // which read as a reset. That was "Claude has reset" two seconds
+        // after every start. Forgetting the provider here makes the first
+        // live reading the one that only records.
+        guard !snapshot.status.isStale else {
+            states.removeValue(forKey: snapshot.id)
+            return
+        }
         guard let headline = snapshot.headline,
               let fraction = snapshot.usedFraction else { return }
 

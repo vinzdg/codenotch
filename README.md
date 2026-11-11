@@ -93,15 +93,20 @@ wire-level details.
 | **Antigravity** | official where licensed, otherwise a request count | Antigravity's local language server first, then Google's quota endpoint; a plain count when neither will answer for the account. |
 | **GLM** | official | Z.ai's Coding Plan monitor endpoint, with a key borrowed from whichever coding tool already holds one — Claude Code's `settings.json`, ZCode, or OpenCode. |
 | **MiniMax** | official where a Coding Plan key is used, derived from official Platform responses for the in-app sign-in | A Coding Plan key pasted in Settings, or explicit sign-in in Codenotch's own WKWebView. |
-| **QianwenAI** | derived from official console responses | Explicit sign-in in Codenotch's own WKWebView, then the console's own Token Plan gateway. Shows the personal plan's 7-day credits window. |
+| **QianwenAI** | derived from official console responses | Explicit sign-in in Codenotch's own WKWebView, then the console's own Token Plan gateway. Shows the plan's credits window for whichever period the console reports — weekly or monthly. |
 | **Ollama (Local)** | local runtime | Automatically detected local models, RAM/VRAM, unload time and context. Optional response capture adds thinking and generation speed. |
 | **LM Studio** | local runtime | Loaded models from LM Studio's own listing, what each one is doing (prompt, generating, queue) from its SDK socket, and speed, context use and tokens per day from its server log. No relay needed. |
-| **Grok** | official | The Grok CLI session in `~/.grok/auth.json`, against the same credits billing endpoint `/usage` uses. |
+| **oMLX** | local runtime | Loaded models from oMLX's own status listing, what each one is doing (prompt, generating, queue) from its admin activity endpoint, and speed and tokens from `~/.omlx/logs/server.log`. |
+| **Grok** | official | The Grok CLI session in `~/.grok/auth.json`, against the same credits billing endpoint `/usage` uses. Once that session has expired it is renewed in memory from the file's own refresh token, the way the CLI would; the file itself is never written. |
 | **OpenCode** | official | The Go plan's official usage endpoint, with the `opencode-go` key OpenCode itself stores on sign-in. |
-| **Command Code** | official | The GOAT plan's `/alpha` billing endpoints, with the key the Command Code app writes to `~/.commandcode/auth.json`. |
+| **Command Code** | official | The GOAT plan's `/alpha` billing endpoints, with the key the Command Code app writes to `~/.commandcode/auth.json`. Further accounts are read from `~/.commandcode-<slug>` homes. |
 | **GitHub Copilot** | official | GitHub's Copilot quota endpoint, authenticated with the GitHub CLI session already on the Mac (`gh auth login`). |
-| **Kimi** | official | The Kimi Code CLI session in `~/.kimi-code/credentials/kimi-code.json`, against the same `/usages` endpoint the CLI's `/usage` asks. Shows the 5-hour rate window and the weekly quota. |
+| **Kimi** | official | The Kimi Code CLI session in `~/.kimi-code/credentials/kimi-code.json`, against the same `/usages` endpoint the CLI's `/usage` asks. Shows the 5-hour rate window and the weekly or monthly quotas available on the account. |
 | **Kiro** | official | The kiro-cli session already on this Mac, against the same `/usage` that command prints. Shows monthly credits. |
+| **Amp** | official subscription percentages; derived free-allowance percentage | The Amp CLI login in `~/.local/share/amp/secrets.json`, against Amp's `userDisplayBalanceInfo` endpoint. Shows Agent and Orb usage, or the Free allowance and replenishment rate. See [Amp details](docs/providers/amp.md). |
+| **Apify** | official | The `apify login` session already on this Mac (`~/.apify/auth.json`, or the token the CLI keeps in the keychain), or a token pasted in Settings or exported as `APIFY_TOKEN`, against the `/v2/users/me/limits` endpoint the Console's Billing page draws from. Shows this cycle's platform spend against the account's monthly usage limit. See [Apify details](docs/providers/apify.md). |
+| **Kilo** | official | The Kilo CLI's own sign-in (`~/.local/share/kilo/auth.json`), against the same coding-plan quota and balance endpoints the CLI asks. Shows the plan's quota windows and the credit balance. |
+| **Custom endpoints** | provider-reported or manual | Configure OpenAI-compatible, Anthropic Messages, or Google Gemini model discovery. Usage can be entered manually or read from a configured JSON endpoint; successful readings are kept locally as a daily hover graph. |
 
 Most providers borrow a credential or session from a tool already on your Mac.
 DeepSeek is the explicit browser-login exception: it never reads a browser's
@@ -111,9 +116,11 @@ paste in Settings, or an explicit WKWebView sign-in. QianwenAI is a third: it
 publishes no usage API and has no key to paste, so that WKWebView session is the
 only way in. None of them opens a browser's cookie store.
 
-Ollama Cloud accepts an API key in Settings. Switching a provider off stops its
-usage polling and forgets its readings; borrowed accounts stay signed in to
-the tools that own them.
+Ollama Cloud accepts an API key in Settings. Apify borrows the `apify login`
+session when there is one and otherwise takes a token pasted in Settings or
+exported as `APIFY_TOKEN`. Switching a provider off stops its usage polling
+and forgets its readings; borrowed accounts stay signed in to the tools that
+own them.
 
 **Local Ollama is detected automatically.** Configure its address or stop monitoring in **Settings → Ollama**.
 Each loaded model gets a notch cell; reorder or hide it in **Settings → Accounts**.
@@ -148,6 +155,11 @@ set to require an API token, paste one in Settings → LM Studio (or export `LM_
 one, requests are sent with no Authorization header at all.
 See [LM Studio details](docs/plans/2026-09-10-lm-studio-provider-plan.md).
 
+**Local oMLX is detected automatically** on the port `~/.omlx/settings.json` names (8000 by
+default). The API key is borrowed from the same file, or from `OMLX_API_KEY`, and is never
+stored or logged by Codenotch. Configure the address or stop monitoring in **Settings → oMLX**.
+See [oMLX details](docs/plans/2026-10-08-omlx-provider-plan.md).
+
 Settings lists the connected providers in the order the notch draws them, and
 you can drag one by its handle to move it. The order is remembered across
 launches. A provider you switch back on joins the end of that list rather than
@@ -165,6 +177,16 @@ personal one, with its own limits, its own sessions and its own row in Settings.
 Any `~/.claude-<slug>` directory Claude Code has run against is found at launch;
 the default `~/.claude` always comes first, the rest in alphabetical order, so the
 rings never swap places.
+
+An account you only use in the Claude desktop app has no directory of its own,
+so it has no ring yet. While one is in use, the ring that is shown is named for
+its own account (**Claude Gmail**, not just **Claude**), so you can tell which
+one it is. To give the desktop account a ring, sign in to it once from Terminal
+and restart Codenotch:
+
+```sh
+CLAUDE_CONFIG_DIR=~/.claude-desktop claude
+```
 
 Codex accounts work the same way: `~/.codex` stays the **Codex** ring, and each
 used `~/.codex-<slug>` directory adds a **Codex (slug)** ring with its own limits,
@@ -190,6 +212,23 @@ or writes Codex credentials. If a login expires, use that profile's Codex CLI
 to renew it. Directories outside the `~/.codex-<slug>` convention are not
 discovered automatically, and adding a profile requires restarting Codenotch,
 just as it does for Claude.
+
+Command Code has no setting for a second configuration directory: it keeps its
+login in `$HOME/.commandcode/auth.json`. A second account therefore lives in a
+second home. `~/.commandcode` stays the **Command Code** ring, and each
+`~/.commandcode-<slug>` directory adds a **Command Code (slug)** ring with its
+own limits and Settings row:
+
+```sh
+mkdir -p "$HOME/.commandcode-work"
+HOME="$HOME/.commandcode-work" commandcode login
+```
+
+Choose the second account during sign-in, then restart Codenotch. The login
+lands in `~/.commandcode-work/.commandcode/auth.json`, and that is the file
+Codenotch reads; an `auth.json` placed directly in `~/.commandcode-work` is read
+too. `COMMAND_CODE_API_KEY` names one account, so it applies to the default
+ring only. Codenotch never copies, refreshes or writes these logins.
 
 ## When a session ends
 
@@ -288,7 +327,7 @@ built and signed by the maintainer.
 ## Building
 
 ```sh
-brew install xcodegen   # once
+brew install xcodegen create-dmg   # once
 make run                # generate, build, launch a Debug build
 make test               # unit tests
 ```
@@ -354,11 +393,26 @@ are opened at all, matched on the organization Claude Code records for the
 profile, so one account's numbers can never land on another's ring. No token, no
 cookie, no credential and no request to Anthropic are involved. A snapshot older
 than 30 minutes is not shown as live — it drops through to the paths below, and
-the last good reading ages and dims as any other would. Chromium's cache format
+the last good reading ages and dims as any other would. Two minutes, not thirty,
+while a session is running or while you are looking at the ring: that is when
+the figure is moving, and a cache is the one source that cannot tell you it
+has. Chromium's cache format
 is private and may change; if it does, the source goes quiet and the existing
 ones take over. Bodies are `content-encoding: zstd` and macOS ships no decoder,
 so a decode-only build of Zstandard is vendored under
 [`Sources/Vendor/zstd`](Sources/Vendor/zstd) (BSD-3-Clause).
+
+**Claude's unused resets (macOS):** the hover card shows the remaining resets
+and their expiry, using the same section as Codex. Open **Settings → Usage**
+in Claude Desktop for the same account to populate its reset data. That data
+is read from Desktop's usage cache and is labeled as cached with the time it
+was last observed. Ordinary usage refreshes do not re-date it; old usage
+windows still fall back to the CLI/OAuth sources after 30 minutes. Used, paused, future,
+and expired grants are hidden. There is no built-in promotion date or assumed
+entitlement. As checked on September 23, 2026, the OAuth usage endpoint does
+not expose the grants (`ineligible_reason: surface`), so a CLI/OAuth-only
+setup cannot show them yet. Codenotch displays availability only; redeem a
+reset in Claude. See [the provider notes](docs/providers/claude-resets.md).
 
 **Keychain:** Claude's readings do not use it where Claude Code is installed.
 Claude Code files a *new* keychain item on every token rotation, and the new
@@ -377,6 +431,34 @@ unhelpful `Retry-After: 0`. The back-off treats that as a floor-raiser only —
 persisted, so relaunching during a penalty waits instead of spending an
 attempt on it. Polling drops to every 5 minutes when nothing is running, and
 right-clicking the notch offers **Refresh now**.
+
+**How current the figures are.** Your usage cannot move while nothing is
+running, so the schedule spends its budget where the number actually changes:
+every 30 seconds while a session is working, every 5 minutes while none is, and
+at once when a limit window rolls over. Three things outside the schedule also
+ask, because each one is a moment the figure is either about to change or about
+to be read: a session *stopping* (one reading, so the total you just earned is
+on the bar within a second or two rather than up to five minutes later),
+opening the menu bar item's menu, and putting the pointer on a ring. The last
+two are spaced — hovering four rings in four seconds is one reading, not four.
+
+The reset countdown is drawn against a clock, not against the last reading, so
+it is right to the second whether or not anything has been fetched: the card
+counts down once a second while it is open, and the menu bar item counts the
+last minute of a window down in seconds.
+
+Even at its freshest, a *percentage* is something that was read at some point
+rather than a live wire: a look re-reads it, and what comes back may still be a
+figure the provider itself published moments earlier. **Settings › General ›
+Readings › Ask the provider every time you look** takes that as far as it goes —
+a look then refuses every reading a provider is holding, however new, and asks
+the provider. It is off by default because it is not strictly better: it spends
+a request each time, and a provider that rate-limits answers one request too
+many by refusing the next few minutes of them, which leaves the figure older
+than the cache would have. Worth turning on to check Codenotch against a
+provider's own dashboard, and worth turning off again after. **Refresh now** and
+a click on a ring always ask this way — those are somebody's own clicks, not a
+schedule.
 
 **Logs:** the app has no window, so anything worth diagnosing goes to the
 unified log.

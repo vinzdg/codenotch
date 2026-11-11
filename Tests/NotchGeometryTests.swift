@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 @testable import Codenotch
 
 private struct FakeScreen: ScreenDescribing {
@@ -90,20 +91,26 @@ final class PanelOffsetTests: XCTestCase {
         )
         for display in [screen, secondary] {
             for edge in NotchEdge.allCases {
-                let model = NotchViewModel()
-                model.edge = edge
-                let frame = NotchGeometry.panelFrame(
-                    for: display, panelSize: model.panelSize, edge: edge,
-                    alongOffset: 10_000, slack: model.slack,
-                    trailingExtent: model.trailingExtent
-                )
-                let handleEnd = model.slack + model.orbAlong + NotchLayout.orbHotZone / 2
-                if edge.isVertical {
-                    XCTAssertGreaterThanOrEqual(frame.maxY - handleEnd,
-                                                display.frameValue.minY - 0.5)
-                } else {
-                    XCTAssertLessThanOrEqual(frame.minX + handleEnd,
-                                             display.frameValue.maxX + 0.5)
+                for size in NotchSize.allCases {
+                    let model = NotchViewModel()
+                    model.edge = edge
+                    model.sizeScale = size.scale
+                    let frame = NotchGeometry.panelFrame(
+                        for: display, panelSize: model.panelSize, edge: edge,
+                        alongOffset: 10_000, slack: model.slack,
+                        trailingExtent: model.trailingExtent
+                    )
+                    // The settings button, or the grip out beside it.
+                    let handleEnd = model.slack
+                        + max(model.orbAlong + NotchLayout.orbHotZone / 2,
+                              model.gripAlong + NotchLayout.gripHotZone / 2) * model.sizeScale
+                    if edge.isVertical {
+                        XCTAssertGreaterThanOrEqual(frame.maxY - handleEnd,
+                                                    display.frameValue.minY - 0.5)
+                    } else {
+                        XCTAssertLessThanOrEqual(frame.minX + handleEnd,
+                                                 display.frameValue.maxX + 0.5)
+                    }
                 }
             }
         }
@@ -251,8 +258,11 @@ final class ScreenAnchorRegressionTests: XCTestCase {
                 let model = NotchViewModel()
                 model.edge = edge
                 model.sizeScale = size.scale
+                // Open: a tooltip only ever exists on an open notch, and that
+                // is the geometry its anchor is measured in.
+                model.isExpanded = true
                 let length: CGFloat = edge.isVertical ? 300 : NotchLayout.cardWidth
-                let ring = model.slack + model.ringCenter(index: 0) * size.scale
+                let ring = model.ringAlong(index: 0, in: model.cellWing)
                 XCTAssertEqual(model.tooltipAlong(index: 0, length: length), ring)
                 // Both ends of the screen: the ring remains on screen, while a
                 // card centred on it would lose its heading or its right edge.
@@ -300,5 +310,176 @@ final class ScaledMeasurementTests: XCTestCase {
         let marginBound = NotchLayout.slack(for: .right, maxCardHeight: 0)
         XCTAssertEqual(NotchLayout.slack(for: .right, maxCardHeight: 0, notchScale: 2),
                        marginBound * 2, accuracy: 0.001)
+    }
+}
+
+
+
+
+
+
+
+
+/// The cutout's depth, from whichever signal AppKit is willing to give.
+final class HardwareNotchDepthTests: XCTestCase {
+    /// The bug: the bar came out shallower than the hole it is drawn as.
+    ///
+    /// `safeAreaInsets.top` is the area the system asks apps to keep clear, so
+    /// it collapses when the menu bar is hidden or auto-hides. The hole does
+    /// not. The strips either side of the notch are its own height and keep
+    /// reporting it, so they carry the answer when the inset gives up.
+    func testAHiddenMenuBarDoesNotShrinkTheNotch() {
+        XCTAssertEqual(HardwareNotch.height(safeAreaTop: 0, beside: [38, 38]), 38,
+                       "a hidden menu bar made the notch shallower than the hole")
+        XCTAssertEqual(HardwareNotch.height(safeAreaTop: 24, beside: [38, 38]), 38,
+                       "the menu bar's own height was taken for the notch's")
+    }
+
+    /// And when the inset is the fuller answer, it wins.
+    func testTheDeepestSignalIsTheOne() {
+        XCTAssertEqual(HardwareNotch.height(safeAreaTop: 38, beside: [32, 32]), 38)
+        XCTAssertEqual(HardwareNotch.height(safeAreaTop: 38, beside: []), 38)
+        XCTAssertEqual(HardwareNotch.height(safeAreaTop: 0, beside: []), 0,
+                       "a screen with nothing to report must still say nothing")
+    }
+}
+
+
+
+
+/// Folded, a notch that is not beside the hardware is the small pill it has
+/// always been — and the flare on it is a quarter circle, not an ellipse.
+@MainActor
+final class FoldedPillKeepsItsShapeTests: XCTestCase {
+    private func folded(_ edge: NotchEdge) -> NotchViewModel {
+        let m = NotchViewModel()
+        m.edge = edge
+        m.isExpanded = false
+        m.snapshots = (0..<3).map {
+            ProviderSnapshot(id: "p\($0)", displayName: "p", glyph: .claude,
+                             fidelity: .official, status: .ok, windows: [])
+        }
+        return m
+    }
+
+    /// The bug: separating the flare's length from its depth dropped the clamp
+    /// that kept the length inside the shape. On a pill 8pt deep the flare is
+    /// bounded to about 4pt across — and was stretching 33pt along it.
+    func testTheFlareCannotOutrunThePillItIsDrawnOn() {
+        for edge in [NotchEdge.right, .left, .bottom] {
+            let m = folded(edge)
+            let size = m.notchSize
+            let place = NotchPlacement(edge: edge, panelSize: size)
+            let path = m.notchShape.path(in: CGRect(origin: .zero, size: size))
+
+            // The pill's own extent along its edge, measured off the path at
+            // the row furthest from the bezel.
+            let hits = stride(from: CGFloat(0), to: NotchLayout.pillHeight, by: 0.5)
+                .filter { path.contains(place.point(along: $0, across: NotchLayout.pillWidth - 1)) }
+            guard let first = hits.first, let last = hits.last else {
+                return XCTFail("\(edge): nothing drawn at the pill's foot")
+            }
+            let lost = NotchLayout.pillHeight - (last - first)
+            XCTAssertLessThan(lost, NotchLayout.pillWidth * 2 + 2,
+                              "\(edge): the flare takes \(lost)pt off a "
+                              + "\(NotchLayout.pillHeight)pt pill — it cannot cut deeper "
+                              + "than the pill is thick")
+        }
+    }
+
+    /// And it is still the pill: full length at the bezel.
+    func testItIsStillThePill() {
+        for edge in [NotchEdge.right, .left, .bottom] {
+            let m = folded(edge)
+            XCTAssertEqual(m.notchLength, NotchLayout.pillHeight, accuracy: 0.001, "\(edge)")
+            XCTAssertEqual(m.notchDepth, NotchLayout.pillWidth, accuracy: 0.001, "\(edge)")
+        }
+    }
+}
+
+
+/// The top edge merges into the display's own cutout.
+///
+/// This is all that is left of the hardware's influence, and it is a placement
+/// and a join rather than a layout: the notch is one shape on every edge, and
+/// what the hole decides is where the top panel begins — because the band the
+/// hole occupies is not a dim or clipped part of the screen, it is absent — and
+/// how the leading end of that one shape flows out of it.
+final class AboveTheCutoutTests: XCTestCase {
+    private struct Notched: ScreenDescribing {
+        var frameValue = CGRect(x: 0, y: 0, width: 1800, height: 1169)
+        var visibleFrameValue = CGRect(x: 0, y: 0, width: 1800, height: 1169)
+        var hardwareNotch: HardwareNotch? { HardwareNotch(width: 220, height: 38) }
+        var displayIdentifier: String? { nil }
+    }
+    private struct Plain: ScreenDescribing {
+        var frameValue = CGRect(x: 0, y: 0, width: 1800, height: 1169)
+        var visibleFrameValue = CGRect(x: 0, y: 0, width: 1800, height: 1169)
+        var displayIdentifier: String? { nil }
+    }
+
+    private let size = CGSize(width: 400, height: 120)
+
+    /// **The panel is centred on the cutout**, because what it holds is a pair
+    /// of bars either side of it.
+    ///
+    /// Where each of the two *lands* is `NotchViewModel.wings` and is measured
+    /// in `MergesWithTheCutoutTests`; all this has to do is give them a window
+    /// that spans the hole and both of them, on the bezel.
+    func testThePanelIsCentredOnTheCutout() {
+        let screen = Notched()
+        let frame = NotchGeometry.panelFrame(for: screen, panelSize: size, edge: .top)
+        XCTAssertEqual(frame.maxY, screen.frameValue.maxY, accuracy: 0.5,
+                       "it left the bezel — the notch belongs on the screen's edge")
+        XCTAssertEqual(frame.midX, screen.frameValue.midX, accuracy: 0.5,
+                       "the pair is symmetric about the hole, so the panel is too")
+    }
+
+    /// A display without one loses nothing: centred, on the bezel, as before.
+    func testAPlainDisplayIsCentredOnTheBezel() {
+        let screen = Plain()
+        let frame = NotchGeometry.panelFrame(for: screen, panelSize: size, edge: .top)
+        XCTAssertEqual(frame.maxY, screen.frameValue.maxY, accuracy: 0.5)
+        XCTAssertEqual(frame.midX, screen.frameValue.midX, accuracy: 0.5,
+                       "a display with no cutout should not be shifted off centre")
+    }
+
+    /// And the other three edges never cared.
+    func testTheOtherEdgesAreUntouchedByIt() {
+        for edge in [NotchEdge.right, .left, .bottom] {
+            let notched = NotchGeometry.panelFrame(for: Notched(), panelSize: size, edge: edge)
+            let plain = NotchGeometry.panelFrame(for: Plain(), panelSize: size, edge: edge)
+            XCTAssertEqual(notched, plain, "\(edge) moved for a cutout it never touches")
+        }
+    }
+
+    /// **The model takes two numbers from the hole and nothing else** — that is
+    /// what stops the top edge from growing a second layout again.
+    ///
+    /// It is one shape drawn to a depth the hardware chose, not a second design.
+    /// Everything that describes the shape itself — the corner it turns, the
+    /// flare at its trailing end, the padding before its first cell — is the
+    /// figure every other edge uses. Every earlier attempt at this failed here:
+    /// the top edge grew its own corner, its own flare and its own ring maths,
+    /// and then had to be kept in step with a shape it did not share.
+    @MainActor
+    func testTheModelTakesOnlyTheHolesDepthAndDistance() {
+        let m = NotchViewModel()
+        m.edge = .top
+        m.adopt(screen: Notched())
+        let plain = NotchViewModel()
+        plain.edge = .top
+        plain.adopt(screen: Plain())
+
+        XCTAssertNil(plain.cutout, "a display with no hole has nothing to merge with")
+        XCTAssertEqual(m.drawnCornerRadius, plain.drawnCornerRadius, accuracy: 0.001,
+                       "the top edge grew its own corner again")
+        XCTAssertEqual(m.flare, plain.flare, accuracy: 0.001,
+                       "the top edge grew its own flare again")
+        XCTAssertEqual(m.cellsLeadIn - m.cutoutBleed, plain.cellsLeadIn, accuracy: 0.001,
+                       "the top edge grew its own padding again")
+        XCTAssertNil(plain.mergedScale,
+                     "a display with no hole must be drawn at the size that was asked for")
+        XCTAssertNotNil(m.mergedScale, "the hardware sets the size where there is a hole")
     }
 }

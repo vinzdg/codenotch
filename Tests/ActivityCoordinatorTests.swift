@@ -14,19 +14,21 @@ final class ActivityCoordinatorTests: XCTestCase {
     }
 
     func testOnlyConnectedMonitorsRunAndReapplyingDoesNotRestartThem() {
-        let a = Monitor(), b = Monitor()
-        let coordinator = ActivityCoordinator(monitors: ["a": a, "b": b]) { _, _ in }
+        let firstMonitor = Monitor(), secondMonitor = Monitor()
+        let coordinator = ActivityCoordinator(
+            monitors: ["a": firstMonitor, "b": secondMonitor]
+        ) { _, _ in }
         coordinator.setEnabled(["a", "unknown"])
         coordinator.setEnabled(["a"])
-        XCTAssertEqual(a.starts, 1)
-        XCTAssertEqual(b.starts, 0)
+        XCTAssertEqual(firstMonitor.starts, 1)
+        XCTAssertEqual(secondMonitor.starts, 0)
         XCTAssertEqual(coordinator.activeIDs, ["a"])
         coordinator.setEnabled(["b"])
-        XCTAssertEqual(a.stops, 1)
-        XCTAssertEqual(b.starts, 1)
+        XCTAssertEqual(firstMonitor.stops, 1)
+        XCTAssertEqual(secondMonitor.starts, 1)
         coordinator.stop()
         coordinator.stop()
-        XCTAssertEqual(b.stops, 1)
+        XCTAssertEqual(secondMonitor.stops, 1)
     }
 
     func testDisconnectClearsSessionsAndIgnoresLateUpdatesAndBusyState() async throws {
@@ -47,6 +49,46 @@ final class ActivityCoordinatorTests: XCTestCase {
         monitor.sessions = monitor.sessions
         try await Task.sleep(for: .milliseconds(30))
         XCTAssertEqual(delivered.count, countAfterDisconnect)
+    }
+
+    func testSupplementalSessionsMergeWithNativeActivity() async throws {
+        let monitor = Monitor()
+        var delivered: [AgentSession] = []
+        let coordinator = ActivityCoordinator(monitors: ["a": monitor]) { _, sessions in
+            delivered = sessions
+        }
+        coordinator.setEnabled(["a"])
+        monitor.sessions = [AgentSession(id: "native", name: "Native", detail: "Working",
+                                         state: .busy, waitingFor: nil, since: Date())]
+        coordinator.setSupplementalSessions(
+            providerID: "a",
+            source: "pi",
+            sessions: [AgentSession(id: "pi", name: "Pi", detail: "Working",
+                                    state: .busy, waitingFor: nil, since: Date())]
+        )
+        try await Task.sleep(for: .milliseconds(30))
+
+        XCTAssertEqual(Set(delivered.map(\.id)), ["native", "pi"])
+        XCTAssertTrue(coordinator.isBusy)
+    }
+
+    func testSupplementalOnlyProviderHonorsConnectionState() {
+        var delivered: [AgentSession] = []
+        let coordinator = ActivityCoordinator(monitors: [:]) { _, sessions in
+            delivered = sessions
+        }
+        let session = AgentSession(id: "pi", name: "Pi", detail: "Working",
+                                   state: .busy, waitingFor: nil, since: Date())
+
+        coordinator.setSupplementalSessions(providerID: "glm", source: "pi", sessions: [session])
+        XCTAssertTrue(delivered.isEmpty)
+        coordinator.setEnabled(["glm"])
+        coordinator.setSupplementalSessions(providerID: "glm", source: "pi", sessions: [session])
+        XCTAssertEqual(delivered.map(\.id), ["pi"])
+        XCTAssertTrue(coordinator.isBusy)
+        coordinator.setEnabled([])
+        XCTAssertEqual(delivered, [])
+        XCTAssertFalse(coordinator.isBusy)
     }
 
     func testReconnectResubscribesAndPublishesAgain() async {

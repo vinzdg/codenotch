@@ -31,8 +31,40 @@ jobs:
       - name: Check the UI pages parse
         run: node scripts/check-ui-scripts.mjs
 
+      - name: Test update controls
+        run: node scripts/test-update-ui.cjs
+
+      - name: Test light surface theme
+        run: node --test test-light-surface.cjs
+
+      - name: Test the carried notch's spring and border
+        run: node --test test-carry.cjs
+
       - name: Test Claude sign-in controls
         run: node scripts/test-claude-auth-ui.cjs
+
+      - name: Test Claude quota freshness
+        run: node scripts/test-claude-quota-freshness.cjs
+      - name: Test account and taskbar controls
+        run: node --test test-accounts-taskbar.cjs
+
+      - name: Test Korean card localization
+        run: node --test scripts/test-ko-i18n.cjs
+
+      - name: Test Spanish card localization
+        run: node --test scripts/test-es-i18n.cjs
+
+      - name: Test notch percentage text
+        run: node scripts/test-notch-pct.cjs
+
+      - name: Test usage pace deficit
+        run: node --test test-deficit.cjs
+
+      - name: Test Qoder usage parsing
+        run: node test-qoder-usage.cjs
+
+      - name: Test Linux notch hover and contour
+        run: node --test scripts/test-linux-notch.cjs
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -56,3 +88,34 @@ jobs:
       # failing on them would hold every change hostage to that cleanup.
       - name: Clippy
         run: cargo clippy --all-targets --locked
+
+  # The same crate builds on Linux, where the Win32 paths compile out. Kept to a
+  # build and the tests: there is no runner with a desktop to show a notch on.
+  linux:
+    if: github.repository == 'vinzdg/codenotch'
+    name: Build and test (Linux)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install GTK and WebKit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+                                  libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: windows
+          key: linux
+
+      - name: Build
+        run: cargo build --locked
+
+      - name: Test
+        run: cargo test --locked

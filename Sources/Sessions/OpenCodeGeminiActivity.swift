@@ -45,18 +45,14 @@ enum OpenCodeGeminiActivity {
         defer { sqlite3_close(db) }
 
         let cutoffMillis = Int((now.timeIntervalSince1970 - staleAfter) * 1000)
+        guard let schema = OpenCodeSchema.of(db) else { return [] }
         let rows = SQLiteStore.rows(
             in: db,
-            sql: """
-            SELECT r.id, r.title, r.directory, m.time_created, m.time_updated, m.data
-            FROM session s
-            JOIN session r ON r.id = COALESCE(s.parent_id, s.id)
-            JOIN message m ON m.id = (SELECT id FROM message WHERE session_id = s.id
-                                      ORDER BY time_created DESC LIMIT 1)
-            WHERE s.time_updated >= \(cutoffMillis)
-            ORDER BY m.time_updated DESC
-            """,
-            columns: 6
+            sql: schema.activitySQL(cutoffMillis: cutoffMillis),
+            // Seven for both shapes: the 1.x query ends in an empty string
+            // where 2.x selects `m.type`, so the row layout does not depend on
+            // which schema answered.
+            columns: 7
         )
 
         var seen: Set<String> = []
@@ -66,7 +62,7 @@ enum OpenCodeGeminiActivity {
             guard !root.isEmpty, !seen.contains(root) else { continue }
             guard let updated = Double(row[4]), Int(updated) >= cutoffMillis else { continue }
             guard let created = Double(row[3]) else { continue }
-            guard isUnfinishedGoogleTurn(row[5]) else { continue }
+            guard isUnfinishedGoogleTurn(row[5], type: row[6]) else { continue }
 
             seen.insert(root)
             let directory = row[2]
@@ -87,12 +83,21 @@ enum OpenCodeGeminiActivity {
 
     /// A JSON `null` arrives as `NSNull` rather than as a missing key, and both
     /// shapes mean the same thing here: nobody has recorded an end yet.
-    private static func isUnfinishedGoogleTurn(_ data: String) -> Bool {
+    ///
+    /// OpenCode 2.x moved the role out of `data` and into the row's own `type`
+    /// column, so it is passed in rather than read, and moved the provider id
+    /// under `$.model.providerID`. Before 2.x the role was `$.role` and the
+    /// provider id was top-level, so both are still accepted.
+    private static func isUnfinishedGoogleTurn(_ data: String, type: String) -> Bool {
         guard let bytes = data.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: bytes),
-              let message = object as? [String: Any],
-              message["role"] as? String == "assistant",
-              message["providerID"] as? String == "google" else { return false }
+              let message = object as? [String: Any]
+        else { return false }
+        let role = type.isEmpty ? (message["role"] as? String) : type
+        guard role == "assistant" else { return false }
+        let provider = (message["model"] as? [String: Any])?["providerID"] as? String
+            ?? message["providerID"] as? String
+        guard provider == "google" else { return false }
         guard let time = message["time"] as? [String: Any] else { return true }
         let completed = time["completed"]
         return completed == nil || completed is NSNull

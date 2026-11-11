@@ -190,6 +190,212 @@ final class GeminiCLIUsageTests: XCTestCase {
 
 /// Fixtures carry OpenCode's real `message` shape, because the reader asks
 /// SQLite to reach into the JSON and a wrong nesting would silently read zero.
+/// OpenCode 2.x's own store, exercised end to end through the reader.
+///
+/// The suite above is built entirely from 1.x fixtures, which is how the first
+/// version of this reader passed CI while breaking every 2.x install: the 2.x
+/// query returned nothing against a 1.x-shaped table and the fixture had no way
+/// to say so. So the shape that actually broke gets its own rows here, with
+/// token figures chosen so the arithmetic cannot pass by accident.
+final class OpenCode2xGeminiUsageTests: XCTestCase {
+    private let now = localDate(2026, 9, 15)
+    private var databases: [URL] = []
+
+    override func tearDownWithError() throws {
+        for url in databases { try? FileManager.default.removeItem(at: url) }
+        databases = []
+    }
+
+    private struct Row {
+        let created: Date
+        let type: String
+        let data: String
+    }
+
+    /// `session_message` as 2.x writes it: the role is the row's own `type`
+    /// column, the provider sits inside the model object, and there is no
+    /// `tokens.total`.
+    private func makeDatabase(_ rows: [Row]) throws -> URL {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("opencode-2x-\(UUID().uuidString).db")
+        databases.append(url)
+
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(url.path, &db), SQLITE_OK)
+        sqlite3_exec(db, "PRAGMA journal_mode=WAL;", nil, nil, nil)
+        sqlite3_exec(db, """
+        CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+                                      type TEXT NOT NULL, seq INTEGER NOT NULL,
+                                      time_created INTEGER NOT NULL,
+                                      time_updated INTEGER NOT NULL, data TEXT NOT NULL);
+        """, nil, nil, nil)
+        for (index, row) in rows.enumerated() {
+            let millis = Int(row.created.timeIntervalSince1970 * 1000)
+            let escaped = row.data.replacingOccurrences(of: "'", with: "''")
+            sqlite3_exec(db, """
+            INSERT INTO session_message VALUES ('m\(index)', 's1', '\(row.type)', \(index),
+                                                \(millis), \(millis), '\(escaped)');
+            """, nil, nil, nil)
+        }
+        sqlite3_close(db)
+        return url
+    }
+
+    private func assistant(provider: String = "google",
+                           input: Int = 0, output: Int = 0, reasoning: Int = 0,
+                           read: Int = 0, write: Int = 0) -> String {
+        #"{"time":{"created":"2026-09-15T12:00:00.000Z"},"model":{"#
+            + #""id":"gemini-2.5-pro","providerID":"\#(provider)","variant":"default"},"#
+            + #""tokens":{"input":\#(input),"output":\#(output),"reasoning":\#(reasoning),"#
+            + #""cache":{"read":\#(read),"write":\#(write)}},"cost":0.0}"#
+    }
+
+    /// The five components are the whole figure in 2.x, and the one that is easy
+    /// to get wrong is `cache.read`: 2.x's `input` excludes it, so a sum that
+    /// dropped it would report 1250 here instead of 6350.
+    func testTheSumIncludesTheCacheThatInputExcludes() throws {
+        let url = try makeDatabase([Row(
+            created: now, type: "assistant",
+            data: assistant(input: 1000, output: 200, reasoning: 50, read: 5000, write: 100))])
+        XCTAssertEqual(OpenCodeGeminiUsage.read(database: url, now: now), GeminiTokenUsage(
+            tokensThisMonth: 6350, tokensToday: 6350, callsThisMonth: 1))
+    }
+
+    /// Two rows, different figures, so the month total proves addition rather
+    /// than a repeated copy: one today, one earlier in the month.
+    func testTwoRowsAddUpAndOnlyTodaysRowCountsAsToday() throws {
+        let url = try makeDatabase([
+            Row(created: now, type: "assistant",
+                data: assistant(input: 1000, output: 200, reasoning: 50, read: 5000, write: 100)),
+            Row(created: localDate(2026, 9, 3), type: "assistant",
+                data: assistant(input: 200, output: 50, reasoning: 25, read: 1000, write: 0)),
+        ])
+        XCTAssertEqual(OpenCodeGeminiUsage.read(database: url, now: now), GeminiTokenUsage(
+            tokensThisMonth: 7625, tokensToday: 6350, callsThisMonth: 2))
+    }
+
+    /// `providerID` moved inside the model object. Matching the old top-level
+    /// key finds nothing, which is what makes this worth a test.
+    func testTheProviderIsReadFromInsideTheModel() throws {
+        let url = try makeDatabase([Row(
+            created: now, type: "assistant", data: assistant(provider: "google", input: 42))])
+        XCTAssertEqual(OpenCodeGeminiUsage.read(database: url, now: now)?.callsThisMonth, 1)
+
+        let other = try makeDatabase([Row(
+            created: now, type: "assistant", data: assistant(provider: "opencode", input: 42))])
+        XCTAssertEqual(OpenCodeGeminiUsage.read(database: other, now: now), GeminiTokenUsage.zero)
+    }
+
+    /// The role moved from `$.role` into the `type` column, so a user turn is
+    /// not an assistant turn however its JSON looks.
+    func testOnlyTheTypeColumnSaysWhichTurnThisIs() throws {
+        let url = try makeDatabase([
+            Row(created: now, type: "user", data: assistant(input: 9999)),
+            Row(created: now, type: "assistant", data: assistant(input: 7)),
+        ])
+        XCTAssertEqual(OpenCodeGeminiUsage.read(database: url, now: now), GeminiTokenUsage(
+            tokensThisMonth: 7, tokensToday: 7, callsThisMonth: 1))
+    }
+
+    /// An aborted message is stored with every counter at zero. It is a call
+    /// that spent nothing, not a call that did not happen, and it must not be
+    /// counted as either.
+    func testAnAbortedTurnWithNoTokensIsNotACall() throws {
+        let url = try makeDatabase([Row(created: now, type: "assistant", data: assistant())])
+        XCTAssertEqual(OpenCodeGeminiUsage.read(database: url, now: now), GeminiTokenUsage.zero)
+    }
+
+    /// The month filter runs in SQL, so last month has to be gone before the
+    /// JSON is ever extracted.
+    func testLastMonthIsNotCounted() throws {
+        let url = try makeDatabase([Row(
+            created: localDate(2026, 8, 28), type: "assistant", data: assistant(input: 5000))])
+        XCTAssertEqual(OpenCodeGeminiUsage.read(database: url, now: now), GeminiTokenUsage.zero)
+    }
+
+    /// A 1.x store keeps working: the reader probes the shape rather than
+    /// assuming one. This is the case that would regress if the probe were
+    /// dropped.
+    func testA1xStoreStillReads() throws {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("opencode-1x-\(UUID().uuidString).db")
+        databases.append(url)
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(url.path, &db), SQLITE_OK)
+        sqlite3_exec(db, """
+        CREATE TABLE message (id TEXT, session_id TEXT, time_created INTEGER,
+                              time_updated INTEGER, data TEXT);
+        """, nil, nil, nil)
+        let millis = Int(now.timeIntervalSince1970 * 1000)
+        sqlite3_exec(db, """
+        INSERT INTO message VALUES ('m1','s1',\(millis),\(millis),
+          '{"role":"assistant","providerID":"google","modelID":"gemini-2.5-pro",
+            "tokens":{"total":96008,"input":2834,"output":51,"reasoning":17,
+                      "cache":{"read":93106,"write":0}},"cost":0.0}');
+        """, nil, nil, nil)
+        sqlite3_close(db)
+
+        // The stored total wins over the components, as it always has.
+        XCTAssertEqual(OpenCodeGeminiUsage.read(database: url, now: now), GeminiTokenUsage(
+            tokensThisMonth: 96008, tokensToday: 96008, callsThisMonth: 1))
+    }
+
+    /// **1.18 has both tables.** It ships `session_message` beside the `message`
+    /// and `session` it still keeps its messages in, and no `session_v2`
+    /// (upstream `packages/core/schema.json`, v1.18.0 to v1.18.34). A probe that
+    /// asked for `session_message` first read such a store as 2.x: usage from
+    /// the wrong table, and activity from a `session_v2` that is not there.
+    func testA118StoreWithBothTablesIsStillReadAs1x() throws {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("opencode-118-\(UUID().uuidString).db")
+        databases.append(url)
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(url.path, &db), SQLITE_OK)
+        sqlite3_exec(db, """
+        CREATE TABLE session (id TEXT, parent_id TEXT, title TEXT, directory TEXT,
+                              time_created INTEGER, time_updated INTEGER);
+        CREATE TABLE message (id TEXT, session_id TEXT, time_created INTEGER,
+                              time_updated INTEGER, data TEXT);
+        CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+                                      type TEXT NOT NULL, seq INTEGER NOT NULL,
+                                      time_created INTEGER NOT NULL,
+                                      time_updated INTEGER NOT NULL, data TEXT NOT NULL);
+        """, nil, nil, nil)
+        let millis = Int(now.timeIntervalSince1970 * 1000)
+        sqlite3_exec(db, """
+        INSERT INTO message VALUES ('m1','s1',\(millis),\(millis),
+          '{"role":"assistant","providerID":"google","modelID":"gemini-2.5-pro",
+            "tokens":{"total":4200,"input":4000,"output":200,"reasoning":0,
+                      "cache":{"read":0,"write":0}},"cost":0.0}');
+        """, nil, nil, nil)
+        XCTAssertEqual(OpenCodeSchema.of(db), .v1)
+        sqlite3_close(db)
+
+        XCTAssertEqual(OpenCodeGeminiUsage.read(database: url, now: now), GeminiTokenUsage(
+            tokensThisMonth: 4200, tokensToday: 4200, callsThisMonth: 1))
+    }
+
+    /// And a 2.x store, which has `session_v2` and no `message`, is 2.x whether
+    /// or not anything else is there.
+    func testAStoreWithSessionV2Is2x() throws {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("opencode-2x-shape-\(UUID().uuidString).db")
+        databases.append(url)
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(url.path, &db), SQLITE_OK)
+        sqlite3_exec(db, """
+        CREATE TABLE session_v2 (id TEXT, parent_id TEXT, title TEXT, directory TEXT,
+                                 time_created INTEGER, time_updated INTEGER);
+        CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+                                      type TEXT NOT NULL, seq INTEGER NOT NULL,
+                                      time_created INTEGER NOT NULL,
+                                      time_updated INTEGER NOT NULL, data TEXT NOT NULL);
+        """, nil, nil, nil)
+        XCTAssertEqual(OpenCodeSchema.of(db), .v2)
+        sqlite3_close(db)
+    }
+}
+
 final class OpenCodeGeminiUsageTests: XCTestCase {
     private let now = localDate(2026, 9, 15)
     private var databases: [URL] = []

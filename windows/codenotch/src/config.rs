@@ -24,10 +24,26 @@ pub struct TraySlot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeProfileConfig {
+    pub id: String,
+    /// No longer read: accounts are named from their sign-in, as on the Mac. Still written, with
+    /// that name, because 1.24.0 needs it to load the file, shows it, and won't save a blank one.
+    #[serde(default)]
+    pub name: String,
+    #[serde(default = "yes")]
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default)]
+    pub claude_profiles: Vec<ClaudeProfileConfig>,
+    /// off | left | right; an owned child window on the primary Windows taskbar.
+    #[serde(default = "default_taskbar_mode")]
+    pub taskbar_mode: String,
     #[serde(default = "default_port")]
     pub port: u16,
-    /// "auto" | "zh" | "zh-Hant" | "en" | "ja" | "ko" | "ru" | "uk"
+    /// "auto" | "zh" | "zh-Hant" | "en" | "ja" | "ko" | "pt-BR" | "ru" | "uk" | "es"
     #[serde(default = "default_lang")]
     pub lang: String,
     #[serde(default)]
@@ -64,6 +80,28 @@ pub struct Config {
     /// Where the weekly limit gets a ring of its own: "off", "inside" or "outside".
     #[serde(default = "default_weekly_ring")]
     pub weekly_ring: String,
+    /// true = the weekly ring's track and its own arc are drawn in small dashes rather than a
+    /// solid line, as the Mac's "Dashed weekly ring" switch does. Only means anything while
+    /// `weekly_ring` is not "off". Off by default: an extra visual change nobody asked for.
+    #[serde(default)]
+    pub weekly_ring_dashed: bool,
+    /// How a usage ring changes colour: "hard_step" or "ramp".
+    #[serde(default = "default_color_transition")]
+    pub color_transition: String,
+    /// Where a ring turns from Ample to Watch, as a fraction of the limit. The Mac's own default.
+    #[serde(default = "default_watch_limit")]
+    pub watch_limit: f64,
+    /// Where a ring turns from Watch to Critical, as a fraction of the limit. Kept above
+    /// `watch_limit` by `clamp_watch_limit`/`clamp_critical_limit`, the same order the Mac's own
+    /// `didSet` pair enforces.
+    #[serde(default = "default_critical_limit")]
+    pub critical_limit: f64,
+    /// Which appearance the pages draw in: "system", "light" or "dark".
+    #[serde(
+        default = "default_theme",
+        deserialize_with = "deserialize_theme_or_system"
+    )]
+    pub theme: String,
     /// Which providers the notch itself shows, in order. Empty means every provider that has
     /// something to report — the original behaviour, and the default. Superseded by `notch_slots`,
     /// kept so an existing config migrates cleanly.
@@ -82,6 +120,18 @@ pub struct Config {
     /// notch once; an explicit later un-tick is respected and never overridden.
     #[serde(default)]
     pub glm_notch_fixed: bool,
+    /// The same one-shot migration for the OpenCode ring.
+    #[serde(default)]
+    pub opencode_notch_fixed: bool,
+    /// Add Command Code to a previously saved notch selection once.
+    #[serde(default)]
+    pub commandcode_notch_fixed: bool,
+    /// The same one-shot migration for the GitHub Copilot ring.
+    #[serde(default)]
+    pub copilot_notch_fixed: bool,
+    /// The same one-shot migration for the Qoder ring.
+    #[serde(default)]
+    pub qoder_notch_fixed: bool,
     /// false = the pill is kept off the screen edge entirely; the tray icon is then the only way in
     #[serde(default = "yes")]
     pub notch_visible: bool,
@@ -95,10 +145,35 @@ pub struct Config {
     /// leave the app running with no way to reach it.
     #[serde(default = "yes")]
     pub tray_visible: bool,
-    /// false = no arc above the notch to carry it by. Nothing is lost: Appearance → Edge moves it too.
+    /// Show a temporary card when any provider (Claude, Codex, Cursor, …) renews a used quota window.
     #[serde(default = "yes")]
-    pub show_move_handle: bool,
+    pub reset_notifications: bool,
+    /// false = the reset card above appears silently, with no notification sound.
+    #[serde(default = "yes")]
+    pub reset_notification_sound: bool,
+    /// true = the folded pill follows what is behind it, which means reading the screen beside it
+    /// (backdrop.rs). Opt-in for that reason; off, the pill takes Theme's colour.
+    #[serde(default)]
+    pub adaptive_pill: bool,
+    /// true = the notch folds to its pill while a full-screen app is in front on its screen, as the
+    /// Mac's does, and hovering it still opens it. Off, it stays as Show has it.
+    #[serde(default = "yes")]
+    pub fold_for_full_screen: bool,
+    /// true = the figure under each ring reads what is left rather than what is spent, as the
+    /// Mac's Appearance toggle. Off by default: used is what the notch has always drawn. The
+    /// rings themselves still sweep by what is spent either way.
+    #[serde(default)]
+    pub notch_shows_remaining: bool,
+    /// true = the card adds how far a timed window is ahead of its clock ("12% deficit"), as the
+    /// Mac's usage pace setting. Off by default, as on the Mac.
+    #[serde(default)]
+    pub show_usage_pace: bool,
+    /// Require X-Codenotch-Token on /event requests (defense-in-depth, #165)
+    #[serde(default = "yes")]
+    pub require_event_token: bool,
 }
+
+fn default_taskbar_mode() -> String { "off".into() }
 
 fn default_notch_y() -> f64 {
     0.5
@@ -164,6 +239,49 @@ fn default_scale() -> f64 {
 fn default_weekly_ring() -> String {
     "off".into()
 }
+fn default_color_transition() -> String {
+    "hard_step".into()
+}
+pub fn default_watch_limit() -> f64 {
+    0.5
+}
+pub fn default_critical_limit() -> f64 {
+    0.7
+}
+
+/// Keeps `watch_limit` at least 0.01 below `critical_limit`, the same range the Mac's own slider
+/// (0.01...0.99, tightened against the sibling) allows.
+pub fn clamp_watch_limit(watch: f64, critical: f64) -> f64 {
+    watch.clamp(0.01, (critical - 0.01).max(0.01))
+}
+
+/// Keeps `critical_limit` at least 0.01 above `watch_limit`, mirroring `clamp_watch_limit`.
+pub fn clamp_critical_limit(critical: f64, watch: f64) -> f64 {
+    critical.clamp((watch + 0.01).min(1.0), 1.0)
+}
+fn default_theme() -> String {
+    "system".into()
+}
+
+/// An unreadable value follows Windows, which is what someone who never opened this row gets.
+pub fn theme_or_system(value: &str) -> String {
+    match value {
+        "light" | "dark" => value.to_string(),
+        _ => default_theme(),
+    }
+}
+
+/// A malformed theme must not leave the JSON parser mid-value and discard the user's other choices.
+fn deserialize_theme_or_system<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<serde_json::Value>::deserialize(deserializer)
+        .ok()
+        .flatten()
+        .and_then(|value| value.as_str().map(theme_or_system))
+        .unwrap_or_else(default_theme))
+}
 
 /// A second arc changes how every reading looks, so an unreadable value means off rather than a
 /// guess at what was meant.
@@ -171,6 +289,14 @@ pub fn weekly_ring_or_off(value: &str) -> String {
     match value {
         "inside" | "outside" => value.to_string(),
         _ => default_weekly_ring(),
+    }
+}
+
+/// A new colour blend is opt-in, so an unknown value keeps the existing hard steps.
+pub fn color_transition_or_step(value: &str) -> String {
+    match value {
+        "ramp" => value.to_string(),
+        _ => default_color_transition(),
     }
 }
 fn yes() -> bool {
@@ -193,6 +319,8 @@ fn default_lang() -> String {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            claude_profiles: Vec::new(),
+            taskbar_mode: default_taskbar_mode(),
             port: default_port(),
             lang: default_lang(),
             bar_x: None,
@@ -205,15 +333,30 @@ impl Default for Config {
             notch_monitor: None,
             scale: default_scale(),
             weekly_ring: default_weekly_ring(),
+            weekly_ring_dashed: false,
+            color_transition: default_color_transition(),
+            watch_limit: default_watch_limit(),
+            critical_limit: default_critical_limit(),
+            theme: default_theme(),
             notch_providers: Vec::new(), // empty = show them all
             notch_slots: Vec::new(),     // filled in by load(), from notch_providers
             antigravity_limit: default_antigravity_limit(),
             antigravity_model: default_antigravity_model(),
             glm_notch_fixed: true, // a fresh install picks from the full list already
+            opencode_notch_fixed: true,
+            commandcode_notch_fixed: true,
+            copilot_notch_fixed: true,
+            qoder_notch_fixed: true,
             notch_visible: true,
             notch_on_hover: true,
             tray_visible: true,
-            show_move_handle: true,
+            reset_notifications: true,
+            reset_notification_sound: true,
+            adaptive_pill: false,
+            fold_for_full_screen: true,
+            notch_shows_remaining: false,
+            show_usage_pace: false,
+            require_event_token: true,
         }
     }
 }
@@ -225,13 +368,40 @@ pub fn config_path() -> PathBuf {
         .join("config.json")
 }
 
+/// A byte-order mark is not JSON. PowerShell 5's `Set-Content -Encoding UTF8` and Notepad's "UTF-8
+/// with BOM" both write one, and serde_json takes it for a stray character, so a file edited that way
+/// lost every setting in it — and the migrations below, which read the same text, misread it too.
+fn without_bom(text: String) -> String {
+    match text.strip_prefix('\u{feff}') {
+        Some(rest) => rest.to_string(),
+        None => text,
+    }
+}
+
+/// A file that does not parse runs on the defaults, and the first thing saved would write them over
+/// it. So the owner's file is copied out of the way first, and run.log says why — before this a single
+/// hand-edit typo reset everything without a word. File names only in the log line: run.log is what
+/// gets pasted into issues.
+fn set_aside(path: &std::path::Path, err: &serde_json::Error) {
+    let kept = path.with_file_name("config.unreadable.json");
+    let note = match std::fs::copy(path, &kept) {
+        Ok(_) => "the file is kept as config.unreadable.json".to_string(),
+        Err(e) => format!("could not keep a copy ({e})"),
+    };
+    crate::applog(&format!("config: config.json could not be read ({err}), running on defaults; {note}"));
+}
+
 pub fn load() -> Config {
     let path = config_path();
-    let raw = std::fs::read_to_string(&path).ok();
-    let mut cfg: Config = raw
-        .as_deref()
-        .and_then(|t| serde_json::from_str(t).ok())
-        .unwrap_or_default();
+    let raw = std::fs::read_to_string(&path).ok().map(without_bom);
+    let mut cfg: Config = match raw.as_deref().map(serde_json::from_str::<Config>) {
+        Some(Ok(cfg)) => cfg,
+        Some(Err(e)) => {
+            set_aside(&path, &e);
+            Config::default()
+        }
+        None => Config::default(),
+    };
     keep_open_on_upgrade(&mut cfg, raw.as_deref());
 
     // Migration: before slots existed the notch was a plain provider list, one ring each. That is
@@ -247,6 +417,13 @@ pub fn load() -> Config {
     carry_shared_position(&mut cfg);
     // A selection saved before GLM existed gets the GLM ring back exactly once.
     migrate_glm_notch(&mut cfg, &raw);
+    // Likewise for OpenCode.
+    migrate_opencode_notch(&mut cfg, &raw);
+    migrate_commandcode_notch(&mut cfg, &raw);
+    // And for GitHub Copilot.
+    migrate_copilot_notch(&mut cfg, &raw);
+    // And for Qoder.
+    migrate_qoder_notch(&mut cfg, &raw);
 
     // Both hidden would leave the app unreachable: no pill, no tray icon, no way to open settings.
     if !cfg.notch_visible && !cfg.tray_visible {
@@ -256,6 +433,12 @@ pub fn load() -> Config {
     // The old slider's 40–100 %, or a hand-edited file, lands on one of the three sizes
     cfg.scale = snap_scale(cfg.scale);
     cfg.weekly_ring = weekly_ring_or_off(&cfg.weekly_ring);
+    cfg.color_transition = color_transition_or_step(&cfg.color_transition);
+    cfg.theme = theme_or_system(&cfg.theme);
+    // A stored pair that crossed over (or predates this setting) is repaired the same order the
+    // Mac's own init does: critical first, then watch below it.
+    cfg.critical_limit = cfg.critical_limit.clamp(0.02, 1.0);
+    cfg.watch_limit = clamp_watch_limit(cfg.watch_limit, cfg.critical_limit);
     cfg
 }
 
@@ -274,19 +457,132 @@ fn migrate_glm_notch(cfg: &mut Config, raw: &Option<String>) {
     cfg.glm_notch_fixed = true;
 }
 
+fn migrate_opencode_notch(cfg: &mut Config, raw: &Option<String>) {
+    let predates = raw
+        .as_deref()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
+        .map(|v| v.get("opencode_notch_fixed").is_none())
+        .unwrap_or(false);
+    if !predates {
+        return;
+    }
+    if !cfg.notch_slots.is_empty() && !cfg.notch_slots.iter().any(|s| s.provider == "opencode") {
+        cfg.notch_slots.push(TraySlot { provider: "opencode".into() });
+    }
+    cfg.opencode_notch_fixed = true;
+}
+
+fn migrate_commandcode_notch(cfg: &mut Config, raw: &Option<String>) {
+    let predates = raw.as_deref()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+        .is_some_and(|value| value.get("commandcode_notch_fixed").is_none());
+    if !predates { return; }
+    // Only for someone who has Command Code: every other upgrade would gain a ring for an app it
+    // has never had.
+    if crate::commandcode::present()
+        && !cfg.notch_slots.is_empty()
+        && !cfg.notch_slots.iter().any(|slot| slot.provider == "commandcode")
+    {
+        cfg.notch_slots.push(TraySlot { provider: "commandcode".into() });
+    }
+    cfg.commandcode_notch_fixed = true;
+}
+
+fn migrate_copilot_notch(cfg: &mut Config, raw: &Option<String>) {
+    let predates = raw
+        .as_deref()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
+        .map(|v| v.get("copilot_notch_fixed").is_none())
+        .unwrap_or(false);
+    if !predates {
+        return;
+    }
+    if !cfg.notch_slots.is_empty() && !cfg.notch_slots.iter().any(|s| s.provider == "copilot") {
+        cfg.notch_slots.push(TraySlot { provider: "copilot".into() });
+    }
+    cfg.copilot_notch_fixed = true;
+}
+
+fn migrate_qoder_notch(cfg: &mut Config, raw: &Option<String>) {
+    let predates = raw
+        .as_deref()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
+        .map(|v| v.get("qoder_notch_fixed").is_none())
+        .unwrap_or(false);
+    if !predates {
+        return;
+    }
+    if !cfg.notch_slots.is_empty() && !cfg.notch_slots.iter().any(|s| s.provider == "qoder") {
+        cfg.notch_slots.push(TraySlot { provider: "qoder".into() });
+    }
+    cfg.qoder_notch_fixed = true;
+}
+
 pub fn save(cfg: &Config) {
+    let _ = save_checked(cfg);
+}
+
+pub fn save_checked(cfg: &Config) -> Result<(), String> {
     let path = config_path();
     if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
+        std::fs::create_dir_all(dir).map_err(|_| "Unable to create the settings folder".to_string())?;
     }
-    if let Ok(txt) = serde_json::to_string_pretty(cfg) {
-        let _ = std::fs::write(path, txt);
-    }
+    let txt = serde_json::to_string_pretty(cfg).map_err(|_| "Unable to serialize settings".to_string())?;
+    std::fs::write(path, txt).map_err(|_| "Unable to save settings".to_string())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{carry_shared_position, keep_open_on_upgrade, snap_scale, weekly_ring_or_off, Config};
+    use super::{
+        carry_shared_position, clamp_critical_limit, clamp_watch_limit, color_transition_or_step,
+        keep_open_on_upgrade, snap_scale, theme_or_system, weekly_ring_or_off, without_bom, Config,
+    };
+
+    #[test]
+    fn reset_switches_default_on_and_round_trip_without_changing_other_settings() {
+        let old: Config = serde_json::from_str(r#"{"notch_visible":false,"theme":"light"}"#).unwrap();
+        assert!(old.reset_notifications);
+        assert!(old.reset_notification_sound);
+        assert!(!old.notch_visible);
+        assert_eq!(old.theme, "light");
+        let chosen = Config { reset_notifications: false, reset_notification_sound: false, ..old };
+        let saved = serde_json::to_string(&chosen).unwrap();
+        let restored: Config = serde_json::from_str(&saved).unwrap();
+        assert!(!restored.reset_notifications);
+        assert!(!restored.reset_notification_sound);
+        assert!(!restored.notch_visible);
+        assert_eq!(restored.theme, "light");
+    }
+
+    /// "es", the code the Mac's picker stores too, so both ports name Spanish the same way.
+    #[test]
+    fn spanish_is_kept_as_its_language_code() {
+        let cfg: Config = serde_json::from_str("{\"lang\":\"es\"}").expect("a Spanish config parses");
+        assert_eq!(cfg.lang, "es");
+    }
+
+    /// What PowerShell 5 writes for `Set-Content -Encoding UTF8`: the same JSON behind a BOM. It used
+    /// to read as an unreadable file, and every setting in it fell back to its default.
+    #[test]
+    fn a_byte_order_mark_keeps_the_settings() {
+        let text = without_bom("\u{feff}{\"lang\":\"ko\",\"scale\":0.8,\"notch_edge\":\"left\"}".to_string());
+        let cfg: Config = serde_json::from_str(&text).expect("a BOM-prefixed config parses");
+        assert_eq!(cfg.lang, "ko");
+        assert_eq!(cfg.scale, 0.8);
+        assert_eq!(cfg.notch_edge, "left");
+
+        // The migrations read the same text, so they must see past the mark too
+        let mut upgraded = Config::default();
+        keep_open_on_upgrade(&mut upgraded, Some(&without_bom("\u{feff}{\"notch_visible\":true}".to_string())));
+        assert!(!upgraded.notch_on_hover, "an upgrade saved with a BOM still stays open");
+    }
+
+    #[test]
+    fn text_without_a_mark_is_left_alone() {
+        assert_eq!(without_bom("{}".to_string()), "{}");
+        // Only a leading mark is one; anywhere else it is content
+        assert_eq!(without_bom("{\"a\":\"\u{feff}\"}".to_string()), "{\"a\":\"\u{feff}\"}");
+    }
 
     /// Show on hover is the Mac's default, so a fresh install gets it — but an update must not start
     /// folding a notch whose owner has only ever known it open.
@@ -360,5 +656,62 @@ mod tests {
         assert_eq!(weekly_ring_or_off("outside"), "outside");
         assert_eq!(weekly_ring_or_off("Inside"), "off");
         assert_eq!(weekly_ring_or_off(""), "off");
+        assert_eq!(color_transition_or_step("ramp"), "ramp");
+        assert_eq!(color_transition_or_step("Ramp"), "hard_step");
+        assert_eq!(color_transition_or_step(""), "hard_step");
+        assert_eq!(theme_or_system("light"), "light");
+        assert_eq!(theme_or_system("dark"), "dark");
+        assert_eq!(theme_or_system("Dark"), "system");
+        assert_eq!(theme_or_system(""), "system");
+    }
+
+    #[test]
+    fn watch_and_critical_limits_never_cross() {
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        assert_eq!(clamp_watch_limit(0.5, 0.7), 0.5, "inside the gap, untouched");
+        assert!(near(clamp_watch_limit(0.9, 0.7), 0.69), "pushed back below critical");
+        assert_eq!(clamp_watch_limit(0.0, 0.7), 0.01, "never below the floor");
+        assert_eq!(clamp_watch_limit(0.5, 0.0), 0.01, "a critical of 0 still leaves a floor");
+
+        assert_eq!(clamp_critical_limit(0.7, 0.5), 0.7, "inside the gap, untouched");
+        assert!(near(clamp_critical_limit(0.4, 0.5), 0.51), "pushed back above watch");
+        assert_eq!(clamp_critical_limit(2.0, 0.5), 1.0, "never past 100%");
+        assert_eq!(clamp_critical_limit(0.7, 1.0), 1.0, "a watch of 100% still leaves a ceiling");
+    }
+
+    #[test]
+    fn theme_preserves_the_rest_of_a_config_when_it_is_missing_or_malformed() {
+        let old: Config = serde_json::from_str(r#"{"notch_visible":false}"#).unwrap();
+        assert_eq!(old.theme, "system", "an existing config follows Windows");
+        assert!(!old.notch_visible, "the existing choice survives");
+
+        for (raw, expected) in [
+            (r#""light""#, "light"),
+            (r#""dark""#, "dark"),
+            (r#""Light""#, "system"),
+            ("true", "system"),
+            ("[]", "system"),
+            ("{}", "system"),
+            ("null", "system"),
+        ] {
+            let cfg: Config =
+                serde_json::from_str(&format!(r#"{{"theme":{raw},"notch_visible":false}}"#))
+                    .unwrap();
+            assert_eq!(cfg.theme, expected, "{raw} resolves safely");
+            assert!(
+                !cfg.notch_visible,
+                "{raw} did not discard the rest of the config"
+            );
+        }
+
+        let saved = serde_json::to_value(Config {
+            theme: "light".into(),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(
+            saved.get("theme").and_then(|value| value.as_str()),
+            Some("light")
+        );
     }
 }

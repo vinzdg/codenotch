@@ -277,4 +277,54 @@ final class KiroUsageTests: XCTestCase {
         XCTAssertFalse(reading.hasUsageMetrics)
         XCTAssertTrue(reading.windows.isEmpty)
     }
+
+    func testTitleCaseKiroPlanWithEstimatedUsage() throws {
+        let text = """
+        Estimated Usage | resets on 2026-06-01 | Kiro Pro
+        Credits (100.00 of 1,000 covered in plan)
+        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 10%
+        """
+        let reading = try parse(text, now: noon(year: 2026, month: 5, day: 15))
+        XCTAssertEqual(reading.plan, "Kiro Pro")
+        XCTAssertEqual(reading.windows[0].usedFraction ?? -1, 0.10, accuracy: 0.0001)
+        XCTAssertEqual(reading.windows[0].resetsAt, day(year: 2026, month: 6, day: 1))
+    }
+
+    func testUnicodeBoxDrawingsAndDecimalPercent() throws {
+        let text = """
+        │ Kiro Free │
+        [████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 12.5%
+        (6.25 of 50.0 covered in plan), Resets on: 2026-07-01
+        """
+        let reading = try parse(text, now: noon(year: 2026, month: 5, day: 15))
+        XCTAssertEqual(reading.plan, "Kiro Free")
+        XCTAssertEqual(reading.windows[0].usedFraction ?? -1, 0.125, accuracy: 0.0001)
+        XCTAssertEqual(reading.windows[0].resetsAt, day(year: 2026, month: 7, day: 1))
+    }
+
+    func testOutputWithLoginHintDoesNotFalselyNeedAuth() throws {
+        let text = """
+        Estimated Usage | resets on 2026-06-01 | KIRO PRO
+        Credits (500 of 1,000 covered in plan)
+        ████████████████████████████████████████ 50%
+        Tip: To change accounts use kiro-cli login
+        """
+        let reading = try parse(text, now: noon(year: 2026, month: 5, day: 15))
+        XCTAssertEqual(reading.plan, "Kiro Pro")
+        XCTAssertEqual(reading.windows[0].usedFraction ?? -1, 0.50, accuracy: 0.0001)
+    }
+
+    func testThousandsCommasAndBonusCreditsFormatting() throws {
+        let text = """
+        Estimated Usage | KIRO PRO+
+        Credits (1,250 of 5,000 covered in plan)
+        ████████████ 25%
+        Bonus credits: 1,000 / 2,000 credits used, expires in 10 days
+        """
+        let reading = try parse(text, now: noon(year: 2026, month: 5, day: 15))
+        XCTAssertEqual(reading.plan, "Kiro Pro+")
+        XCTAssertEqual(reading.windows[0].usedFraction ?? -1, 0.25, accuracy: 0.0001)
+        XCTAssertEqual(reading.bonusUsed ?? -1, 1000, accuracy: 0.0001)
+        XCTAssertEqual(reading.bonusTotal ?? -1, 2000, accuracy: 0.0001)
+    }
 }

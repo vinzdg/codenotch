@@ -70,7 +70,7 @@ pointer from cell to card does not dismiss it.
 - [ ] `UsageStore` — actor owning snapshots, refresh scheduling, staleness marking
 - [ ] `ClaudeCodeLocalProvider` — parse `~/.claude/projects/**/*.jsonl`, sum tokens into
       the rolling 5-hour window, derive `usedFraction` against a configured plan ceiling
-- [ ] `ManualProvider` — user-declared limits, app-side counter, reset scheduling
+- [x] `ManualProvider` — user-declared limits, app-side counter, reset scheduling
 - [ ] Refresh on a 60s timer, on wake, and on `Refresh now`
 - [ ] Status rendering: `.stale` dims the ring, `.needsAuth` shows a lock glyph,
       `.derived` / `.manual` numbers get a "~" prefix in the tooltip
@@ -96,7 +96,7 @@ pointer from cell to card does not dismiss it.
 ## M6 — Polish
 
 - [ ] Threshold notifications (80% / 100%) with per-provider mute
-- [ ] Auto-hide modes: never / on fullscreen / on any window overlapping the notch
+- [x] Auto-hide modes: never / on fullscreen / on any window overlapping the notch
 - [ ] Multi-display: follow the active screen, handle unplug
 - [ ] Reduced-motion and reduced-transparency support
 - [ ] App icon, name decision, `README` screenshots
@@ -111,8 +111,11 @@ pointer from cell to card does not dismiss it.
 3. **Plan ceilings.** The local Claude Code adapter needs to know your plan's session
    ceiling to turn tokens into a percentage. Configured by hand, or inferred from the
    highest usage ever observed?
-4. **Web-session adapters.** Out of v1 by default. If ChatGPT usage is a must-have for
-   v1, that decision needs making explicitly, with the fragility accepted.
+4. **Web-session adapters.** Decided: Out of scope for ChatGPT/OpenAI. Local Codex
+   integration (`CodexLocalProvider`) and Custom Endpoints provide reliable,
+   official usage tracking without web-session fragility. `WebSessionProvider` is
+   limited to explicit opt-in WKWebView providers without CLI alternatives (DeepSeek,
+   Qianwen, MiniMax, Qoder). See `docs/plans/2026-10-12-web-session-adapters-roadmap-decision.md`.
 
 ## Risks
 

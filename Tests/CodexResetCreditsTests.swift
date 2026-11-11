@@ -5,7 +5,7 @@ import XCTest
 /// can be shorter than the total — and the next expiry is the soonest credit,
 /// not the first one in the payload.
 final class CodexResetCreditsTests: XCTestCase {
-    private func credits(_ json: String) throws -> CodexResetCredits {
+    private func credits(_ json: String) throws -> UsageResetCredits {
         try CodexUsage.resetCredits(from: Data(json.utf8))
     }
 
@@ -81,7 +81,7 @@ final class CodexResetCreditsTests: XCTestCase {
             id: "codex", displayName: "Codex", glyph: .openai,
             fidelity: .official, status: .ok, windows: []
         )
-        snapshot.resetCredits = CodexResetCredits(availableCount: 0)
+        snapshot.resetCredits = UsageResetCredits(availableCount: 0)
 
         XCTAssertFalse(snapshot.hasAvailableResetCredits)
         XCTAssertEqual(
@@ -98,7 +98,7 @@ final class CodexResetCreditsTests: XCTestCase {
             id: "codex", displayName: "Codex", glyph: .openai,
             fidelity: .official, status: .ok, windows: []
         )
-        snapshot.resetCredits = CodexResetCredits(availableCount: 1)
+        snapshot.resetCredits = UsageResetCredits(availableCount: 1)
 
         XCTAssertTrue(snapshot.hasAvailableResetCredits)
         XCTAssertGreaterThan(

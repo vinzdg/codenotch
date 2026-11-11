@@ -26,7 +26,13 @@ DEST    ?= platform=macOS,arch=$(ARCH)
 # nothing, so `ifeq (,...)` was never true and a machine *without* the
 # certificate fell through to signing with an identity it does not have —
 # "Signing for Codenotch requires a development team", on every target.
-HAS_DEVELOPER_ID := $(shell security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application")
+#
+# Match the team project.yml signs with, not any Developer ID: a contributor
+# with a Developer ID of their own was taken for the maintainer and the build
+# failed looking for a certificate of the maintainer's team. A Developer ID's
+# bracketed CN value is the Team ID.
+SIGNING_TEAM := $(shell sed -n 's/^ *DEVELOPMENT_TEAM: *//p' project.yml | head -1)
+HAS_DEVELOPER_ID := $(shell security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application: .*($(SIGNING_TEAM))")
 
 # A personal "Apple Development" certificate, where there is one, is preferred
 # over ad-hoc for exactly the reason the maintainer's identity is: it is
@@ -163,16 +169,24 @@ archive: gen
 		-exportOptionsPlist $(RELEASE_DIR)/ExportOptions.plist \
 		-exportPath $(RELEASE_DIR)
 
-# A plain drag-to-Applications disk image. `hdiutil` writes it read-only and
+# A plain drag-to-Applications disk image. `create-dmg` writes it read-only and
 # compressed, which is what notarization expects.
 dmg: archive
+	@command -v create-dmg >/dev/null || (echo "brew install create-dmg" && exit 1)
 	rm -f $(DMG)
 	rm -rf $(RELEASE_DIR)/stage
 	mkdir -p $(RELEASE_DIR)/stage
 	cp -R $(RELEASE_DIR)/$(APP_NAME).app $(RELEASE_DIR)/stage/
-	ln -s /Applications $(RELEASE_DIR)/stage/Applications
-	hdiutil create -volname "$(APP_NAME)" -srcfolder $(RELEASE_DIR)/stage \
-		-ov -format UDZO $(DMG)
+	create-dmg \
+		--volname "$(APP_NAME)" \
+		--window-pos 400 300 \
+		--window-size 604 404 \
+		--icon-size 128 \
+		--icon "$(APP_NAME).app" 150 200 \
+		--app-drop-link 450 200 \
+		--hide-extension "$(APP_NAME).app" \
+		--background "docs/design/dmg-background.png" \
+		$(DMG) $(RELEASE_DIR)/stage
 	codesign --force --sign "Developer ID Application" --timestamp $(DMG)
 	@# The app is inside the dmg now. Leaving the loose copies around is how
 	@# three spare "Codenotch" entries end up in Spotlight; everything
@@ -207,12 +221,22 @@ appcast: $(DMG)
 	@test -n "$(SPARKLE_BIN)" || (echo "Sparkle tools not found — run make build first" && exit 1)
 	mkdir -p $(PAGES_DIR)
 	@# Rebuilt from what is actually in the folder, never merged into the old
-	@# one. The dmg keeps a constant name, so only one build can exist at a
-	@# time — but generate_appcast preserves entries it already knows, and left
-	@# the previous version advertised at a URL now serving a different file,
-	@# with a signature that could never verify.
-	rm -f $(PAGES_DIR)/appcast.xml
-	cp $(DMG) $(PAGES_DIR)/
+	@# one — generate_appcast preserves entries it already knows, and left the
+	@# previous version advertised at a URL now serving a different file, with
+	@# a signature that could never verify. The old dmg goes for the same
+	@# reason: generate_appcast reads the whole folder, so a leftover would be
+	@# advertised as a version of its own.
+	rm -f $(PAGES_DIR)/appcast.xml $(PAGES_DIR)/*.dmg
+	@# The name carries the version, so the download URL is new every release.
+	@# Under one constant name each release put a different installer at the
+	@# same URL, and anything caching it — a browser, a proxy, a CDN — went on
+	@# serving the build before it. That reads as "the release shipped the old
+	@# installer" (#386) rather than as the stale copy it is, and it costs a
+	@# release to disprove. generate_appcast takes the enclosure URL from the
+	@# filename, so versioning the name is the whole of it. Sparkle fetches
+	@# that same URL, so a cached body could serve a stale update to the
+	@# updater as well as to a browser.
+	cp $(DMG) $(PAGES_DIR)/$(APP_NAME)-$(VERSION).dmg
 	$(SPARKLE_BIN)/generate_appcast $(PAGES_DIR) --download-url-prefix $(DOWNLOAD_PREFIX)
 	@echo "Publish by committing $(PAGES_DIR)/ and pushing."
 
@@ -336,13 +360,25 @@ build-ci: gen
 # executable bit on the way, which takes an .app bundle apart — the framework
 # inside it is symlinks. A dmg arrives as a single opaque file instead.
 dmg-ci: build-ci
+	@command -v create-dmg >/dev/null || (echo "brew install create-dmg" && exit 1)
 	rm -rf $(CI_DIR)/stage
 	mkdir -p $(CI_DIR)/stage
 	cp -R $(CI_APP) $(CI_DIR)/stage/
-	ln -s /Applications $(CI_DIR)/stage/Applications
 	for i in 1 2 3; do \
-		hdiutil create -volname "$(APP_NAME)" -srcfolder $(CI_DIR)/stage \
-			-ov -format UDZO $(CI_DMG) && break || sleep 2; \
+		rm -f $(CI_DMG); \
+		rm -f $(CI_DIR)/rw.*.dmg; \
+		hdiutil detach "/Volumes/$(APP_NAME)" -force 2>/dev/null || true; \
+		create-dmg \
+			--volname "$(APP_NAME)" \
+			--window-pos 400 300 \
+			--window-size 604 404 \
+			--icon-size 128 \
+			--icon "$(APP_NAME).app" 150 200 \
+			--app-drop-link 450 200 \
+			--hide-extension "$(APP_NAME).app" \
+			--background "docs/design/dmg-background.png" \
+			--skip-jenkins \
+			$(CI_DMG) $(CI_DIR)/stage && break || sleep 2; \
 	done
 	rm -rf $(CI_DIR)/stage
 	@echo "Unsigned disk image: $(CI_DMG)"

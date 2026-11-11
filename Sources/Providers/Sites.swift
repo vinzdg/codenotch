@@ -256,6 +256,15 @@ enum Sites {
         // maps this plan page to `analytics/token-plan/individual` — the
         // default `origin/usage` answers 404 here.
         managePath: "home/analytics/token-plan/individual",
+        // Role declarations, not the plan's period: "week" is the id of the one
+        // allowance the Token Plan reports, and a monthly plan reports through
+        // the same window (see `QianwenUsage`). Consumers resolve by id
+        // (`ProviderSnapshot.headline`, `weeklyLimitWindow`/`weeklyWindow`), so
+        // renaming this to match a period would resolve to nothing and draw an
+        // empty ring. The same id in both means the notch draws one ring for
+        // the one allowance rather than the same fact twice.
+        headlineID: "week",
+        weeklyID: "week",
         parse: { try QianwenUsage.windows(fromJSON: $0) }
     )
 

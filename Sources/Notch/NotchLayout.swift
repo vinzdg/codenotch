@@ -28,6 +28,7 @@ enum NotchLayout {
     /// the ring rather than beside it, but it is the same distance.
     static func ringMargin(for edge: NotchEdge) -> CGFloat { sideRingMargin }
 
+
     static let curlRadius   = Design.px(103)
     /// The small inverse corner where a flush bar meets the screen's frame.
     ///
@@ -44,12 +45,36 @@ enum NotchLayout {
     // The resting pill. Not in the design frame — it is the notch folded away,
     // sized to read as a deliberate handle rather than a sliver of chrome.
     static let pillWidth  = Design.px(26)
+
     static let pillHeight = Design.px(210)
     /// The pill is small, so the region that wakes it is deliberately larger.
     static let pillHotZone = Design.px(90)
 
+    // The dock style's floating slab. Plain points, and the one pair of numbers
+    // here not quoted from the design frame: the frame has no Dock in it, so
+    // both were measured beside the real one. The gap is a distance from the
+    // screen, like `bezelBleed`, so the size setting leaves it alone; the
+    // radius belongs to the notch and is scaled with it like every other.
+    static let dockGap: CGFloat = 5
+    static let dockCornerRadius: CGFloat = 32
+
     // A provider cell
     static let ringDiameter  = Design.px(117)   // 44pt, the design spec's anchor
+
+
+
+    /// The corner the bar turns where it meets the bezel, beside the hardware.
+    /// Derived from the hardware's own height rather than fixed — see
+    /// `splitCornerFraction`.
+    static let splitCornerRadius: CGFloat = 12
+
+
+
+
+
+
+
+
     static let trackStroke   = Design.px(15.5)
     static let progressStroke = Design.px(8)
     /// A fraction of the circle, not a pixel length. Below it the arc's two
@@ -105,13 +130,27 @@ enum NotchLayout {
     static let orbStroke   = Design.px(18)
     /// Distance from the flare's curve in to the resting arc.
     static let orbGap      = Design.px(27)
+    /// **How far the resting arc runs out from the flare**, all the way along.
+    ///
+    /// The arc was a quarter circle one `orbGap` inside the flare's, and the
+    /// flare is not a circle: it bows out past one by a ninth of its radius in
+    /// the middle of the turn, so the gap there was near 39px. Drawn parallel
+    /// to the flare instead, at `orbGap`, it sat closer all the way round than
+    /// it ever had in the middle — which is where the eye measures it. This is
+    /// that middle gap, kept the whole way.
+    static let orbClearance = Design.px(39)
     /// Radius of the resting arc: the flare's radius, less the gap.
     static var orbArcRadius: CGFloat { curlRadius - orbGap }
     /// The resting arc's circle when it traces a *convex* corner: outside the
     /// corner by the same gap it keeps inside a flare. Takes the corner the
     /// shape actually draws, which is not always `cornerRadius` — a bar drawn
     /// as the hardware notch caps it at the hardware's own rounding.
-    static func orbConvexArcRadius(corner: CGFloat) -> CGFloat { corner + orbGap }
+    ///
+    /// `scale` shrinks the orb itself — the gap and the disc — without touching
+    /// the corner it hugs, which is the hardware's and not ours to resize.
+    static func orbConvexArcRadius(corner: CGFloat, scale: CGFloat = 1) -> CGFloat {
+        corner + orbGap * scale
+    }
 
     /// How far off a convex corner the orb hangs, on each axis.
     ///
@@ -121,8 +160,8 @@ enum NotchLayout {
     /// `orbGap` the flared version uses, plus its own radius so the disc never
     /// overlaps the bar. Taken diagonally, so it reads as belonging to the
     /// corner rather than to one edge or the other.
-    static func orbCornerOffset(corner: CGFloat) -> CGFloat {
-        (corner + orbGap + orbDiameter / 2) / 2.0.squareRoot()
+    static func orbCornerOffset(corner: CGFloat, scale: CGFloat = 1) -> CGFloat {
+        (corner + (orbGap + orbDiameter / 2) * scale) / 2.0.squareRoot()
     }
     static let orbGlyph    = Design.px(56)
     /// What the arc scales to as it hides.
@@ -140,20 +179,36 @@ enum NotchLayout {
     /// Generous, like the pill's — it is a small target on a screen edge.
     static let orbHotZone  = Design.px(152)
 
+    // The six dots beside the settings button, that move the notch
+    static let gripDot     = Design.px(19)
+    static let gripPitch   = Design.px(31)    // dot centre to dot centre
+    static let gripWidth   = gripPitch + gripDot        // across its two lines
+    static let gripLength  = 2 * gripPitch + gripDot    // along its three
+    static let gripGap     = Design.px(13)    // from the settings disc
+    static let gripHotZone = Design.px(140)
+
     // The hover tooltip
     static let cardWidth     = Design.px(600)
+    /// The update card's, wider for its three buttons — see `UpdateCard`.
+    static let updateCardWidth = Design.px(820)
     static let cardCorner    = Design.px(49.5)
     static let cardPadding   = Design.px(32)
     static let tailLength    = Design.px(75)
     static let tailHeight    = Design.px(87)
     static let tailGap       = Design.px(28)    // tail tip -> notch body edge
-    static let barHeight     = Design.px(10.5)
+    /// Whole points, unlike the distances around it. A usage bar is a solid
+    /// edge-to-edge fill, so the compositor snaps its top and its bottom to the
+    /// pixel grid separately: at the frame's 3.95pt, a bar that happened to sit
+    /// half a pixel lower came out a whole pixel thinner than the one beside
+    /// it. Four points is four pixels at 1x and eight at 2x wherever it lands.
+    static let barHeight     = Design.px(10.5).rounded()
     static let headerGap     = Design.px(17)    // glyph -> title
     static let headerToBlock = Design.px(21)
     static let labelToBar    = Design.px(16.8)
     static let barToUsed     = Design.px(17.8)
     static let blockSpacing  = Design.px(20)
-    static let moneyBarHeight = Design.px(12)
+    /// Whole points for the reason `barHeight` is.
+    static let moneyBarHeight = Design.px(12).rounded()
     static let moneyBarToStats = Design.px(14)
     static let moneyStatGap = Design.px(4)
     static let usageDetailIdentityGap = Design.px(4)
@@ -221,16 +276,47 @@ enum NotchLayout {
     ///
     /// Rounded up to whole lines: the card's height is a stack of line boxes,
     /// and half a line of budget leaves the last one straddling the clip.
-    static func bodyTextHeight(_ text: String) -> CGFloat {
+    ///
+    /// `width` is the column the text actually wraps to. The notch's card is
+    /// the default and the only one the panel geometry is solved against; the
+    /// Detail panel passes its own, so a name that fits one line there is not
+    /// given two lines of room.
+    static func bodyTextHeight(_ text: String, width: CGFloat = cardTextWidth) -> CGFloat {
         guard !text.isEmpty else { return cardBodyLineHeight }
         let bounds = (text as NSString).boundingRect(
-            with: CGSize(width: cardTextWidth, height: .greatestFiniteMagnitude),
+            with: CGSize(width: width, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: cardBodyFont]
         )
         let lines = max(1, Int((bounds.height / cardBodyLineHeight).rounded(.up)))
         return CGFloat(lines) * cardBodyLineHeight
     }
+
+    /// Whether a label and the value opposite it both fit on one row of
+    /// `width`, with the gap `SplitRow` keeps between them and a little room
+    /// to spare.
+    ///
+    /// Measured in the card's own body face, because this decides whether a
+    /// row may carry a longer string at all — a row that cannot is given the
+    /// short one rather than left to truncate.
+    ///
+    /// The slack is not padding for its own sake. `NSString`'s metrics come in
+    /// a point or two under what SwiftUI's `Text` asks for the same string in
+    /// the same face, so a row measured to fit exactly was still truncated on
+    /// screen — and a row that fits to the last point reads as crowded even
+    /// when it does not truncate. Both are answered by refusing the last few
+    /// points.
+    static func splitRowFits(leading: String, trailing: String, width: CGFloat) -> Bool {
+        let attributes: [NSAttributedString.Key: Any] = [.font: cardBodyFont]
+        let leadingWidth = (leading as NSString).size(withAttributes: attributes).width
+        let trailingWidth = (trailing as NSString).size(withAttributes: attributes).width
+        return leadingWidth + splitRowGap + trailingWidth + splitRowSlack <= width
+    }
+
+    /// The least `SplitRow` leaves between a label and its value.
+    static let splitRowGap = Design.px(20)
+    /// What `splitRowFits` keeps back — see its note.
+    static let splitRowSlack = Design.px(24)
 
     private static func lineHeight(_ font: NSFont) -> CGFloat {
         ceil(font.ascender - font.descender + font.leading)
@@ -284,18 +370,21 @@ enum NotchLayout {
     /// else on the stack at all.
     static func ringCenter(index: Int, edge: NotchEdge = .right,
                            flare: CGFloat = curlRadius,
-                           spacing: CGFloat = cellSpacing) -> CGFloat {
-        flare + padStart(for: edge) + ringDiameter / 2
-            + CGFloat(index) * (cellAlong(for: edge) + spacing)
+                           spacing: CGFloat = cellSpacing,
+                           cellScale: CGFloat = 1) -> CGFloat {
+        let along = cellAlong(for: edge) * cellScale
+        return flare + padStart(for: edge) + (ringDiameter * cellScale) / 2
+            + CGFloat(index) * (along + spacing)
     }
 
     /// Height of the notch body for a given number of provider cells.
     static func bodyLength(cellCount: Int, edge: NotchEdge = .right,
-                           spacing: CGFloat = cellSpacing) -> CGFloat {
+                           spacing: CGFloat = cellSpacing,
+                           cellScale: CGFloat = 1) -> CGFloat {
         let start = padStart(for: edge), end = padEnd(for: edge)
         guard cellCount > 0 else { return start + end }
         return start
-            + CGFloat(cellCount) * cellAlong(for: edge)
+            + CGFloat(cellCount) * cellAlong(for: edge) * cellScale
             + CGFloat(cellCount - 1) * spacing
             + end
     }
@@ -339,7 +428,9 @@ enum NotchLayout {
     }
 
     static func cardHeight(windowCount: Int, groupCount: Int = 0,
-                           moneyWindowCount: Int = 0, usageDetailGroupCount: Int = 0,
+                           moneyWindowCount: Int = 0, moneyResetCount: Int = 0,
+                           moneyProjectionCount: Int = 0,
+                           usageDetailGroupCount: Int = 0,
                            sessionCount: Int = 0,
                            sessionCap: Int = defaultSessionCap,
                            statusMessage: String? = nil,
@@ -350,7 +441,8 @@ enum NotchLayout {
                            localModelName: String? = nil, showsLocalPerformance: Bool = false,
                            localLedgerRows: Int = 0,
                            compactRowCount: Int = 0,
-                           showsDeepSeekPricing: Bool = true) -> CGFloat {
+                           showsDeepSeekPricing: Bool = true,
+                           costRows: Int = 0) -> CGFloat {
         let header = max(glyphSize, cardTitleLineHeight)
             + (hasPlan ? cardBodyLineHeight : 0)
         var height = 2 * cardPadding + header
@@ -380,6 +472,10 @@ enum NotchLayout {
             height += headerToBlock
                 + CGFloat(fullCount) * fullBlock
                 + CGFloat(moneyCount) * moneyBlock
+                // A balance with a period adds its reset line under the stats,
+                // and its forecast once there is one.
+                + CGFloat(min(max(0, moneyResetCount), moneyCount)
+                          + min(max(0, moneyProjectionCount), moneyCount)) * (moneyStatGap + cardBodyLineHeight)
                 + CGFloat(compactRowCount) * compactBlock
                 + CGFloat(windowCount - 1) * blockSpacing
             if groupCount > 0 {
@@ -402,6 +498,12 @@ enum NotchLayout {
 
         if hasResetCredits {
             height += codexUsageTop + hairline + codexResetCreditsHeight
+        }
+
+        // "What used it": a line of range tabs, then one line per project.
+        if costRows > 0 {
+            height += blockSpacing + cardBodyLineHeight
+                + CGFloat(costRows) * (cardBodyLineHeight + sessionRowGap)
         }
 
         height += usageDetailHeight(usageDetailGroupCount,
@@ -430,8 +532,8 @@ enum NotchLayout {
         return height
     }
 
-    static func modelNameHeight(_ name: String) -> CGFloat {
-        min(2 * cardBodyLineHeight, bodyTextHeight(name))
+    static func modelNameHeight(_ name: String, width: CGFloat = cardTextWidth) -> CGFloat {
+        min(2 * cardBodyLineHeight, bodyTextHeight(name, width: width))
     }
 
 
@@ -538,6 +640,9 @@ enum NotchLayout {
     /// below or above it on a horizontal one.
     static func tooltipDepth(for edge: NotchEdge,
                              maxCardHeight: CGFloat = defaultMaxCardHeight) -> CGFloat {
-        (edge.isVertical ? cardWidth : maxCardHeight) + tailLength + tailGap
+        // Beside a side edge's notch the update card has to fit too, and it is
+        // wider than a tooltip: held to the tooltip's width, the window cut
+        // its far side off.
+        (edge.isVertical ? max(cardWidth, updateCardWidth) : maxCardHeight) + tailLength + tailGap
     }
 }

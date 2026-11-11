@@ -76,6 +76,113 @@ final class DeepSeekUsageTests: XCTestCase {
         ), .offPeak)
     }
 
+    /// Trimmed from holiday-cn's 2026.json: National Day, the Spring Festival,
+    /// and a make-up working day, which must not count as a day off.
+    private static let holidays2026 = #"""
+    {"year": 2026, "papers": [], "days": [
+      {"name": "春节", "date": "2026-02-15", "isOffDay": true},
+      {"name": "春节", "date": "2026-02-16", "isOffDay": true},
+      {"name": "春节", "date": "2026-02-17", "isOffDay": true},
+      {"name": "春节", "date": "2026-02-18", "isOffDay": true},
+      {"name": "春节", "date": "2026-02-19", "isOffDay": true},
+      {"name": "春节", "date": "2026-02-20", "isOffDay": true},
+      {"name": "春节", "date": "2026-02-21", "isOffDay": true},
+      {"name": "春节", "date": "2026-02-22", "isOffDay": true},
+      {"name": "春节", "date": "2026-02-23", "isOffDay": true},
+      {"name": "国庆节", "date": "2026-10-01", "isOffDay": true},
+      {"name": "国庆节", "date": "2026-10-02", "isOffDay": true},
+      {"name": "国庆节", "date": "2026-10-05", "isOffDay": true},
+      {"name": "国庆节", "date": "2026-10-06", "isOffDay": true},
+      {"name": "国庆节", "date": "2026-10-07", "isOffDay": true},
+      {"name": "国庆节", "date": "2026-10-10", "isOffDay": false}
+    ]}
+    """#
+
+    private func holidayCalendar() throws -> ChineseHolidayCalendar {
+        try XCTUnwrap(ChineseHolidayCalendar.empty.merging(holidayCNJSON: Data(Self.holidays2026.utf8)))
+    }
+
+    func testChineseHolidaysAreOffPeakOnAWeekday() throws {
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        let holidays = try holidayCalendar()
+        // Friday 2 October 2026, 10:00 in Beijing.
+        let nationalDay = try XCTUnwrap(formatter.date(from: "2026-10-02T02:00:00Z"))
+
+        XCTAssertEqual(DeepSeekPricing.phase(at: nationalDay, schedule: .current, holidays: holidays), .offPeak)
+        XCTAssertEqual(DeepSeekPricing.phase(at: nationalDay, schedule: .current), .peak)
+
+        var weekdaysOnly = DeepSeekPricing.Schedule.current
+        weekdaysOnly.offPeakOnChineseHolidays = false
+        XCTAssertEqual(DeepSeekPricing.phase(at: nationalDay, schedule: weekdaysOnly, holidays: holidays), .peak)
+
+        // Thursday 8 October is a working day again.
+        XCTAssertEqual(DeepSeekPricing.phase(
+            at: try XCTUnwrap(formatter.date(from: "2026-10-08T02:00:00Z")),
+            schedule: .current, holidays: holidays
+        ), .peak)
+    }
+
+    func testHolidayCalendarIgnoresMakeUpDaysAndUnpublishedYears() throws {
+        let holidays = try holidayCalendar()
+
+        XCTAssertEqual(holidays.years, [2026])
+        XCTAssertTrue(holidays.offDays.contains("2026-10-01"))
+        XCTAssertFalse(holidays.offDays.contains("2026-10-10"))
+        XCTAssertNil(holidays.merging(holidayCNJSON: Data(#"{"year": 2027, "papers": [], "days": []}"#.utf8)))
+        XCTAssertNil(holidays.merging(holidayCNJSON: Data("not json".utf8)))
+    }
+
+    func testNextPeakSkipsTheWholeHoliday() throws {
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        let holidays = try holidayCalendar()
+
+        let nationalDay = DeepSeekPricing.nextTransition(
+            after: try XCTUnwrap(formatter.date(from: "2026-10-02T02:00:00Z")),
+            schedule: .current, holidays: holidays
+        )
+        XCTAssertEqual(nationalDay.phase, .peak)
+        XCTAssertEqual(nationalDay.date, try XCTUnwrap(formatter.date(from: "2026-10-08T01:00:00Z")))
+
+        // Friday evening before the Spring Festival: eleven days to the next peak.
+        let springFestival = DeepSeekPricing.nextTransition(
+            after: try XCTUnwrap(formatter.date(from: "2026-02-13T10:30:00Z")),
+            schedule: .current, holidays: holidays
+        )
+        XCTAssertEqual(springFestival.phase, .peak)
+        XCTAssertEqual(springFestival.date, try XCTUnwrap(formatter.date(from: "2026-02-24T01:00:00Z")))
+    }
+
+    func testAHolidayEndsAWindowThatRunsAcrossBeijingMidnight() throws {
+        let formatter = ISO8601DateFormatter()
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        let schedule = DeepSeekPricing.Schedule(
+            peakWeekdays: [1, 2, 3, 4, 5, 6, 7],
+            windows: [.init(startMinute: 900, endMinute: 1_020)]
+        )
+
+        let transition = DeepSeekPricing.nextTransition(
+            after: try XCTUnwrap(formatter.date(from: "2026-09-30T15:30:00Z")),
+            schedule: schedule, holidays: try holidayCalendar()
+        )
+        XCTAssertEqual(transition.phase, .offPeak)
+        XCTAssertEqual(transition.date, try XCTUnwrap(formatter.date(from: "2026-09-30T16:00:00Z")))
+    }
+
+    func testAScheduleSavedBeforeTheHolidayRuleStillDecodes() throws {
+        let saved = #"{"peakWeekdays": [2, 3], "windows": [{"startMinute": 60, "endMinute": 240}]}"#
+        let schedule = try JSONDecoder().decode(DeepSeekPricing.Schedule.self, from: Data(saved.utf8))
+
+        XCTAssertEqual(schedule.peakWeekdays, [2, 3])
+        XCTAssertTrue(schedule.offPeakOnChineseHolidays)
+    }
+
+    func testTheBundledHolidayCalendarCoversTheYearItShipsWith() {
+        XCTAssertTrue(ChineseHolidays.bundled.years.contains(2026))
+        XCTAssertNotNil(Bundle.main.url(forResource: "holiday-cn-LICENSE", withExtension: "txt"))
+    }
+
     func testDisablingPricingOnlyRemovesPricingRowsFromTheCardHeight() {
         XCTAssertGreaterThan(
             NotchLayout.usageDetailHeight(1, showsPricing: true),
@@ -240,5 +347,117 @@ final class DeepSeekUsageTests: XCTestCase {
            let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
             try png.write(to: URL(fileURLWithPath: path))
         }
+    }
+}
+
+/// The money bar's headline reads spent by default, what is left when the
+/// notch is set that way — the same rounded-used derivation as the window
+/// rows, so the two never disagree by a point.
+final class MoneyHeadlineTests: XCTestCase {
+    private let balance = UsageMoneyBreakdown(currency: "CNY", spent: 9.20, remaining: 10.87)
+
+    func testSpentLeadsByDefault() {
+        XCTAssertEqual(balance.headlineText(showingRemaining: false), "46% used")
+    }
+
+    func testRemainingLeadsWhenSet() {
+        XCTAssertEqual(balance.headlineText(showingRemaining: true), "54% left")
+    }
+
+    func testTheEndsAgreeAtTheBoundaries() {
+        let empty = UsageMoneyBreakdown(currency: "USD", spent: 0, remaining: 0)
+        XCTAssertEqual(empty.headlineText(showingRemaining: false), "0% used")
+        XCTAssertEqual(empty.headlineText(showingRemaining: true), "100% left")
+        let drained = UsageMoneyBreakdown(currency: "USD", spent: 20, remaining: 0)
+        XCTAssertEqual(drained.headlineText(showingRemaining: false), "100% used")
+        XCTAssertEqual(drained.headlineText(showingRemaining: true), "0% left")
+    }
+}
+
+/// One wallet per currency, and the order the server lists them in says nothing
+/// about which holds the money. Reading the first is what made a funded CNY
+/// wallet sitting behind an empty USD one read as 0%.
+final class DeepSeekMultiWalletTests: XCTestCase {
+    private func summary(wallets: [(String, String)], costs: [(String, String)]) -> String {
+        let walletJSON = wallets
+            .map { #"{"currency":"\#($0.0)","balance":"\#($0.1)"}"# }
+            .joined(separator: ",")
+        let costJSON = costs
+            .map { #"{"currency":"\#($0.0)","amount":"\#($0.1)"}"# }
+            .joined(separator: ",")
+        return #"{"data":{"biz_data":{"normal_wallets":[\#(walletJSON)],"total_costs":[\#(costJSON)]}}}"#
+    }
+
+    /// The reported case: USD listed first and empty, CNY funded and used. It
+    /// read 0% because the empty wallet was chosen, and its currency is the one
+    /// `total_costs` is looked up in, so a real balance and a real cost were both
+    /// read as zero.
+    func testAFundedWalletIsReadEvenWhenAnEmptyOneIsListedFirst() throws {
+        let json = summary(wallets: [("USD", "0"), ("CNY", "10.87")],
+                           costs: [("CNY", "9.20")])
+        let reading = try DeepSeekUsage.reading(fromJSON: json)
+        XCTAssertEqual(reading.currency, "CNY")
+        XCTAssertEqual(reading.spent, 9.20, accuracy: 0.001)
+        XCTAssertEqual(reading.balance, 10.87, accuracy: 0.001)
+        XCTAssertEqual(reading.usedFraction, 9.20 / 20.07, accuracy: 0.001)
+    }
+
+    /// The reverse order, so the fix is not a CNY special case.
+    func testTheOrderTheWalletsArriveInDoesNotDecideIt() throws {
+        let json = summary(wallets: [("CNY", "10.87"), ("USD", "0")],
+                           costs: [("CNY", "9.20")])
+        XCTAssertEqual(try DeepSeekUsage.reading(fromJSON: json).currency, "CNY")
+    }
+
+    /// A wallet with a balance but no recorded cost is still funded, and must
+    /// not be passed over for one that merely has a cost line.
+    func testABalanceAloneMakesAWalletTheFundedOne() throws {
+        let json = summary(wallets: [("USD", "0"), ("EUR", "5")], costs: [])
+        let reading = try DeepSeekUsage.reading(fromJSON: json)
+        XCTAssertEqual(reading.currency, "EUR")
+        XCTAssertEqual(reading.spent, 0, accuracy: 0.001)
+        XCTAssertEqual(reading.usedFraction, 0, accuracy: 0.001)
+    }
+
+    /// Where two currencies are both real, the card carries one figure, so the
+    /// largest is the one that means something — and the choice is not
+    /// positional, which is the whole bug.
+    func testTheLargestFundedWalletWinsWhenBothAreReal() throws {
+        let json = summary(wallets: [("USD", "100"), ("CNY", "20")],
+                           costs: [("USD", "10"), ("CNY", "5")])
+        XCTAssertEqual(try DeepSeekUsage.reading(fromJSON: json).currency, "USD")
+
+        let reversed = summary(wallets: [("CNY", "20"), ("USD", "100")],
+                               costs: [("USD", "10"), ("CNY", "5")])
+        XCTAssertEqual(try DeepSeekUsage.reading(fromJSON: reversed).currency, "USD")
+    }
+
+    /// Nothing funded anywhere is zero, which is what an empty account has always
+    /// read as — not an error.
+    func testAnAccountWithNothingInAnyWalletStillReadsAsZero() throws {
+        let json = summary(wallets: [("USD", "0"), ("CNY", "0")], costs: [])
+        let reading = try DeepSeekUsage.reading(fromJSON: json)
+        XCTAssertEqual(reading.currency, "USD")
+        XCTAssertEqual(reading.usedFraction, 0, accuracy: 0.001)
+    }
+
+    /// No wallets at all is still "no wallet", as before.
+    func testNoWalletsIsStillAnError() {
+        XCTAssertThrowsError(try DeepSeekUsage.reading(
+            fromJSON: #"{"data":{"biz_data":{"normal_wallets":[],"total_costs":[]}}}"#))
+    }
+
+    /// A balance that will not parse must not become a reading that looks spent.
+    func testAnUnparseableBalanceIsSkippedRatherThanZeroed() throws {
+        let json = summary(wallets: [("USD", "not-a-number"), ("CNY", "3")], costs: [])
+        XCTAssertEqual(try DeepSeekUsage.reading(fromJSON: json).currency, "CNY")
+    }
+
+    /// A single funded wallet is unchanged — the common case must not move.
+    func testASingleFundedWalletIsUnchanged() throws {
+        let json = summary(wallets: [("CNY", "10.87")], costs: [("CNY", "9.20")])
+        let reading = try DeepSeekUsage.reading(fromJSON: json)
+        XCTAssertEqual(reading.currency, "CNY")
+        XCTAssertEqual(reading.usedFraction, 9.20 / 20.07, accuracy: 0.001)
     }
 }

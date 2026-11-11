@@ -10,13 +10,17 @@ The SVG files in this directory come from the npm package `@lobehub/icons-static
 | codex-alt.svg | icons/codex.svg | alternative: Codex's own mark |
 | cursor.svg | icons/cursor.svg | Cursor cell |
 | grok.svg | icons/grok.svg | Grok cell |
+| copilot.svg | icons/githubcopilot.svg | GitHub Copilot cell |
 | gemini.svg | icons/antigravity.svg | Antigravity cell |
 | gemini-alt.svg | icons/gemini.svg | alternative: the Gemini spark |
+| opencode.svg | icons/opencode.svg | OpenCode cell |
+| deepseek.svg | icons/deepseek.svg | DeepSeek Harness cell |
+| qoder.svg | icons/qoder.svg | Qoder cell |
 
 MIT License — Copyright (c) LobeHub. See that repository's LICENSE.
 
-**Trademarks**: these marks are trademarks of Anthropic, OpenAI, Anysphere (Cursor), xAI (Grok) and Google
-respectively, and are used here only to identify the product whose usage is displayed. Whether
+**Trademarks**: these marks are trademarks of Anthropic, OpenAI, Anysphere (Cursor), xAI (Grok), GitHub
+(Copilot), Google, the OpenCode project and Qoder respectively, and are used here only to identify the product whose usage is displayed. Whether
 they stay in a distributed build is the repository owner's call under each brand's guidelines;
 they can be swapped for generated glyphs without touching any code.
 

@@ -25,19 +25,31 @@ enum ProviderGlyph: String, Codable, Equatable {
     case deepseek
     case mistral
     case grok
+    /// Grok Bot's blob face, for the provider that reads the desktop bot's
+    /// own weekly cache — a ring wearing this one is the bot's allowance,
+    /// not the CLI's Grok Build.
+    case grokbot
     case opencode
     case commandcode
     case copilot
     case kimi
+    case kilo
     case kiro
+    case amp
+    case apify
     case minimax
     case ollama
     case ollamaLocal = "ollama-local"
     case lmstudio
+    case omlx
+    case llamaCpp = "llamacpp"
     /// The QianwenAI platform's own console mark, which is a different emblem
     /// from the local Qwen model brand in `.qwen` — a ring wearing this one is
     /// the platform account, not a model.
+    case qoder
     case qianwenAI = "qianwenai"
+    case higgsfield
+    case krea
 
     /// If an asset with this name is in the bundle it wins over the traced
     /// outline — drop a PDF/SVG export from Figma in and it is picked up.
@@ -63,22 +75,59 @@ enum ProviderGlyph: String, Codable, Equatable {
         case .geminiSpark: return 1.0
         case .glm:    return 0.95
         case .grok:   return 1.0
+        // The blob's ink already fills most of its box, so no evening out.
+        case .grokbot: return 1.0
         case .opencode: return 0.95
         case .commandcode: return 0.96
         case .copilot: return 0.96
         case .kimi:   return 0.95
+        case .kilo:   return 0.97
         case .kiro:   return 0.95
+        case .amp:    return 1.0
+        // The asset's viewBox is cropped to the ink, so the mark fills its box
+        // the way Claude's outline does and takes the same scale.
+        case .apify:  return 0.97
         case .minimax: return 0.95
         case .ollama: return 0.95
         case .third:  return 1.0
         case .ollamaLocal: return 0.98
         case .lmstudio: return 0.96
+        case .omlx: return 1.0
+        case .llamaCpp: return 1.0
         // The one value here measured off a render of the asset file rather
         // than of the app: this mark's ink fills 0.996 of its box, rasterised
         // with `rsvg-convert -w 512`. Claude's outline fills 0.997 at 0.97, so
         // the same scale brings this ink to the same extent.
-        case .qianwenAI: return 0.97
+        case .qianwenAI, .qoder: return 0.97
+        case .higgsfield: return 0.95
+        case .krea: return 0.96
         case .devin, .qwen, .gemma, .meta, .deepseek, .mistral: return 1.0
+        }
+    }
+
+    /// The mark's own brand colour, used to tint the busy wave behind it.
+    ///
+    /// It comes from the brand rather than from the usage scale because the
+    /// outer ring already spends `ample` / `watch` / `critical` on how much of
+    /// the limit is used; a wave in one of those would read as a verdict on the
+    /// limit instead of "an agent is working". Monochrome brands keep the
+    /// neutral text colour until a hex is chosen for them.
+    var brandColor: Color {
+        switch self {
+        case .claude: return Color(hex: 0xD97757)
+        case .openai: return Color(hex: 0x10A37F)
+        case .third: return Color(hex: 0x20808D)
+        case .antigravity, .geminiSpark, .gemma: return Color(hex: 0x4285F4)
+        case .qwen, .qianwenAI: return Color(hex: 0x615CED)
+        case .meta: return Color(hex: 0x0866FF)
+        case .deepseek: return Color(hex: 0x4D6BFE)
+        case .mistral: return Color(hex: 0xFF7000)
+        case .apify: return Color(hex: 0xFF9012)
+        case .devin: return Color(hex: 0x2563EB)
+        case .glm: return Color(hex: 0x2E7CF6)
+        case .higgsfield: return Color(hex: 0xD1FE17)
+        case .krea: return Color(hex: 0xFF4F00)
+        default: return Palette.textPrimary
         }
     }
 
@@ -94,12 +143,13 @@ enum ProviderGlyph: String, Codable, Equatable {
         // glyph-kimi in the asset catalogue are drawn instead.
         case .glm:    return GlyphOutline.glm
         case .devin, .qwen, .gemma, .meta, .deepseek, .mistral, .lmstudio,
-             .qianwenAI: return []
+             .omlx, .qianwenAI, .qoder, .amp, .apify, .llamaCpp, .grokbot, .higgsfield, .krea: return []
         case .grok:   return GlyphOutline.grok
         case .opencode: return GlyphOutline.opencode
         case .commandcode: return GlyphOutline.commandcode
         case .copilot: return GlyphOutline.copilot
         case .kimi:   return GlyphOutline.kimi
+        case .kilo:   return GlyphOutline.kilo
         case .kiro:   return GlyphOutline.kiro
         // A fallback only: glyph-minimax in the asset catalogue is drawn instead.
         case .minimax: return GlyphOutline.minimax

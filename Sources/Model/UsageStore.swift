@@ -32,10 +32,41 @@ final class UsageStore: ObservableObject {
 
     private var providers: [UsageProvider]
 
+    /// Names chosen in Settings, by provider id. Applied to every snapshot the
+    /// store publishes, so the notch, the menu bar, the cards and the
+    /// notifications all call an account what its owner does.
+    var nicknames: [String: String] = [:] {
+        didSet {
+            guard nicknames != oldValue else { return }
+            snapshots = snapshots.map(named)
+        }
+    }
+
+    /// The snapshot with the chosen name, or the provider's own one back when
+    /// the name was cleared.
+    private func named(_ snapshot: ProviderSnapshot) -> ProviderSnapshot {
+        var snapshot = snapshot
+        if let nickname = nicknames[snapshot.id] {
+            snapshot.displayName = nickname
+        } else if let provider = providers.first(where: { $0.id == snapshot.id }) {
+            snapshot.displayName = provider.displayName
+        }
+        return snapshot
+    }
+
     func registerCustomProviders(_ custom: [UsageProvider]) {
         providers.removeAll { $0.id.hasPrefix("custom-endpoint-") }
         providers.append(contentsOf: custom)
         for provider in custom {
+            publish(Self.placeholder(provider))
+        }
+        refreshNow()
+    }
+
+    func registerRemoteProviders(_ remote: [UsageProvider]) {
+        providers.removeAll { RemoteHost.isRemote(providerID: $0.id) }
+        providers.append(contentsOf: remote)
+        for provider in remote {
             publish(Self.placeholder(provider))
         }
         refreshNow()
@@ -100,7 +131,37 @@ final class UsageStore: ObservableObject {
     /// spends rate-limit budget to re-read a number that has not changed.
     var isBusy: () -> Bool = { false }
 
+    /// Whether a look should refuse every reading a provider is holding, however
+    /// new, and ask the provider itself — the "Ask the provider every time you
+    /// look" setting.
+    ///
+    /// A closure for the reason `isBusy` is one: the answer lives in
+    /// `Preferences` and changes while the store is running, and reading it as a
+    /// stored value would answer with whatever it was at launch. It reaches only
+    /// the *look*; the schedule asks for what the schedule asks for, so a
+    /// setting nobody is looking at cannot quietly triple the app's requests.
+    var asksProviderOnLook: () -> Bool = { false }
+
+    /// How often the schedule *looks*, which is not how often it fetches.
+    ///
+    /// Four times a minute, so the two things that have to happen promptly can:
+    /// a window rolling over is noticed within a tick rather than within a
+    /// minute, and a busy interval of any length under a minute is expressible
+    /// at all. Every tick that is not owed a fetch compares two dates and
+    /// returns — see `tick`.
     private let refreshInterval: TimeInterval
+    /// How often to fetch while something is actually running.
+    ///
+    /// The numbers only move while work is happening, so this is the one
+    /// stretch where polling harder buys something. Thirty seconds rather than
+    /// the old sixty: the measurement behind
+    /// `ClaudeOAuthProvider.desktopFreshness` had a session window moving
+    /// eleven points in fifteen minutes, so a minute is most of a point, and a
+    /// minute of them is a figure somebody is watching being wrong. It is not
+    /// lower than thirty because the providers that answer over the network
+    /// answer to a 429, and walking into one trades half a minute of lag for
+    /// fifteen minutes of it.
+    private let busyRefreshInterval: TimeInterval
     private let localRefreshInterval: TimeInterval
     /// How long a snapshot stays believable after its last successful fetch.
     ///
@@ -115,6 +176,16 @@ final class UsageStore: ObservableObject {
     /// How often to look when nothing is running.
     private let idleRefreshInterval: TimeInterval
     private var lastAttempt: Date?
+    /// When each provider last had a fetch asked of it by its work stopping.
+    private var lastWorkFinished: [String: Date] = [:]
+    /// The least time between two refreshes somebody's attention asked for.
+    ///
+    /// Opening the menu, or putting the pointer on a ring, is the clearest
+    /// possible statement that these numbers are about to be read — so they are
+    /// re-read then, rather than whenever the schedule next comes round. What
+    /// it must not become is a way to poll the endpoint as fast as a pointer can
+    /// move: hovering four rings in four seconds is four looks and one fetch.
+    private let onLookInterval: TimeInterval
     private let pollingNow: () -> Date
 
     private let archive: UsageArchive
@@ -153,7 +224,8 @@ final class UsageStore: ObservableObject {
 
     init(
         providers: [UsageProvider],
-        refreshInterval: TimeInterval = 60,
+        refreshInterval: TimeInterval = 15,
+        busyRefreshInterval: TimeInterval = 30,
         localRefreshInterval: TimeInterval = 1,
         idleRefreshInterval: TimeInterval = 5 * 60,
         staleAfter: TimeInterval = 15 * 60,
@@ -161,6 +233,7 @@ final class UsageStore: ObservableObject {
         // never to fire on a slow network, low enough that a wedged read costs
         // one tick rather than the rest of the day.
         refreshDeadline: TimeInterval = 60,
+        onLookInterval: TimeInterval = 15,
         archive: UsageArchive = UsageArchive(),
         disconnected: Set<String> = [],
         order: [String] = [],
@@ -169,10 +242,12 @@ final class UsageStore: ObservableObject {
         self.pollingNow = pollingNow
         self.providers = providers
         self.refreshInterval = refreshInterval
+        self.busyRefreshInterval = busyRefreshInterval
         self.localRefreshInterval = localRefreshInterval
         self.idleRefreshInterval = idleRefreshInterval
         self.staleAfter = staleAfter
         self.refreshDeadline = refreshDeadline
+        self.onLookInterval = onLookInterval
         self.archive = archive
 
         // Open on what we knew last time rather than on an empty ring; the
@@ -261,11 +336,13 @@ final class UsageStore: ObservableObject {
         RunLoop.main.add(localTimer, forMode: .common)
         self.localTimer = localTimer
 
-        // Waking up is the one moment the numbers are guaranteed to be wrong.
+        // Waking up is the one moment the numbers are guaranteed to be wrong —
+        // and the one moment a cache is guaranteed to be wrong with them, having
+        // been written before the Mac went to sleep. So: live.
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshNow() }
+            MainActor.assumeIsolated { _ = self?.refreshNow(freshness: .live) }
         }
 
         // A window's `label` is display text a provider resolved while it was
@@ -277,7 +354,7 @@ final class UsageStore: ObservableObject {
         languageObserver = NotificationCenter.default.addObserver(
             forName: L10n.didChange, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshNow() }
+            MainActor.assumeIsolated { _ = self?.refreshNow() }
         }
     }
 
@@ -306,13 +383,18 @@ final class UsageStore: ObservableObject {
     private func tick() {
         let now = pollingNow()
         let waited = lastAttempt.map { now.timeIntervalSince($0) } ?? .greatestFiniteMagnitude
+        let rolledOver = Self.hasWindowRolledOver(in: snapshots, since: lastAttempt, at: now)
         guard Self.shouldRefresh(
             isBusy: isBusy(),
             sinceLastAttempt: waited,
             idleInterval: idleRefreshInterval,
-            resetDue: Self.hasWindowRolledOver(in: snapshots, since: lastAttempt, at: now)
+            busyInterval: busyRefreshInterval,
+            resetDue: rolledOver
         ) else { return }
-        refreshNow()
+        // A manual-only provider still refreshes the moment a window rolls
+        // over: its numbers are guaranteed to have moved, and a reset is rare
+        // enough that the cost is nothing like the idle tick's.
+        refreshNow(freshness: freshnessWanted, includeIdleSkipped: rolledOver)
     }
 
     /// True when a window's `resetsAt` fell between the last attempt and now.
@@ -335,30 +417,108 @@ final class UsageStore: ObservableObject {
         }
     }
 
-    /// Poll at full rate while something is running or a window has just rolled
-    /// over; otherwise wait out the idle interval. Pure, so the schedule can be
-    /// tested without a clock.
+    /// Poll at the busy rate while something is running, at once when a window
+    /// has just rolled over, and otherwise wait out the idle interval. Pure, so
+    /// the schedule can be tested without a clock.
+    ///
+    /// `busyInterval` defaults to zero, which is "every tick" — the behaviour
+    /// from when the tick *was* the interval. What the app passes is the real
+    /// spacing; the tick is now four times a minute and a fetch on each of them
+    /// is neither wanted nor affordable.
     static func shouldRefresh(
         isBusy: Bool,
         sinceLastAttempt: TimeInterval,
         idleInterval: TimeInterval,
+        busyInterval: TimeInterval = 0,
         resetDue: Bool = false
     ) -> Bool {
-        isBusy || resetDue || sinceLastAttempt >= idleInterval
+        if resetDue { return true }
+        if isBusy { return sinceLastAttempt >= busyInterval }
+        return sinceLastAttempt >= idleInterval
     }
 
-    func refreshNow() {
+    /// Whether an event outside the schedule — a look, a run that just
+    /// finished — is owed a fetch of its own, or falls inside one already taken.
+    /// Pure, for the reason `shouldRefresh` is.
+    static func shouldRefreshOnEvent(sinceLastRefresh: TimeInterval,
+                                     spacing: TimeInterval) -> Bool {
+        sinceLastRefresh >= spacing
+    }
+
+    /// Starts a pass over every provider, or joins the one already running.
+    ///
+    /// Returns that pass for a caller that has to say when it is over — the
+    /// menu's "Refresh all" reads "Refreshing…" until then. A pass wedged
+    /// behind a keychain prompt can outlive `refreshDeadline`, so a caller
+    /// waiting on it needs a way to stop waiting of its own.
+    @discardableResult
+    func refreshNow() -> Task<Void, Never>? {
+        refreshNow(freshness: freshnessWanted)
+    }
+
+    /// What the numbers on screen are worth at this moment.
+    ///
+    /// While something is running they are moving, so a provider's own cached
+    /// source is no longer good enough to answer with — see `UsageFreshness`.
+    /// While nothing is running the cache is the better answer: it is free, and
+    /// it cannot be wrong about a number that is not changing.
+    private var freshnessWanted: UsageFreshness { isBusy() ? .live : .standard }
+
+    /// - Parameter includeIdleSkipped: false leaves manual-only providers out:
+    ///   their fetch is expensive enough to spend only on a look, a rollover,
+    ///   or a click — not on every idle tick.
+    @discardableResult
+    func refreshNow(freshness: UsageFreshness, includeIdleSkipped: Bool = true) -> Task<Void, Never>? {
         guard !isRefreshing else {
             Log.usage.notice("refresh skipped: one already in flight")
-            return
+            return refreshTask
         }
         isRefreshing = true
         lastAttempt = pollingNow()
-        refreshTask = Task { [weak self] in
-            await self?.refresh()
+        let pass = Task { [weak self] in
+            await self?.refresh(freshness: freshness, includeIdleSkipped: includeIdleSkipped)
             self?.finish()
         }
+        refreshTask = pass
         armDeadline()
+        return pass
+    }
+
+    /// A provider's work has just stopped, so its number has just finished
+    /// moving — and the schedule is about to drop to the idle interval and leave
+    /// it alone for five minutes.
+    ///
+    /// That is the number people come to this app for: what the run they just
+    /// watched actually cost. Asking on the falling edge is what puts it on the
+    /// menu bar within a second or two instead of within five minutes.
+    ///
+    /// Spaced per provider, because a session's state is read from a transcript
+    /// and legitimately flickers between busy and waiting several times through
+    /// one long run. At the busy interval, a flickering monitor costs exactly
+    /// what running flat out already costs and no more.
+    func refreshBecauseWorkFinished(providerID: String) {
+        let now = pollingNow()
+        let waited = lastWorkFinished[providerID].map { now.timeIntervalSince($0) }
+            ?? .greatestFiniteMagnitude
+        guard Self.shouldRefreshOnEvent(sinceLastRefresh: waited, spacing: busyRefreshInterval) else { return }
+        lastWorkFinished[providerID] = now
+        refresh(providerID: providerID)
+    }
+
+    /// Somebody is about to read these numbers: the menu is opening, or the
+    /// pointer has landed on a ring and its card is coming up.
+    ///
+    /// Asks for a live reading, because a look is the moment a cached one is
+    /// least excusable — and spaced by `onLookInterval`, because attention is
+    /// not a budget. Nothing here waits for the answer: the card opens on what
+    /// is known now, and redraws when the fetch lands a moment later.
+    func refreshBecauseSomeoneIsLooking() {
+        let waited = lastAttempt.map { pollingNow().timeIntervalSince($0) } ?? .greatestFiniteMagnitude
+        guard Self.shouldRefreshOnEvent(sinceLastRefresh: waited, spacing: onLookInterval) else { return }
+        // The spacing is not relaxed for `.fromSource`, and not tightened
+        // either: what the setting changes is what an answer may be served from,
+        // never how often one is asked for.
+        refreshNow(freshness: asksProviderOnLook() ? .fromSource : .live)
     }
 
     /// Stops waiting for a pass that has not come back, so the next tick can
@@ -423,10 +583,16 @@ final class UsageStore: ObservableObject {
     }
 
     func refresh() async {
+        await refresh(freshness: freshnessWanted)
+    }
+
+    func refresh(freshness: UsageFreshness, includeIdleSkipped: Bool = true) async {
         // The provider tasks below do not inherit this task's cancellation.
         guard !Task.isCancelled else { return }
-        let tasks = orderedProviders.filter { !disconnected.contains($0.id) }.map {
-            beginRefresh($0)
+        let tasks = orderedProviders.filter {
+            !disconnected.contains($0.id) && (includeIdleSkipped || !$0.skipsIdleRefresh)
+        }.map {
+            beginRefresh($0, freshness: freshness)
         }
         for task in tasks { await task.value }
     }
@@ -436,13 +602,19 @@ final class UsageStore: ObservableObject {
     /// Deliberately not routed through `refreshNow`: asking one cell for a fresh
     /// reading should not spend every other provider's rate-limit budget, and
     /// Claude's in particular is easy to exhaust.
+    ///
+    /// `.live` by default, because every caller of this is an event — a response
+    /// that just finished, a provider just signed into, a model just loaded — and
+    /// an event asks about the state it has this second, not about the state a
+    /// cache was left in. A caller that is somebody's own click asks for
+    /// `.fromSource` instead.
     @discardableResult
-    func refresh(providerID: String) -> Task<Void, Never>? {
+    func refresh(providerID: String, freshness: UsageFreshness = .live) -> Task<Void, Never>? {
         guard let provider = providers.first(where: { $0.id == providerID }),
               !disconnected.contains(providerID) else { return nil }
         if let task = fetchTasks[providerID] { return task }
         if provider.kind == .usage { lastAttempt = pollingNow() }
-        return beginRefresh(provider, holdIndicator: true)
+        return beginRefresh(provider, freshness: freshness, holdIndicator: true)
     }
 
     func refreshLocalRuntimes() {
@@ -463,6 +635,12 @@ final class UsageStore: ObservableObject {
         restart(provider) { provider.endpoint = endpoint }
     }
 
+    func updateOMLXEndpoint(_ endpoint: URL) {
+        guard let provider = providers.first(where: { $0.id == OMLXIdentity.providerID }) as? OMLXLocalProvider,
+              provider.endpoint != endpoint else { return }
+        restart(provider) { provider.endpoint = endpoint }
+    }
+
     /// A changed address makes whatever the old one was about to answer
     /// untrue; the reading is cleared and the new address asked at once.
     private func restart(_ provider: UsageProvider, applying change: () -> Void) {
@@ -473,13 +651,14 @@ final class UsageStore: ObservableObject {
         _ = beginRefresh(provider)
     }
 
-    private func beginRefresh(_ provider: UsageProvider, holdIndicator: Bool = false) -> Task<Void, Never> {
+    private func beginRefresh(_ provider: UsageProvider, freshness: UsageFreshness = .standard,
+                             holdIndicator: Bool = false) -> Task<Void, Never> {
         if let task = fetchTasks[provider.id] { return task }
         let generation = generations[provider.id, default: 0]
         refreshing.insert(provider.id)
         let task = Task { [weak self] in
             guard let self else { return }
-            if let fresh = await snapshot(from: provider, generation: generation) {
+            if let fresh = await snapshot(from: provider, generation: generation, freshness: freshness) {
                 publish(fresh)
             } else if acceptsResult(from: provider, generation: generation) {
                 snapshots.removeAll { $0.id == provider.id }
@@ -502,7 +681,7 @@ final class UsageStore: ObservableObject {
     private func publish(_ snapshot: ProviderSnapshot) {
         guard !disconnected.contains(snapshot.id) else { return }
         var current = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.id, $0) })
-        current[snapshot.id] = snapshot
+        current[snapshot.id] = named(snapshot).blockingSpentWeek()
         snapshots = orderedProviders.compactMap { disconnected.contains($0.id) ? nil : current[$0.id] }
     }
 
@@ -549,6 +728,17 @@ final class UsageStore: ObservableObject {
         }
 
         return openAccountSource(providerID: providerID)
+    }
+
+    /// A new region is a different account: discard the old reading before
+    /// rebinding, so stale fallback cannot show the other region's quota.
+    func providerContextChanged(providerID: String, applying change: () -> Void) {
+        cancelRefresh(providerID: providerID)
+        lastGood.removeValue(forKey: providerID)
+        archive.forget(providerID)
+        snapshots.removeAll { $0.id == providerID }
+        change()
+        providerAuthenticationChanged(providerID: providerID)
     }
 
     /// Tell consumers that a provider has just confirmed authentication. The
@@ -610,6 +800,15 @@ final class UsageStore: ObservableObject {
             // Claude Code: nothing to open. The row's guidance is the whole
             // answer, so the sheet has to show it rather than pretend.
             return false
+        case .command(let command, _, let install):
+            // Without the tool there is nothing to run; the button opens its
+            // install page instead, and the row's guidance says so.
+            if let install, !TerminalCommand.isInstalled(command: command) {
+                NSWorkspace.shared.open(install)
+            } else {
+                TerminalCommand.run(command)
+            }
+            return true
         }
     }
 
@@ -626,12 +825,13 @@ final class UsageStore: ObservableObject {
         }
     }
 
-    private func snapshot(from provider: UsageProvider, generation: Int) async -> ProviderSnapshot? {
+    private func snapshot(from provider: UsageProvider, generation: Int,
+                          freshness: UsageFreshness) async -> ProviderSnapshot? {
         // A scheduled task can be disconnected before it begins; avoid reading
         // its credential at all, as well as rejecting an obsolete response.
         guard acceptsResult(from: provider, generation: generation) else { return nil }
         do {
-            let fresh = try await provider.fetchSnapshot()
+            let fresh = try await provider.fetchSnapshot(freshness: freshness)
             guard acceptsResult(from: provider, generation: generation) else { return nil }
             // Model residency becomes untrue as soon as a server stops. It must
             // never use quota's last-good cache or survive an app relaunch.
@@ -710,6 +910,31 @@ final class UsageStore: ObservableObject {
         let age = Date().timeIntervalSince(previous.fetchedAt)
         var snapshot = previous.snapshot
         snapshot.status = age > staleAfter ? .stale(since: previous.fetchedAt) : previous.snapshot.status
+        // A quota that is effectively exhausted (about 1% left or less) and is
+        // now being rejected has, in practice, hit zero: the last successful
+        // poll simply never reached 100%. Reflect that rather than leaving a
+        // stuck 1% on screen. Muse is the case that trips this, but the rule
+        // is general — a 429 at ~1% remaining means there is nothing left.
+        if case UsageProviderError.rateLimited = error,
+           let used = snapshot.headline?.usedFraction, used >= 0.99 {
+            if let headlineID = snapshot.headlineID,
+               let idx = snapshot.windows.firstIndex(where: { $0.id == headlineID }) {
+                let w = snapshot.windows[idx]
+                snapshot.windows[idx] = LimitWindow(id: w.id, group: w.group, label: w.label,
+                    usedFraction: 1, remaining: w.remaining, used: w.used, usedText: w.usedText,
+                    detail: w.detail, money: w.money, resetsAt: w.resetsAt, duration: w.duration,
+                    bandOverride: w.bandOverride, prefersUsedText: w.prefersUsedText)
+            }
+            if let weeklyID = snapshot.weeklyID, weeklyID != snapshot.headlineID,
+               let idx = snapshot.windows.firstIndex(where: { $0.id == weeklyID }),
+               let used = snapshot.windows[idx].usedFraction, used >= 0.99 {
+                let w = snapshot.windows[idx]
+                snapshot.windows[idx] = LimitWindow(id: w.id, group: w.group, label: w.label,
+                    usedFraction: 1, remaining: w.remaining, used: w.used, usedText: w.usedText,
+                    detail: w.detail, money: w.money, resetsAt: w.resetsAt, duration: w.duration,
+                    bandOverride: w.bandOverride, prefersUsedText: w.prefersUsedText)
+            }
+        }
         return snapshot
     }
 
@@ -742,6 +967,19 @@ final class UsageStore: ObservableObject {
     var isRefreshingForTesting: Bool { isRefreshing }
     var inFlightForTesting: Set<String> { Set(fetchTasks.keys) }
     var idleRefreshIntervalForTesting: TimeInterval { idleRefreshInterval }
+    /// Exposed together, so a test can hold the shipped schedule to the shape it
+    /// claims rather than to whatever the numbers happen to be: a tick fine
+    /// enough to express the busy interval, and a busy interval well inside the
+    /// idle one.
+    var refreshIntervalForTesting: TimeInterval { refreshInterval }
+    var busyRefreshIntervalForTesting: TimeInterval { busyRefreshInterval }
+    var onLookIntervalForTesting: TimeInterval { onLookInterval }
+    /// Exposed so a test can wait for what a fire-and-forget refresh started,
+    /// rather than sleeping for a plausible length of time and hoping.
+    func settleForTesting() async {
+        await refreshTask?.value
+        for task in Array(fetchTasks.values) { await task.value }
+    }
 
     private static func status(for error: Error) -> ProviderStatus {
         switch error {

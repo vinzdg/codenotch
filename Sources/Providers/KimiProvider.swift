@@ -6,10 +6,9 @@ import os
 ///
 /// The numbers are Kimi's, so this is `.official`. The token expires every
 /// fifteen minutes and the CLI renews it as it runs; an expired one is
-/// `.credentialExpired`, the same answer Grok gives, because minting a new
-/// token here would race the CLI for the file. A 404 is the endpoint's own
-/// answer for an account with no Kimi Code plan — readable, but metering
-/// nothing, and not an error.
+/// `.credentialExpired`, because minting a new token here would race the CLI
+/// for the file. A 404 is the endpoint's own answer for an account with no
+/// Kimi Code plan — readable, but metering nothing, and not an error.
 actor KimiProvider: UsageProvider {
     nonisolated let id = "kimi"
     nonisolated let displayName = "Kimi"
@@ -24,7 +23,7 @@ actor KimiProvider: UsageProvider {
     }
 
     nonisolated var signInRoute: SignInRoute {
-        .guidance(L10n.t("Run kimi and sign in with /login — it writes and refreshes the token this reads."))
+        .command("kimi", name: "Kimi", install: URL(string: "https://moonshotai.github.io/kimi-cli/en/guides/getting-started.html"))
     }
 
     nonisolated func account() -> ProviderAccount? { KimiCredentials.account() }

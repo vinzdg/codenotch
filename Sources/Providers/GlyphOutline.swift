@@ -423,6 +423,25 @@ enum GlyphOutline {
          CGPoint(x: 0.2600, y: 1.0000)]
     ]
 
+    /// Kilo's mark, flattened from the `logo.svg` in Kilo's own repository —
+    /// an exact copy, not a trace, so it is correct at any size.
+    ///
+    /// Nine loops, filled even-odd: the outer square and its frame counter
+    /// (leaving a border), then seven glyph counters. As an asset under
+    /// `glyph-kilo` it would be drawn from the SVG instead — the outline is
+    /// the fallback, and the test pins the two to agree.
+    static let kilo: [[CGPoint]] = [
+        [CGPoint(x: 0, y: 0), CGPoint(x: 0, y: 1), CGPoint(x: 1, y: 1), CGPoint(x: 1, y: 0), CGPoint(x: 0, y: 0)],
+        [CGPoint(x: 0.9259, y: 0.9259), CGPoint(x: 0.0741, y: 0.9259), CGPoint(x: 0.0741, y: 0.0741), CGPoint(x: 0.9259, y: 0.0741), CGPoint(x: 0.9259, y: 0.9259)],
+        [CGPoint(x: 0.6111, y: 0.7191), CGPoint(x: 0.7037, y: 0.7191), CGPoint(x: 0.7037, y: 0.7932), CGPoint(x: 0.5873, y: 0.7932), CGPoint(x: 0.537, y: 0.7429), CGPoint(x: 0.537, y: 0.6265), CGPoint(x: 0.6111, y: 0.6265), CGPoint(x: 0.6111, y: 0.7191)],
+        [CGPoint(x: 0.7778, y: 0.7191), CGPoint(x: 0.7037, y: 0.7191), CGPoint(x: 0.7037, y: 0.6265), CGPoint(x: 0.6111, y: 0.6265), CGPoint(x: 0.6111, y: 0.5524), CGPoint(x: 0.7275, y: 0.5524), CGPoint(x: 0.7778, y: 0.6027), CGPoint(x: 0.7778, y: 0.7191)],
+        [CGPoint(x: 0.463, y: 0.6111), CGPoint(x: 0.3889, y: 0.6111), CGPoint(x: 0.3889, y: 0.537), CGPoint(x: 0.463, y: 0.537), CGPoint(x: 0.463, y: 0.6111)],
+        [CGPoint(x: 0.2222, y: 0.537), CGPoint(x: 0.2963, y: 0.537), CGPoint(x: 0.2963, y: 0.7037), CGPoint(x: 0.463, y: 0.7037), CGPoint(x: 0.463, y: 0.7778), CGPoint(x: 0.2725, y: 0.7778), CGPoint(x: 0.2222, y: 0.7275), CGPoint(x: 0.2222, y: 0.537)],
+        [CGPoint(x: 0.7778, y: 0.3889), CGPoint(x: 0.7778, y: 0.463), CGPoint(x: 0.537, y: 0.463), CGPoint(x: 0.537, y: 0.3889), CGPoint(x: 0.6198, y: 0.3889), CGPoint(x: 0.6198, y: 0.2963), CGPoint(x: 0.537, y: 0.2963), CGPoint(x: 0.537, y: 0.2222), CGPoint(x: 0.6436, y: 0.2222), CGPoint(x: 0.6939, y: 0.2725), CGPoint(x: 0.6939, y: 0.3889), CGPoint(x: 0.7778, y: 0.3889)],
+        [CGPoint(x: 0.2963, y: 0.3056), CGPoint(x: 0.3889, y: 0.3056), CGPoint(x: 0.463, y: 0.3796), CGPoint(x: 0.463, y: 0.463), CGPoint(x: 0.3889, y: 0.463), CGPoint(x: 0.3889, y: 0.3796), CGPoint(x: 0.2963, y: 0.3796), CGPoint(x: 0.2963, y: 0.463), CGPoint(x: 0.2222, y: 0.463), CGPoint(x: 0.2222, y: 0.2222), CGPoint(x: 0.2963, y: 0.2222), CGPoint(x: 0.2963, y: 0.3056)],
+        [CGPoint(x: 0.463, y: 0.3056), CGPoint(x: 0.3889, y: 0.3056), CGPoint(x: 0.3889, y: 0.2222), CGPoint(x: 0.463, y: 0.2222), CGPoint(x: 0.463, y: 0.3056)]
+    ]
+
     /// Kiro's mark, flattened from its own SVG.
     ///
     /// The head with two eye holes, filled even-odd so the eyes stay open.

@@ -67,11 +67,42 @@ struct ClaudeUsageCLI: Sendable {
                                                            in: .userDomainMask)[0],
         fileManager: FileManager = .default
     ) throws -> URL {
-        let directory = applicationSupport
-            .appendingPathComponent("Codenotch", isDirectory: true)
-            .appendingPathComponent("usage-scratch", isDirectory: true)
+        let directory = scratchLocation(applicationSupport: applicationSupport)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
+    }
+
+    /// Where `scratchDirectory` lives, without creating it. The session
+    /// monitor compares working directories against this, so it needs the
+    /// path before the first poll has run.
+    static func scratchLocation(
+        applicationSupport: URL = FileManager.default.urls(for: .applicationSupportDirectory,
+                                                           in: .userDomainMask)[0]
+    ) -> URL {
+        applicationSupport
+            .appendingPathComponent("Codenotch", isDirectory: true)
+            .appendingPathComponent("usage-scratch", isDirectory: true)
+    }
+
+    // MARK: - Its own sessions
+
+    /// The `/usage` processes running right now, by pid.
+    ///
+    /// Each one is a Claude Code process like any other, and files a session
+    /// under `~/.claude/sessions` for the seconds it lives. `ClaudeSessionMonitor`
+    /// steps over these pids (see `ignoredPIDs`) so the probe never reaches the
+    /// notch. Left in, it did worse than draw a row: it ran `busy`, then
+    /// vanished, and the completion watcher announced "usage-scratch-e1
+    /// finished" as a banner on every poll that spawned it.
+    static var runningPIDs: Set<Int32> { running.all }
+    private static let running = PIDRegistry()
+
+    private final class PIDRegistry: @unchecked Sendable {
+        private let lock = NSLock()
+        private var pids: Set<Int32> = []
+        var all: Set<Int32> { lock.lock(); defer { lock.unlock() }; return pids }
+        func insert(_ pid: Int32) { lock.lock(); pids.insert(pid); lock.unlock() }
+        func remove(_ pid: Int32) { lock.lock(); pids.remove(pid); lock.unlock() }
     }
 
     // MARK: - Finding the binary
@@ -211,6 +242,11 @@ struct ClaudeUsageCLI: Sendable {
         process.standardError = FileHandle.nullDevice
 
         try process.run()
+        // Recorded the moment the process exists, ahead of the session file it
+        // will write a moment later once Node is up.
+        let pid = process.processIdentifier
+        running.insert(pid)
+        defer { running.remove(pid) }
 
         let watchdog = DispatchWorkItem {
             if process.isRunning { process.terminate() }
@@ -282,10 +318,13 @@ struct ClaudeUsageCLI: Sendable {
             ))
         }
 
-        // Without the session window there is no headline, and the caller asks
-        // for one by id. Better to fall back to the token path than to draw a
-        // ring with a hole in it.
-        guard windows.contains(where: { $0.id == "session" }) else {
+        // A plan with no five-hour window prints only the weeks, and that is a
+        // whole answer: the snapshot still declares the session as its headline
+        // and the cell shows a dash, as it does when the endpoint leaves the
+        // window out. Refusing it sent every poll to the endpoint, whose 429s
+        // then froze the ring on an old reading (#519). An answer with no limit
+        // line in it at all is still refused, and the token path asked instead.
+        guard !windows.isEmpty else {
             throw UsageProviderError.badResponse(status: 0)
         }
         return windows.sorted(by: UsageResponse.displayOrder)
