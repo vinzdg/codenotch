@@ -1,15 +1,21 @@
 # DeepSeek Harness
 
-Shows what this machine's DeepSeek Harness (`~/.dsh`) has spent today, priced with the
-published `deepseek-flash` rates.
+Shows what this machine's DeepSeek Harness (`~/.dsh`) has spent and what prepaid balance remains, combining the official DeepSeek balance endpoint with local session transcripts priced using published `deepseek-flash` rates.
 
 ## What it reads
 
-The Harness writes one transcript per session:
+1. **Official API balance**:
+   Reads `DEEPSEEK_API_KEY` from `~/.dsh/.credentials.yaml` (or the `DEEPSEEK_API_KEY` environment variable) and queries:
+   ```
+   GET https://api.deepseek.com/user/balance
+   ```
+   Using `total_balance` (USD) and `is_available`.
 
-```
-~/.dsh/sessions/<project>/<session-id>/session.v4.jsonl.zstd
-```
+2. **Session transcripts**:
+   The Harness writes one transcript per session:
+   ```
+   ~/.dsh/sessions/<project>/<session-id>/session.v4.jsonl.zstd
+   ```
 
 Each line is one JSON event; assistant steps carry a `usage` block:
 
@@ -32,15 +38,18 @@ frame and silently yields only the header line; that is a trap worth remembering
 
 | Window | Value | Meaning |
 |---|---|---|
-| **Today** | `cost / $2.00` | headline ring; derived, drawn with the `~` prefix |
-| **Tokens today** | count | pure count (`totalTokens` summed for today) |
+| **Credits** | `spent / funded` (`1.0` when depleted) | Headline ring showing prepaid credit utilization |
 
-`note` spells out the estimate: `~$0.20 of $2.00 · 39062k tokens · 1 session`.
+When `is_available: false` or `total_balance <= 0`, `used` is `1.0` (100% used / 0% remaining). When `spent + remaining` exceeds the base `$2.00` USD top-up, `funded` scales dynamically to the actual loaded amount (`(spent + remaining).max(2.00)`).
 
-There is no vendor limit to divide by — DeepSeek bills per token and the Harness publishes no
-session or weekly quota — so the ring is **derived** (`fidelity = .derived`), and
-`DAILY_BUDGET_USD` in `src/deepseek_harness.rs` is the operator's own budget, not a fact about the
-service. Resets at local midnight.
+### Configurable display formats
+
+In **Settings -> Accounts -> DeepSeek Harness -> Credit display**, three note formats are available:
+* **Remaining balance & tokens (`remaining`, default)**: `$0.00 remaining of $2.00 · 39.1M tokens`
+* **Spent, remaining & tokens (`spent`)**: `$2.00 of $2.00 used · $0.00 left · 39.1M tokens`
+* **Compact (`compact`)**: `$2.00 / $2.00 USD ($0.00 left)`
+
+All three formats and the `Credits` window label are localized across `en`, `es`, `pt-BR`, `ko`, `ru`, `uk`, `zh`, `zh-Hant`, and `ja`.
 
 ## Pricing
 
@@ -54,22 +63,16 @@ service. Resets at local midnight.
 
 Peak hours are **01:00–04:00 and 06:00–10:00 UTC, Monday–Friday**; everything else is off-peak,
 including weekends. Chinese statutory holidays are billed off-peak by DeepSeek but are **not**
-modelled here, so a holiday weekday is over-priced (by at most 2×) on those days.
+modelled here, so a holiday weekday is over-priced (by at most 2x) on those days.
 
 ## Failure behaviour
 
-* No `~/.dsh/sessions` tree → `status: absent`, and the provider is hidden.
+* No `~/.dsh/sessions` tree and no API balance -> `status: absent`, and the provider is hidden.
+* If the API balance call fails offline, falls back to local transcript cost estimation (`derived: true`).
 * A transcript that will not decode is skipped; the rest still count.
-* A reading taken before midnight is persisted with `status: stale` so it cannot pass for today's.
 
 ## Verified on this machine
 
-An independent Python computation over the same transcripts agreed exactly:
-
-```
-Rust:   39062k tokens, $0.20
-Python: 39,062,765 tokens, $0.2022
-```
-
-Five unit tests cover the rate table, the weekend rule, the cache-read bucket, the day boundary
-and the snapshot shape: `cargo test deepseek`.
+Seven unit tests cover the rate table, the weekend rule, the cache-read bucket, the day boundary,
+depleted balance reporting (100% used), top-ups above `$2.00` USD, and all three display formats:
+`cargo test deepseek`.

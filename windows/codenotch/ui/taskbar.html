@@ -56,8 +56,8 @@ function headline(item){
  const windows=item.snapshot.windows||[],byId=id=>windows.find(w=>w.id===id)||null;
  if(item.provider==='claude')return byId('session')||byId('five_hour')||byId('spend');
  if(item.provider==='codex')return windows.find(window=>codexWindowKind(window)==='five_hour')||null;
- const ids={cursor:'included',glm:'session',opencode:'rolling',grok:'credits',copilot:'premium_interactions'};
- return byId(item.headline_id||ids[item.provider])||(item.provider==='cursor'?byId('api'):null);
+ const ids={cursor:'included',glm:'session',deepseek:'credits',opencode:'rolling',commandcode:'monthly',qoder:'quota',grok:'credits',copilot:'premium_interactions'};
+ return byId(item.headline_id||ids[item.provider])||(item.provider==='cursor'?byId('api'):item.provider==='deepseek'?byId('today'):null);
 }
 function weekly(item){
  const windows=item.snapshot.windows||[],byId=id=>windows.find(w=>w.id===id)||null;
@@ -112,7 +112,47 @@ function statusText(snapshot,now=Date.now()){
 function usageNote(snapshot,now=Date.now()){
  if(retrySeconds(snapshot,now)>0)return tr('Usage checks are temporarily rate limited. Next attempt at ','Limite temporário de consultas. Próxima tentativa às ')+retryTime(snapshot,now)+'.';
  if(/^Rate limited\b/i.test(snapshot.note||''))return tr('Usage checks were rate limited. Waiting for the next automatic attempt.','Consulta limitada. Aguardando a próxima tentativa automática.');
- return snapshot.note||'';
+ const note=snapshot.note||'';
+ const dsPatterns={
+  es:[
+   [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'$1 restantes de $2 · $3 tokens'],
+   [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'$1 de $2 usados · $3 restantes · $4 tokens'],
+   [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD ($3 restantes)']
+  ],
+  'pt-BR':[
+   [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'$1 restantes de $2 · $3 tokens'],
+   [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'$1 de $2 usados · $3 restantes · $4 tokens'],
+   [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD ($3 restantes)']
+  ],
+  ko:[
+   [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'$2 중 $1 남음 · $3 토큰'],
+   [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'$2 중 $1 사용 · $3 남음 · $4 토큰'],
+   [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD ($3 남음)']
+  ],
+  ru:[
+   [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'$1 осталось из $2 · $3 токенов'],
+   [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'$1 из $2 исп. · $3 осталось · $4 токенов'],
+   [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD ($3 осталось)']
+  ],
+  uk:[
+   [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'$1 залишилось із $2 · $3 токенів'],
+   [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'$1 із $2 використано · $3 залишилось · $4 токенів'],
+   [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD ($3 залишилось)']
+  ],
+  zh:[
+   [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'剩余 $1 / $2 · $3 词元'],
+   [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'已用 $1 / $2 · 剩余 $3 · $4 词元'],
+   [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD（剩余 $3）']
+  ],
+  'zh-Hant':[
+   [/^(\$[0-9.]+) remaining of (\$[0-9.]+) · ([0-9.]+[kM]?) tokens$/,'剩餘 $1 / $2 · $3 詞元'],
+   [/^(\$[0-9.]+) of (\$[0-9.]+) used · (\$[0-9.]+) left · ([0-9.]+[kM]?) tokens$/,'已用 $1 / $2 · 剩餘 $3 · $4 詞元'],
+   [/^(\$[0-9.]+) \/ (\$[0-9.]+) USD \((\$[0-9.]+) left\)$/,'$1 / $2 USD（剩餘 $3）']
+  ]
+ };
+ let out=note;
+ for(const [re,to] of dsPatterns[lang]||[])out=out.replace(re,to);
+ return out;
 }
 function refreshBlockedText(item,auth,now=Date.now()){
  if(item?.provider==='claude'&&auth?.busy)return tr('Claude authentication is in progress. Wait to refresh.','Autenticação do Claude em andamento. Aguarde para atualizar.');
@@ -139,6 +179,7 @@ function windowLabel(window,item){
  if(id==='session'||id==='five_hour')return tr('5-hour limit','Limite de 5 horas');
  if(id==='primary'&&/5/.test(window.label||''))return tr('5-hour limit','Limite de 5 horas');
  if(['seven_day','weekly_all','weekly'].includes(id))return tr('Weekly limit','Limite semanal');
+ if(id==='credits')return ({es:'Créditos','pt-BR':'Créditos',ko:'크레딧',ru:'Кредиты',uk:'Кредити',zh:'额度','zh-Hant':'額度'})[lang]||'Credits';
  if(/sonnet/i.test(id))return tr('Weekly · Sonnet','Semanal · Sonnet');
  if(/opus/i.test(id))return tr('Weekly · Opus','Semanal · Opus');
  return window.label||id;
@@ -207,7 +248,7 @@ function renderDetails(){
    const resetPrefix=item.provider==='claude'&&livePercent(item,window)==null?tr('Last reported reset: ','Última renovação informada: '):tr('Resets ','Renova ');
    return '<div class="limit"><div class="limit-label"><span>'+escapeHtml(windowLabel(window,item))+'</span><strong style="color:'+color(pct)+'">'+escapeHtml(value)+'</strong></div>'
     +(shown==null?'':'<div class="bar"><span style="width:'+shown+'%;background:'+color(pct)+'"></span></div>')
-    +'<div class="limit-meta"><span>'+(pct==null?'':escapeHtml(showRemaining?(100-pct)+'% '+tr('remaining','restante')+' · '+pct+'% '+tr('used','usado'):pct+'% '+tr('used','usado')+' · '+(100-pct)+'% '+tr('remaining','restante')))+'</span><span class="reset">'+escapeHtml(reset?resetPrefix+reset:tr('Reset time unavailable','Renovação não informada'))+'</span></div></div>';
+    +'<div class="limit-meta"><span>'+(pct==null?'':escapeHtml(showRemaining?(100-pct)+'% '+tr('remaining','restante')+' · '+pct+'% '+tr('used','usado'):pct+'% '+tr('used','usado')+' · '+(100-pct)+'% '+tr('remaining','restante')))+'</span><span class="reset">'+escapeHtml(reset?resetPrefix+reset:(item.provider==='deepseek'?'':tr('Reset time unavailable','Renovação não informada')))+'</span></div></div>';
   }).join('');
   const note=usageNote(item.snapshot);
   return '<article class="card"><div class="card-title"><span>'+escapeHtml(item.name)+'</span><span class="badge">'+escapeHtml(statusText(item.snapshot))+'</span></div>'+(limits||'<p class="note">'+escapeHtml(tr('No recent reading for this account.','Sem leitura recente para esta conta.'))+'</p>')
@@ -281,7 +322,7 @@ Promise.allSettled([
 ]).then(load).then(()=>invoke('taskbar_ready')).catch(()=>{});
 for(const [event,apply] of [['notch_shows_remaining',value=>showRemaining=value===true],['theme_resolved',value=>document.documentElement.dataset.theme=value],['watch_limit',value=>watch=value*100],['critical_limit',value=>critical=value*100],['glyphs',value=>glyphs=value||{}],['color_transition',value=>colorTransition=value==='ramp'?'ramp':'hard_step']]){try{window.__TAURI__.event.listen(event,message=>{apply(message.payload);render();});}catch(error){}}
 try{window.__TAURI__.event.listen('taskbar_hover_item',message=>{selectedId=message.payload;lastHoverSize='';blockedRefresh=null;document.getElementById('error').textContent='';render();load();});}catch(error){}
-for(const event of ['usage','codex','activity','state','claude_accounts_changed','taskbar_options']){try{window.__TAURI__.event.listen(event,load);}catch(error){}}
+for(const event of ['usage','codex','deepseek','activity','state','claude_accounts_changed','taskbar_options']){try{window.__TAURI__.event.listen(event,load);}catch(error){}}
 setInterval(load,2500);
 </script>
 </body>

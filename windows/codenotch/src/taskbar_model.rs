@@ -39,6 +39,12 @@ pub struct Appearance {
     pub color_transition: String,
     pub size: f32,
     pub shows_remaining: bool,
+    pub antialias: String,
+    pub antialias_border: String,
+    pub antialias_internal: String,
+    pub border_thickness: f32,
+    pub border_color: String,
+    pub border_opacity: f32,
 }
 
 impl Appearance {
@@ -46,7 +52,13 @@ impl Appearance {
         Self { weekly_ring:config::weekly_ring_or_off(&cfg.weekly_ring),
             weekly_dashed:cfg.weekly_ring_dashed,
             color_transition:config::color_transition_or_step(&cfg.color_transition),
-            size:config::snap_scale(cfg.scale) as f32, shows_remaining:cfg.notch_shows_remaining }
+            size:config::snap_scale(cfg.scale) as f32, shows_remaining:cfg.notch_shows_remaining,
+            antialias:config::antialias_border_or_default(&cfg.antialias_border),
+            antialias_border:config::antialias_border_or_default(&cfg.antialias_border),
+            antialias_internal:config::antialias_internal_or_default(&cfg.antialias_internal),
+            border_thickness:config::clamp_border_thickness(cfg.border_thickness) as f32,
+            border_color:config::border_color_or_default(&cfg.border_color),
+            border_opacity:config::clamp_border_opacity(cfg.border_opacity) as f32 }
     }
 }
 
@@ -94,7 +106,6 @@ fn by_id<'a>(windows: &'a [LimitWindow], id: &str) -> Option<&'a LimitWindow> {
     windows.iter().find(|window| window.id == id)
 }
 
-/// The notch's `weeklyOf`.
 fn weekly_window<'a>(provider: &str, windows: &'a [LimitWindow], model: &str) -> Option<&'a LimitWindow> {
     let metered: Vec<&LimitWindow> = windows.iter().filter(|w| w.count.is_none()).collect();
     let by_id = |id: &str| metered.iter().copied().find(|w| w.id == id);
@@ -164,21 +175,32 @@ fn indicator(item: &Item, cfg: &Config, appearance: &Appearance, now: u64) -> In
     let snap = &item.snapshot;
     let current = |window: &&LimitWindow| item.provider != "claude" || claude_current(snap, window, now);
     let head = item.headline_id.as_deref().and_then(|id| by_id(&snap.windows, id)).filter(current);
+    let composite = if item.provider == "gemini" {
+        crate::antigravity_composite_fraction(&snap.windows).map(|used| LimitWindow {
+            id: "antigravity-total".into(),
+            label: "Total".into(),
+            used,
+            ..Default::default()
+        })
+    } else {
+        None
+    };
+    let effective_head = composite.as_ref().or(head);
     let work_state = match item.work_state.as_str() { "busy" => "busy", "waiting" => "waiting", _ => "idle" };
     // Inside, the weekly ring shares its gap with the activity arc, so it stands down while that shows.
     let ring_on = match appearance.weekly_ring.as_str() { "outside" => true, "inside" => work_state == "idle", _ => false };
     let weekly = ring_on.then(|| weekly_window(&item.provider, &snap.windows, &cfg.antigravity_model)).flatten()
         .filter(current)
-        .filter(|week| head.is_none_or(|head| head.id != week.id))
+        .filter(|week| effective_head.is_none_or(|head| head.id != week.id))
         .and_then(used);
     Indicator {
         id: item.id.clone(), provider: item.provider.clone(),
-        headline: head.and_then(used),
+        headline: effective_head.and_then(used),
         weekly,
-        text: figure(snap, head, appearance.shows_remaining),
+        text: figure(snap, effective_head, appearance.shows_remaining),
         work_state: work_state.into(),
         stale: stale(snap, now),
-        spent: head.is_some_and(|window| window.used >= 1.0),
+        spent: effective_head.is_some_and(|window| window.used >= 1.0),
     }
 }
 

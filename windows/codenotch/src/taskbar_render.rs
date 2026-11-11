@@ -14,13 +14,14 @@ use windows::{
         Graphics::{
             Direct2D::{
                 Common::{D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_HOLLOW, D2D1_FIGURE_END_OPEN,
-                    D2D1_PIXEL_FORMAT, D2D_POINT_2F, D2D_RECT_F, D2D_SIZE_F},
+                    D2D1_PIXEL_FORMAT, D2D_POINT_2F, D2D_RECT_F, D2D_SIZE_F, D2D_SIZE_U},
                 D2D1CreateDevice, ID2D1Device, ID2D1DeviceContext, ID2D1DeviceContext5, ID2D1Factory,
                 ID2D1Image, ID2D1Layer, ID2D1SolidColorBrush, ID2D1StrokeStyle, ID2D1SvgDocument,
                 D2D1_ANTIALIAS_MODE_ALIASED, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_ARC_SEGMENT, D2D1_ARC_SIZE_SMALL,
                 D2D1_BITMAP_OPTIONS_CANNOT_DRAW, D2D1_BITMAP_OPTIONS_TARGET, D2D1_BITMAP_PROPERTIES1,
                 D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_SOLID, D2D1_DEVICE_CONTEXT_OPTIONS_NONE,
-                D2D1_DRAW_TEXT_OPTIONS_CLIP, D2D1_ELLIPSE, D2D1_LAYER_PARAMETERS1,
+                D2D1_DRAW_TEXT_OPTIONS_CLIP, D2D1_ELLIPSE, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC,
+                D2D1_INTERPOLATION_MODE_MULTI_SAMPLE_LINEAR, D2D1_LAYER_PARAMETERS1,
                 D2D1_LINE_JOIN_ROUND, D2D1_STROKE_STYLE_PROPERTIES, D2D1_SWEEP_DIRECTION_CLOCKWISE,
                 D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
             },
@@ -186,24 +187,81 @@ impl Renderer {
                     ..Default::default()
                 };
                 let bitmap = self.context.CreateBitmapFromDxgiSurface(&dxgi_surface, Some(&properties))?;
-                self.context.SetTarget(&bitmap);
-                let origin = (offset.x as f32, offset.y as f32);
-                self.context.SetTransform(&matrix(1.0, origin.0, origin.1));
-                self.context.BeginDraw();
-                // BeginDraw can return a texture atlas offset, even for a full update.
-                self.context.PushAxisAlignedClip(&D2D_RECT_F { left:0.0, top:0.0,
-                    right:self.width as f32, bottom:self.height as f32 }, D2D1_ANTIALIAS_MODE_ALIASED);
-                self.context.Clear(Some(&rgba(0.0, 0.0, 0.0, 0.0)));
-                if let Some((pct, big, small)) = &fonts {
-                    let colours = palette(frame.dark);
-                    for slot in &slots {
-                        let Some(item) = frame.items.get(slot.index) else { continue };
-                        let letter_format = if letter(&item.provider).chars().count() > 1 { small } else { big };
-                        self.draw_cell(item, slot, frame, &colours, pressed.contains(&slot.index), seconds, origin, pct, letter_format)?;
+                let ssaa: u32 = match frame.appearance.antialias_internal.as_str() {
+                    "subpixel" => 2,
+                    "ssaa" => 4,
+                    "ssaa8x" | "ultra" => 8,
+                    _ => match frame.appearance.antialias_border.as_str() {
+                        "vector" | "subpixel" => 2,
+                        "ssaa" => 4,
+                        "ssaa8x" | "ultra" => 8,
+                        _ => 1,
+                    },
+                };
+                if ssaa > 1 && self.width.saturating_mul(ssaa) <= 16384 && self.height.saturating_mul(ssaa) <= 4096 {
+                    let ssaa_f = ssaa as f32;
+                    let ssaa_props = D2D1_BITMAP_PROPERTIES1 {
+                        pixelFormat: D2D1_PIXEL_FORMAT { format:DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode:D2D1_ALPHA_MODE_PREMULTIPLIED },
+                        dpiX:96.0, dpiY:96.0,
+                        bitmapOptions:D2D1_BITMAP_OPTIONS_TARGET,
+                        ..Default::default()
+                    };
+                    let ssaa_bitmap = self.context.CreateBitmap(
+                        D2D_SIZE_U { width:self.width * ssaa, height:self.height * ssaa },
+                        None, 0, &ssaa_props,
+                    )?;
+                    self.context.SetTarget(&ssaa_bitmap);
+                    self.context.SetTransform(&matrix(ssaa_f, 0.0, 0.0));
+                    self.context.BeginDraw();
+                    self.context.PushAxisAlignedClip(&D2D_RECT_F { left:0.0, top:0.0,
+                        right:self.width as f32, bottom:self.height as f32 }, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+                    self.context.Clear(Some(&rgba(0.0, 0.0, 0.0, 0.0)));
+                    if let Some((pct, big, small)) = &fonts {
+                        let colours = palette(frame.dark);
+                        for slot in &slots {
+                            let Some(item) = frame.items.get(slot.index) else { continue };
+                            let letter_format = if letter(&item.provider).chars().count() > 1 { small } else { big };
+                            self.draw_cell(item, slot, frame, &colours, pressed.contains(&slot.index), seconds, (0.0, 0.0), ssaa_f, pct, letter_format)?;
+                        }
                     }
+                    self.context.PopAxisAlignedClip();
+                    self.context.EndDraw(None, None)?;
+
+                    self.context.SetTarget(&bitmap);
+                    self.context.SetTransform(&matrix(1.0, offset.x as f32, offset.y as f32));
+                    self.context.BeginDraw();
+                    self.context.PushAxisAlignedClip(&D2D_RECT_F { left:0.0, top:0.0,
+                        right:self.width as f32, bottom:self.height as f32 }, D2D1_ANTIALIAS_MODE_ALIASED);
+                    self.context.Clear(Some(&rgba(0.0, 0.0, 0.0, 0.0)));
+                    let dest = D2D_RECT_F { left:0.0, top:0.0, right:self.width as f32, bottom:self.height as f32 };
+                    let src = D2D_RECT_F { left:0.0, top:0.0, right:(self.width * ssaa) as f32, bottom:(self.height * ssaa) as f32 };
+                    let interp = if frame.appearance.antialias == "subpixel" {
+                        D2D1_INTERPOLATION_MODE_MULTI_SAMPLE_LINEAR
+                    } else {
+                        D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC
+                    };
+                    self.context.DrawBitmap(&ssaa_bitmap, Some(&dest), 1.0, interp, Some(&src), None);
+                    self.context.PopAxisAlignedClip();
+                    self.context.EndDraw(None, None)
+                } else {
+                    self.context.SetTarget(&bitmap);
+                    let origin = (offset.x as f32, offset.y as f32);
+                    self.context.SetTransform(&matrix(1.0, origin.0, origin.1));
+                    self.context.BeginDraw();
+                    self.context.PushAxisAlignedClip(&D2D_RECT_F { left:0.0, top:0.0,
+                        right:self.width as f32, bottom:self.height as f32 }, D2D1_ANTIALIAS_MODE_ALIASED);
+                    self.context.Clear(Some(&rgba(0.0, 0.0, 0.0, 0.0)));
+                    if let Some((pct, big, small)) = &fonts {
+                        let colours = palette(frame.dark);
+                        for slot in &slots {
+                            let Some(item) = frame.items.get(slot.index) else { continue };
+                            let letter_format = if letter(&item.provider).chars().count() > 1 { small } else { big };
+                            self.draw_cell(item, slot, frame, &colours, pressed.contains(&slot.index), seconds, origin, 1.0, pct, letter_format)?;
+                        }
+                    }
+                    self.context.PopAxisAlignedClip();
+                    self.context.EndDraw(None, None)
                 }
-                self.context.PopAxisAlignedClip();
-                self.context.EndDraw(None, None)
             })();
             self.context.SetTarget(None::<&ID2D1Image>);
             let surface_result = self.surface.EndDraw();
@@ -224,13 +282,13 @@ impl Renderer {
 
     #[allow(clippy::too_many_arguments)]
     unsafe fn draw_cell(&self, item: &Indicator, slot: &Slot, frame: &Frame, colours: &Palette, pressed: bool,
-        seconds: f32, origin: (f32, f32), pct: &IDWriteTextFormat, letter_format: &IDWriteTextFormat) -> Result<()> {
+        seconds: f32, origin: (f32, f32), ssaa: f32, pct: &IDWriteTextFormat, letter_format: &IDWriteTextFormat) -> Result<()> {
         self.context.PushAxisAlignedClip(&D2D_RECT_F { left:slot.x, top:0.0,
             right:slot.x + slot.width, bottom:self.height as f32 }, D2D1_ANTIALIAS_MODE_ALIASED);
         let (cx, cy, u) = (slot.center_x, slot.center_y, slot.unit);
         // `.ringwrap.pressed`: the ring, its reading, the activity and the glyph shrink together.
         let s = if pressed { PRESSED } else { 1.0 };
-        self.context.SetTransform(&matrix(s, origin.0 + cx * (1.0 - s), origin.1 + cy * (1.0 - s)));
+        self.context.SetTransform(&matrix(ssaa * s, ssaa * (origin.0 + cx * (1.0 - s)), ssaa * (origin.1 + cy * (1.0 - s))));
         let center = D2D_POINT_2F { x:cx, y:cy };
         let remaining = frame.appearance.shows_remaining;
 
@@ -284,9 +342,9 @@ impl Renderer {
         self.faded(item.spent || item.stale, || {
             if let Some(documents) = self.logos.get(item.provider.as_str()) {
                 let size = 26.0 * u;
-                self.context.SetTransform(&matrix(s * size / 24.0, origin.0 + cx - s * size / 2.0, origin.1 + cy - s * size / 2.0));
+                self.context.SetTransform(&matrix(ssaa * s * size / 24.0, ssaa * (origin.0 + cx - s * size / 2.0), ssaa * (origin.1 + cy - s * size / 2.0)));
                 self.svg_context.DrawSvgDocument(&documents[usize::from(!frame.dark)]);
-                self.context.SetTransform(&matrix(s, origin.0 + cx * (1.0 - s), origin.1 + cy * (1.0 - s)));
+                self.context.SetTransform(&matrix(ssaa * s, ssaa * (origin.0 + cx * (1.0 - s)), ssaa * (origin.1 + cy * (1.0 - s))));
             } else {
                 self.brush.SetColor(&colours.glyph);
                 self.brush.SetOpacity(1.0);
@@ -297,7 +355,7 @@ impl Renderer {
             }
             Ok(())
         })?;
-        self.context.SetTransform(&matrix(1.0, origin.0, origin.1));
+        self.context.SetTransform(&matrix(ssaa, ssaa * origin.0, ssaa * origin.1));
         // .pct, beside the ring rather than under it: a taskbar is not tall enough for both.
         if !item.text.is_empty() {
             let text: Vec<u16> = item.text.encode_utf16().collect();
@@ -551,6 +609,17 @@ mod tests {
                 }
             }
             frame.appearance.size = 1.0;
+            for aa in ["off", "subpixel", "vector", "ssaa"] {
+                frame.appearance.antialias = aa.into();
+                frame.appearance.antialias_border = aa.into();
+                frame.appearance.antialias_internal = if aa == "vector" { "subpixel".into() } else { aa.into() };
+                for bt in [0.0, 1.0, 2.0] {
+                    frame.appearance.border_thickness = bt;
+                    renderer.draw(&frame, 1.0, &[0], 1.8).unwrap();
+                }
+            }
+            frame.appearance.antialias = "off".into();
+            frame.appearance.border_thickness = 1.0;
             // Every built-in document is also submitted through DrawSvgDocument.
             frame.items = crate::glyphs::BUILTIN.iter().enumerate().map(|(index, (provider, _))|
                 indicator(provider, Some(index as f32 / 9.0), None, "idle", index % 2 != 0, index % 3 == 0)).collect();

@@ -600,7 +600,7 @@ fn get_claude_auth() -> claude_auth::AuthState { claude_auth::state() }
 
 /// Asks one provider to read again, and says whether a reading is on its way. Claude's rate-limit
 /// wait stands, as on the Mac: asking early spends a request and can double the wait.
-pub(crate) fn refresh_provider(app: &AppHandle, provider: &str) -> bool {
+pub(crate) fn refresh_provider(_app: &AppHandle, provider: &str) -> bool {
     match provider {
         "claude" => {
             // Each profile enforces its own retry deadline. One throttled account
@@ -784,9 +784,6 @@ fn set_hot(app: AppHandle, rects: Vec<[f64; 4]>, expanded: bool, probe: Option<[
     *HOT.lock().unwrap() = rects;
     backdrop::set_probe(probe);
     EXPANDED.store(expanded, std::sync::atomic::Ordering::Relaxed);
-    if expanded {
-        antigravity::request_hover_refresh();
-    }
 }
 
 /// Setting `WS_EX_TRANSPARENT` by hand instead looks like it should work, and does not: it applies
@@ -1309,7 +1306,7 @@ fn ring_window<'a>(
         "opencode" => by_id("rolling"),
         "commandcode" => by_id("monthly"),
         // The Harness publishes no limit: the headline is today's derived budget ring.
-        "deepseek" => by_id("today"),
+        "deepseek" => by_id("credits").or_else(|| by_id("today")),
         // getUsageInfo meters one plan window; the addon/org buckets are card-only rows.
         "qoder" => by_id("quota"),
         _ => antigravity_lane(windows, antigravity_limit, antigravity_model),
@@ -1379,10 +1376,70 @@ pub(crate) fn snapshot_of(app: &AppHandle, id: &str) -> usage::UsageSnapshot {
 
 /// A provider's ring as a whole percentage, for the tray icon and the settings picker. A count
 /// window has no percentage to draw, so it is a dash.
+pub(crate) fn antigravity_composite_fraction(windows: &[usage::LimitWindow]) -> Option<f64> {
+    let is_argon = |w: &usage::LimitWindow| {
+        w.id.to_lowercase().contains("argon") || w.label.to_lowercase().contains("argon")
+    };
+    let is_claude_5h = |w: &usage::LimitWindow| {
+        !is_argon(w)
+            && (w.id.to_lowercase().contains("claude")
+                || w.id.to_lowercase().contains("gpt")
+                || w.id.to_lowercase().contains("3p")
+                || w.group.as_deref().unwrap_or("").to_lowercase().contains("claude"))
+            && (lane_is(w, "5h")
+                || w.id.to_lowercase().contains("five hour")
+                || w.id.to_lowercase().contains("5h"))
+    };
+    let is_gemini_5h = |w: &usage::LimitWindow| {
+        (w.id.to_lowercase().contains("gemini")
+            || w.group.as_deref().unwrap_or("").to_lowercase().contains("gemini"))
+            && (lane_is(w, "5h")
+                || w.id.to_lowercase().contains("five hour")
+                || w.id.to_lowercase().contains("5h"))
+    };
+
+    let w_argon = windows.iter().find(|w| is_argon(w));
+    let w_claude = windows.iter().find(|w| is_claude_5h(w));
+    let w_gemini = windows.iter().find(|w| is_gemini_5h(w));
+
+    let mut sum = 0.0f64;
+    let mut total_weight = 0.0f64;
+
+    if let Some(w) = w_argon {
+        if w.used.is_finite() {
+            sum += 0.25 * w.used.clamp(0.0, 1.0);
+            total_weight += 0.25;
+        }
+    }
+    if let Some(w) = w_claude {
+        if w.used.is_finite() {
+            sum += 0.25 * w.used.clamp(0.0, 1.0);
+            total_weight += 0.25;
+        }
+    }
+    if let Some(w) = w_gemini {
+        if w.used.is_finite() {
+            sum += 0.50 * w.used.clamp(0.0, 1.0);
+            total_weight += 0.50;
+        }
+    }
+
+    if total_weight > 0.0 {
+        Some((sum / total_weight).clamp(0.0, 1.0))
+    } else {
+        None
+    }
+}
+
 pub(crate) fn ring_fraction(app: &AppHandle, provider: &str) -> Option<f64> {
     let snap = snapshot_of(app, provider);
     if snap.status == "absent" {
         return None;
+    }
+    if provider == "gemini" {
+        if let Some(f) = antigravity_composite_fraction(&snap.windows) {
+            return Some(f);
+        }
     }
     let (limit, model) = {
         let st = app.state::<AppState>();
@@ -1395,18 +1452,7 @@ pub(crate) fn ring_fraction(app: &AppHandle, provider: &str) -> Option<f64> {
 }
 
 pub(crate) fn ring_pct(app: &AppHandle, provider: &str) -> Option<u32> {
-    let snap = snapshot_of(app, provider);
-    if snap.status == "absent" {
-        return None;
-    }
-    let (limit, model) = {
-        let st = app.state::<AppState>();
-        let c = st.cfg.lock().unwrap();
-        (c.antigravity_limit.clone(), c.antigravity_model.clone())
-    };
-    ring_window(provider, &snap.windows, &limit, &model)
-        .filter(|w| w.count.is_none())
-        .map(|w| (w.used * 100.0).round().clamp(0.0, 100.0) as u32)
+    ring_fraction(app, provider).map(|f| (f * 100.0).round().clamp(0.0, 100.0) as u32)
 }
 
 /// One provider and its ring's current number, for the settings window's picker.
@@ -1463,6 +1509,141 @@ fn set_antigravity_prefs(app: AppHandle, limit: String, model: String) -> Antigr
     let _ = app.emit("antigravity_prefs", &prefs);
     tray::refresh_menu(&app);
     prefs
+}
+
+#[tauri::command]
+fn get_deepseek_display(app: AppHandle) -> String {
+    let st = app.state::<AppState>();
+    let c = st.cfg.lock().unwrap();
+    config::deepseek_display_or_default(&c.deepseek_display)
+}
+
+#[tauri::command]
+fn set_deepseek_display(app: AppHandle, display: String) -> String {
+    let chosen = config::deepseek_display_or_default(&display);
+    {
+        let st = app.state::<AppState>();
+        let mut c = st.cfg.lock().unwrap();
+        c.deepseek_display = chosen.clone();
+        config::save(&c);
+    }
+    deepseek_harness::apply_display(&app, &chosen);
+    tray::refresh_menu(&app);
+    chosen
+}
+
+#[tauri::command]
+fn get_antialias(app: AppHandle) -> String {
+    let st = app.state::<AppState>();
+    let c = st.cfg.lock().unwrap();
+    config::antialias_border_or_default(&c.antialias_border)
+}
+
+#[tauri::command]
+fn set_antialias(app: AppHandle, mode: String) -> String {
+    set_antialias_border(app, mode)
+}
+
+#[tauri::command]
+fn get_antialias_border(app: AppHandle) -> String {
+    let st = app.state::<AppState>();
+    let c = st.cfg.lock().unwrap();
+    config::antialias_border_or_default(&c.antialias_border)
+}
+
+#[tauri::command]
+fn set_antialias_border(app: AppHandle, mode: String) -> String {
+    let chosen = config::antialias_border_or_default(&mode);
+    {
+        let st = app.state::<AppState>();
+        let mut c = st.cfg.lock().unwrap();
+        c.antialias_border = chosen.clone();
+        c.antialias = chosen.clone();
+        config::save(&c);
+    }
+    let _ = app.emit("antialias_border", &chosen);
+    let _ = app.emit("antialias", &chosen);
+    chosen
+}
+
+#[tauri::command]
+fn get_antialias_internal(app: AppHandle) -> String {
+    let st = app.state::<AppState>();
+    let c = st.cfg.lock().unwrap();
+    config::antialias_internal_or_default(&c.antialias_internal)
+}
+
+#[tauri::command]
+fn set_antialias_internal(app: AppHandle, mode: String) -> String {
+    let chosen = config::antialias_internal_or_default(&mode);
+    {
+        let st = app.state::<AppState>();
+        let mut c = st.cfg.lock().unwrap();
+        c.antialias_internal = chosen.clone();
+        config::save(&c);
+    }
+    let _ = app.emit("antialias_internal", &chosen);
+    chosen
+}
+
+#[tauri::command]
+fn get_border_thickness(app: AppHandle) -> f64 {
+    let st = app.state::<AppState>();
+    let c = st.cfg.lock().unwrap();
+    config::clamp_border_thickness(c.border_thickness)
+}
+
+#[tauri::command]
+fn set_border_thickness(app: AppHandle, thickness: f64) -> f64 {
+    let chosen = config::clamp_border_thickness(thickness);
+    {
+        let st = app.state::<AppState>();
+        let mut c = st.cfg.lock().unwrap();
+        c.border_thickness = chosen;
+        config::save(&c);
+    }
+    let _ = app.emit("border_thickness", chosen);
+    chosen
+}
+
+#[tauri::command]
+fn get_border_color(app: AppHandle) -> String {
+    let st = app.state::<AppState>();
+    let c = st.cfg.lock().unwrap();
+    config::border_color_or_default(&c.border_color)
+}
+
+#[tauri::command]
+fn set_border_color(app: AppHandle, color: String) -> String {
+    let chosen = config::border_color_or_default(&color);
+    {
+        let st = app.state::<AppState>();
+        let mut c = st.cfg.lock().unwrap();
+        c.border_color = chosen.clone();
+        config::save(&c);
+    }
+    let _ = app.emit("border_color", &chosen);
+    chosen
+}
+
+#[tauri::command]
+fn get_border_opacity(app: AppHandle) -> f64 {
+    let st = app.state::<AppState>();
+    let c = st.cfg.lock().unwrap();
+    config::clamp_border_opacity(c.border_opacity)
+}
+
+#[tauri::command]
+fn set_border_opacity(app: AppHandle, opacity: f64) -> f64 {
+    let chosen = config::clamp_border_opacity(opacity);
+    {
+        let st = app.state::<AppState>();
+        let mut c = st.cfg.lock().unwrap();
+        c.border_opacity = chosen;
+        config::save(&c);
+    }
+    let _ = app.emit("border_opacity", chosen);
+    chosen
 }
 
 /// Which providers get a ring on the notch. An empty list means every provider.
@@ -1919,6 +2100,26 @@ fn attach_console() {
 #[cfg(not(windows))]
 fn attach_console() {}
 
+#[cfg(windows)]
+fn init_hidden_console() {
+    use windows::Win32::System::Console::{AllocConsole, GetConsoleWindow, SetConsoleCtrlHandler};
+    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+    unsafe {
+        unsafe extern "system" fn handler(_: u32) -> windows::Win32::Foundation::BOOL {
+            windows::Win32::Foundation::BOOL(1)
+        }
+        if AllocConsole().is_ok() {
+            let hwnd = GetConsoleWindow();
+            if !hwnd.0.is_null() {
+                let _ = ShowWindow(hwnd, SW_HIDE);
+            }
+            let _ = SetConsoleCtrlHandler(Some(handler), true);
+        }
+    }
+}
+#[cfg(not(windows))]
+fn init_hidden_console() {}
+
 fn report(r: Result<String, String>) {
     let msg = match r {
         Ok(m) => format!("OK: {m}"),
@@ -2014,6 +2215,9 @@ fn main() {
             _ => {}
         }
     }
+
+    #[cfg(windows)]
+    init_hidden_console();
 
     let cfg = config::load();
     let port = cfg.port;
@@ -2121,6 +2325,20 @@ fn main() {
             set_notch_slots,
             get_antigravity_prefs,
             set_antigravity_prefs,
+            get_deepseek_display,
+            set_deepseek_display,
+            get_antialias,
+            set_antialias,
+            get_antialias_border,
+            set_antialias_border,
+            get_antialias_internal,
+            set_antialias_internal,
+            get_border_thickness,
+            set_border_thickness,
+            get_border_color,
+            set_border_color,
+            get_border_opacity,
+            set_border_opacity,
             get_app_icon,
             get_ui_flags,
             set_ui_flags,
@@ -2232,8 +2450,8 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::{
-        cursor_in_hot, glide_curve, notch_window_size, provider_page, ring_window, work_insets, Screen, HOT_PAD,
-        NOTCH_W, TRAY_PROVIDER_IDS,
+        antigravity_composite_fraction, cursor_in_hot, glide_curve, notch_window_size, provider_page, ring_window,
+        work_insets, Screen, HOT_PAD, NOTCH_W, TRAY_PROVIDER_IDS,
     };
     use crate::usage::LimitWindow;
 
@@ -2593,5 +2811,37 @@ mod tests {
     fn a_request_count_still_leads_when_it_is_all_there_is() {
         let requests = LimitWindow { id: "requests".into(), count: Some(79), ..Default::default() };
         assert_eq!(pick("gemini", std::slice::from_ref(&requests)), Some("requests"));
+    }
+
+    #[test]
+    fn antigravity_composite_fraction_uses_25_argon_25_claude_50_gemini_5h() {
+        let windows = [
+            LimitWindow {
+                id: "Claude and GPT models Argon Weekly Limit".into(),
+                label: "Argon".into(),
+                used: 0.40,
+                ..Default::default()
+            },
+            LimitWindow {
+                id: "Claude and GPT models Five Hour Limit".into(),
+                label: "Claude/GPT · 5h".into(),
+                used: 0.20,
+                ..Default::default()
+            },
+            LimitWindow {
+                id: "Gemini Models Five Hour Limit".into(),
+                label: "Gemini Models · 5h".into(),
+                used: 0.10,
+                ..Default::default()
+            },
+            LimitWindow {
+                id: "Gemini Models Weekly Limit".into(),
+                label: "Gemini Models · Weekly".into(),
+                used: 0.90,
+                ..Default::default()
+            },
+        ];
+        let frac = antigravity_composite_fraction(&windows).expect("composite fraction");
+        assert!((frac - 0.20).abs() < 1e-5);
     }
 }

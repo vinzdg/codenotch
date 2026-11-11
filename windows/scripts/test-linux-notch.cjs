@@ -56,9 +56,12 @@ function contourPage(edge='right',zoom=1,platform='Linux x86_64'){
     navigator:{platform},notchEdge:edge,pill:{getBoundingClientRect:()=>rect},
     edgeIsVertical:()=>['right','left'].includes(edge),
     getComputedStyle:()=>({getPropertyValue:()=> '38.7px'}),
+    invoke:()=>new Promise(()=>{}),listen:()=>new Promise(()=>{}),
     document:{
-      body:{classList:{toggle(){}}},documentElement:{style:{zoom:String(zoom)}},
-      getElementById:()=>root,
+      body:{classList:{toggle(){},add(){},remove(){}}},
+      documentElement:{style:{zoom:String(zoom),setProperty(){}}},
+      querySelector:()=>null,querySelectorAll:()=>[],
+      getElementById:id=>id==='pill'?{getBoundingClientRect:()=>rect}:root,
       createElementNS:(namespaceURI,tag)=>({
         namespaceURI,tag,style:{},attributes:{},children:[],
         setAttribute(name,value){this.attributes[name]=value;},
@@ -74,8 +77,8 @@ test('all four edges draw the body and both fillets in one SVG path',()=>{
   for(const edge of ['right','left','top','bottom']){
     const {context,nodes}=contourPage(edge);
     assert.equal(nodes.length,1,edge);
-    assert.equal(nodes[0].children.length,1,edge);
-    const path=nodes[0].children[0].attributes.d;
+    assert.equal(nodes[0].children.length,2,edge);
+    const path=nodes[0].children[1].attributes.d;
     assert.equal((path.match(/ A/g)||[]).length,2,`${edge}: both fillets are in the body path`);
     assert.doesNotMatch(path,/NaN|Infinity/,edge);
     context.paintPillContour();
@@ -89,6 +92,8 @@ test('the contour stays aligned with the pill under CSS zoom',()=>{
   assert.equal(scaled.nodes[0].style.width,normal.nodes[0].style.width);
   assert.equal(scaled.nodes[0].style.height,normal.nodes[0].style.height);
 });
-test('Windows keeps its existing contour renderer',()=>{
-  assert.equal(contourPage('right',1,'Win32').nodes.length,0);
+test('Windows keeps its existing contour renderer when border anti-aliasing is off',()=>{
+  const page=contourPage('right',1,'Win32');
+  page.context.applyAntialiasBorder('off');
+  assert.equal(page.nodes[0].style.display,'none');
 });
