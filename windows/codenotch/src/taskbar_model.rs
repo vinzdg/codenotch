@@ -96,7 +96,7 @@ fn by_id<'a>(windows: &'a [LimitWindow], id: &str) -> Option<&'a LimitWindow> {
 
 /// The notch's `weeklyOf`.
 fn weekly_window<'a>(provider: &str, windows: &'a [LimitWindow], model: &str) -> Option<&'a LimitWindow> {
-    let metered: Vec<&LimitWindow> = windows.iter().filter(|w| w.count.is_none()).collect();
+    let metered: Vec<&LimitWindow> = windows.iter().filter(|w| w.metered()).collect();
     let by_id = |id: &str| metered.iter().copied().find(|w| w.id == id);
     match provider {
         "claude" => by_id("seven_day").or_else(|| by_id("weekly_all")).or_else(|| by_id("weekly")),
@@ -123,7 +123,7 @@ fn claude_current(snap: &UsageSnapshot, window: &LimitWindow, now: u64) -> bool 
 }
 
 fn used(window: &LimitWindow) -> Option<f32> {
-    (window.count.is_none() && window.used.is_finite()).then(|| window.used.clamp(0.0, 1.0) as f32)
+    (window.metered() && window.used.is_finite()).then(|| window.used.clamp(0.0, 1.0) as f32)
 }
 
 /// The notch's `smallPct`, `pctText` and `leftPctText`: whole percents, except where rounding
@@ -152,6 +152,7 @@ fn figure(snap: &UsageSnapshot, head: Option<&LimitWindow>, remaining: bool) -> 
     if snap.status == "needsAuth" || snap.status == "none" { return "—".into(); }
     match head {
         Some(LimitWindow { count: Some(count), .. }) => format!("~{count}"),
+        Some(LimitWindow { amount: Some(amount), .. }) => amount.clone(),
         Some(window) if window.used.is_finite() => format!("{}{}%", if window.derived { "~" } else { "" },
             if remaining { left_pct_text(window.used) } else { pct_text(window.used) }),
         // The declared window is missing from a reply: a dash, not a wait.

@@ -1279,7 +1279,7 @@ fn tightest<'a>(
     windows: impl Iterator<Item = &'a usage::LimitWindow>,
 ) -> Option<&'a usage::LimitWindow> {
     windows
-        .filter(|w| w.count.is_none())
+        .filter(|w| w.metered())
         .max_by(|a, b| a.used.total_cmp(&b.used).then_with(|| b.id.cmp(&a.id)))
 }
 
@@ -1308,8 +1308,8 @@ fn ring_window<'a>(
         // The Mac sets headlineID "rolling", weeklyID "weekly".
         "opencode" => by_id("rolling"),
         "commandcode" => by_id("monthly"),
-        // The Harness publishes no limit: the headline is today's derived budget ring.
-        "deepseek" => by_id("today"),
+        // Prepaid, so no limit: the headline is the account balance, else today's estimated spend.
+        "deepseek" => by_id("balance").or_else(|| by_id("today")),
         // getUsageInfo meters one plan window; the addon/org buckets are card-only rows.
         "qoder" => by_id("quota"),
         _ => antigravity_lane(windows, antigravity_limit, antigravity_model),
@@ -1390,7 +1390,7 @@ pub(crate) fn ring_fraction(app: &AppHandle, provider: &str) -> Option<f64> {
         (c.antigravity_limit.clone(), c.antigravity_model.clone())
     };
     ring_window(provider, &snap.windows, &limit, &model)
-        .filter(|w| w.count.is_none())
+        .filter(|w| w.metered())
         .map(|w| w.used.clamp(0.0, 1.0))
 }
 
@@ -1405,7 +1405,7 @@ pub(crate) fn ring_pct(app: &AppHandle, provider: &str) -> Option<u32> {
         (c.antigravity_limit.clone(), c.antigravity_model.clone())
     };
     ring_window(provider, &snap.windows, &limit, &model)
-        .filter(|w| w.count.is_none())
+        .filter(|w| w.metered())
         .map(|w| (w.used * 100.0).round().clamp(0.0, 100.0) as u32)
 }
 

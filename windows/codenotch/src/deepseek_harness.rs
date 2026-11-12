@@ -13,11 +13,17 @@
 //! that hit it (they are disjoint: the observed cache-read total is two orders of magnitude
 //! larger than the input total), so the three billable buckets are exactly those fields.
 //!
-//! The Harness publishes no limit, so the ring is a **derived** number: today's cost against
-//! `DAILY_BUDGET_USD`, priced with DeepSeek's published flash rates (peak/off-peak). The card
-//! says so with the `~` prefix and the note spells out the estimate.
+//! Today's cost is a **derived** number, priced with DeepSeek's published flash rates
+//! (peak/off-peak); the card says so with the `~` prefix.
 //!
 //! Fidelity: derived. Nothing here is a vendor-published percentage.
+//!
+//! DeepSeek is prepaid, so the headline is money, not a percentage: the account balance from
+//! `GET https://platform.deepseek.com/api/v0/users/get_user_summary`, authorised with the Harness's own
+//! sign-in (`~/.dsh/.credentials.yaml`, record `deepseek-account-platform/default`, sent as
+//! `x-dsh-auth-token`, the way the Harness host reads it). `normal_wallets` + `bonus_wallets` in the
+//! first wallet's currency is the balance; `total_costs` in that currency is the lifetime spend.
+//! Today's spend stays the transcript estimate above, shown in money too.
 
 use crate::usage::{LimitWindow, UsageSnapshot};
 use crate::AppState;
@@ -26,10 +32,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 
 const POLL_SECS: u64 = 60;
-
-/// What a day of Harness work is compared against. DeepSeek bills per token and the account
-/// has no session window, so this is the operator's budget, not a vendor limit.
-const DAILY_BUDGET_USD: f64 = 2.0;
 
 static REFRESH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -255,50 +257,131 @@ pub fn request_refresh() {
     REFRESH.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
+const PLATFORM: &str = "https://platform.deepseek.com";
+const GRANT_RECORD: &str = "deepseek-account-platform/default";
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Balance {
+    pub currency: String,
+    pub balance: f64,
+    pub spent: Option<f64>,
+}
+
+/// The platform token in the Harness's credential file, only when its issuer is the platform itself.
+/// The file is flat YAML (`records:` → `<name>:` → `payload:` → `token:` / `issuer:`), read by line.
+fn grant_token(yaml: &str) -> Option<String> {
+    let mut inside = false;
+    let (mut token, mut issuer) = (None, None);
+    for line in yaml.lines() {
+        let indent = line.len() - line.trim_start().len();
+        let t = line.trim();
+        if indent == 2 && t.ends_with(':') {
+            inside = t.trim_end_matches(':') == GRANT_RECORD;
+            continue;
+        }
+        if !inside {
+            continue;
+        }
+        let value = |key: &str| t.strip_prefix(key).map(|v| v.trim().trim_matches(|c| c == '"' || c == '\'').to_string());
+        if let Some(v) = value("token:") {
+            token = Some(v);
+        } else if let Some(v) = value("issuer:") {
+            issuer = Some(v);
+        }
+    }
+    token.filter(|t| !t.is_empty() && issuer.as_deref().map(|i| i.trim_end_matches('/')) == Some(PLATFORM))
+}
+
+fn num(v: Option<&serde_json::Value>) -> Option<f64> {
+    v.and_then(|x| x.as_str().and_then(|s| s.parse().ok()).or_else(|| x.as_f64())).filter(|n: &f64| n.is_finite())
+}
+
+/// get_user_summary → balance in the first wallet's currency, bonus wallets included.
+pub fn parse_balance(v: &serde_json::Value) -> Option<Balance> {
+    let data = v.get("data")?.get("biz_data")?;
+    let wallets = |k: &str| data.get(k).and_then(|w| w.as_array()).cloned().unwrap_or_default();
+    let all: Vec<_> = wallets("normal_wallets").into_iter().chain(wallets("bonus_wallets")).collect();
+    let currency = all.first()?.get("currency")?.as_str()?.to_string();
+    let balance = all.iter()
+        .filter(|w| w.get("currency").and_then(|c| c.as_str()) == Some(&currency))
+        .filter_map(|w| num(w.get("balance")))
+        .sum();
+    let spent = wallets("total_costs").iter()
+        .find(|c| c.get("currency").and_then(|c| c.as_str()) == Some(&currency))
+        .and_then(|c| num(c.get("amount")));
+    Some(Balance { currency, balance, spent })
+}
+
+pub fn money(currency: &str, v: f64) -> String {
+    match currency {
+        "USD" => format!("${v:.2}"),
+        "CNY" => format!("\u{a5}{v:.2}"),
+        c => format!("{v:.2} {c}"),
+    }
+}
+
+fn fetch_balance() -> Option<Balance> {
+    let yaml = std::fs::read_to_string(dirs::home_dir()?.join(".dsh").join(".credentials.yaml")).ok()?;
+    let token = grant_token(&yaml)?;
+    let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(15)).build();
+    let v: serde_json::Value = agent
+        .get(&format!("{PLATFORM}/api/v0/users/get_user_summary"))
+        .set("x-dsh-auth-token", &token)
+        .call()
+        .ok()?
+        .into_json()
+        .ok()?;
+    parse_balance(&v)
+}
+
 /// Build the snapshot for `now_ms`. Pure, so the tests can drive it.
 pub fn snapshot_at(now_ms: u64) -> UsageSnapshot {
-    let Some(totals) = totals_today(now_ms) else {
-        return UsageSnapshot { status: "absent".into(), ..Default::default() };
-    };
-    let (_, end) = day_bounds(now_ms);
-    let used = (totals.cost / DAILY_BUDGET_USD).clamp(0.0, 1.0);
+    snapshot_with(now_ms, None)
+}
 
-    UsageSnapshot {
-        status: "ok".into(),
-        windows: vec![
-            LimitWindow {
-                id: "today".into(),
-                label: "Today".into(),
-                used,
-                resets_at: Some(end),
-                count: None,
-                derived: true,
-                group: None,
-                ..Default::default()
-            },
-            LimitWindow {
-                id: "tokens".into(),
-                label: "Tokens today".into(),
-                used: 0.0,
-                resets_at: None,
-                count: Some(totals.tokens as i64),
-                derived: true,
-                group: None,
-                ..Default::default()
-            },
-        ],
-        fetched_at: now_ms,
-        note: format!(
-            "~${:.2} of ${:.2} \u{b7} {}k tokens \u{b7} {} session{}",
-            totals.cost,
-            DAILY_BUDGET_USD,
-            totals.tokens / 1000,
-            totals.sessions,
-            if totals.sessions == 1 { "" } else { "s" }
-        ),
-        backoff_until: 0,
-        ..Default::default()
+pub fn snapshot_with(now_ms: u64, balance: Option<&Balance>) -> UsageSnapshot {
+    let totals = totals_today(now_ms);
+    if totals.is_none() && balance.is_none() {
+        return UsageSnapshot { status: "absent".into(), ..Default::default() };
     }
+    let totals = totals.unwrap_or_default();
+    let (_, end) = day_bounds(now_ms);
+    let mut windows = Vec::new();
+    if let Some(b) = balance {
+        windows.push(LimitWindow {
+            id: "balance".into(),
+            label: "Balance".into(),
+            amount: Some(money(&b.currency, b.balance)),
+            ..Default::default()
+        });
+    }
+    // Harness rates are USD, whatever the wallet's currency
+    windows.push(LimitWindow {
+        id: "today".into(),
+        label: "Today".into(),
+        resets_at: Some(end),
+        derived: true,
+        amount: Some(format!("~{}", money("USD", totals.cost))),
+        ..Default::default()
+    });
+    windows.push(LimitWindow {
+        id: "tokens".into(),
+        label: "Tokens today".into(),
+        count: Some(totals.tokens as i64),
+        derived: true,
+        ..Default::default()
+    });
+    let mut note = format!(
+        "{}k tokens \u{b7} {} session{} today",
+        totals.tokens / 1000,
+        totals.sessions,
+        if totals.sessions == 1 { "" } else { "s" }
+    );
+    if let Some(spent) = balance.and_then(|b| b.spent.map(|s| money(&b.currency, s))) {
+        note = format!("{spent} spent in total \u{b7} {note}");
+    }
+
+    UsageSnapshot { status: "ok".into(), windows, fetched_at: now_ms, note, ..Default::default() }
 }
 
 pub fn start(app: AppHandle) {
@@ -308,9 +391,14 @@ pub fn start(app: AppHandle) {
             let snap = st.deepseek.lock().unwrap().clone();
             let _ = app.emit("deepseek", &snap);
         }
+        // A failed balance read keeps the last good one rather than dropping the headline
+        let mut balance: Option<Balance> = None;
         loop {
+            if let Some(b) = fetch_balance() {
+                balance = Some(b);
+            }
             if REFRESH.swap(false, std::sync::atomic::Ordering::Relaxed) {
-                let snap = snapshot_at(now_ms());
+                let snap = snapshot_with(now_ms(), balance.as_ref());
                 persist(&snap);
                 {
                     let st = app.state::<AppState>();
@@ -319,7 +407,7 @@ pub fn start(app: AppHandle) {
                 let _ = app.emit("deepseek", &snap);
                 continue;
             }
-            let snap = snapshot_at(now_ms());
+            let snap = snapshot_with(now_ms(), balance.as_ref());
             persist(&snap);
             {
                 let st = app.state::<AppState>();
@@ -366,7 +454,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_shows_a_derived_budget_ring() {
+    fn snapshot_shows_todays_derived_spend() {
         let snap = snapshot_at(now_ms());
         // Either the Harness has data (ok) or it has none (absent); both are valid here.
         eprintln!("deepseek snapshot: status={} note={}", snap.status, snap.note);
@@ -375,6 +463,47 @@ mod tests {
             assert!(snap.windows.iter().any(|w| w.id == "today" && w.derived));
             assert!(snap.windows.iter().any(|w| w.id == "tokens"));
         }
+    }
+
+    #[test]
+    fn the_platform_grant_is_read_only_from_its_record_and_issuer() {
+        let yaml = "version: 1\nrecords:\n  client-connection/browser-session:\n    kind: grant\n    payload:\n      token: wrong\n  deepseek-account-platform/default:\n    kind: grant\n    payload:\n      version: 1\n      token: abc\n      issuer: https://platform.deepseek.com\n";
+        assert_eq!(grant_token(yaml).as_deref(), Some("abc"));
+        assert_eq!(grant_token(&yaml.replace("platform.deepseek.com", "evil.example")), None);
+        assert_eq!(grant_token("records:\n  other/default:\n    payload:\n      token: abc\n"), None);
+    }
+
+    #[test]
+    fn the_balance_sums_wallets_in_one_currency() {
+        let v = serde_json::json!({"code": 0, "data": {"biz_code": 0, "biz_data": {
+            "normal_wallets": [{"currency": "USD", "balance": "0.1307856462000000"}],
+            "bonus_wallets": [{"currency": "USD", "balance": "0.5"}, {"currency": "CNY", "balance": "9"}],
+            "total_costs": [{"currency": "USD", "amount": "35.3819991158000000"}, {"currency": "CNY", "amount": "6.03"}]
+        }}});
+        let b = parse_balance(&v).unwrap();
+        assert_eq!(b.currency, "USD");
+        assert!((b.balance - 0.6307856462).abs() < 1e-9);
+        assert_eq!(money(&b.currency, b.balance), "$0.63");
+        assert_eq!(b.spent.map(|s| money("USD", s)).as_deref(), Some("$35.38"));
+    }
+
+    #[test]
+    fn the_balance_is_the_headline_and_nothing_reads_as_a_percentage() {
+        let b = Balance { currency: "USD".into(), balance: 0.13, spent: Some(35.38) };
+        let snap = snapshot_with(now_ms(), Some(&b));
+        assert_eq!(snap.status, "ok");
+        assert_eq!(snap.windows[0].id, "balance");
+        assert_eq!(snap.windows[0].amount.as_deref(), Some("$0.13"));
+        assert!(snap.windows.iter().all(|w| !w.metered()));
+        assert!(snap.note.starts_with("$35.38 spent in total"));
+    }
+
+    /// Reads this machine's Harness sign-in; prints only the balance
+    #[test]
+    #[ignore]
+    fn live_balance() {
+        let b = fetch_balance().expect("no balance: Harness signed out or the platform refused");
+        println!("{} (spent {:?})", money(&b.currency, b.balance), b.spent.map(|s| money(&b.currency, s)));
     }
 
     #[test]

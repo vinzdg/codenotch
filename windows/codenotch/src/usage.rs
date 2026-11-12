@@ -190,6 +190,17 @@ pub struct LimitWindow {
     /// for several things (Antigravity: a 5-hour and a weekly lane per model family). None = ungrouped
     #[serde(default)]
     pub group: Option<String>,
+    /// Money rather than a share of a limit (DeepSeek's prepaid balance), already formatted: the cell
+    /// shows it in place of a percentage and the ring draws only its track
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub amount: Option<String>,
+}
+
+impl LimitWindow {
+    /// A share of a published limit, as opposed to a bare count or an amount of money
+    pub fn metered(&self) -> bool {
+        self.count.is_none() && self.amount.is_none()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -75,7 +75,7 @@ impl ResetWatcher {
         for window in &snapshot.windows {
             // A named group (Codex's Spark/Code review) is a sub-limit, not the account's own quota;
             // a pure count window (Antigravity's requests today) has no fraction to have renewed.
-            if window.group.is_some() || window.count.is_some() {
+            if window.group.is_some() || !window.metered() {
                 continue;
             }
             if !window.used.is_finite() || !(0.0..=1.0).contains(&window.used) || !seen.insert(window.id.clone())
