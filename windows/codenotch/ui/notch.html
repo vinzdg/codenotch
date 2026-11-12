@@ -563,8 +563,6 @@ const TEXT={
     'Streaming (network)':'스트리밍 중 (네트워크)',
     'Rate limited, retrying in':'요청 한도 초과, 재시도까지',
     'Rate limited — retrying in':'요청 한도 초과 — 재시도까지',
-    'request today':'오늘 요청',
-    'requests today':'오늘 요청',
     'no requests today':'오늘 요청 없음',
     'Waiting for first reading…':'첫 측정값을 기다리는 중…',
     'Sign in to Claude Code to see usage.':'사용량을 확인하려면 Claude Code에 로그인하십시오.',
@@ -1237,7 +1235,9 @@ const UI={
   ko:{locale:'ko-KR',title:n=>n+' 사용량',resetting:'재설정 중…',resetsIn:m=>`${m}분 후 재설정`,
       resetsAt:t=>`${t}에 재설정`,resetsOn:(d,t)=>`${d} ${t}에 재설정`,resetsDate:d=>`${d}에 재설정`,
       ago:m=>m<60?`${m}분 전`:`${Math.round(m/60)}시간 전`,
-      usedLeft:(used,left)=>`${used}% 사용 · ${left}% 남음`,leftUsed:(left,used)=>`${left}% 남음 · ${used}% 사용`,deficit:v=>`${v}% 초과`,andMore:n=>`외 ${n}개`,updated:a=>`${a}에 마지막 업데이트됨`},
+      usedLeft:(used,left)=>`${used}% 사용 · ${left}% 남음`,leftUsed:(left,used)=>`${left}% 남음 · ${used}% 사용`,deficit:v=>`${v}% 초과`,andMore:n=>`외 ${n}개`,updated:a=>`${a}에 마지막 업데이트됨`,
+      // Korean puts the count after the words ('오늘 요청 ~12회'); a language without this keeps '~12 requests today'
+      requestsToday:n=>`오늘 요청 ~${n}회`},
   'pt-BR':{locale:'pt-BR',title:n=>'Uso do '+n,resetting:'Renovando…',resetsIn:m=>`Renova em ${m} min`,
       resetsAt:t=>`Renova às ${t}`,resetsOn:(d,t)=>`Renova ${d} às ${t}`,resetsDate:d=>`Renova ${d}`,
       ago:m=>m<60?`há ${m} min`:`há ${Math.round(m/60)} h`,
@@ -1606,7 +1606,7 @@ function renderCard(){
       }
       if(w.count!=null){
         html+=`<div class="win"><div class="w-row"><span class="w-label">${esc(textCopy(w.label))}</span></div>
-          <div class="w-used">${w.count>0?`~${w.count} ${textCopy(w.count===1?'request today':'requests today')}`:textCopy('no requests today')}</div></div>`;
+          <div class="w-used">${w.count>0?(ui().requestsToday?ui().requestsToday(w.count):`~${w.count} ${textCopy(w.count===1?'request today':'requests today')}`):textCopy('no requests today')}</div></div>`;
         continue;
       }
       html+=`<div class="win">

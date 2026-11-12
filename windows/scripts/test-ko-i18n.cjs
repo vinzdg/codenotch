@@ -29,6 +29,8 @@ test('Korean card keeps numbers, plan names and unknown vendor messages', () => 
   assert.equal(ui.ago(120), '2시간 전');
   assert.equal(ui.updated(ui.ago(20)), '20분 전에 마지막 업데이트됨');
   assert.equal(ui.andMore(3), '외 3개');
+  assert.equal(ui.requestsToday(12), '오늘 요청 ~12회');
+  assert.equal(textCopy('no requests today'), '오늘 요청 없음');
 });
 
 test('an unsupported card language still uses English', () => {
@@ -36,4 +38,5 @@ test('an unsupported card language still uses English', () => {
   assert.equal(textCopy('Current session'), 'Current session');
   assert.equal(ui.resetsIn(51), 'Resets in 51 min');
   assert.equal(ui.updated('20m ago'), 'Updated 20m ago');
+  assert.equal(ui.requestsToday, undefined);
 });
