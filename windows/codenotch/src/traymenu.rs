@@ -59,7 +59,7 @@ pub fn used_left(w: &LimitWindow, lang: &str) -> String {
 
 /// Unknown window lengths must not imply an even pace.
 pub fn pace_points(w: &LimitWindow, now: u64) -> Option<f64> {
-    if w.count.is_some() || !w.used.is_finite() || w.used < 0.0 { return None }
+    if !w.metered() || !w.used.is_finite() || w.used < 0.0 { return None }
     let duration = w.duration_ms.filter(|d| *d > 0)? as f64;
     let remaining = w.resets_at.filter(|r| *r > now)?.saturating_sub(now) as f64;
     let elapsed = 1.0 - (remaining / duration).min(1.0);
@@ -329,6 +329,9 @@ pub fn window_line(w: &LimitWindow, now: u64, lang: &str) -> String {
     let name = label(&w.label, lang);
     if let Some(count) = w.count {
         return format!("{name}: ~{count}");
+    }
+    if let Some(amount) = &w.amount {
+        return format!("{name}: {amount}");
     }
     let mut line = format!("{name}: {}", used_left(w, lang));
     if let Some(deficit) = deficit_text(w, now, lang) {
