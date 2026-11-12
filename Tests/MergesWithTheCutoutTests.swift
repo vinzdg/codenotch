@@ -159,39 +159,145 @@ final class MergesWithTheCutoutTests: XCTestCase {
     /// hardware's notch where there is nothing for it to belong to.
     func testNothingIsDrawnBelowTheHoleInsideIt() throws {
         for scale in [0.5, 1.0, 1.5] as [CGFloat] {
-            for open in [true, false] {
-                let screen = Notched()
-                let m = model(screen, scale: scale, open: open)
-                let hole = try hole(screen)
-                let inside = outline(of: m, on: screen).filter { $0.x < hole.wall - 0.5 }
-                XCTAssertFalse(inside.isEmpty,
-                               "scale \(scale) open \(open): nothing overlaps the hole at all, "
-                               + "so there is no join — only two shapes side by side")
-                let deepest = inside.map(\.depth).max() ?? 0
-                XCTAssertLessThanOrEqual(deepest, hole.depth + 0.6,
-                                         "scale \(scale) open \(open): the notch reaches "
-                                         + "\(deepest)pt below the screen's top inside the "
-                                         + "hole, which is only \(hole.depth)pt deep — that "
-                                         + "much of it is drawn on the wallpaper")
-            }
+            let screen = Notched()
+            let m = model(screen, scale: scale)
+            let hole = try hole(screen)
+            let inside = outline(of: m, on: screen).filter { $0.x < hole.wall - 0.5 }
+            XCTAssertFalse(inside.isEmpty,
+                           "scale \(scale): nothing overlaps the hole at all, "
+                           + "so there is no join — only two shapes side by side")
+            let deepest = inside.map(\.depth).max() ?? 0
+            XCTAssertLessThanOrEqual(deepest, hole.depth + 0.6,
+                                     "scale \(scale): the notch reaches "
+                                     + "\(deepest)pt below the screen's top inside the "
+                                     + "hole, which is only \(hole.depth)pt deep — that "
+                                     + "much of it is drawn on the wallpaper")
         }
     }
 
     /// **And it is flush with the hole where it meets it**, rather than stopping
     /// short of its bottom edge and leaving a step.
     func testItMeetsTheHolesBottomEdgeExactly() throws {
-        for open in [true, false] {
-            let screen = Notched()
-            let m = model(screen, open: open)
-            let hole = try hole(screen)
-            let atWall = outline(of: m, on: screen)
-                .filter { abs($0.x - hole.wall) < 1.5 }
-                .map(\.depth)
-            XCTAssertFalse(atWall.isEmpty, "open \(open): the outline never reaches the wall")
-            XCTAssertEqual(atWall.max() ?? 0, hole.depth, accuracy: 0.8,
-                           "open \(open): at the hole's wall the notch is "
-                           + "\(atWall.max() ?? 0)pt deep against the hole's \(hole.depth) — "
-                           + "a step, and a step is a seam")
+        let screen = Notched()
+        let m = model(screen)
+        let hole = try hole(screen)
+        let atWall = outline(of: m, on: screen)
+            .filter { abs($0.x - hole.wall) < 1.5 }
+            .map(\.depth)
+        XCTAssertFalse(atWall.isEmpty, "the outline never reaches the wall")
+        XCTAssertEqual(atWall.max() ?? 0, hole.depth, accuracy: 0.8,
+                       "at the hole's wall the notch is "
+                       + "\(atWall.max() ?? 0)pt deep against the hole's \(hole.depth) — "
+                       + "a step, and a step is a seam")
+    }
+
+    // MARK: - Folded
+
+    /// **Folded, it is the Mac's own notch and no bigger.**
+    ///
+    /// Both copies draw themselves all the way back into the hole, on either
+    /// side of it and at every size setting, so nothing of ours is left on
+    /// screen to make the machine's notch look wider than it is. And the hole
+    /// itself is what wakes it — there is nothing else of it to aim at.
+    func testFoldedItIsExactlyTheMacsOwnNotch() throws {
+        let screen = Notched()
+        let hole = try hole(screen)
+        for offset in [0, try flushOnTheLeft(screen)] {
+            for scale in [0.5, 1.0, 1.5] as [CGFloat] {
+                let m = model(screen, scale: scale, open: false, offset: offset)
+                let context = "offset \(offset) scale \(scale)"
+                XCTAssertTrue(m.mergesWithCutout, "\(context): folding let go of the hole")
+                XCTAssertEqual(m.wings.count, 2, context)
+                for wing in m.wings {
+                    XCTAssertEqual(wing.length, 0, accuracy: 0.001,
+                                   "\(context): copy \(wing.id) still shows \(wing.length)pt "
+                                   + "beside the Mac's notch, which makes it look bigger")
+                }
+                XCTAssertTrue(outline(of: m, on: screen).isEmpty,
+                              "\(context): something of the notch is still drawn")
+
+                let frame = NotchGeometry.panelFrame(
+                    for: screen, panelSize: m.panelSize, edge: .top,
+                    alongOffset: m.alongOffset, slack: m.slack,
+                    trailingExtent: m.trailingExtent, leadingExtent: m.leadingExtent)
+                let wake = CursorGeometry(model: m,
+                                          placement: NotchPlacement(edge: .top,
+                                                                    panelSize: frame.size)).pillRect
+                XCTAssertEqual(frame.minX + wake.minX, hole.left, accuracy: 0.5,
+                               "\(context): the hole is not what wakes it")
+                XCTAssertEqual(frame.minX + wake.maxX, hole.wall, accuracy: 0.5,
+                               "\(context): the hole is not what wakes it")
+                XCTAssertEqual(wake.minY, 0, accuracy: 0.001, context)
+                XCTAssertGreaterThanOrEqual(wake.height, hole.depth, context)
+            }
+        }
+    }
+
+    /// **And it gets there by going into the hole**, the way the other copy has
+    /// always come out of it — frame by frame, with the numbers SwiftUI eases.
+    ///
+    /// Out past the wall, nothing of it is drawn below the hole's foot inside
+    /// it. Once it is shorter than what is buried, nothing of it is outside the
+    /// hole at all, rounded corner included: the end going in wears the hole's
+    /// outline. Before the bar's welded end was held square however short it
+    /// got, a bar shorter than its buried overlap opened that end back up into a
+    /// flare longer than itself and turned inside out across the Mac's corner.
+    func testItFoldsIntoTheHoleFrameByFrame() throws {
+        let screen = Notched()
+        let hole = try hole(screen)
+        let rc = hole.depth * 31.2 / 90
+        // The hole's foot at `x`: its depth, rising round each bottom corner,
+        // and nothing at all either side of it.
+        func foot(_ x: CGFloat) -> CGFloat {
+            guard x >= hole.left, x <= hole.wall else { return 0 }
+            let u = max(x - (hole.wall - rc), (hole.left + rc) - x, 0)
+            return hole.depth - rc + (rc * rc - min(u * u, rc * rc)).squareRoot()
+        }
+        for offset in [0, try flushOnTheLeft(screen)] {
+            let open = model(screen, offset: offset)
+            let shut = model(screen, open: false, offset: offset)
+            let frame = NotchGeometry.panelFrame(
+                for: screen, panelSize: open.panelSize, edge: .top,
+                alongOffset: open.alongOffset, slack: open.slack,
+                trailingExtent: open.trailingExtent, leadingExtent: open.leadingExtent)
+            for (from, to) in zip(open.wings, shut.wings) {
+                XCTAssertEqual(from.id, to.id)
+                let fromShape = open.notchShape(for: from), toShape = shut.notchShape(for: to)
+                for step in 0...40 {
+                    let p = CGFloat(step) / 40
+                    // What is not animated is the folded state's from the first
+                    // frame; what is, is part way between the two.
+                    var shape = toShape
+                    var a = fromShape.animatableData, b = toShape.animatableData
+                    a.scale(by: Double(1 - p))
+                    b.scale(by: Double(p))
+                    shape.animatableData = a + b
+                    let length = from.length + (to.length - from.length) * p
+                    let lead = from.lead + (to.lead - from.lead) * p
+                    guard length > 0.001 else { continue }
+                    let size = NotchPlacement.panelSize(edge: .top,
+                                                        length: length / shut.sizeScale,
+                                                        depth: to.depth)
+                    let drawn = walk(shape.path(in: CGRect(origin: .zero, size: size))) {
+                        Sample(x: frame.minX + lead + $0.x * shut.sizeScale,
+                               depth: $0.y * shut.sizeScale - NotchRootView.bezelBleed)
+                    }
+                    let context = "offset \(offset) copy \(from.id) at \(Int(p * 100))%, "
+                        + "\(length)pt long"
+                    if length <= NotchGeometry.cutoutOverlap {
+                        let worst = drawn.map { $0.depth - foot($0.x) }.max() ?? 0
+                        XCTAssertLessThanOrEqual(worst, 0.6,
+                                                 "\(context): \(worst)pt of it shows outside "
+                                                 + "the hole it is folding into")
+                    } else {
+                        let deepest = drawn.filter { $0.x > hole.left + 0.5 && $0.x < hole.wall - 0.5 }
+                            .map(\.depth).max() ?? 0
+                        XCTAssertLessThanOrEqual(deepest, hole.depth + 0.6,
+                                                 "\(context): it hangs \(deepest)pt below a hole "
+                                                 + "\(hole.depth)pt deep")
+                    }
+                }
+            }
         }
     }
 
@@ -576,20 +682,20 @@ final class MergesWithTheCutoutTests: XCTestCase {
         let screen = Notched()
         let cutout = try XCTUnwrap(screen.hardwareNotch)
         let hole = try hole(screen)
-        for open in [true, false] {
-            let m = model(screen, open: open, offset: try flushOnTheLeft(screen))
+        do {
+            let m = model(screen, offset: try flushOnTheLeft(screen))
             let drawn = outline(of: m, on: screen)
 
             let inside = drawn.filter { $0.x > hole.left + 0.5 }
-            XCTAssertFalse(inside.isEmpty, "\(open): nothing overlaps the hole, so there "
+            XCTAssertFalse(inside.isEmpty, "nothing overlaps the hole, so there "
                            + "is no join — only two shapes side by side")
             XCTAssertLessThanOrEqual(inside.map(\.depth).max() ?? 0, hole.depth + 0.6,
-                                     "\(open): it hangs \(inside.map(\.depth).max() ?? 0)pt "
+                                     "it hangs \(inside.map(\.depth).max() ?? 0)pt "
                                      + "below a hole \(hole.depth)pt deep")
 
             let atWall = drawn.filter { abs($0.x - hole.left) < 1.5 }.map(\.depth)
             XCTAssertEqual(atWall.max() ?? 0, hole.depth, accuracy: 1.0,
-                           "\(open): it meets the hole's left wall at \(atWall.max() ?? 0)pt "
+                           "it meets the hole's left wall at \(atWall.max() ?? 0)pt "
                            + "against the hole's \(hole.depth) — a step is a seam")
         }
     }

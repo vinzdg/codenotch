@@ -37,11 +37,19 @@ final class CursorGeometryTests: XCTestCase {
     }
 
     private func originalPill(_ m: NotchViewModel, _ p: NotchPlacement) -> CGRect {
-        let joined = m.mergesWithCutout
-        let length = joined ? m.drawnAlongExtent : m.wakeLength
-        let lead = joined ? (m.wings.first?.lead ?? m.slack)
-            : m.restingAlongLead + (m.restingLength * m.sizeScale - m.wakeLength) / 2
-        return p.rect(along: lead, across: 0, length: length, depth: m.wakeDepth)
+        // Joined, the hole and whatever is drawn either side of it — folded,
+        // nothing is, and the hole is the whole target.
+        if m.mergesWithCutout, let cutout = m.cutout {
+            let middle = (m.cutoutSpan(cellCount: m.snapshots.count) + 2 * m.slack) / 2
+            var lead = middle - cutout.width / 2, end = middle + cutout.width / 2
+            for wing in m.wings where wing.length > 0 {
+                lead = min(lead, wing.lead)
+                end = max(end, wing.lead + wing.length)
+            }
+            return p.rect(along: lead, across: 0, length: end - lead, depth: m.wakeDepth)
+        }
+        let lead = m.restingAlongLead + (m.restingLength * m.sizeScale - m.wakeLength) / 2
+        return p.rect(along: lead, across: 0, length: m.wakeLength, depth: m.wakeDepth)
     }
 
     private func originalHandle(_ m: NotchViewModel, _ p: NotchPlacement, grip: Bool) -> CGRect {

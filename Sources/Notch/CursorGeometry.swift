@@ -50,16 +50,19 @@ final class CursorGeometry {
     /// exactly the hardware notch when it is joined to one — see
     /// `NotchViewModel.wakeLength` for both halves of that.
     private(set) lazy var pillRect: CGRect = {
-        // Joined, that is both copies and the hole between them: the hardware's
-        // own notch is part of the target, which is the whole point of the
-        // notch being drawn as part of it.
-        let joined = model.mergesWithCutout
-        let length = joined ? model.drawnAlongExtent(in: wings) : model.wakeLength
-        let lead = joined
-            ? (wings.first?.lead ?? model.slack)
-            : model.restingAlongLead(in: wings)
-                + (model.restingLength * model.sizeScale - model.wakeLength) / 2
-        return placement.rect(along: lead, across: 0, length: length, depth: model.wakeDepth)
+        // Joined, that is the hardware's own notch, and both copies either side
+        // of it while they are drawn: the hole is part of the target, which is
+        // the whole point of the notch being drawn as part of it — and folded,
+        // the hole is all there is to see.
+        if model.mergesWithCutout {
+            let span = model.joinedWakeAlong(in: wings)
+            return placement.rect(along: span.lead, across: 0, length: span.length,
+                                  depth: model.wakeDepth)
+        }
+        let lead = model.restingAlongLead(in: wings)
+            + (model.restingLength * model.sizeScale - model.wakeLength) / 2
+        return placement.rect(along: lead, across: 0, length: model.wakeLength,
+                              depth: model.wakeDepth)
     }()
 
     private lazy var orbHandleRect = handleRect(points: orbHandlePoints)
