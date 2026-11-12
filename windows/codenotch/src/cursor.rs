@@ -6,7 +6,13 @@
 //!      `cursorAuth/accessToken` + `cursorAuth/stripeMembershipAuthId`, joined into the cookie
 //!      `WorkosCursorSessionToken=<authId>::<token>`. Non-secret identity cache:
 //!      `cursorAuth/cachedEmail`, `cursorAuth/stripeMembershipType` (only the plan is shown).
-//!   2. Endpoint: `GET https://cursor.com/api/usage-summary` (Cookie + Accept: application/json, 15 s).
+//!      Newer builds seal the token with Electron safeStorage: `cursor-safe-storage:v1:` + base64 of
+//!      `v10` | 12-byte nonce | AES-256-GCM ciphertext+tag, keyed by `os_crypt.encrypted_key` in
+//!      `%APPDATA%\Cursor\Local State` (`DPAPI` + a blob only this Windows user can unprotect).
+//!   2. Endpoint: `POST https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage`
+//!      (Connect JSON, `Authorization: Bearer <token>`, body `{}`) — the editor's own Usage panel, which
+//!      knows the weekly allowance (see `parse_dashboard`). Fallback, and the older source:
+//!      `GET https://cursor.com/api/usage-summary` (Cookie + Accept: application/json, 15 s).
 //!      Reply:
 //!      ```text
 //!      { billingCycleEnd, membershipType, isUnlimited,
@@ -31,6 +37,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 
 const ENDPOINT: &str = "https://cursor.com/api/usage-summary";
+const DASHBOARD_ENDPOINT: &str = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage";
 const POLL_SECS: u64 = 300;
 
 static REFRESH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -113,18 +120,77 @@ fn item(conn: &rusqlite::Connection, key: &str) -> Option<String> {
 }
 
 struct Creds {
+    token: String,
     cookie: String,
     plan: Option<String>,
+}
+
+const SAFE_STORAGE_PREFIX: &str = "cursor-safe-storage:";
+
+/// The safeStorage AES key: `os_crypt.encrypted_key` in the editor's `Local State`, unwrapped by DPAPI
+#[cfg(windows)]
+fn safe_storage_key() -> Option<Vec<u8>> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use windows::Win32::Foundation::{LocalFree, HLOCAL};
+    use windows::Win32::Security::Cryptography::{CryptUnprotectData, CRYPT_INTEGER_BLOB};
+
+    let path = dirs::config_dir()?.join("Cursor").join("Local State");
+    let state: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    let wrapped = STANDARD.decode(state.get("os_crypt")?.get("encrypted_key")?.as_str()?).ok()?;
+    let mut blob = wrapped.strip_prefix(b"DPAPI")?.to_vec();
+    let input = CRYPT_INTEGER_BLOB { cbData: blob.len() as u32, pbData: blob.as_mut_ptr() };
+    let mut out = CRYPT_INTEGER_BLOB::default();
+    unsafe {
+        CryptUnprotectData(&input, None, None, None, None, 0, &mut out).ok()?;
+        let key = std::slice::from_raw_parts(out.pbData, out.cbData as usize).to_vec();
+        let _ = LocalFree(HLOCAL(out.pbData as _));
+        Some(key)
+    }
+}
+
+#[cfg(not(windows))]
+fn safe_storage_key() -> Option<Vec<u8>> {
+    None
+}
+
+/// A value without the safeStorage marker passes through untouched (older builds wrote it in the clear).
+/// None means the seal could not be opened: sending the sealed text only earns a 401.
+fn unseal(value: String) -> Option<String> {
+    let Some(sealed) = value.strip_prefix(SAFE_STORAGE_PREFIX) else { return Some(value) };
+    open_safe_storage(sealed, &safe_storage_key()?)
+}
+
+fn open_safe_storage(sealed: &str, key: &[u8]) -> Option<String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use ring::aead;
+
+    let raw = STANDARD.decode(sealed.strip_prefix("v1:")?).ok()?;
+    let body = raw.strip_prefix(b"v10")?;
+    if body.len() < 12 + 16 {
+        return None;
+    }
+    let (nonce, ct) = body.split_at(12);
+    let key = aead::LessSafeKey::new(aead::UnboundKey::new(&aead::AES_256_GCM, key).ok()?);
+    let nonce = aead::Nonce::try_assume_unique_for_key(nonce).ok()?;
+    let mut buf = ct.to_vec();
+    let plain = key.open_in_place(nonce, aead::Aad::empty(), &mut buf).ok()?;
+    std::str::from_utf8(plain).ok().filter(|s| !s.is_empty()).map(str::to_string)
 }
 
 /// Re-read every time: the editor rotates the token, and holding on to an old value signs us out
 fn read_credentials() -> Option<Creds> {
     let path = store_url()?;
     let conn = open_ro(&path)?;
-    let token = item(&conn, "cursorAuth/accessToken")?;
+    let token = unseal(item(&conn, "cursorAuth/accessToken")?)?;
     let auth_id = item(&conn, "cursorAuth/stripeMembershipAuthId")?;
     let plan = item(&conn, "cursorAuth/stripeMembershipType");
-    Some(Creds { cookie: format!("WorkosCursorSessionToken={auth_id}::{token}"), plan })
+    Some(Creds { cookie: session_cookie(&auth_id, &token), token, plan })
+}
+
+/// cursor.com's own cookie: the bare user id (the auth id is `<provider>|<user id>`), then `::` URL-encoded
+fn session_cookie(auth_id: &str, token: &str) -> String {
+    let user_id = auth_id.rsplit('|').next().unwrap_or(auth_id);
+    format!("WorkosCursorSessionToken={user_id}%3A%3A{token}")
 }
 
 /// For doctor: contains no secret values
@@ -198,19 +264,69 @@ pub fn parse_summary(v: &serde_json::Value) -> (Vec<LimitWindow>, String) {
     (out, note)
 }
 
+fn parse_ms(v: Option<&serde_json::Value>) -> Option<u64> {
+    v.and_then(|x| x.as_str().and_then(|s| s.parse().ok()).or_else(|| x.as_u64())).filter(|&ms| ms > 0)
+}
+
+/// GetCurrentPeriodUsage → windows. This is what the editor's own Usage panel shows, including the
+/// weekly allowance of the newer plans (usage-summary still reports the monthly cycle there, at 0 %).
+/// Cycle bounds are epoch-ms strings; spend limits are cents.
+pub fn parse_dashboard(v: &serde_json::Value) -> Vec<LimitWindow> {
+    let resets_at = parse_ms(v.get("billingCycleEnd"));
+    let duration_ms = duration_between_ms(parse_ms(v.get("billingCycleStart")), resets_at);
+    let plan = v.get("planUsage").cloned().unwrap_or(serde_json::Value::Null);
+    let mut out = Vec::new();
+    if let Some(total) = pct(plan.get("totalPercentUsed")) {
+        out.push(LimitWindow { id: "included".into(), label: "Included usage".into(), used: total, resets_at, duration_ms, ..Default::default() });
+    }
+    if let Some(api) = pct(plan.get("apiPercentUsed")).filter(|&a| a > 0.0) {
+        out.push(LimitWindow { id: "api".into(), label: "API usage".into(), used: api, resets_at, duration_ms, ..Default::default() });
+    }
+    let spend = v.get("spendLimitUsage");
+    let limit = spend.and_then(|s| s.get("individualLimit")).and_then(|x| x.as_f64()).unwrap_or(0.0);
+    if limit > 0.0 {
+        let used = spend.and_then(|s| s.get("individualUsed")).and_then(|x| x.as_f64()).unwrap_or(0.0);
+        out.push(LimitWindow { id: "on_demand".into(), label: "On demand".into(), used: (used / limit).clamp(0.0, 1.0), resets_at, duration_ms, ..Default::default() });
+    }
+    out
+}
+
 enum FetchErr {
     NeedsAuth,
     Other(String),
 }
 
+fn status_err(e: ureq::Error) -> FetchErr {
+    match e {
+        ureq::Error::Status(401 | 403, _) => FetchErr::NeedsAuth,
+        ureq::Error::Status(code, _) => FetchErr::Other(format!("HTTP {code}")),
+        e => FetchErr::Other(format!("{e}")),
+    }
+}
+
+fn fetch_dashboard(token: &str) -> Result<serde_json::Value, FetchErr> {
+    let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(15)).build();
+    agent
+        .post(DASHBOARD_ENDPOINT)
+        .set("Authorization", &format!("Bearer {token}"))
+        .set("Content-Type", "application/json")
+        .set("Connect-Protocol-Version", "1")
+        .send_string("{}")
+        .map_err(status_err)?
+        .into_json::<serde_json::Value>()
+        .map_err(|e| FetchErr::Other(format!("parse: {e}")))
+}
+
 fn fetch_once(cookie: &str) -> Result<serde_json::Value, FetchErr> {
     let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(15)).build();
-    match agent.get(ENDPOINT).set("Cookie", cookie).set("Accept", "application/json").call() {
-        Ok(r) => r.into_json::<serde_json::Value>().map_err(|e| FetchErr::Other(format!("parse: {e}"))),
-        Err(ureq::Error::Status(401, _)) | Err(ureq::Error::Status(403, _)) => Err(FetchErr::NeedsAuth),
-        Err(ureq::Error::Status(code, _)) => Err(FetchErr::Other(format!("HTTP {code}"))),
-        Err(e) => Err(FetchErr::Other(format!("{e}"))),
-    }
+    agent
+        .get(ENDPOINT)
+        .set("Cookie", cookie)
+        .set("Accept", "application/json")
+        .call()
+        .map_err(status_err)?
+        .into_json::<serde_json::Value>()
+        .map_err(|e| FetchErr::Other(format!("parse: {e}")))
 }
 
 fn cap(s: &str) -> String {
@@ -228,6 +344,16 @@ fn read_once(prev: &UsageSnapshot) -> UsageSnapshot {
         snap.note = "Sign in to Cursor (the editor) to see usage.".into();
         return snap;
     };
+    if let Ok(v) = fetch_dashboard(&creds.token) {
+        let windows = parse_dashboard(&v);
+        if !windows.is_empty() {
+            snap.fetched_at = now_ms();
+            snap.status = "ok".into();
+            snap.windows = windows;
+            snap.note = creds.plan.as_deref().map(|p| format!("{} · via Cursor", cap(p))).unwrap_or_default();
+            return snap;
+        }
+    }
     match fetch_once(&creds.cookie) {
         Ok(v) => {
             let (windows, note) = parse_summary(&v);
@@ -317,6 +443,70 @@ mod tests {
             "individualUsage": {"plan": {"totalPercentUsed": 10, "apiPercentUsed": 20},
                 "onDemand": {"enabled": true, "used": 5, "limit": 10}}
         })).0
+    }
+
+    fn seal(plain: &str, key: &[u8], nonce: [u8; 12]) -> String {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        use ring::aead;
+        let k = aead::LessSafeKey::new(aead::UnboundKey::new(&aead::AES_256_GCM, key).unwrap());
+        let mut buf = plain.as_bytes().to_vec();
+        k.seal_in_place_append_tag(aead::Nonce::assume_unique_for_key(nonce), aead::Aad::empty(), &mut buf).unwrap();
+        format!("v1:{}", STANDARD.encode([b"v10".as_slice(), &nonce, &buf].concat()))
+    }
+
+    #[test]
+    fn safe_storage_values_open_with_the_right_key_only() {
+        let key = [7u8; 32];
+        let sealed = seal("tok", &key, [1; 12]);
+        assert_eq!(open_safe_storage(&sealed, &key).as_deref(), Some("tok"));
+        assert_eq!(open_safe_storage(&sealed, &[8u8; 32]), None);
+        assert_eq!(open_safe_storage("not base64!", &key), None);
+    }
+
+    #[test]
+    fn clear_tokens_pass_through_unseal() {
+        assert_eq!(unseal("plain.jwt.value".into()).as_deref(), Some("plain.jwt.value"));
+    }
+
+    #[test]
+    fn the_cookie_carries_the_bare_user_id() {
+        assert_eq!(session_cookie("google-oauth2|user_01", "t"), "WorkosCursorSessionToken=user_01%3A%3At");
+        assert_eq!(session_cookie("user_01", "t"), "WorkosCursorSessionToken=user_01%3A%3At");
+    }
+
+    #[test]
+    fn the_weekly_dashboard_reading_is_the_headline() {
+        let ws = parse_dashboard(&serde_json::json!({
+            "billingCycleStart": "1794399884850", "billingCycleEnd": "1795004684850",
+            "planUsage": {"autoPercentUsed": 19.458288190682556, "totalPercentUsed": 19.458288190682556},
+            "spendLimitUsage": {"limitType": "user"}
+        }));
+        assert_eq!(ws.len(), 1);
+        assert_eq!(ws[0].id, "included");
+        assert!((ws[0].used - 0.19458).abs() < 1e-4);
+        assert_eq!(ws[0].resets_at, Some(1795004684850));
+        assert_eq!(ws[0].duration_ms, Some(7 * 86_400_000));
+    }
+
+    #[test]
+    fn dashboard_spend_limits_become_on_demand() {
+        let ws = parse_dashboard(&serde_json::json!({
+            "planUsage": {"totalPercentUsed": 0},
+            "spendLimitUsage": {"individualLimit": 2000, "individualUsed": 500}
+        }));
+        assert_eq!(ws.iter().map(|w| (w.id.as_str(), w.used)).collect::<Vec<_>>(), [("included", 0.0), ("on_demand", 0.25)]);
+    }
+
+    /// Reads this machine's signed-in editor; prints nothing secret
+    #[test]
+    #[ignore]
+    fn live_usage_summary() {
+        let creds = read_credentials().expect("could not read or unseal the Cursor session");
+        match fetch_dashboard(&creds.token) {
+            Ok(v) => println!("{:?}", parse_dashboard(&v).iter().map(|w| (&w.label, w.used, w.duration_ms)).collect::<Vec<_>>()),
+            Err(FetchErr::NeedsAuth) => panic!("session rejected (401/403)"),
+            Err(FetchErr::Other(e)) => panic!("{e}"),
+        }
     }
 
     #[test]
