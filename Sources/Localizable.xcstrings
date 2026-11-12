@@ -1429,7 +1429,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp 중 하나를 설치하고 로그인하거나 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하면 노치에 해당 링이 나타납니다."
+            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp 중 하나를 설치하고 로그인하거나 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하십시오. 그러면 노치에 링이 나타납니다."
           }
         },
         "uz": {
@@ -7422,7 +7422,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "마우스를 올리면 표시"
+            "value": "포인터를 올리면 표시"
           }
         },
         "uz": {
@@ -9995,7 +9995,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor, Codex, Antigravity, GLM, Grok, OpenCode 중 하나를 설치하고 로그인하면 노치에 해당 링이 나타납니다."
+            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor, Codex, Antigravity, GLM, Grok, OpenCode 중 하나를 설치하고 로그인하십시오. 그러면 노치에 링이 나타납니다."
           }
         },
         "uz": {
@@ -16423,7 +16423,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "노치를 클릭하면 설정과 같은 플래그가 바뀌어 실수로 클릭했을 때 ‘마우스를 올리면 표시’로 돌아가곤 했습니다."
+            "value": "노치를 클릭하면 설정과 같은 플래그가 바뀌어 실수로 클릭했을 때 ‘포인터를 올리면 표시’로 돌아가곤 했습니다."
           }
         },
         "id": {
@@ -16565,7 +16565,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "토큰이 만료되면 조회할 때마다 키체인에 접근해 매분 권한을 요청했습니다. 이제 해당 앱이 비밀 정보를 변경했을 때만 읽습니다. 접근이 거부되면 타이머로 재시도하지 않습니다."
+            "value": "토큰이 만료되면 조회할 때마다 키체인에 접근해 매분 권한을 요청했습니다. 이제 비밀 정보를 가진 앱이 비밀 정보를 변경했을 때만 읽습니다. 접근이 거부되면 타이머로 재시도하지 않습니다."
           }
         },
         "id": {
@@ -17062,7 +17062,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "카드는 해당 링을 중심으로 배치되므로 첫 번째와 마지막 제공자의 카드는 패널 밖으로 절반이 나가 제목이 잘렸습니다. 이제 패널이 필요한 공간을 확보합니다."
+            "value": "카드는 자신이 속한 링을 중심으로 배치되므로 첫 번째와 마지막 제공자의 카드는 패널 밖으로 절반이 나가 제목이 잘렸습니다. 이제 패널이 필요한 공간을 확보합니다."
           }
         },
         "id": {
@@ -25240,7 +25240,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, GitHub Copilot 중 하나를 설치하고 로그인하거나 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하면 노치에 해당 링이 나타납니다."
+            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, GitHub Copilot 중 하나를 설치하고 로그인하거나 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하십시오. 그러면 노치에 링이 나타납니다."
           }
         },
         "uz": {
@@ -26116,7 +26116,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "에이전트가 작업을 마치거나 응답을 기다리기 시작하면 노치가 몇 초간 열리고 알림음이 울립니다. 클릭하면 해당 세션으로 이동합니다."
+            "value": "에이전트가 작업을 마치거나 응답을 기다리기 시작하면 노치가 몇 초간 열리고 알림음이 울립니다. 클릭하면 그 에이전트의 세션으로 이동합니다."
           }
         },
         "id": {
@@ -30015,7 +30015,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot 또는 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하는 도구를 설치하고 로그인하면 노치에 해당 링이 나타납니다."
+            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot 또는 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하는 도구를 설치하고 로그인하십시오. 그러면 노치에 링이 나타납니다."
           }
         },
         "uz": {
@@ -35579,7 +35579,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "제공자의 주요 한도 사용량이 80%를 넘는 순간과 100%에 도달할 때 시스템 알림을 보냅니다. 각 기준을 넘을 때 한 번씩 알리고 집계 기간이 바뀐 뒤에만 다시 알립니다. ‘계정’의 해당 항목 옆 종 아이콘으로 알림을 끌 수 있습니다."
+            "value": "제공자의 주요 한도 사용량이 80%를 넘는 순간과 100%에 도달할 때 시스템 알림을 보냅니다. 각 기준을 넘을 때 한 번씩 알리고 집계 기간이 바뀐 뒤에만 다시 알립니다. ‘계정’의 그 제공자 항목 옆 종 아이콘으로 알림을 끌 수 있습니다."
           }
         },
         "uz": {
@@ -35644,7 +35644,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codenotch는 에이전트가 작업을 마치거나 질문하려고 멈추는 순간을 감지합니다. 노치가 열려 있을 때 클릭하면 해당 세션의 앱을 앞으로 가져옵니다. 외부에서 탭을 선택할 수 있는 터미널은 일부뿐이므로 탭 대신 앱을 열고 툴팁에 세션 이름을 표시합니다."
+            "value": "Codenotch는 에이전트가 작업을 마치거나 질문하려고 멈추는 순간을 감지합니다. 노치가 열려 있을 때 클릭하면 그 에이전트 세션의 앱을 앞으로 가져옵니다. 외부에서 탭을 선택할 수 있는 터미널은 일부뿐이므로 탭 대신 앱을 열고 툴팁에 세션 이름을 표시합니다."
           }
         },
         "uz": {
@@ -35774,7 +35774,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "대부분의 측정값은 이미 계정에 로그인된 도구에서 가져옵니다. DeepSeek는 예외로, ‘로그인’을 클릭하면 Codenotch 전용 WebView가 열리며 여기서 로그아웃하면 해당 세션과 저장된 측정값만 삭제합니다."
+            "value": "대부분의 측정값은 이미 계정에 로그인된 도구에서 가져옵니다. DeepSeek는 예외로, ‘로그인’을 클릭하면 Codenotch 전용 WebView가 열리며 여기서 로그아웃하면 그 WebView 세션과 저장된 측정값만 삭제합니다."
           }
         },
         "uz": {
@@ -44623,7 +44623,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro 또는 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하는 도구를 설치하고 로그인하면 노치에 해당 링이 나타납니다."
+            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro 또는 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하는 도구를 설치하고 로그인하십시오. 그러면 노치에 링이 나타납니다."
           }
         },
         "uz": {
@@ -48813,7 +48813,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS가 저장된 로그인 정보의 접근 권한을 물을 때 ‘거부’를 선택하면 ‘접근 허용…’을 다시 선택할 때까지 어떤 경로로도 해당 계정을 읽지 않습니다."
+            "value": "macOS가 저장된 로그인 정보의 접근 권한을 물을 때 ‘거부’를 선택하면 ‘접근 허용…’을 다시 선택할 때까지 어떤 경로로도 그 로그인 정보의 계정을 읽지 않습니다."
           }
         },
         "id": {
@@ -49424,7 +49424,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty에서 실행 중인 세션을 클릭하면 앱을 앞으로 가져오는 동시에 해당 탭을 선택합니다."
+            "value": "Ghostty에서 실행 중인 세션을 클릭하면 앱을 앞으로 가져오는 동시에 그 세션의 탭을 선택합니다."
           }
         },
         "id": {
@@ -49941,7 +49941,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "꺼 둔 제공자는 이제 감시하지 않습니다. 세션은 파일 전체 대신 끝부분에서 읽습니다. 전체 화면 앱 사용 시 접기를 꺼 두면 마우스를 올려도 노치가 접히지 않습니다."
+            "value": "꺼 둔 제공자는 이제 감시하지 않습니다. 세션은 파일 전체 대신 끝부분에서 읽습니다. 전체 화면 앱 사용 시 접기를 꺼 두면 포인터를 올려도 노치가 접히지 않습니다."
           }
         },
         "id": {
@@ -50834,7 +50834,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 제공자는 직접 켤 때까지 꺼진 상태를 유지합니다. 가운데로 되돌리기 버튼의 피드백을 개선했습니다. Option 키를 누른 채 드래그하는 동안에는 마우스를 올려도 반응하지 않습니다. Codex 완료 소리 설정을 유지합니다. Windows의 링과 호버 카드를 Mac에 맞췄습니다."
+            "value": "새 제공자는 직접 켤 때까지 꺼진 상태를 유지합니다. 가운데로 되돌리기 버튼의 피드백을 개선했습니다. Option 키를 누른 채 드래그하는 동안에는 포인터를 올려도 반응하지 않습니다. Codex 완료 소리 설정을 유지합니다. Windows의 링과 호버 카드를 Mac에 맞췄습니다."
           }
         },
         "id": {
@@ -58564,7 +58564,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "핸들로 모니터 사이를 옮기고 Alt 키를 누른 채 가장자리를 따라 이동할 수 있습니다. 사용하지 않을 때는 Mac의 ‘마우스를 올리면 표시’처럼 작은 필로 접을 수 있습니다."
+            "value": "핸들로 모니터 사이를 옮기고 Alt 키를 누른 채 가장자리를 따라 이동할 수 있습니다. 사용하지 않을 때는 Mac의 ‘포인터를 올리면 표시’처럼 작은 필로 접을 수 있습니다."
           }
         },
         "id": {
@@ -61794,7 +61794,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify 중 하나를 설치하고 로그인하거나 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하면 노치에 해당 링이 나타납니다."
+            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify 중 하나를 설치하고 로그인하거나 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하십시오. 그러면 노치에 링이 나타납니다."
           }
         },
         "uz": {
@@ -63575,7 +63575,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Kilo CLI 중 하나를 설치하고 로그인하거나 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하면 노치에 해당 링이 나타납니다."
+            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Kilo CLI 중 하나를 설치하고 로그인하거나 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하십시오. 그러면 노치에 링이 나타납니다."
           }
         },
         "uz": {
@@ -67627,7 +67627,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, Kilo CLI 중 하나를 설치하고 로그인하거나 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하면 노치에 해당 링이 나타납니다."
+            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, Kilo CLI 중 하나를 설치하고 로그인하거나 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하십시오. 그러면 노치에 링이 나타납니다."
           }
         }
       }
@@ -74462,7 +74462,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, Kilo CLI, Muse 중 하나를 설치하고 로그인하거나 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하면 노치에 해당 링이 나타납니다."
+            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, Kilo CLI, Muse 중 하나를 설치하고 로그인하거나 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하십시오. 그러면 노치에 링이 나타납니다."
           }
         }
       }
@@ -75433,7 +75433,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, Kilo CLI, Muse, Higgsfield 중 하나를 설치하고 로그인하거나 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하면 노치에 해당 링이 나타납니다."
+            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, Kilo CLI, Muse, Higgsfield 중 하나를 설치하고 로그인하거나 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하십시오. 그러면 노치에 링이 나타납니다."
           }
         }
       }
@@ -76444,7 +76444,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, Kilo CLI, Muse, Higgsfield, Krea 중 하나를 설치하고 로그인하거나 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하면 노치에 링이 나타납니다."
+            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않습니다. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, Kilo CLI, Muse, Higgsfield, Krea 중 하나를 설치하고 로그인하거나 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하십시오. 그러면 노치에 링이 나타납니다."
           }
         }
       }
