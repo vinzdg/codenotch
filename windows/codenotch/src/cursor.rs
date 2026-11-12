@@ -222,13 +222,21 @@ fn cap(s: &str) -> String {
 }
 
 fn read_once(prev: &UsageSnapshot) -> UsageSnapshot {
+    read_once_with(prev, read_credentials(), fetch_once)
+}
+
+fn read_once_with(
+    prev: &UsageSnapshot,
+    credentials: Option<Creds>,
+    fetch: impl FnOnce(&str) -> Result<serde_json::Value, FetchErr>,
+) -> UsageSnapshot {
     let mut snap = prev.clone();
-    let Some(creds) = read_credentials() else {
+    let Some(creds) = credentials else {
         snap.status = "needsAuth".into();
         snap.note = "Sign in to Cursor (the editor) to see usage.".into();
         return snap;
     };
-    match fetch_once(&creds.cookie) {
+    match fetch(&creds.cookie) {
         Ok(v) => {
             let (windows, note) = parse_summary(&v);
             snap.fetched_at = now_ms();
@@ -310,6 +318,26 @@ pub fn start(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transport_failure_keeps_previous_cursor_reading_stale() {
+        let previous = UsageSnapshot {
+            status: "ok".into(),
+            windows: summary(serde_json::json!("2026-10-01T00:00:00Z"), serde_json::json!("2026-11-01T00:00:00Z")),
+            fetched_at: 123,
+            ..Default::default()
+        };
+        let credentials = || Some(Creds { cookie: "fixture".into(), plan: None });
+        let failed = |_: &str| Err(FetchErr::Other("transport: ProxyConnect".into()));
+        let stale = read_once_with(&previous, credentials(), failed);
+        assert_eq!(stale.status, "stale");
+        assert_eq!(serde_json::to_value(&stale.windows).unwrap(), serde_json::to_value(&previous.windows).unwrap());
+        assert_eq!(stale.fetched_at, previous.fetched_at);
+
+        let empty = read_once_with(&UsageSnapshot::default(), credentials(), failed);
+        assert_eq!(empty.status, "error");
+        assert!(empty.windows.is_empty());
+    }
 
     fn summary(start: serde_json::Value, end: serde_json::Value) -> Vec<LimitWindow> {
         parse_summary(&serde_json::json!({
