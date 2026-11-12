@@ -110,16 +110,16 @@ function statusText(snapshot,now=Date.now()){
  return isStale(snapshot)?tr('Saved reading','Leitura anterior','저장된 측정값'):tr('Updated','Atualizado','업데이트됨');
 }
 function usageNote(snapshot,now=Date.now()){
- if(retrySeconds(snapshot,now)>0)return tr('Usage checks are temporarily rate limited. Next attempt at ','Limite temporário de consultas. Próxima tentativa às ','요청 한도를 초과해 사용량 확인을 잠시 멈췄습니다. 다음 시도 시각: ')+retryTime(snapshot,now)+'.';
- if(/^Rate limited\b/i.test(snapshot.note||''))return tr('Usage checks were rate limited. Waiting for the next automatic attempt.','Consulta limitada. Aguardando a próxima tentativa automática.','요청 한도를 초과해 사용량을 확인하지 못했습니다. 다음 자동 시도를 기다리는 중입니다.');
+ if(retrySeconds(snapshot,now)>0)return tr('Usage checks are temporarily rate limited. Next attempt at ','Limite temporário de consultas. Próxima tentativa às ','요청 한도를 초과해 사용량 확인을 잠시 멈췄어요. 다음 시도 시각: ')+retryTime(snapshot,now)+'.';
+ if(/^Rate limited\b/i.test(snapshot.note||''))return tr('Usage checks were rate limited. Waiting for the next automatic attempt.','Consulta limitada. Aguardando a próxima tentativa automática.','요청 한도를 초과해 사용량을 확인하지 못했어요. 다음 자동 시도를 기다리는 중이에요.');
  return snapshot.note||'';
 }
 function refreshBlockedText(item,auth,now=Date.now()){
- if(item?.provider==='claude'&&auth?.busy)return tr('Claude authentication is in progress. Wait to refresh.','Autenticação do Claude em andamento. Aguarde para atualizar.','Claude 인증이 진행 중입니다. 인증이 끝난 뒤 새로 고치십시오.');
- if(item&&retrySeconds(item.snapshot,now)>0)return tr('Usage checks are temporarily rate limited. The next attempt time is shown above.','A consulta está temporariamente limitada. Veja acima a próxima tentativa.','요청 한도를 초과해 사용량 확인을 잠시 멈췄습니다. 다음 시도 시각은 위에 표시됩니다.');
- if(item?.snapshot.status==='needsAuth')return tr('Sign in again in Settings.','Entre novamente nas configurações.','설정에서 다시 로그인하십시오.');
- if(item?.provider==='claude')return tr('Usage checks respect the five-minute minimum between attempts. Wait for the next eligible check.','As consultas respeitam o intervalo mínimo de cinco minutos entre tentativas. Aguarde a próxima consulta permitida.','사용량 확인 사이에는 최소 5분 간격을 둡니다. 다음 확인이 가능할 때까지 기다리십시오.');
- return tr('No refresh was queued. Waiting for the next automatic attempt.','A consulta não foi iniciada. Aguardando a próxima tentativa automática.','새로 고침 요청이 등록되지 않았습니다. 다음 자동 시도를 기다리는 중입니다.');
+ if(item?.provider==='claude'&&auth?.busy)return tr('Claude authentication is in progress. Wait to refresh.','Autenticação do Claude em andamento. Aguarde para atualizar.','Claude 인증이 진행 중이에요. 인증이 끝난 뒤 새로 고치세요.');
+ if(item&&retrySeconds(item.snapshot,now)>0)return tr('Usage checks are temporarily rate limited. The next attempt time is shown above.','A consulta está temporariamente limitada. Veja acima a próxima tentativa.','요청 한도를 초과해 사용량 확인을 잠시 멈췄어요. 다음 시도 시각은 위에 표시돼요.');
+ if(item?.snapshot.status==='needsAuth')return tr('Sign in again in Settings.','Entre novamente nas configurações.','설정에서 다시 로그인하세요.');
+ if(item?.provider==='claude')return tr('Usage checks respect the five-minute minimum between attempts. Wait for the next eligible check.','As consultas respeitam o intervalo mínimo de cinco minutos entre tentativas. Aguarde a próxima consulta permitida.','사용량 확인 사이에는 최소 5분 간격을 둬요. 다음 확인이 가능할 때까지 기다리세요.');
+ return tr('No refresh was queued. Waiting for the next automatic attempt.','A consulta não foi iniciada. Aguardando a próxima tentativa automática.','새로 고침 요청이 등록되지 않았어요. 다음 자동 시도를 기다리는 중이에요.');
 }
 function weeklyWindow(window){if(['primary','secondary'].includes(window.id))return codexWindowKind(window)==='weekly';return /weekly|seven_day/.test(window.id||'')||/week|seman/i.test(window.label||'');}
 function resetText(window,now=Date.now()){
@@ -210,11 +210,11 @@ function renderDetails(){
     +'<div class="limit-meta"><span>'+(pct==null?'':escapeHtml(showRemaining?(100-pct)+'% '+tr('remaining','restante','남음')+' · '+pct+'% '+tr('used','usado','사용'):pct+'% '+tr('used','usado','사용')+' · '+(100-pct)+'% '+tr('remaining','restante','남음')))+'</span><span class="reset">'+escapeHtml(reset?resetPrefix+reset:tr('Reset time unavailable','Renovação não informada','재설정 시각 정보 없음'))+'</span></div></div>';
   }).join('');
   const note=usageNote(item.snapshot);
-  return '<article class="card"><div class="card-title"><span>'+escapeHtml(item.name)+'</span><span class="badge">'+escapeHtml(statusText(item.snapshot))+'</span></div>'+(limits||'<p class="note">'+escapeHtml(tr('No recent reading for this account.','Sem leitura recente para esta conta.','이 계정의 최근 측정값이 없습니다.'))+'</p>')
+  return '<article class="card"><div class="card-title"><span>'+escapeHtml(item.name)+'</span><span class="badge">'+escapeHtml(statusText(item.snapshot))+'</span></div>'+(limits||'<p class="note">'+escapeHtml(tr('No recent reading for this account.','Sem leitura recente para esta conta.','이 계정의 최근 측정값이 없어요.'))+'</p>')
    +(note?'<p class="note">'+escapeHtml(note)+'</p>':'')
    +'<div class="read-at">'+escapeHtml(readingAge(item.snapshot)+(item.snapshot.fetched_at?' · '+new Date(item.snapshot.fetched_at).toLocaleString(lang,{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):''))+'</div></article>';
  }).join('');
- const cards=document.getElementById('cards');if(cards.innerHTML!==html)cards.innerHTML=html||'<p class="empty">'+escapeHtml(tr('Add an account in Settings.','Adicione uma conta nas configurações.','설정에서 계정을 추가하십시오.'))+'</p>';
+ const cards=document.getElementById('cards');if(cards.innerHTML!==html)cards.innerHTML=html||'<p class="empty">'+escapeHtml(tr('Add an account in Settings.','Adicione uma conta nas configurações.','설정에서 계정을 추가하세요.'))+'</p>';
  reportHoverSize();
 }
 function render(){
@@ -232,7 +232,7 @@ async function load(){
   const [next,auth]=await Promise.all([invoke('get_taskbar_items'),authRead]);
   items=Array.isArray(next)?next:[];if(auth)claudeAuth=auth;render();
  }
- catch(error){document.getElementById('error').textContent=tr('Could not load account usage.','Não foi possível carregar os limites.','계정 사용량을 불러올 수 없습니다.');}
+ catch(error){document.getElementById('error').textContent=tr('Could not load account usage.','Não foi possível carregar os limites.','계정 사용량을 불러올 수 없어요.');}
  finally{loadBusy=false;if(loadAgain){loadAgain=false;load();}}
 }
 async function refreshItem(id){
@@ -242,7 +242,7 @@ async function refreshItem(id){
   blockedRefresh=accepted?null:{id,fetchedAt:items.find(item=>item.id===id)?.snapshot.fetched_at||0};
   document.getElementById('error').textContent='';await load();
  }
- catch(error){document.getElementById('error').textContent=tr('Could not refresh this account.','Não foi possível atualizar esta conta.','이 계정을 새로 고칠 수 없습니다.');}
+ catch(error){document.getElementById('error').textContent=tr('Could not refresh this account.','Não foi possível atualizar esta conta.','이 계정을 새로 고칠 수 없어요.');}
  finally{setTimeout(()=>{refreshing.delete(id);render();},650);}
 }
 function onStripClick(event){const button=event.target.closest('.chip');if(button)refreshItem(button.dataset.id);}
