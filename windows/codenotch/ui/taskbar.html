@@ -56,6 +56,7 @@ function headline(item){
  const windows=item.snapshot.windows||[],byId=id=>windows.find(w=>w.id===id)||null;
  if(item.provider==='claude')return byId('session')||byId('five_hour')||byId('spend');
  if(item.provider==='codex')return windows.find(window=>codexWindowKind(window)==='five_hour')||null;
+ if(item.provider==='mistral')return windows[0]||null;
  const ids={cursor:'included',glm:'session',opencode:'rolling',grok:'credits',copilot:'premium_interactions'};
  return byId(item.headline_id||ids[item.provider])||(item.provider==='cursor'?byId('api'):null);
 }

@@ -494,6 +494,7 @@ let deepseekSnap={status:'absent',windows:[],fetched_at:0,note:''};
 let opencodeSnap={status:'absent',windows:[],fetched_at:0,note:''};
 let commandcodeSnap={status:'absent',windows:[],fetched_at:0,note:''};
 let qoderSnap={status:'absent',windows:[],fetched_at:0,note:''};
+let mistralSnap={status:'absent',windows:[],fetched_at:0,note:''};
 let agSnap={status:'absent',windows:[],fetched_at:0,note:''};
 let glyphs={}; // id → {kind:'mark'|'appicon', url}
 let activity=[]; // working state of the non-Claude providers: {provider,state:'busy'|'waiting',name,detail,since}
@@ -1350,6 +1351,7 @@ function providers(){
   if(copilotSnap.status!=='absent') list.push({id:'copilot',base:'copilot',name:'GitHub Copilot',glyph:'Cp',snap:copilotSnap});
   if(agSnap.status!=='absent') list.push({id:'gemini',base:'gemini',name:'Antigravity',glyph:'Ag',snap:agSnap});
   if(qoderSnap.status!=='absent') list.push({id:'qoder',base:'qoder',name:'Qoder',glyph:'Q',snap:qoderSnap});
+  if(mistralSnap.status!=='absent'&&headlineOf(mistralSnap,'mistral')) list.push({id:'mistral',base:'mistral',name:'Mistral',glyph:'M',snap:mistralSnap});
   if(Array.isArray(notchSlots)&&notchSlots.length){
     const picked=list.filter(p=>!!slotFor(p.base));
     // Never leave the notch with nothing in it: an empty result means the choice no longer matches
@@ -1387,6 +1389,7 @@ function headlineOf(snap,id){
   if(id==='opencode') return byId('rolling');
   if(id==='commandcode') return byId('monthly');
   if(id==='qoder') return byId('quota');
+  if(id==='mistral') return ws[0];
   const fam=ws.filter(w=>laneFamily(w)===agPrefs.model), lanes=fam.length?fam:ws;
   if(agPrefs.limit!=='automatic'){ const w=tightestOf(lanes.filter(w=>laneIs(w,agPrefs.limit))); if(w) return w; }
   return tightestOf(lanes.filter(w=>w.used<1))||tightestOf(lanes)||lanes[0];
@@ -1408,6 +1411,7 @@ function weeklyOf(snap,id){
   if(id==='opencode') return byId('weekly');
   if(id==='commandcode') return byId('weekly');
   if(id==='qoder') return null; // one plan window renewing at expiresAt; nothing weekly
+  if(id==='mistral') return null; // monthly currency budgets only; nothing weekly
   const fam=ws.filter(w=>laneFamily(w)===agPrefs.model), lanes=fam.length?fam:ws;
   return tightestOf(lanes.filter(w=>laneIs(w,'weekly')));
 }
@@ -2435,6 +2439,8 @@ listen('commandcode',e=>{commandcodeSnap=e.payload||commandcodeSnap;settle('comm
 invoke('get_commandcode').then(u=>{commandcodeSnap=u||commandcodeSnap;renderRing();}).catch(()=>{});
 listen('qoder',e=>{qoderSnap=e.payload||qoderSnap;settle('qoder');renderRing();if(card.classList.contains('show'))renderCard();}).catch(()=>{});
 invoke('get_qoder').then(u=>{qoderSnap=u||qoderSnap;renderRing();}).catch(()=>{});
+listen('mistral',e=>{mistralSnap=e.payload||mistralSnap;settle('mistral');renderRing();if(card.classList.contains('show'))renderCard();}).catch(()=>{});
+invoke('get_mistral').then(u=>{mistralSnap=u||mistralSnap;renderRing();}).catch(()=>{});
 invoke('get_notch_slots').then(v=>{if(Array.isArray(v)){notchSlots=v;renderRing();}}).catch(()=>{});
 listen('notch_slots',e=>{
   notchSlots=Array.isArray(e.payload)?e.payload:null;
