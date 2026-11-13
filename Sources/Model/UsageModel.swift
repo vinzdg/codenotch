@@ -363,6 +363,7 @@ struct ProviderSnapshot: Identifiable, Equatable {
     /// runtime that supplied it.
     var sourceProviderID: String?
     var customIconFilename: String?
+    var customStatusMessage: String?
 
     var providerID: String { sourceProviderID ?? id }
 
@@ -616,6 +617,7 @@ struct ProviderSnapshot: Identifiable, Equatable {
 
     /// What the tooltip says instead of limit rows when there is nothing to show.
     var statusMessage: String? {
+        if let customStatusMessage { return customStatusMessage }
         if kind == .localRuntime {
             if localModel != nil { return nil }
             if let localRuntime {
