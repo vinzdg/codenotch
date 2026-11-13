@@ -579,6 +579,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             statusItem.clickAction = preferences.menuBarClickAction
             statusItem.autoOrders = preferences.ringOrder == .remaining
             statusItem.reading = preferences.menuBarReading
+            statusItem.visualMode = preferences.menuBarVisualMode
             statusItem.activityStyle = preferences.menuBarActivityStyle
 
             preferences.$appPresence
@@ -652,6 +653,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .removeDuplicates()
                 .receive(on: DispatchQueue.main)
                 .sink { [weak statusItem] in statusItem?.reading = $0 }
+                .store(in: &cancellables)
+
+            preferences.$menuBarVisualMode
+                .removeDuplicates()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak statusItem] in statusItem?.visualMode = $0 }
                 .store(in: &cancellables)
 
             preferences.$menuBarActivityStyle

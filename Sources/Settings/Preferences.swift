@@ -459,6 +459,12 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(menuBarReading.rawValue, forKey: Keys.menuBarReading) }
     }
 
+    /// Whether the menu bar presents text, compact markers, or usage bars.
+    /// `.text` is the default because it preserves the original layout.
+    @Published var menuBarVisualMode: MenuBarVisualMode {
+        didSet { defaults.set(menuBarVisualMode.rawValue, forKey: Keys.menuBarVisualMode) }
+    }
+
     /// How the item shows that an agent is working. `.pulse` is what it has
     /// always done, so an upgrade changes nothing; the other two exist because
     /// movement in the menu bar is not everyone's idea of an indicator, and
@@ -761,6 +767,7 @@ final class Preferences: ObservableObject {
         static let showsWeeklyLimitInMenuBar = "showsWeeklyLimitInMenuBar"
         static let menuBarActivityStyle = "menuBarActivityStyle"
         static let menuBarReading = "menuBarReading"
+        static let menuBarVisualMode = "menuBarVisualMode"
         static let menuBarClickAction = "menuBarClickAction"
         static let menuBarProviders = "menuBarProviders"
         static let expandedDetailProviders = "expandedDetailProviders"
@@ -1179,6 +1186,8 @@ final class Preferences: ObservableObject {
             .flatMap(MenuBarActivityStyle.init(rawValue:)) ?? .pulse
         self.menuBarReading = defaults.string(forKey: Keys.menuBarReading)
             .flatMap(MenuBarReading.init(rawValue:)) ?? .automatic
+        self.menuBarVisualMode = defaults.string(forKey: Keys.menuBarVisualMode)
+            .flatMap(MenuBarVisualMode.init(rawValue:)) ?? .text
         self.menuBarClickAction = defaults.string(forKey: Keys.menuBarClickAction)
             .flatMap(MenuBarClickAction.init(rawValue:)) ?? .menu
         // Absent is kept distinct from empty: never chosen is not choosing none.
