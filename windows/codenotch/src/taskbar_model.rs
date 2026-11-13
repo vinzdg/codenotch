@@ -102,7 +102,7 @@ fn weekly_window<'a>(provider: &str, windows: &'a [LimitWindow], model: &str) ->
         "claude" => by_id("seven_day").or_else(|| by_id("weekly_all")).or_else(|| by_id("weekly")),
         "codex" => by_id("secondary"),
         "glm" | "opencode" | "commandcode" => by_id("weekly"),
-        "cursor" | "grok" | "copilot" | "deepseek" | "qoder" => None,
+        "cursor" | "grok" | "copilot" | "deepseek" | "qoder" | "mistral" => None,
         _ => {
             let family: Vec<_> = metered.iter().copied().filter(|w| crate::lane_family(w) == model).collect();
             let lanes = if family.is_empty() { metered } else { family };
@@ -357,6 +357,7 @@ mod tests {
         assert_eq!(indicator(weekly_is_headline).weekly, None);
         assert_eq!(indicator(item("commandcode", Some("monthly"), vec![window("monthly", 0.1), window("weekly", 0.5)])).weekly, Some(0.5));
         assert_eq!(indicator(item("cursor", Some("included"), vec![window("included", 0.1), window("weekly", 0.5)])).weekly, None);
+        assert_eq!(indicator(item("mistral", Some("vibe"), vec![window("vibe", 0.5), window("weekly", 0.2)])).weekly, None);
     }
     #[test]
     fn antigravity_weekly_is_the_tightest_weekly_lane_of_the_chosen_family() {

@@ -140,7 +140,7 @@ pub fn set_taskbar_options(app: AppHandle, mode: String) -> Result<Options, Stri
 }
 
 /// The notch's `providers()`, after its Claude accounts.
-const NOTCH_ORDER: [&str; 10] = ["codex", "glm", "deepseek", "opencode", "commandcode", "cursor", "grok", "copilot", "gemini", "qoder"];
+const NOTCH_ORDER: [&str; 11] = ["codex", "glm", "deepseek", "opencode", "commandcode", "cursor", "grok", "copilot", "gemini", "qoder", "mistral"];
 
 #[derive(Serialize)]
 pub struct Item { pub(crate) id: String, pub(crate) name: String, pub(crate) provider: String, pub(crate) headline_id: Option<String>, pub(crate) work_state: String, pub(crate) snapshot: UsageSnapshot }
@@ -172,6 +172,7 @@ pub fn get_taskbar_items(app: AppHandle) -> Vec<Item> {
         let snapshot = crate::snapshot_of(&app, id);
         if snapshot.status == "absent" { continue; }
         let headline_id = crate::ring_window(id, &snapshot.windows, &cfg.antigravity_limit, &cfg.antigravity_model).map(|w| w.id.clone());
+        if id == "mistral" && headline_id.is_none() { continue; }
         let work_state = crate::taskbar_activity::work_state(&app, id, None);
         items.push(Item { id: id.into(), headline_id, work_state, name: crate::provider_label(id).into(), provider: id.into(), snapshot });
     }

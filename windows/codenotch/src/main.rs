@@ -34,6 +34,7 @@ mod glm;
 mod opencode;
 mod commandcode;
 mod qoder;
+mod mistral;
 mod agy_cli;
 mod glyphs;
 mod trayicon;
@@ -86,6 +87,8 @@ pub struct AppState {
     pub commandcode: Mutex<usage::UsageSnapshot>,
     /// Qoder plan quota snapshot, read through the official Agent SDK sidecar (qodercli sign-in).
     pub qoder: Mutex<usage::UsageSnapshot>,
+    /// Mistral AI / Mistral Vibe monthly budget snapshot.
+    pub mistral: Mutex<usage::UsageSnapshot>,
     /// Provider glyph cache, collected at launch and again on a tray refresh
     pub glyphs: Mutex<std::collections::HashMap<String, glyphs::Glyph>>,
     /// Working state of the non-Claude providers (Cursor reports it; Codex and Antigravity are inferred from recent writes)
@@ -617,6 +620,7 @@ pub(crate) fn refresh_provider(app: &AppHandle, provider: &str) -> bool {
         "opencode" => opencode::request_refresh(),
         "commandcode" => commandcode::request_refresh(),
         "qoder" => qoder::request_refresh(),
+        "mistral" => mistral::request_refresh(),
         _ => return false,
     }
     true
@@ -664,6 +668,11 @@ fn get_commandcode(state: tauri::State<AppState>) -> usage::UsageSnapshot {
 #[tauri::command]
 fn get_qoder(state: tauri::State<AppState>) -> usage::UsageSnapshot {
     state.qoder.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn get_mistral(state: tauri::State<AppState>) -> usage::UsageSnapshot {
+    state.mistral.lock().unwrap().clone()
 }
 
 #[tauri::command]
@@ -736,6 +745,7 @@ pub(crate) fn provider_page(provider: &str) -> Option<(&'static str, &'static st
         "deepseek" => ("https://platform.deepseek.com/usage", "platform.deepseek.com"),
         // The account page the SDK README documents (usage/plan and token minting live here)
         "qoder" => ("https://qoder.com/account/integrations", "qoder.com"),
+        "mistral" => ("https://console.mistral.ai/billing", "console.mistral.ai"),
         _ => return None,
     })
 }
@@ -1312,6 +1322,8 @@ fn ring_window<'a>(
         "deepseek" => by_id("today"),
         // getUsageInfo meters one plan window; the addon/org buckets are card-only rows.
         "qoder" => by_id("quota"),
+        // Sorted descending by usage percentage in mistral::parse_budgets so windows[0] leads.
+        "mistral" => windows.first(),
         _ => antigravity_lane(windows, antigravity_limit, antigravity_model),
     }
 }
@@ -1373,6 +1385,7 @@ pub(crate) fn snapshot_of(app: &AppHandle, id: &str) -> usage::UsageSnapshot {
         "opencode" => st.opencode.lock().unwrap().clone(),
         "commandcode" => st.commandcode.lock().unwrap().clone(),
         "qoder" => st.qoder.lock().unwrap().clone(),
+        "mistral" => st.mistral.lock().unwrap().clone(),
         _ => st.usage.lock().unwrap().clone(),
     }
 }
@@ -1416,17 +1429,22 @@ struct TrayOption {
     label: String,
     status: String,
     used: Option<u32>,
+    note: String,
 }
 
 #[tauri::command]
 fn get_tray_options(app: AppHandle) -> Vec<TrayOption> {
     TRAY_PROVIDER_IDS
         .iter()
-        .map(|id| TrayOption {
-            id: (*id).to_string(),
-            label: provider_label(id).to_string(),
-            status: snapshot_of(&app, id).status,
-            used: ring_pct(&app, id),
+        .map(|id| {
+            let snap = snapshot_of(&app, id);
+            TrayOption {
+                id: (*id).to_string(),
+                label: provider_label(id).to_string(),
+                status: snap.status,
+                used: ring_pct(&app, id),
+                note: snap.note,
+            }
         })
         .collect()
 }
@@ -1841,12 +1859,13 @@ pub fn provider_label(id: &str) -> &'static str {
         "commandcode" => "Command Code",
         "deepseek" => "DeepSeek Harness",
         "qoder" => "Qoder",
+        "mistral" => "Mistral",
         _ => "Claude",
     }
 }
 
 /// Every provider the tray menu can offer, in the order the notch shows them.
-pub const TRAY_PROVIDER_IDS: [&str; 11] = ["claude", "codex", "glm", "opencode", "commandcode", "cursor", "grok", "copilot", "gemini", "deepseek", "qoder"];
+pub const TRAY_PROVIDER_IDS: [&str; 12] = ["claude", "codex", "glm", "opencode", "commandcode", "cursor", "grok", "copilot", "gemini", "deepseek", "qoder", "mistral"];
 
 /// Keeps the tray menu current. macOS rebuilds its menu as it opens; Tauri has no such hook, so it
 /// is rebuilt whenever a reading changes, and once a minute besides — otherwise "Resets in 12 min"
@@ -2041,6 +2060,7 @@ fn main() {
             opencode: Mutex::new(opencode::load_persisted()),
             commandcode: Mutex::new(commandcode::load_persisted()),
             qoder: Mutex::new(qoder::load_persisted()),
+            mistral: Mutex::new(mistral::load_persisted()),
             glyphs: Mutex::new(Default::default()),
             activity: Mutex::new(Vec::new()),
         })
@@ -2083,6 +2103,7 @@ fn main() {
             get_opencode,
             get_commandcode,
             get_qoder,
+            get_mistral,
             get_glyphs,
             get_activity,
             open_data_dir,
@@ -2181,6 +2202,7 @@ fn main() {
             opencode::start(handle.clone());
             commandcode::start(handle.clone());
             qoder::start(handle.clone());
+            mistral::start(handle.clone());
             activity::start(handle.clone());
             reset_watch::start(handle.clone());
             // Collecting glyphs may read icon resources out of a few executables; do it off the main thread and push when done
@@ -2530,6 +2552,12 @@ mod tests {
         assert_eq!(pick("qoder", &[win("quota", 0.4), win("addon", 0.9)]), Some("quota"));
         assert_eq!(pick("qoder", &[win("addon", 0.9)]), None);
         assert_eq!(pick("qoder", &[]), None);
+    }
+
+    #[test]
+    fn mistral_means_the_first_window() {
+        assert_eq!(pick("mistral", &[win("vibe", 0.55), win("api", 0.1)]), Some("vibe"));
+        assert_eq!(pick("mistral", &[]), None);
     }
 
     #[test]
