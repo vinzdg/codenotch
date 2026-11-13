@@ -183,6 +183,9 @@ final class CodexActivityMonitor: ObservableObject, AgentActivityMonitor {
                      profile: CodexProfile = .default(),
                      cache: CodexStoreCache = CodexStoreCache(),
                      openRollouts: Set<String>? = nil) -> [AgentSession] {
+        if profile.isCodexAuth && !profile.isCurrentlyActive {
+            return []
+        }
         var found: [AgentSession] = []
         // Every thread id that is part of a conversation drawn below, so the
         // desktop app's copy of the same conversation is not drawn again.
