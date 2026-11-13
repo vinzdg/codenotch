@@ -1283,18 +1283,30 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            // Above the provider rows, because it decides what each of them
-            // costs in width — and width is what anyone ticking a fourth
-            // provider is actually spending.
-            Picker(L10n.t("Each reading shows"), selection: $preferences.menuBarReading) {
-                ForEach(MenuBarReading.allCases) { Text($0.title).tag($0) }
+            Picker(L10n.t("Visual mode"), selection: $preferences.menuBarVisualMode) {
+                ForEach(MenuBarVisualMode.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
 
-            Text(preferences.menuBarReading.explanation)
+            Text(preferences.menuBarVisualMode.explanation)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            // Above the provider rows, because it decides what each of them
+            // costs in width — and width is what anyone ticking a fourth
+            // provider is actually spending.
+            if preferences.menuBarVisualMode == .text {
+                Picker(L10n.t("Each reading shows"), selection: $preferences.menuBarReading) {
+                    ForEach(MenuBarReading.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+
+                Text(preferences.menuBarReading.explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             // The notch's own question, asked again here because the answers
             // are not the same ones: the bar has no ring for an arc to turn
