@@ -443,12 +443,19 @@ struct SettingsView: View {
     /// the acknowledgement keeps the button from feeling inert.
     @State private var didRecentre = false
 
-    /// Whether this Mac draws the notch as its own cutout — the one placement
-    /// where the hardware sets the size outright, and so the only one where the
-    /// reading under a ring is paid for out of the ring.
-    private var sizeIsDecidedByTheHardware: Bool {
+    /// Whether the top edge is chosen on a Mac whose display has a cutout —
+    /// where merging into it is a choice at all.
+    private var topEdgeHasACutout: Bool {
         preferences.notchEdge == .top
             && NSScreen.screens.contains { $0.hardwareNotch != nil }
+    }
+
+    /// Whether this Mac draws the notch as its own cutout — the one placement
+    /// where the hardware sets the size outright, and so the only one where the
+    /// reading under a ring is paid for out of the ring. Grown out of the
+    /// cutout instead, the size setting is the notch's own again.
+    private var sizeIsDecidedByTheHardware: Bool {
+        topEdgeHasACutout && preferences.notchJoinsCutout
     }
 
     /// Switching off has to reach the store's archive, not just the preference
@@ -908,7 +915,7 @@ struct SettingsView: View {
                 Toggle(L10n.t("Percentage under each ring"),
                        isOn: $preferences.showsNotchReadings)
                 Text(sizeIsDecidedByTheHardware
-                     ? L10n.t("Merged into your Mac's own notch the bar is exactly as deep as the cutout, so a ring and a percentage under it have to share that depth — showing it draws the rings smaller. Turn it off for the largest rings the cutout has room for.")
+                     ? L10n.t("When merged into your Mac's notch, the bar is only as deep as the cutout, so a percentage under each ring makes the rings smaller. Switching Merge into Notch on turns this off for larger rings; you can turn it back on here.")
                      : L10n.t("The figure under each ring. Turn it off for rings alone; the number is still a hover away in the card."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -981,6 +988,47 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                // Only where there is a hole to take: the choice is about the
+                // MacBook's own cutout, and means nothing on another edge or
+                // another display.
+                if topEdgeHasACutout {
+                    Toggle(L10n.t("Merge into Notch"), isOn: Binding(
+                        get: { preferences.notchJoinsCutout },
+                        set: { on in
+                            if on != preferences.notchJoinsCutout, preferences.notchEdge == .top {
+                                resetPosition()
+                            }
+                            preferences.setNotchJoinsCutoutFromSettings(on)
+                        }))
+
+                    // Keep the choice mounted so merging does not move the
+                    // settings below it.
+                    Group {
+                        Picker(L10n.t("Odd ring"), selection: $preferences.notchCutoutOddSide) {
+                            ForEach(NotchCutoutOddSide.allCases) { Text($0.title).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+
+                        Text(L10n.t("With an odd number of rings, the extra one sits on this side of the camera housing."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .opacity(preferences.notchJoinsCutout ? 1 : 0.4)
+                    .disabled(!preferences.notchJoinsCutout)
+                    .allowsHitTesting(preferences.notchJoinsCutout)
+                    .animation(
+                        NotchMotion.respectingReduceMotion(NotchMotion.unfold, reduceMotion),
+                        value: preferences.notchJoinsCutout
+                    )
+
+                    Text(preferences.notchJoinsCutout
+                         ? L10n.t("Drawn as one shape with the camera housing, at the cutout's own depth, with the rings beside it.")
+                         : L10n.t("The notch grows out of the camera housing instead: a bar at your chosen size, with the readings in a row below it."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 // Offered only where there is a glass to choose. Below macOS 26
                 // the choice has one possible answer, and a picker that cannot

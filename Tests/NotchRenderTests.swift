@@ -1205,10 +1205,11 @@ final class EverySizeSettingAppliesEverywhereTests: XCTestCase {
     /// chosen while the notch is on the hardware edge is exactly what it is when
     /// it arrives on any other.
     func testTheSizeSettingSurvivesTheHardwareEdge() throws {
-        guard NSScreen.screens.contains(where: { $0.hardwareNotch != nil }) else {
+        guard let screen = NSScreen.screens.first(where: { $0.hardwareNotch != nil }) else {
             throw XCTSkip("Needs a display with a notch")
         }
         let controller = NotchWindowController()
+        controller.assignedScreen = screen
         controller.model.updateSnapshots(Fixtures.snapshots())
         defer { controller.stop() }
 

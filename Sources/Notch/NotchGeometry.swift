@@ -158,6 +158,16 @@ enum NotchGeometry {
         return (atTrailingEnd: true, overlap: cutoutDeepest + alongOffset - flip)
     }
 
+    /// The hole whose coordinate system the drag uses, if this edge takes it.
+    /// A loose bar uses the same centre-relative nudge as a plain display;
+    /// converting that nudge to a joined offset would move it away from the
+    /// pointer and snap it to a wall it was never meant to join.
+    static func dragCutout(on screen: ScreenDescribing?, edge: NotchEdge,
+                           joinsCutout: Bool) -> HardwareNotch? {
+        guard joinsCutout, edge == .top else { return nil }
+        return screen?.hardwareNotch
+    }
+
     // MARK: - While the notch is in the hand
 
     /// **Near the hole, for a notch that is being dragged.**
@@ -269,8 +279,13 @@ enum NotchGeometry {
     /// on the size of the nudge threw all of it away.
     static func cutoutProximity(for screen: ScreenDescribing, edge: NotchEdge,
                                 alongOffset: CGFloat,
-                                heldBar: CGFloat? = nil) -> CutoutProximity? {
-        guard edge == .top, let cutout = screen.hardwareNotch else { return nil }
+                                heldBar: CGFloat? = nil,
+                                // Whether the notch takes the hole at all — the
+                                // Appearance choice, see `NotchViewModel.joinsCutout`.
+                                // Left loose, the hole is not there as far as
+                                // the join is concerned.
+                                joinsCutout: Bool = true) -> CutoutProximity? {
+        guard edge == .top, joinsCutout, let cutout = screen.hardwareNotch else { return nil }
         // **In the hand, it is never joined.** Joined, the notch is attached
         // and cannot follow the pointer; it lets go when it is picked up and
         // takes the hole again when it is put down — see `cutoutLanding`.
@@ -346,7 +361,13 @@ enum NotchGeometry {
         leadingExtent: CGFloat = 0,
         // The notch's own length when it is being dragged, nil otherwise — a
         // held notch is placed point for point with the pointer.
-        heldBar: CGFloat? = nil
+        heldBar: CGFloat? = nil,
+        // Whether the top edge's notch is merged into the display's own
+        // cutout. Left loose it is placed as on a display without one:
+        // centred on the bezel, which on a MacBook is centred on the hole,
+        // and it grows out of the hole from there — see
+        // `NotchViewModel.joinsCutout`.
+        joinsCutout: Bool = true
     ) -> CGRect {
         let full = screen.frameValue
         let width = panelSize.width.rounded(.up)
@@ -395,15 +416,19 @@ enum NotchGeometry {
             // join at all — so the notch goes on travelling with the nudge
             // after it has let go of the hole, out past it rather than back to
             // the middle of the screen.
+            // Asked only here: the other three edges never consult the
+            // hardware, and a screen stood in for by a test may not answer.
+            let hardware = dragCutout(on: screen, edge: edge, joinsCutout: joinsCutout)
             var wanted: CGFloat = full.midX - width / 2 + alongOffset
-            if let bar = heldBar, let cutout = screen.hardwareNotch {
+            if let bar = heldBar, let cutout = hardware {
                 // In the hand: the window that holds a pair while the notch is
                 // anywhere near the hole, so letting go into a join does not
                 // move it, and the plain pin beside the hole once it is not.
                 wanted = cutoutFreelyNear(alongOffset: alongOffset, width: cutout.width, bar: bar)
                     ? full.midX - width / 2
                     : full.midX + cutout.width / 2 - cutoutOverlap + alongOffset - slack
-            } else if cutoutProximity(for: screen, edge: edge, alongOffset: alongOffset) != nil {
+            } else if cutoutProximity(for: screen, edge: edge, alongOffset: alongOffset,
+                                      joinsCutout: joinsCutout) != nil {
                 // **Centred on the hole, joined or not.**
                 //
                 // Joined the notch is a pair either side of the cutout and the
@@ -412,7 +437,7 @@ enum NotchGeometry {
                 // either way, deliberately: taking the hole must not move it.
                 // Where each copy sits inside it is `NotchViewModel.wings`.
                 wanted = full.midX - width / 2
-            } else if let cutout = screen.hardwareNotch {
+            } else if let cutout = hardware {
                 let bar: CGFloat = width - 2 * slack
                 let stand = cutoutStanding(alongOffset: alongOffset)
                 wanted = stand.atTrailingEnd
