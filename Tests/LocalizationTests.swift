@@ -44,6 +44,10 @@ final class LocalizationTests: XCTestCase {
             ElapsedCopy.ago(since: now.addingTimeInterval(-6 * 60), now: now, locale: zhHans),
             "6 分钟前"
         )
+        XCTAssertEqual(
+            ElapsedCopy.ago(since: now.addingTimeInterval(-81 * 3600), now: now, locale: zhHans),
+            "3 天前"
+        )
     }
 
     func testElapsedCopyInEnglishWhenAsked() {
