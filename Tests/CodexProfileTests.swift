@@ -37,6 +37,13 @@ final class CodexProfileTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: auth).write(to: profile.authURL)
     }
 
+    /// Writes where codex-auth keeps its registry: `<codex home>/accounts/registry.json`.
+    private func writeCodexAuthRegistry(_ json: String, home root: URL) throws {
+        let url = root.appendingPathComponent(".codex").appendingPathComponent(CodexAuthRegistry.relativePath)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: url)
+    }
+
     func testDefaultIdentityAndPathsStayCompatible() {
         let profile = CodexProfile.default(home: URL(fileURLWithPath: "/Users/test"))
         XCTAssertEqual(profile.id, "codex")
@@ -287,32 +294,93 @@ final class CodexProfileTests: XCTestCase {
         XCTAssertEqual(slug1, "personal")
     }
 
-    func testCodexAuthProfileDiscoveryAndRoutes() throws {
+    func testCodexAuthReadsTheRegistryWhereCodexAuthWritesIt() throws {
+        // Shaped like codex-auth's own schema 4 fixtures (tests/registry_test.zig):
+        // no per-account `active`, the active account named at the top level,
+        // and an unset alias stored as "".
         let root = try home([".codex": []])
-        let registryData = """
+        try writeCodexAuthRegistry("""
         {
-          "schema_version": 1,
+          "schema_version": 4,
+          "active_account_key": "user-a::account-a",
+          "active_account_activated_at_ms": null,
+          "previous_active_account_key": "user-b::account-b",
+          "interval_seconds": 60,
           "accounts": [
             {
-              "account_key": "acc-1",
+              "account_key": "user-a::account-a",
+              "chatgpt_account_id": "account-a",
+              "chatgpt_user_id": "user-a",
               "email": "work@example.test",
               "alias": "work",
+              "account_name": null,
               "plan": "business",
-              "active": true
+              "auth_mode": "chatgpt",
+              "created_at": 1,
+              "last_used_at": null,
+              "last_usage": { "plan_type": "business" },
+              "last_usage_at": 2,
+              "last_local_rollout": null
             },
             {
-              "account_key": "acc-2",
+              "account_key": "user-b::account-b",
+              "chatgpt_account_id": "account-b",
+              "chatgpt_user_id": "user-b",
               "email": "personal@example.test",
-              "alias": "personal",
+              "alias": "",
+              "account_name": null,
               "plan": "plus",
-              "active": false
+              "auth_mode": "chatgpt",
+              "created_at": 1,
+              "last_used_at": null,
+              "last_usage": null,
+              "last_usage_at": null,
+              "last_local_rollout": null
             }
           ]
         }
-        """.data(using: .utf8)!
+        """, home: root)
 
-        let registryURL = root.appendingPathComponent(".codex/registry.json")
-        try registryData.write(to: registryURL)
+        let found = CodexProfile.discover(home: root)
+        XCTAssertEqual(found.map(\.id), ["codex-personal", "codex-work"])
+        XCTAssertTrue(found.allSatisfy(\.isCodexAuth))
+        let personal = try XCTUnwrap(found.first { $0.slug == "personal" })
+        let work = try XCTUnwrap(found.first { $0.slug == "work" })
+
+        XCTAssertTrue(work.isCurrentlyActive)
+        XCTAssertFalse(personal.isCurrentlyActive)
+        XCTAssertNil(personal.authAccount?.alias)
+        XCTAssertEqual(personal.displayName, "Codex (personal@example.test)")
+        XCTAssertEqual(personal.sourceName, "Codex (personal@example.test)")
+        XCTAssertEqual(personal.signInCommand, "codex-auth switch 'user-b::account-b'")
+    }
+
+    func testCodexAuthIgnoresARegistryOutsideAccountsAndAnUnknownActiveKey() throws {
+        let account = #"{ "account_key": "acc-1", "email": "work@example.test", "alias": "work" }"#
+        let root = try home([".codex": []])
+        try Data(#"{ "schema_version": 4, "active_account_key": "acc-1", "accounts": [\#(account)] }"#.utf8)
+            .write(to: root.appendingPathComponent(".codex/registry.json"))
+        XCTAssertEqual(CodexProfile.discover(home: root).map(\.id), ["codex"])
+
+        try writeCodexAuthRegistry(#"{ "schema_version": 4, "active_account_key": "gone", "accounts": [\#(account)] }"#,
+                                   home: root)
+        let work = try XCTUnwrap(CodexProfile.discover(home: root).first)
+        XCTAssertEqual(work.id, "codex-work")
+        XCTAssertFalse(work.isCurrentlyActive)
+    }
+
+    func testCodexAuthProfileDiscoveryAndRoutes() throws {
+        let root = try home([".codex": []])
+        try writeCodexAuthRegistry("""
+        {
+          "schema_version": 4,
+          "active_account_key": "acc-1",
+          "accounts": [
+            { "account_key": "acc-1", "email": "work@example.test", "alias": "work", "plan": "business" },
+            { "account_key": "acc-2", "email": "personal@example.test", "alias": "personal", "plan": "plus" }
+          ]
+        }
+        """, home: root)
 
         let found = CodexProfile.discover(home: root)
         XCTAssertEqual(found.map(\.id), ["codex-personal", "codex-work"])
@@ -338,31 +406,18 @@ final class CodexProfileTests: XCTestCase {
 
     func testCodexAuthLocalProviderActiveVsInactiveIsolation() async throws {
         let root = try home([".codex": []])
-        let registryURL = root.appendingPathComponent(".codex/registry.json")
 
         func writeRegistry(workActive: Bool) throws {
-            let json = """
+            try writeCodexAuthRegistry("""
             {
-              "schema_version": 1,
+              "schema_version": 4,
+              "active_account_key": "\(workActive ? "work-key" : "personal-key")",
               "accounts": [
-                {
-                  "account_key": "work-key",
-                  "email": "work@example.test",
-                  "alias": "work",
-                  "plan": "business",
-                  "active": \(workActive)
-                },
-                {
-                  "account_key": "personal-key",
-                  "email": "personal@example.test",
-                  "alias": "personal",
-                  "plan": "plus",
-                  "active": \(!workActive)
-                }
+                { "account_key": "work-key", "email": "work@example.test", "alias": "work", "plan": "business" },
+                { "account_key": "personal-key", "email": "personal@example.test", "alias": "personal", "plan": "plus" }
               ]
             }
-            """.data(using: .utf8)!
-            try json.write(to: registryURL)
+            """, home: root)
         }
 
         try writeRegistry(workActive: true)
@@ -427,25 +482,16 @@ final class CodexProfileTests: XCTestCase {
     @MainActor
     func testCodexAuthActivityMonitorIgnoresInactiveAccount() throws {
         let root = try home([".codex": []])
-        let registryURL = root.appendingPathComponent(".codex/registry.json")
-        let json = """
+        try writeCodexAuthRegistry("""
         {
-          "schema_version": 1,
+          "schema_version": 4,
+          "active_account_key": "work-key",
           "accounts": [
-            {
-              "account_key": "work-key",
-              "alias": "work",
-              "active": true
-            },
-            {
-              "account_key": "personal-key",
-              "alias": "personal",
-              "active": false
-            }
+            { "account_key": "work-key", "alias": "work" },
+            { "account_key": "personal-key", "alias": "personal" }
           ]
         }
-        """.data(using: .utf8)!
-        try json.write(to: registryURL)
+        """, home: root)
 
         let found = CodexProfile.discover(home: root)
         let personal = found.first(where: { $0.slug == "personal" })!
