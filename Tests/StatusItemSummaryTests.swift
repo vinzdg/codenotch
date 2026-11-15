@@ -61,12 +61,14 @@ final class StatusItemSummaryTests: XCTestCase {
                          remaining: Bool = false,
                          hideDepleted: Bool = false,
                          reading: MenuBarReading = .automatic,
+                         visualMode: MenuBarVisualMode = .text,
                          autoOrder: Bool = false) -> StatusItemSummary {
         StatusItemSummary.make(
             from: snapshots,
             showing: limits ?? MenuBarLimits(isOn: true, chosen: Set(snapshots.map(\.id))),
             now: now, format: format, showingWeeklyLimit: weekly,
             showingRemaining: remaining, hidingDepleted: hideDepleted, reading: reading,
+            visualMode: visualMode,
             autoOrdering: autoOrder)
     }
 
@@ -1195,6 +1197,79 @@ final class StatusItemSummaryTests: XCTestCase {
         pulse.update(view: view, imageSize: artwork.size, glyphs: glyphs, working: ["codex"])
         XCTAssertNil(pulse.nudge(for: "codex"))
         XCTAssertEqual(pulse.pulsing, ["codex"])
+    }
+
+    // MARK: - Visual mode (Markers & Bars)
+
+    func testVisualModeDefaultsToTextAndSurvivesARestart() {
+        let defaults = scratchDefaults()
+        let prefs1 = Preferences(defaults: defaults)
+        XCTAssertEqual(prefs1.menuBarVisualMode, .text)
+
+        prefs1.menuBarVisualMode = .markers
+        let prefs2 = Preferences(defaults: defaults)
+        XCTAssertEqual(prefs2.menuBarVisualMode, .markers)
+
+        prefs2.menuBarVisualMode = .bars
+        let prefs3 = Preferences(defaults: defaults)
+        XCTAssertEqual(prefs3.menuBarVisualMode, .bars)
+    }
+
+    func testMarkersModeShowsCompactStatusPointAndNarrowsTheBar() throws {
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        let snapshot = claude(0.72, resetIn: 2 * hour + 18 * minute)
+
+        let textSummary = summary([snapshot], visualMode: .text)
+        let textWidth = StatusItemArtwork(summary: textSummary, font: font, height: 22).size.width
+
+        let markersSummary = summary([snapshot], visualMode: .markers)
+        let markersArtwork = StatusItemArtwork(summary: markersSummary, font: font, height: 22)
+        let markersWidth = markersArtwork.size.width
+
+        XCTAssertLessThan(markersWidth, textWidth, "markers mode is noticeably more compact than text")
+        let frame = try XCTUnwrap(markersArtwork.indicatorFrame(for: "claude"))
+        XCTAssertEqual(frame.width, 8)
+        XCTAssertEqual(frame.height, 8)
+    }
+
+    func testBarsModeShowsFixedUsageBarTrack() throws {
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        let low = summary([claude(0.01, resetIn: 2 * hour)], visualMode: .bars)
+        let high = summary([claude(0.71, resetIn: 2 * hour)], visualMode: .bars)
+
+        let lowArtwork = StatusItemArtwork(summary: low, font: font, height: 22)
+        let highArtwork = StatusItemArtwork(summary: high, font: font, height: 22)
+
+        XCTAssertEqual(lowArtwork.size.width, highArtwork.size.width,
+                       "bars mode holds a fixed width regardless of percentage figures")
+        let barFrame = try XCTUnwrap(lowArtwork.indicatorFrame(for: "claude"))
+        XCTAssertEqual(barFrame.width, 28)
+        XCTAssertEqual(barFrame.height, 5)
+    }
+
+    func testVisualModesPreserveClickTargetAndAccessibilityDetail() throws {
+        let snapshot = claude(0.72, resetIn: 2 * hour + 18 * minute)
+        let markersSummary = summary([snapshot], visualMode: .markers)
+        let entry = try XCTUnwrap(markersSummary.entries.first)
+        XCTAssertEqual(entry.usedFraction, 0.72)
+        XCTAssertTrue(entry.detail.contains("72%"))
+        XCTAssertTrue(entry.detail.contains("Claude"))
+
+        let indicators = StatusItemVisualIndicators()
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 60, height: 22))
+        let artwork = StatusItemArtwork(summary: markersSummary, height: 22)
+        indicators.update(view: view, imageSize: artwork.size, mode: .markers,
+                          entries: markersSummary.entries, frames: artwork.indicatorFrames)
+
+        XCTAssertEqual(indicators.showing, ["claude"])
+        let indicatorView = try XCTUnwrap(view.subviews.first)
+        XCTAssertNil(indicatorView.hitTest(NSPoint(x: 5, y: 5)),
+                     "indicator subview hitTest returns nil so whole button remains click target")
+
+        indicators.update(view: view, imageSize: artwork.size, mode: .text,
+                          entries: markersSummary.entries, frames: artwork.indicatorFrames)
+        XCTAssertTrue(indicators.showing.isEmpty)
+        XCTAssertTrue(view.subviews.isEmpty, "switching to text clears overlay views")
     }
 }
 
