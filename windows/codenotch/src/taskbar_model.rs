@@ -172,11 +172,20 @@ fn indicator(item: &Item, cfg: &Config, appearance: &Appearance, now: u64) -> In
         .filter(current)
         .filter(|week| head.is_none_or(|head| head.id != week.id))
         .and_then(used);
+    // A Claude plan with no session and no spend window answers with its weeks
+    // alone. The ring is already drawn from the week, so the figure beside it
+    // prints the week too, as 1.24.0 did, rather than a dash (#533).
+    let weeks_only = item.provider == "claude"
+        && !snap.windows.iter().any(|w| w.id == "session" || w.id == "spend");
+    let shown = head.or_else(|| weeks_only
+        .then(|| weekly_window(&item.provider, &snap.windows, &cfg.antigravity_model))
+        .flatten()
+        .filter(current));
     Indicator {
         id: item.id.clone(), provider: item.provider.clone(),
         headline: head.and_then(used),
         weekly,
-        text: figure(snap, head, appearance.shows_remaining),
+        text: figure(snap, shown, appearance.shows_remaining),
         work_state: work_state.into(),
         stale: stale(snap, now),
         spent: head.is_some_and(|window| window.used >= 1.0),
@@ -312,6 +321,15 @@ mod tests {
         assert_eq!((shown.headline, shown.weekly, shown.text.as_str()), (Some(0.71), Some(0.23), "71%"));
         let shown = indicator(item("codex", Some("primary"), vec![window("primary", 0.62), window("secondary", 0.18)]));
         assert_eq!((shown.headline, shown.weekly, shown.text.as_str()), (Some(0.62), Some(0.18), "62%"));
+    }
+    #[test]
+    fn a_weeks_only_claude_plan_prints_the_week_beside_its_ring() {
+        let shown = indicator(item("claude", None, vec![window("weekly_all", 0.02), window("weekly_scoped", 0.0)]));
+        assert_eq!((shown.headline, shown.weekly, shown.text.as_str()), (None, Some(0.02), "2%"));
+        // A plan that has a session still prints the session, and a missing one stays a dash.
+        assert_eq!(indicator(claude()).text, "71%");
+        let shown = indicator(item("claude", Some("session"), vec![window("spend", 0.4), window("seven_day", 0.1)]));
+        assert_eq!(shown.text, "—");
     }
     #[test]
     fn a_count_window_keeps_its_track_and_prints_the_count() {

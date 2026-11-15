@@ -453,7 +453,7 @@ enum TranscriptTitles {
         let home = FileManager.default.homeDirectoryForCurrentUser
         var roots = [home.appendingPathComponent(".claude/projects")]
         if let dirs = try? FileManager.default.contentsOfDirectory(atPath: home.path) {
-            roots += dirs.filter { $0.hasPrefix(".claude-") }.map { home.appendingPathComponent($0).appendingPathComponent("projects") }
+            roots += dirs.filter { $0.hasPrefix(".claude-") || $0.hasPrefix(".claude_") }.map { home.appendingPathComponent($0).appendingPathComponent("projects") }
         }
         for root in roots {
             let file = root.appendingPathComponent(enc).appendingPathComponent(sessionID + ".jsonl")

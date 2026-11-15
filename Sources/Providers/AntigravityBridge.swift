@@ -257,6 +257,8 @@ enum AntigravityBridge {
             // server would bind its own ports for nothing.
             if let endpoint { return endpoint }
 
+            AntigravityBridge.reapOrphans()
+
             let token = UUID().uuidString
             let process = Process()
             process.executableURL = binary
@@ -300,6 +302,33 @@ enum AntigravityBridge {
 
     /// A server Codenotch owns, or nil until one is needed.
     static let owned = Owned()
+
+    /// Our own servers left behind by an instance that crashed or was killed
+    /// before `stop()` ran: re-parented to launchd, and sometimes stopped, so
+    /// they hold ports nothing can read and ignore SIGTERM until continued
+    /// (#546). Only a server whose parent is launchd is taken. One started by
+    /// another Codenotch still running has that instance as its parent.
+    static func orphanPIDs(in processTable: String, appDataDir: String = "codenotch-bridge") -> [Int32] {
+        processTable.split(separator: "\n").compactMap { line in
+            let fields = line.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+            guard fields.count == 3, let pid = Int32(fields[0]), fields[1] == "1",
+                  fields[2].contains("language_server"),
+                  value(of: "--app_data_dir", in: String(fields[2])) == appDataDir
+            else { return nil }
+            return pid
+        }
+    }
+
+    static func reapOrphans() {
+        // A test run is a running Codenotch: it has no business signalling
+        // processes on the developer's machine.
+        guard !Runtime.isUnderTest else { return }
+        for pid in orphanPIDs(in: run("/bin/ps", ["-axo", "pid=,ppid=,command="])) {
+            Log.usage.notice("antigravity: ending a bridge server left by an earlier run (pid \(pid, privacy: .public))")
+            kill(pid, SIGCONT)
+            kill(pid, SIGTERM)
+        }
+    }
 
     /// The same flags the IDE passes its own server, minus everything that wires
     /// it to a running IDE — there is none. `--standalone` is what makes it

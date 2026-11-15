@@ -57,13 +57,22 @@ final class CostModel: ObservableObject {
 
         // One database and one transcript watcher per account; the default
         // account keeps the original file name so history carries over.
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Codenotch/costs", isDirectory: true)
+        // A test run is a running Codenotch (see `Runtime`), and left alone it
+        // opened the real cost database and indexed the real transcripts: the
+        // developer's own projects then turned up as cost rows in fixture
+        // cards, so layout tests passed or failed by whose Mac ran them, and
+        // the run wrote to that history (#553). Under test the database is a
+        // throwaway one and nothing is indexed.
+        let dir = Runtime.isUnderTest
+            ? FileManager.default.temporaryDirectory
+                .appendingPathComponent("codenotch-test-costs-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
+            : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                .appendingPathComponent("Codenotch/costs", isDirectory: true)
         // The original single-account database keeps its name for the default
         // Claude login; every other account (Codex included) gets its own file.
         let dbName = "agentcost-\(account.id).sqlite"
         store = CostStore(url: dir.appendingPathComponent(dbName))
-        indexer = store.flatMap {
+        indexer = Runtime.isUnderTest ? nil : store.flatMap {
             CostIndexer(store: $0, root: account.transcriptsRoot, format: account.provider == "codex" ? .codex : .claude)
         }
 

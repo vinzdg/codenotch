@@ -2205,4 +2205,15 @@ final class AntigravityOmpUsageTests: XCTestCase {
         record("google:default:gemini-weekly", label: "Gemini", window: "Weekly", used: 0.4, resetsIn: 86400, email: "Me@Example.com")
         XCTAssertEqual(try XCTUnwrap(windows(forEmail: "me@example.com")["gemini-weekly"]?.usedFraction), 0.4, accuracy: 1e-9)
     }
+
+    /// Only our own server, and only once launchd has adopted it (#546).
+    func testOnlyOrphanedBridgeServersAreReaped() {
+        let table = """
+          101     1 /Applications/Antigravity.app/language_server_macos_arm --standalone --app_data_dir codenotch-bridge --csrf_token a
+          102   900 /Applications/Antigravity.app/language_server_macos_arm --standalone --app_data_dir codenotch-bridge --csrf_token b
+          103     1 /Applications/Antigravity.app/language_server_macos_arm --app_data_dir antigravity --csrf_token c
+          104     1 /bin/zsh -c echo --app_data_dir codenotch-bridge
+        """
+        XCTAssertEqual(AntigravityBridge.orphanPIDs(in: table), [101])
+    }
 }

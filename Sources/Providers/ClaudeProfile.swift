@@ -72,8 +72,14 @@ struct ClaudeProfile: Equatable, Hashable {
             }
             return candidate
         }
+        // `.claude-ops` and `.claude_ops` would share a slug, and the slug is
+        // the ring's id. The hyphen, the original spelling, keeps it.
+        var seen = Set<String>()
+        let unique = extras
+            .sorted { $0.configDirectory.lastPathComponent < $1.configDirectory.lastPathComponent }
+            .filter { seen.insert($0.slug!).inserted }
         return [ClaudeProfile.default(home: home)]
-            + extras.sorted { $0.slug! < $1.slug! }
+            + unique.sorted { $0.slug! < $1.slug! }
     }
 
     /// Whether Claude Code has ever filed a token for this profile's directory.
@@ -93,11 +99,17 @@ struct ClaudeProfile: Equatable, Hashable {
     /// `.claude-work` → `work`; anything else → nil. The bare `.claude` is the
     /// default and is handled separately; `.claude.json` is a file that lives
     /// beside it and is not a profile at all.
+    /// `~/.claude-<slug>`, and `~/.claude_<slug>`: an underscore is a common
+    /// spelling for a `CLAUDE_CONFIG_DIR` alias, and its account is as real
+    /// (#546). The credential check in `discover` still keeps plugin state out.
     static func slug(fromDirectoryName name: String) -> String? {
-        let prefix = directoryPrefix + "-"
-        guard name.hasPrefix(prefix) else { return nil }
-        let slug = String(name.dropFirst(prefix.count))
-        return slug.isEmpty ? nil : slug
+        for separator in ["-", "_"] {
+            let prefix = directoryPrefix + separator
+            guard name.hasPrefix(prefix) else { continue }
+            let slug = String(name.dropFirst(prefix.count))
+            return slug.isEmpty ? nil : slug
+        }
+        return nil
     }
 
     /// Any of the files Claude Code creates the first time it runs against a
