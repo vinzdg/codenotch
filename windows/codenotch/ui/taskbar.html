@@ -40,7 +40,7 @@ const refreshing=new Set();
 const tr=(en,pt)=>lang==='pt-BR'?pt:en;
 // BEGIN TESTABLE TASKBAR SELECTORS
 function escapeHtml(text){return String(text??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-function percent(window){return window&&window.count==null&&Number.isFinite(window.used)?Math.round(Math.max(0,Math.min(1,window.used))*100):null;}
+function percent(window){return window&&window.count==null&&window.amount==null&&Number.isFinite(window.used)?Math.round(Math.max(0,Math.min(1,window.used))*100):null;}
 function codexWindowKind(window){
  if(!window||!['primary','secondary'].includes(window.id))return null;
  // Field names identify core buckets, not their duration. A weekly-only plan can
@@ -203,7 +203,7 @@ function renderDetails(){
  document.getElementById('hint').textContent=isHover&&chosen?(retrySeconds(chosen.snapshot)>0?statusText(chosen.snapshot):activityState(chosen)==='busy'?tr('Working','Trabalhando'):activityState(chosen)==='waiting'?tr('Waiting for your answer','Aguardando sua resposta'):statusText(chosen.snapshot)):(showRemaining?tr('Percent remaining · independent limits per account','Percentual restante · limites independentes por conta'):tr('Percent used · independent limits per account','Percentual utilizado · limites independentes por conta'));
  const html=visible.map(item=>{
   const limits=(item.snapshot.windows||[]).map(window=>{
-   const pct=percent(window),reset=resetText(window),shown=pct==null?null:meterPercent(pct),value=window.count!=null?'~'+window.count:shown==null?'—':shown+'%';
+   const pct=percent(window),reset=resetText(window),shown=pct==null?null:meterPercent(pct),value=window.count!=null?'~'+window.count:window.amount!=null?window.amount:shown==null?'—':shown+'%';
    const resetPrefix=item.provider==='claude'&&livePercent(item,window)==null?tr('Last reported reset: ','Última renovação informada: '):tr('Resets ','Renova ');
    return '<div class="limit"><div class="limit-label"><span>'+escapeHtml(windowLabel(window,item))+'</span><strong style="color:'+color(pct)+'">'+escapeHtml(value)+'</strong></div>'
     +(shown==null?'':'<div class="bar"><span style="width:'+shown+'%;background:'+color(pct)+'"></span></div>')

@@ -454,7 +454,7 @@ function meteredFraction(f,showRemaining){ return showRemaining?1-f:f; }
 function deficitOf(w){
   const now=Date.now();
   if(!showPace) return null; // the Mac's usage pace setting, off by default there too
-  if(w.count!=null || !Number.isFinite(w.used) || w.used<0 || !Number.isFinite(w.duration_ms) || !(w.duration_ms>0) || !Number.isFinite(w.resets_at) || !(w.resets_at>now)) return null;
+  if(w.count!=null || w.amount!=null || !Number.isFinite(w.used) || w.used<0 || !Number.isFinite(w.duration_ms) || !(w.duration_ms>0) || !Number.isFinite(w.resets_at) || !(w.resets_at>now)) return null;
   const elapsed=1-Math.min((w.resets_at-now)/w.duration_ms,1);
   const points=(Math.min(w.used,1)-elapsed)*100;
   if(!(points>0)) return null;
@@ -1365,7 +1365,7 @@ let weeklyRing='off';
 let weeklyRingDashed=false;
 // The tightest metered window, ties going to the lower id so the choice never flickers
 function tightestOf(ws){
-  return ws.filter(w=>w.count==null).reduce((a,b)=>!a||b.used>a.used||(b.used===a.used&&b.id<a.id)?b:a,null);
+  return ws.filter(w=>w.count==null&&w.amount==null).reduce((a,b)=>!a||b.used>a.used||(b.used===a.used&&b.id<a.id)?b:a,null);
 }
 function laneFamily(w){ const id=w.id.toLowerCase(); return id.startsWith('gemini')?'gemini':(id.startsWith('3p')||id.startsWith('claude'))?'3p':''; }
 function laneIs(w,limit){
@@ -1383,7 +1383,7 @@ function headlineOf(snap,id){
   if(id==='grok') return byId('credits')||ws[0];
   if(id==='copilot') return byId('premium_interactions')||ws[0];
   if(id==='glm') return byId('session');
-  if(id==='deepseek') return byId('today');
+  if(id==='deepseek') return byId('balance')||byId('today');
   if(id==='opencode') return byId('rolling');
   if(id==='commandcode') return byId('monthly');
   if(id==='qoder') return byId('quota');
@@ -1396,7 +1396,7 @@ function headlineOf(snap,id){
 // Codex calls its second window secondary, and Antigravity has one per model family. Cursor has none.
 // BEGIN TESTABLE WEEKLY SELECTOR
 function weeklyOf(snap,id){
-  const ws=snap.windows.filter(w=>w.count==null); if(!ws.length) return null;
+  const ws=snap.windows.filter(w=>w.count==null&&w.amount==null); if(!ws.length) return null;
   const byId=x=>ws.find(w=>w.id===x)||null;
   if(id==='claude') return byId('seven_day')||byId('weekly_all')||byId('weekly');
   if(id==='codex') return byId('secondary');
@@ -1480,7 +1480,7 @@ function renderRing(){
     const h=ringWindow(p.snap,p.base,headlineOf(p.snap,p.base));
     let inner=`<circle cx="28" cy="28" r="22" fill="${HOLE}"/><circle cx="28" cy="28" r="25" fill="none" stroke="${TRACK}" stroke-width="5"/>`;
     wrap.classList.toggle('pressed',!!refreshing[p.id]);
-    reading.innerHTML=h && h.count==null?svgArc(25,Math.min(Math.max(meteredFraction(h.used,showRemaining),0),1),tone(h.used),5):'';
+    reading.innerHTML=h && h.count==null && h.amount==null?svgArc(25,Math.min(Math.max(meteredFraction(h.used,showRemaining),0),1),tone(h.used),5):'';
     if(weeklyRing!=='off'){ // the week, thinner and at its own radius, in its own colour: a session at 12% beside a week at 91% is the case this exists for
       const wk=ringWindow(p.snap,p.base,weeklyOf(p.snap,p.base));
       // Inside, it shares the gap with the working indicator, so it stands down while that is showing
@@ -1507,6 +1507,7 @@ function renderRing(){
     }
     if(p.snap.status==='needsAuth'||p.snap.status==='none') pct.textContent='—';
     else if(h && h.count!=null) pct.textContent='~'+h.count;
+    else if(h && h.amount!=null) pct.textContent=h.amount;
     else if(h) pct.textContent=(h.derived?'~':'')+(showRemaining?leftPctText(h.used):pctText(h.used))+'%';
     else pct.textContent=p.snap.windows.length?'—':'…'; // its declared window is missing: a dash, not a wait
     glyph.classList.toggle('dim', !!(h && h.used>=1));
@@ -1597,6 +1598,11 @@ function renderCard(){
       if(w.count!=null){
         html+=`<div class="win"><div class="w-row"><span class="w-label">${esc(textCopy(w.label))}</span></div>
           <div class="w-used">${w.count>0?`~${w.count} ${textCopy(w.count===1?'request today':'requests today')}`:textCopy('no requests today')}</div></div>`;
+        continue;
+      }
+      if(w.amount!=null){
+        html+=`<div class="win"><div class="w-row"><span class="w-label">${esc(textCopy(w.label))}</span></div>
+          <div class="w-used">${esc(w.amount)}</div></div>`;
         continue;
       }
       html+=`<div class="win">
