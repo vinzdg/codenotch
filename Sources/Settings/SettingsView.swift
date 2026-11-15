@@ -2296,6 +2296,9 @@ private struct AccountRow: View {
             if provider.id == "minimax" {
                 minimaxEntry
             }
+            if provider.id == "deepseek" {
+                deepSeekEntry
+            }
 
             // Apify borrows the CLI's login when there is one; the token
             // pasted here is for a Mac without it. Stored in the keychain on
@@ -2500,6 +2503,60 @@ private struct AccountRow: View {
             Text(L10n.t("Paste an API token from Krea › Settings › API Tokens. Not needed after krea auth login, or with KREA_API_KEY exported. Stored in your login keychain."))
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 2)
+    }
+
+    /// Where DeepSeek is read from. The sign-in and a key can be different
+    /// accounts, so this is a choice rather than a fallback; the switch itself
+    /// discards the old reading (see `AppDelegate`).
+    @State private var deepSeekKey = ""
+    @State private var deepSeekKeySaved = false
+
+    private var deepSeekEntry: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L10n.t("Read from"))
+                    .foregroundStyle(.secondary)
+                Picker(selection: $preferences.deepSeekSource) {
+                    Text(L10n.t("Sign-in (full detail)")).tag(DeepSeekSource.web)
+                    Text(L10n.t("API key (balance only)")).tag(DeepSeekSource.apiKey)
+                } label: {
+                    EmptyView()
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: 200)
+            }
+
+            if preferences.deepSeekSource == .apiKey {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L10n.t("DeepSeek API key"))
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        SecureField(L10n.t("Paste your key"), text: $deepSeekKey)
+                            .textContentType(.password)
+                            .textFieldStyle(.roundedBorder)
+                            .labelsHidden()
+                            .frame(maxWidth: 260)
+                        Button(L10n.t("Save")) {
+                            guard !deepSeekKey.isEmpty else { return }
+                            DeepSeekCredentials.storeAPIKey(deepSeekKey)
+                            deepSeekKey = ""
+                            deepSeekKeySaved = true
+                            _ = signIn(provider.id)
+                        }
+                        .disabled(deepSeekKey.isEmpty)
+                        if deepSeekKeySaved {
+                            Text(L10n.t("Saved"))
+                                .foregroundStyle(.green)
+                        }
+                    }
+                }
+                Text(L10n.t("Shows the balance only: spend and usage detail need the sign-in. DEEPSEEK_API_KEY, if exported, is used instead. Stored in your login keychain."))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.top, 2)
     }
