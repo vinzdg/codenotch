@@ -103,6 +103,11 @@ enum Sites {
             if (response.status < 200 || response.status >= 300) {
                 return JSON.stringify({ authenticated: false });
             }
+            // An expired token still answers HTTP 200, with 40002 or 40003.
+            const envelope = await response.json().catch(() => null);
+            if (envelope && [40002, 40003].includes(envelope.code)) {
+                return JSON.stringify({ authenticated: false });
+            }
             const bytes = new TextEncoder().encode(token);
             const digest = await crypto.subtle.digest('SHA-256', bytes);
             const fingerprint = Array.from(new Uint8Array(digest))

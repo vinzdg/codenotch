@@ -39,6 +39,12 @@ enum DeepSeekUsage {
     static func reading(fromJSON json: String) throws -> Reading {
         guard let data = json.data(using: .utf8) else { throw ParseError.malformed }
         let envelope = try JSONDecoder().decode(Envelope.self, from: data)
+        // An expired or missing token comes back as HTTP 200 with one of these
+        // codes and no data. Read as a parse failure, it left the last reading
+        // on the card for days with nothing saying a sign-in would fix it.
+        if let code = envelope.code, signedOutCodes.contains(code) {
+            throw UsageProviderError.needsAuth
+        }
         guard let summary = envelope.data?.bizData else { throw ParseError.noWallet }
         // One wallet per currency, and which of them is listed first is the
         // server's choice rather than anything about the account. Taking the
@@ -53,7 +59,10 @@ enum DeepSeekUsage {
         // account with nothing in any wallet still reads as zero rather than
         // failing, which is the answer it had before.
         let candidates = summary.normalWallets.compactMap { wallet -> (Wallet, Double, Double)? in
-            guard let balance = Double(wallet.balance), balance >= 0 else { return nil }
+            guard var balance = Double(wallet.balance), balance >= 0 else { return nil }
+            // Granted credit is spendable too, so it is part of what is left.
+            balance += summary.bonusWallets?.first { $0.currency == wallet.currency }
+                .flatMap { Double($0.balance) } ?? 0
             let spent = summary.totalCosts.first { $0.currency == wallet.currency }
                 .flatMap { Double($0.amount) } ?? 0
             guard spent >= 0 else { return nil }
@@ -132,17 +141,22 @@ enum DeepSeekUsage {
                                    groups: detailGroups)
     }
 
-    private struct Envelope: Decodable { let data: DataContainer? }
+    /// DeepSeek's own codes for a missing (40002) or invalid (40003) token.
+    private static let signedOutCodes: Set<Int> = [40002, 40003]
+
+    private struct Envelope: Decodable { let code: Int?; let data: DataContainer? }
     private struct DataContainer: Decodable {
         let bizData: Summary
         enum CodingKeys: String, CodingKey { case bizData = "biz_data" }
     }
     private struct Summary: Decodable {
         let normalWallets: [Wallet]
+        let bonusWallets: [Wallet]?
         let totalCosts: [Cost]
         let totalAvailableTokenEstimation: String?
         enum CodingKeys: String, CodingKey {
             case normalWallets = "normal_wallets"
+            case bonusWallets = "bonus_wallets"
             case totalCosts = "total_costs"
             case totalAvailableTokenEstimation = "total_available_token_estimation"
         }
