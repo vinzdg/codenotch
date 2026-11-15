@@ -113,6 +113,12 @@
             "state": "translated",
             "value": "平均生成速度"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平均生成速度"
+          }
         }
       }
     },
@@ -135,6 +141,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "処理中のリクエスト"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "进行中的请求"
           }
         }
       }
@@ -159,6 +171,12 @@
             "state": "translated",
             "value": "待機中のリクエスト"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排队中的请求"
+          }
         }
       }
     },
@@ -181,6 +199,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "生成速度、リクエスト数、トークンの合計"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生成速度、请求数与 token 总量"
           }
         }
       }
@@ -4445,6 +4469,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Месячный лимит кода"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每月代码额度"
           }
         }
       }
@@ -69160,6 +69190,12 @@
             "state": "translated",
             "value": "API の種類"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 类型"
+          }
         }
       }
     },
@@ -69183,6 +69219,12 @@
             "state": "translated",
             "value": "OpenAI 互換"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenAI 兼容"
+          }
         }
       }
     },
@@ -69202,6 +69244,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anthropic Messages"
+          }
+        },
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "Anthropic Messages"
@@ -69229,6 +69277,12 @@
             "state": "translated",
             "value": "Google Gemini"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Gemini"
+          }
         }
       }
     },
@@ -69251,6 +69305,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "モデル一覧の URL を作成できませんでした"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法生成模型列表 URL"
           }
         }
       }
@@ -69387,6 +69447,12 @@
             "state": "translated",
             "value": "回答が必要です"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要回答"
+          }
         }
       }
     },
@@ -69403,6 +69469,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "承認が必要です"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要批准"
           }
         }
       }
@@ -69421,6 +69493,12 @@
             "state": "translated",
             "value": "OpenCode のアクティビティ"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode 活动"
+          }
         }
       }
     },
@@ -69437,6 +69515,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "OpenCode のプロバイダ ID（任意）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode 服务商 ID（可选）"
           }
         }
       }
@@ -69455,6 +69539,12 @@
             "state": "translated",
             "value": "OpenCode の設定にあるプロバイダのキーを使います。アクティビティはこのプロバイダと選んだモデルで照合されます。空欄にすると無効になります。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "填写 OpenCode 设置里的服务商键名。活动会按这个服务商和所选模型来匹配。留空则关闭。"
+          }
         }
       }
     },
@@ -69471,6 +69561,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "OpenCode ブリッジをインストール"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装 OpenCode 桥接"
           }
         }
       }
@@ -69489,6 +69585,12 @@
             "state": "translated",
             "value": "ブリッジをインストールしました。OpenCode を再起動してから、このエンドポイントを保存してください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桥接已安装。重启 OpenCode，然后保存这个端点。"
+          }
         }
       }
     },
@@ -69505,6 +69607,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ブリッジをインストールできませんでした。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法安装桥接。"
           }
         }
       }
@@ -71345,6 +71453,12 @@
             "state": "translated",
             "value": "%@ · %lld 件待機中"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %lld 个排队"
+          }
         }
       }
     },
@@ -71361,6 +71475,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "残り %@%% · 使用 %@%%"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剩余 %@%% · 已用 %@%%"
           }
         }
       }
@@ -71379,6 +71499,12 @@
             "state": "translated",
             "value": "週間の上限に達しました"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已达每周额度"
+          }
         }
       }
     },
@@ -71395,6 +71521,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "このアカウントの使用量を読み取るには %@ で Claude Code にサインイン"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 %@ 上登录 Claude Code，才能读取这个账号的用量"
           }
         }
       }
@@ -71413,6 +71545,12 @@
             "state": "translated",
             "value": "アプリで Grok Bot にサインイン"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在应用里登录 Grok Bot"
+          }
         }
       }
     },
@@ -71429,6 +71567,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "このアカウントの使用量を読み取るには %@ で Codex にサインイン"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 %@ 上登录 Codex，才能读取这个账号的用量"
           }
         }
       }
@@ -71447,6 +71591,12 @@
             "state": "translated",
             "value": "使用量を読み取るには ~/.commandcode-%@ で Command Code にサインイン"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 ~/.commandcode-%@ 里登录 Command Code，才能读取你的用量"
+          }
         }
       }
     },
@@ -71463,6 +71613,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ローカルモデルを監視するには oMLX のサーバーを起動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启动 oMLX 的服务器以监视本地模型"
           }
         }
       }
@@ -71481,6 +71637,12 @@
             "state": "translated",
             "value": "%@ で読み込み済み。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在 %@ 中加载。"
+          }
         }
       }
     },
@@ -71497,6 +71659,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ への ssh がタイムアウトしました"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh 到 %@ 超时"
           }
         }
       }
@@ -71515,6 +71683,12 @@
             "state": "translated",
             "value": "%@ で Claude Code にサインインしてください — そこに ssh して `claude` を実行します。SSH の鍵認証がすでに使える必要があります。パスワードを尋ねることはありません。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 %@ 上登录 Claude Code — ssh 过去运行 `claude`。SSH 密钥认证必须已经可用；这里绝不会询问密码。"
+          }
         }
       }
     },
@@ -71532,6 +71706,12 @@
             "state": "translated",
             "value": "%@ で Codex にサインインしてください — そこに ssh して `codex` を実行します。SSH の鍵認証がすでに使える必要があります。パスワードを尋ねることはありません。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 %@ 上登录 Codex — ssh 过去运行 `codex`。SSH 密钥认证必须已经可用；这里绝不会询问密码。"
+          }
         }
       }
     },
@@ -71543,6 +71723,12 @@
             "state": "translated",
             "value": "Codex en %@ inicia sesión a través de %@ en %@, no con una sesión propia, así que aquí no hay ninguna cuenta de la que leer límites."
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 上的 Codex 通过 %3$@ 的%2$@登录，没有自己的登录，所以这里没有可读取额度的账号。"
+          }
         }
       }
     },
@@ -71553,6 +71739,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "un proxy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理"
           }
         }
       }
@@ -71571,6 +71763,12 @@
             "state": "translated",
             "value": "このアカウントには Grok Bot で計測される対象がまだありません"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个账号在 Grok Bot 里还没有计量数据"
+          }
         }
       }
     },
@@ -71587,6 +71785,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Grok Bot をインストールしてサインインしてください。ノッチは Grok Bot がこの Mac に保存する週間の使用量を読み取ります。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装 Grok Bot 并登录 — 刘海会读取它在这台 Mac 上保存的每周用量。"
           }
         }
       }
@@ -71605,6 +71809,12 @@
             "state": "translated",
             "value": "ターミナルで `muse login` を実行してください。ブラウザでサインインし、ノッチはそのログインとログを読み取ります。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在终端运行 `muse login` — 它通过浏览器登录，刘海会读取它的登录信息和日志。"
+          }
         }
       }
     },
@@ -71621,6 +71831,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "5 時間"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 小时"
           }
         }
       }
@@ -71639,6 +71855,12 @@
             "state": "translated",
             "value": "今日のトークン"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今日 token"
+          }
         }
       }
     },
@@ -71655,6 +71877,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "今日のリクエスト"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今日请求"
           }
         }
       }
@@ -71673,6 +71901,12 @@
             "state": "translated",
             "value": "推論の割合"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推理占比"
+          }
         }
       }
     },
@@ -71689,6 +71923,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ への SSH が %lld 秒でタイムアウトしました。サーバーが停止しているか、ポートが違うか、ファイアウォールが遮っている可能性があります。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 到 %@ 在 %lld 秒后超时 — 服务器可能宕机、端口不对，或被防火墙拦住。"
           }
         }
       }
@@ -71707,6 +71947,12 @@
             "state": "translated",
             "value": "サーバーでのプローブに失敗しました: %@"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "探测在服务器上失败：%@"
+          }
         }
       }
     },
@@ -71723,6 +71969,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "接続はできましたが、プローブの結果を読み取れませんでした。リモートのシェルがログイン時に出力するメッセージで解析が崩れた可能性があります。ターミナルで `ssh %@ true` を実行して、何が表示されるか確認してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接，但探测结果无法读取 — 远程 shell 可能输出了登录信息，打乱了解析。在终端运行 `ssh %@ true` 看看它输出什么。"
           }
         }
       }
@@ -71741,6 +71993,12 @@
             "state": "translated",
             "value": "%1$@（%2$@）に接続しましたが、%3$@ のトークンが見つかりませんでした。探した場所: %4$@。先にサーバーでサインインしてください — `ssh %5$@` してから `%6$@` を実行します。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接到 %@（%@），但没找到 %@ token。查找过：%@。请先在服务器上登录 — `ssh %@`，然后运行 `%@`。"
+          }
         }
       }
     },
@@ -71757,6 +72015,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "「%@」を解決できませんでした。ホスト名に誤りがないか確認してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法解析「%@」。检查主机名有没有拼错。"
           }
         }
       }
@@ -71775,6 +72039,12 @@
             "state": "translated",
             "value": "%1$@ で SSH がログインを拒否しました。鍵認証がパスワードなしで使える必要があります。ターミナルで `ssh %2$@ true` を実行し、パスワードを求められる場合は `ssh-copy-id %3$@` で鍵を追加するか、「ID ファイル」で鍵を指定してください。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的 SSH 拒绝了登录。密钥认证必须无需密码即可使用：在终端运行 `ssh %@ true` — 如果它要密码，用 `ssh-copy-id %@` 添加密钥，或把身份文件指向它。"
+          }
         }
       }
     },
@@ -71791,6 +72061,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@:%lld から応答がありません。サーバーが停止しているか、ポートが違うか、ファイアウォールが遮っている可能性があります。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@:%lld 没有响应。服务器可能宕机、端口不对，或被防火墙拦住。"
           }
         }
       }
@@ -71809,6 +72085,12 @@
             "state": "translated",
             "value": "%@:%lld で待ち受けているものがありません — sshd が停止しているか、ポートが違う可能性があります。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@:%lld 上没有服务在监听 — sshd 可能没在运行，或端口不对。"
+          }
         }
       }
     },
@@ -71825,6 +72107,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "SSH が %@ のホスト鍵を拒否しました。サーバーを再インストールした場合は、`ssh-keygen -R %@` で古い鍵を削除して再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 拒绝了 %@ 的主机密钥。如果服务器重装过，用 `ssh-keygen -R %@` 删除旧密钥后重试。"
           }
         }
       }
@@ -71843,6 +72131,12 @@
             "state": "translated",
             "value": "%@ への SSH に失敗しました: %@"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 到 %@ 失败：%@"
+          }
         }
       }
     },
@@ -71859,6 +72153,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "oMLX を開く"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开 oMLX"
           }
         }
       }
@@ -71877,6 +72177,12 @@
             "state": "translated",
             "value": "oMLX を確認中…"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在检查 oMLX…"
+          }
         }
       }
     },
@@ -71893,6 +72199,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "oMLX に接続中…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接 oMLX…"
           }
         }
       }
@@ -71911,6 +72223,12 @@
             "state": "translated",
             "value": "読み込み済みのモデルは「アカウント → 接続済み」に表示され、毎秒確認されます。埋め込み、リランカー、音声のモデルは表示しません。API キーは ~/.omlx/settings.json（または OMLX_API_KEY）から、速度とトークンは ~/.omlx/logs から読み取ります。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已加载的模型会出现在「账号 → 已连接」里，每秒检查一次。不显示嵌入、重排和音频模型。API 密钥从 ~/.omlx/settings.json（或 OMLX_API_KEY）读取；速度和 token 来自 ~/.omlx/logs。"
+          }
         }
       }
     },
@@ -71927,6 +72245,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用量ではなく残りを表示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示剩余而不是已用"
           }
         }
       }
@@ -71945,6 +72269,12 @@
             "state": "translated",
             "value": "リモートホスト"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程主机"
+          }
         }
       }
     },
@@ -71961,6 +72291,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "SSH で接続するサーバー上の Claude と Codex のアカウント。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过 SSH 连接的服务器上的 Claude 和 Codex 账号。"
           }
         }
       }
@@ -71979,6 +72315,12 @@
             "state": "translated",
             "value": "サーバーを追加"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加服务器"
+          }
         }
       }
     },
@@ -71995,6 +72337,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "SSH の鍵認証がすでに使える必要があります。取得は定期的に実行され、パスワードの入力待ちで止まることはありません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 密钥认证必须已经可用 — 轮询按定时器运行，绝不会停在密码提示上。"
           }
         }
       }
@@ -72013,6 +72361,12 @@
             "state": "translated",
             "value": "サーバーはまだありません。上で追加すると、そのリングがノッチに表示されます。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有服务器。在上面添加一台，它的圆环就会出现在刘海里。"
+          }
         }
       }
     },
@@ -72029,6 +72383,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "アカウント"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "账号"
           }
         }
       }
@@ -72047,6 +72407,12 @@
             "state": "translated",
             "value": "仕事用 GPU"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作 GPU"
+          }
         }
       }
     },
@@ -72063,6 +72429,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ホスト"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机"
           }
         }
       }
@@ -72081,6 +72453,12 @@
             "state": "translated",
             "value": "ユーザー"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用户"
+          }
         }
       }
     },
@@ -72097,6 +72475,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ポート"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端口"
           }
         }
       }
@@ -72115,6 +72499,12 @@
             "state": "translated",
             "value": "ID ファイル"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "身份文件"
+          }
         }
       }
     },
@@ -72131,6 +72521,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "任意 — ~/.ssh/id_ed25519"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可选 — ~/.ssh/id_ed25519"
           }
         }
       }
@@ -72149,6 +72545,12 @@
             "state": "translated",
             "value": "サーバーを調べています…"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在探测服务器…"
+          }
         }
       }
     },
@@ -72165,6 +72567,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ホストとユーザーが必要です"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要填写主机和用户"
           }
         }
       }
@@ -72183,6 +72591,12 @@
             "state": "translated",
             "value": "有効"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已启用"
+          }
         }
       }
     },
@@ -72199,6 +72613,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "確認済み · %@ · トークンあり（%@）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已验证 · %@ · 找到 token（%@）"
           }
         }
       }
@@ -72217,6 +72637,12 @@
             "state": "translated",
             "value": "この Mac の oMLX で読み込まれているモデル。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 上 oMLX 已加载的模型。"
+          }
         }
       }
     },
@@ -72233,6 +72659,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "残りの使用量で自動的に並べ替え"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按剩余用量自动排序"
           }
         }
       }
@@ -72251,6 +72683,12 @@
             "state": "translated",
             "value": "ノッチは、各リングの先頭の枠の残りが多い順にリングを並べます。残りが多くてもまだ使えないものは、使えるアカウントより下に、空のアカウントより上に並びます。このリストは手動の順番を保持し、同順位のときはそれに従います。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刘海按每个圆环主窗口的剩余量排序，剩得多的在前。数字高但暂时用不了的，排在可用账号之后、空账号之前。这个列表保留你的手动顺序，用于决定并列时的先后。"
+          }
         }
       }
     },
@@ -72267,6 +72705,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "自動並べ替えがオンです: ノッチは残りの使用量でこれらを並べます。ドラッグで決めた順番は、同順位のときに使われます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动排序已开启：刘海按剩余用量排列这些项。拖动仍可决定并列时的先后。"
           }
         }
       }
@@ -72285,6 +72729,12 @@
             "state": "translated",
             "value": "ノッチは残りを表示します — 数値、リングの弧、カードのバーとパーセント。色は引き続き使用量で判定するので、ほぼ空のリングは赤のままです。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刘海显示剩余量 — 数字、圆环的弧度，以及卡片上的进度条和百分比。颜色仍按已用量判断，所以快用完的圆环依旧显示红色。"
+          }
         }
       }
     },
@@ -72301,6 +72751,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "枠を使い切ったらリングを閉じる"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗口用完时关闭圆环"
           }
         }
       }
@@ -72319,6 +72775,12 @@
             "state": "translated",
             "value": "5 時間か週間の枠を使い切ると、もう一方の枠に余裕があっても両方のリングが閉じた状態を示します。残りを表示しているときは濃いグレー、使用量を表示しているときは赤になります。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 小时或每周窗口用完时，两个圆环都显示关闭，哪怕另一个窗口还有余量 — 显示剩余量时为深灰色，显示已用量时为红色。"
+          }
         }
       }
     },
@@ -72335,6 +72797,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "使い切ったアカウントを隠す"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏没有余量的账号"
           }
         }
       }
@@ -72353,6 +72821,12 @@
             "state": "translated",
             "value": "5 時間か週間の枠の残りが 0% になると、枠がリセットされるまでそのアカウントはノッチから消えます。古い読み取りは残ります: 古い数値はアカウントが空である証拠にはならないためです。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 小时或每周窗口剩余 0% 时，这个账号会离开刘海，直到窗口重置。过期读数会保留：旧数字不能证明账号已经用空。"
+          }
         }
       }
     },
@@ -72369,6 +72843,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Codenotch は、この Mac ですでにサインインしているツールから使用量を読み取ります。パスワードを尋ねることはありません。Claude Code（Claude アプリではなくターミナルのツール）、Cursor（エディタまたは cursor-agent）、Codex、Antigravity、GLM、Grok、OpenCode、Command Code、GitHub Copilot、Kimi Code、Kiro、Amp、Apify、Kilo CLI、Muse、Gemini API キー（Gemini CLI、OpenCode、Hermes 経由）のいずれかをインストールしてサインインすると、そのリングがノッチに表示されます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codenotch 读取这台 Mac 上已登录工具的用量 — 从不询问你的密码。安装并登录以下任一工具：Claude Code（终端工具，不是 Claude 应用）、Cursor（编辑器或 cursor-agent）、Codex、Antigravity、GLM、Grok、OpenCode、Command Code、GitHub Copilot、Kimi Code、Kiro、Amp、Apify、Kilo CLI、Muse，或 Gemini API 密钥（通过 Gemini CLI、OpenCode 或 Hermes），它的圆环就会出现在刘海里。"
           }
         }
       }
@@ -72387,6 +72867,12 @@
             "state": "translated",
             "value": "Codenotch が Claude Code、Antigravity、cursor-agent、Muse の保存済みログインを読み取る前に、macOS が確認することがあります。バックグラウンドの更新ではこの確認は出ません。「アクセスを許可…」をクリックしたときだけ表示され、「拒否」を選ぶと、再度要求するまで Codenotch はそのログインを読み取りません。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codenotch 读取 Claude Code、Antigravity、cursor-agent 或 Muse 保存的登录信息前，macOS 可能会询问。后台刷新从不弹出这个询问；只有你点击「允许访问…」时才会出现，选择「拒绝」后 Codenotch 会停止读取该登录信息，直到你再次请求。"
+          }
         }
       }
     },
@@ -72403,6 +72889,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "このモデルをノッチに表示するか隠すかを選びます。%@ では読み込まれたままです。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在刘海中显示或隐藏这个模型。它仍会在 %@ 中保持加载。"
           }
         }
       }
@@ -72421,6 +72913,12 @@
             "state": "translated",
             "value": "%@ %@ · %@ 経由"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ %@ · 通过 %@"
+          }
         }
       }
     },
@@ -72437,6 +72935,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ノッチでは非表示 · %@ で読み込み済み"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已从刘海隐藏 · 在 %@ 中加载"
           }
         }
       }
@@ -72455,6 +72959,12 @@
             "state": "translated",
             "value": "使用量ではなく残りを表示、Dock スタイル、oMLX、そして自分のサーバー上の Claude と Codex。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示剩余而不是已用、程序坞样式、oMLX，以及你自己服务器上的 Claude 和 Codex。"
+          }
         }
       }
     },
@@ -72471,6 +72981,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "リングと数値が残りをカウントダウンします。枠を使い切るとリングを閉じることができ、残りに応じて並べ替えることもできます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圆环和数字倒数剩余量。窗口用完时圆环可以关闭，还能按剩余量自动排序。"
           }
         }
       }
@@ -72489,6 +73005,12 @@
             "state": "translated",
             "value": "リモートホストと Muse"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程主机与 Muse"
+          }
         }
       }
     },
@@ -72505,6 +73027,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "SSH で接続するサーバー上の Claude と Codex のアカウント、そして Muse。それぞれに専用のリングがあります。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过 SSH 连接的服务器上的 Claude 和 Codex 账号，以及 Muse，各有自己的圆环。"
           }
         }
       }
@@ -72523,6 +73051,12 @@
             "state": "translated",
             "value": "Dock スタイル"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程序坞样式"
+          }
         }
       }
     },
@@ -72539,6 +73073,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "ノッチが画面の端からわずかに離れて、ガラスの板のように浮かびます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刘海悬浮在屏幕边缘稍外处，像一块玻璃板。"
           }
         }
       }
@@ -72574,6 +73114,12 @@
             "state": "translated",
             "value": "oMLX が読み込んでいるモデル、その処理内容、速度、コンテキストの埋まり具合、そして 1 日のトークン数。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "oMLX 已加载的模型、它们在做什么、速度、上下文占用，以及每日 token 数。"
+          }
         }
       }
     },
@@ -72590,6 +73136,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "作業中の表示に「明滅」"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "呼吸式工作指示"
           }
         }
       }
@@ -72608,6 +73160,12 @@
             "state": "translated",
             "value": "オプション: セッションの作業中、回転する弧の代わりに、サービスの色の円がゆっくり明滅します。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可选：会话工作时，用一个服务商颜色的圆点呼吸闪烁，代替旋转的弧线。"
+          }
         }
       }
     },
@@ -72624,6 +73182,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Enterprise の支出予測"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "企业版花费预测"
           }
         }
       }
@@ -72642,6 +73206,12 @@
             "state": "translated",
             "value": "支出カードで、月間の上限がリセットまでもつかどうかがわかります。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "花费卡片会告诉你月度额度能否撑到重置。"
+          }
         }
       }
     },
@@ -72658,6 +73228,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "その他"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更多"
           }
         }
       }
@@ -72676,6 +73252,12 @@
             "state": "translated",
             "value": "カスタムエンドポイントでの OpenCode のアクティビティ、Grok Bot の週間使用量、中国の祝日は終日 DeepSeek のオフピーク、レート制限時の Claude の再試行をおだやかに、スリープ後に外部ディスプレイのノッチが戻るように、そして誰も開いていない Claude セッションは除外。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义端点上的 OpenCode 活动、Grok Bot 的每周用量、DeepSeek 在中国法定节假日全天错峰、Claude 被限流时更温和的重试、睡眠后外接显示器上的刘海恢复，以及不再显示没人打开的 Claude 会话。"
+          }
         }
       }
     },
@@ -72692,6 +73274,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Qoder のクレジット、複数の Command Code アカウント、そして残高のあるウォレットからの DeepSeek の残高。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qoder 的积分、多个 Command Code 账号，以及从有余额的钱包读取 DeepSeek 余额。"
           }
         }
       }
@@ -72727,6 +73315,12 @@
             "state": "translated",
             "value": "Qoder のクレジットのリング。国際版にも中国本土版にも対応します。Codenotch の中で一度サインインするだけで、ブラウザからは何もコピーしません。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个显示 Qoder 积分的圆环，支持国际版和中国大陆版。在 Codenotch 里登录一次即可；不会从浏览器复制任何东西。"
+          }
         }
       }
     },
@@ -72743,6 +73337,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "複数の Command Code アカウント"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "多个 Command Code 账号"
           }
         }
       }
@@ -72761,6 +73361,12 @@
             "state": "translated",
             "value": "Command Code でサインインした ~/.commandcode-name フォルダは、Claude や Codex のプロファイルと同じように、それぞれ専用のリングになります。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个用 Command Code 登录过的 ~/.commandcode-名称 文件夹都有自己的圆环，和 Claude、Codex 的配置文件一样。"
+          }
         }
       }
     },
@@ -72777,6 +73383,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "入金済みのウォレットからの DeepSeek の残高"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从有余额的钱包读取 DeepSeek 余额"
           }
         }
       }
@@ -72795,6 +73407,12 @@
             "state": "translated",
             "value": "複数の通貨が並んでいる場合、残高は最初に挙がったものではなく、お金が入っているウォレットから取得します。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列出多种货币时，余额取自有钱的那个钱包，而不是排在第一个的。"
+          }
         }
       }
     },
@@ -72811,6 +73429,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Українська を最新に"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Українська，已更新"
           }
         }
       }
@@ -72829,6 +73453,12 @@
             "state": "translated",
             "value": "このバージョンで表示されるすべての文言。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个版本显示的每一条文案。"
+          }
         }
       }
     },
@@ -72845,6 +73475,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "カスタムエンドポイントが Anthropic と Gemini に対応、llama.cpp が速度を表示、Antigravity は IDE を開かずに読み取り。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义端点支持 Anthropic 和 Gemini，llama.cpp 显示速度，Antigravity 不开 IDE 也能读取。"
           }
         }
       }
@@ -72863,6 +73499,12 @@
             "state": "translated",
             "value": "Anthropic と Gemini のカスタムエンドポイント"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anthropic 和 Gemini 自定义端点"
+          }
         }
       }
     },
@@ -72879,6 +73521,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "カスタムエンドポイントに、OpenAI 互換の API に加えて Anthropic や Gemini の API も使えるようになりました。モデルも自動で見つけます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义端点现在除了 OpenAI 兼容接口，也可以是 Anthropic 或 Gemini API，模型会自动帮你找到。"
           }
         }
       }
@@ -72897,6 +73545,12 @@
             "state": "translated",
             "value": "専用のマークと速度表示の llama.cpp"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "llama.cpp，有自己的图标和速度"
+          }
         }
       }
     },
@@ -72913,6 +73567,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "llama.cpp のエンドポイントに公式のアイコンが付き、生成速度と、実行中・待機中のリクエスト数が表示されます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "llama.cpp 端点使用官方图标，并显示生成速度以及正在运行和等待的请求数。"
           }
         }
       }
@@ -72931,6 +73591,12 @@
             "state": "translated",
             "value": "IDE を起動していなくても Antigravity"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不运行 IDE 也能读取 Antigravity"
+          }
         }
       }
     },
@@ -72947,6 +73613,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "IDE を閉じているときは、何も表示しないのではなく、Codenotch が Antigravity 自身の言語サーバーを起動して割り当てを読み取ります。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IDE 关闭时，Codenotch 会启动 Antigravity 自己的语言服务器来读取额度，而不是什么都不显示。"
           }
         }
       }
@@ -72965,6 +73637,12 @@
             "state": "translated",
             "value": "どのバージョンの OpenCode でも"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode，任何版本"
+          }
         }
       }
     },
@@ -72981,6 +73659,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用量とアクティビティを 1.x と 2.x の両方のデータベースから読み取るので、どちらも使用量ゼロにはなりません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用量和活动同时从 1.x 和 2.x 数据库读取，两者都不会显示为零花费。"
           }
         }
       }
@@ -72999,6 +73683,12 @@
             "state": "translated",
             "value": "Tailscale 経由のエンドポイント"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过 Tailscale 访问端点"
+          }
         }
       }
     },
@@ -73015,6 +73705,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "100.64.x.x のアドレス — tailnet 上のマシン — にある素の http のエンドポイントにも接続できるようになりました。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位于 100.64.x.x 地址（你 tailnet 中的机器）的普通 http 端点现在可以访问了。"
           }
         }
       }
@@ -73033,6 +73729,12 @@
             "state": "translated",
             "value": "简体中文 と 繁體中文 を補完"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "简体中文和繁體中文，补全了"
+          }
         }
       }
     },
@@ -73050,6 +73752,12 @@
             "state": "translated",
             "value": "英語のまま表示されていた文言を翻訳しました。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "之前还显示英文的文案都已翻译。"
+          }
         }
       }
     },
@@ -73060,6 +73768,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "自動並べ替えがオンです: ドラッグで決めた順番は、同順位のときに使われます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动排序已开启：拖动仍可决定并列时的先后。"
           }
         }
       }
@@ -73072,6 +73786,12 @@
             "state": "translated",
             "value": "失効が近い順"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "燃烧缺口"
+          }
         }
       }
     },
@@ -73083,6 +73803,12 @@
             "state": "translated",
             "value": "Codenotch は、この Mac ですでにサインインしているツールから使用量を読み取ります。パスワードを尋ねることはありません。Claude Code（Claude アプリではなくターミナルのツール）、Cursor（エディタまたは cursor-agent）、Codex、Antigravity、GLM、Grok、OpenCode、Command Code、GitHub Copilot、Kimi Code、Kiro、Amp、Apify、Kilo CLI、Muse、Higgsfield、Gemini API キー（Gemini CLI、OpenCode、Hermes 経由）のいずれかをインストールしてサインインすると、そのリングがノッチに表示されます。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codenotch 读取这台 Mac 上已登录工具的用量 — 从不询问你的密码。安装并登录以下任一工具：Claude Code（终端工具，不是 Claude 应用）、Cursor（编辑器或 cursor-agent）、Codex、Antigravity、GLM、Grok、OpenCode、Command Code、GitHub Copilot、Kimi Code、Kiro、Amp、Apify、Kilo CLI、Muse、Higgsfield，或 Gemini API 密钥（通过 Gemini CLI、OpenCode 或 Hermes），它的圆环就会出现在刘海里。"
+          }
         }
       }
     },
@@ -73093,6 +73819,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Higgsfield に接続できませんでした。接続を確認してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接 Higgsfield。请检查网络连接。"
           }
         }
       }
@@ -73116,6 +73848,12 @@
             "state": "translated",
             "value": "追加クレジット"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "额外积分"
+          }
         }
       }
     },
@@ -73137,6 +73875,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Higgsfield の API キー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Higgsfield API 密钥"
           }
         }
       }
@@ -73160,6 +73904,12 @@
             "state": "translated",
             "value": "各リングの先頭の枠で、残りが多い順に並べます。メニューバーは、表示している 5 時間の枠の残りで読み取りを並べます。残りが多くてもまだ使えないものは、使えるアカウントより下に、空のアカウントより上に並びます。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剩余最多的在前，按每个圆环的主窗口计算；菜单栏按它显示的 5 小时窗口剩余量排序读数。数字高但暂时用不了的，排在可用账号之后、空账号之前。"
+          }
         }
       }
     },
@@ -73170,6 +73920,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Higgsfield のクレジット残高が返されませんでした。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Higgsfield 未返回积分余额。"
           }
         }
       }
@@ -73182,6 +73938,12 @@
             "state": "translated",
             "value": "Higgsfield のワークスペースもクレジットも見つかりませんでした。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有找到 Higgsfield 工作区或积分。"
+          }
         }
       }
     },
@@ -73192,6 +73954,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "リングの並び順"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圆环排序"
           }
         }
       }
@@ -73204,6 +73972,12 @@
             "state": "translated",
             "value": "Higgsfield Console の API キーかトークンを貼り付けてください。hf auth login 済みの場合や、HIGGSFIELD_API_KEY をエクスポートしている場合は不要です。ログインキーチェーンに保存されます。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴 Higgsfield Console 的 API 密钥或 token。运行过 hf auth login 或已导出 HIGGSFIELD_API_KEY 时不需要。保存在你的登录钥匙串中。"
+          }
         }
       }
     },
@@ -73214,6 +73988,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "割り当ての期限が近いものから: 残りの割り当てから残り時間を引いた値で並べます。週の残り 23 時間で 70% 残り（消化すべき分は約 56）は、残り 6 日で 100% 残り（約 14）より上に来ます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最先过期的额度在前：剩余额度减去剩余时间。一周还剩 23 小时、剩 70%（约 56 要用掉）排在还剩 6 天、剩 100%（约 14 要用掉）之前。"
           }
         }
       }
@@ -73226,6 +74006,12 @@
             "state": "translated",
             "value": "ターミナルで hf auth login を実行するか、設定で Higgsfield の API キーを貼り付けてください"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在终端运行 hf auth login，或在设置里粘贴 Higgsfield API 密钥"
+          }
         }
       }
     },
@@ -73236,6 +74022,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "メニューを表示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示菜单"
           }
         }
       }
@@ -73248,6 +74040,12 @@
             "state": "translated",
             "value": "ノッチとメニューバーは残りを表示します — 数値、リングの弧、カードのバーとパーセント。色は引き続き使用量で判定するので、ほぼ空のリングは赤のままです。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刘海和菜单栏显示剩余量 — 数字、圆环的弧度，以及卡片上的进度条和百分比。颜色仍按已用量判断，所以快用完的圆环依旧显示红色。"
+          }
         }
       }
     },
@@ -73259,6 +74057,12 @@
             "state": "translated",
             "value": "ノッチは下の順番でリングを描きます。ハンドルをドラッグして移動できます。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刘海按下面的顺序绘制圆环。拖动把手即可移动。"
+          }
         }
       }
     },
@@ -73269,6 +74073,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "5 時間か週間の枠の残りが 0% になると、枠がリセットされるまでそのアカウントはノッチとメニューバーから消えます — メニューバー項目の裏のメニューには引き続き表示されます。古い読み取りは残ります: 古い数値はアカウントが空である証拠にはならないためです。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5 小时或每周窗口剩余 0% 时，这个账号会离开刘海和菜单栏，直到窗口重置 — 菜单栏项下的菜单里仍会列出。过期读数会保留：旧数字不能证明账号已经用空。"
           }
         }
       }
@@ -73303,6 +74113,12 @@
             "state": "translated",
             "value": "「外観」にメニューバーのグループ: 残りを表示、各読み取りをどこまで表示するか、残りで並べ替え、クリック時の動作。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「外观」里新增菜单栏分组：显示剩余量、每个读数显示多少、按剩余量排序，以及点击后做什么。"
+          }
         }
       }
     },
@@ -73313,6 +74129,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "より多くのことができるメニューバー: サービスのカード、待機中の点、幅・順番・クリック時の動作を選べるように。さらにスペイン語、Higgsfield、そして失効が近い順のリングの並び替え。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "菜单栏能做更多：服务商卡片、等待圆点，宽度、顺序和点击行为随你选。另有西班牙语、Higgsfield，以及按即将过期排序圆环。"
           }
         }
       }
@@ -73325,6 +74147,12 @@
             "state": "translated",
             "value": "エージェントがあなたの返答を待っているときは赤い点、終わったときは点滅。作業中の脈動は深くなり、気づきやすくなりました。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理在等你回复时显示红点，完成时闪一下。工作中的脉动更明显，更容易注意到。"
+          }
         }
       }
     },
@@ -73335,6 +74163,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Higgsfield のクレジットのリング。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个显示 Higgsfield 积分的圆环。"
           }
         }
       }
@@ -73347,6 +74181,12 @@
             "state": "translated",
             "value": "Antigravity は選んだ割り当てグループと ACP のサインインを読み取るように、Ollama のクラウド使用量、OpenCode 2.x のキー、ローカルのリングの下に整数の秒間トークン数、均一なバーの太さ、そして終了した Pi セッションが作業中と表示されないように。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antigravity 读取你选择的额度组及其 ACP 登录，Ollama 的云端用量，OpenCode 2.x 密钥，本地圆环下显示整数 tok/s，统一的进度条粗细，已退出的 Pi 会话不再显示为工作中。"
+          }
         }
       }
     },
@@ -73357,6 +74197,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Codenotch がスペイン語に。Mac 版でも Windows 版でも。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codenotch 支持西班牙语，Mac 和 Windows 都有。"
           }
         }
       }
@@ -73369,6 +74215,12 @@
             "state": "translated",
             "value": "手動、残りが多い順、または使われずに失効しそうな割り当てから。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动、剩余最多优先，或最先浪费的额度优先。"
+          }
         }
       }
     },
@@ -73379,6 +74231,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "失効が近い順にリングを並べる"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按燃烧缺口排序圆环"
           }
         }
       }
@@ -73391,6 +74249,12 @@
             "state": "translated",
             "value": "メニューにサービスのカード"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "菜单里的服务商卡片"
+          }
         }
       }
     },
@@ -73401,6 +74265,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "思いどおりのメニューバー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "菜单栏，随你设置"
           }
         }
       }
@@ -73413,6 +74283,12 @@
             "state": "translated",
             "value": "メニューバー項目の下のメニューに、各サービスのカードが表示されます。カードごとに「詳細」の切り替えがあります。"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "菜单栏项下的菜单显示每个服务商的卡片，每张卡片都有详情开关。"
+          }
         }
       }
     },
@@ -73423,6 +74299,1145 @@
           "stringUnit": {
             "state": "translated",
             "value": "メニューバーで待機中と完了"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "菜单栏里的等待与完成"
+          }
+        }
+      }
+    },
+    "Plan ceilings": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "套餐上限"
+          }
+        }
+      }
+    },
+    "Ceiling calculation": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上限计算"
+          }
+        }
+      }
+    },
+    "Auto-hide": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动隐藏"
+          }
+        }
+      }
+    },
+    "Warning threshold": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提醒阈值"
+          }
+        }
+      }
+    },
+    "A system notification the moment a provider's headline limit crosses the warning threshold, and again at 100% — once per crossing, and again only after the window rolls over. Mute one from the bell beside its row in Accounts.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务商的主要额度越过提醒阈值时立刻发送系统通知，到 100% 时再发一次 — 每次越过只提醒一次，窗口重置后才会再次提醒。在「账号」中点击某行旁的铃铛可将其静音。"
+          }
+        }
+      }
+    },
+    "Codenotch reads usage from tools already signed in on this Mac — it never asks for your password. Install and sign in to any of Claude Code (the terminal tool, not the Claude app), Cursor (the editor or cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, the Kilo CLI, Muse, Higgsfield, Krea or a Gemini API key (via Gemini CLI, OpenCode or Hermes), and its ring appears in the notch.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codenotch 读取这台 Mac 上已登录工具的用量 — 从不询问你的密码。安装并登录以下任一工具：Claude Code（终端工具，不是 Claude 应用）、Cursor（编辑器或 cursor-agent）、Codex、Antigravity、GLM、Grok、OpenCode、Command Code、GitHub Copilot、Kimi Code、Kiro、Amp、Apify、Kilo CLI、Muse、Higgsfield、Krea，或 Gemini API 密钥（通过 Gemini CLI、OpenCode 或 Hermes），它的圆环就会出现在刘海里。"
+          }
+        }
+      }
+    },
+    "Auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动"
+          }
+        }
+      }
+    },
+    "Revert to auto-inferred ceiling based on peak usage.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复为根据峰值用量自动推算的上限。"
+          }
+        }
+      }
+    },
+    "Fills the ring against a ceiling you choose or inferred from peak usage; Google publishes none for an API key.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按你设定或根据峰值用量推算的上限填充圆环；Google 没有公布 API 密钥的上限。"
+          }
+        }
+      }
+    },
+    "Request limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求上限"
+          }
+        }
+      }
+    },
+    "requests": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次请求"
+          }
+        }
+      }
+    },
+    "Fills the ring against a declared ceiling you choose.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按你声明的上限填充圆环。"
+          }
+        }
+      }
+    },
+    "Reset window": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置周期"
+          }
+        }
+      }
+    },
+    "How often the manual quota window rolls over.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动额度窗口多久重置一次。"
+          }
+        }
+      }
+    },
+    "Krea API key": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krea API 密钥"
+          }
+        }
+      }
+    },
+    "Paste an API token from Krea › Settings › API Tokens. Not needed after krea auth login, or with KREA_API_KEY exported. Stored in your login keychain.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴 Krea › Settings › API Tokens 里的 API token。运行过 krea auth login 或已导出 KREA_API_KEY 时不需要。保存在你的登录钥匙串中。"
+          }
+        }
+      }
+    },
+    "Phone linking is not available.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手机连接不可用。"
+          }
+        }
+      }
+    },
+    "Expiring first": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最先过期优先"
+          }
+        }
+      }
+    },
+    "Sorts by which ring's main window resets soonest, so a ring resetting in 1h outranks one resetting in 5h. Rings whose main ring or weekly allowance is spent sink to the end.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按圆环主窗口最先重置的排序，1 小时后重置的排在 5 小时后重置的之前。主圆环或每周额度已用完的排到最后。"
+          }
+        }
+      }
+    },
+    "Claude sessions named by their title, a lighter cost indexer, Krea, Japanese brought up to date, and a Windows taskbar strip drawn like the notch.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 会话以标题命名、更轻量的花费索引、Krea、日语更新，以及画得像刘海的 Windows 任务栏条。"
+          }
+        }
+      }
+    },
+    "Sessions by title": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话按标题显示"
+          }
+        }
+      }
+    },
+    "Claude Code sessions carry their own title instead of the folder name.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 会话显示自己的标题，而不是文件夹名。"
+          }
+        }
+      }
+    },
+    "Lighter on big histories": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大量历史记录也更轻快"
+          }
+        }
+      }
+    },
+    "The cost indexer checks each transcript far more cheaply, and costs react only when a usage reading changes.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "花费索引检查每份对话记录的开销大大降低，只有用量读数变化时才重新计算花费。"
+          }
+        }
+      }
+    },
+    "Krea and Xiaomi MiMo": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krea 和小米 MiMo"
+          }
+        }
+      }
+    },
+    "A Krea AI ring, and a MiMo preset for Custom Endpoints.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个 Krea AI 圆环，以及自定义端点的 MiMo 预设。"
+          }
+        }
+      }
+    },
+    "Several Grok accounts": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "多个 Grok 账号"
+          }
+        }
+      }
+    },
+    "One ring per Grok home directory.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个 Grok 主目录一个圆环。"
+          }
+        }
+      }
+    },
+    "日本語": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日本語"
+          }
+        }
+      }
+    },
+    "The Japanese translation is up to date.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日语翻译已更新。"
+          }
+        }
+      }
+    },
+    "Claude plans with only weekly limits read again, the lone Claude ring is named when Claude Desktop uses another account, remote Claude readings are reused for five minutes, Kiro never sends /usage to the model, Kimi monthly quotas, MiniMax China keys, and Grok Bot readings dim past their reset. Rings in deficit sort by the soonest expiry.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有每周额度的 Claude 套餐重新可读；Claude Desktop 使用另一个账号时，单独的 Claude 圆环会标出名字；远程 Claude 读数复用五分钟；Kiro 不再把 /usage 发给模型；Kimi 月度额度；MiniMax 中国区密钥；Grok Bot 读数过了重置时间会变暗。存在缺口的圆环按最先过期排序。"
+          }
+        }
+      }
+    },
+    "Auto with override": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动并可手动覆盖"
+          }
+        }
+      }
+    },
+    "Manual only": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅手动"
+          }
+        }
+      }
+    },
+    "Auto-inferred": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动推算"
+          }
+        }
+      }
+    },
+    "Infers plan ceilings from peak usage and allows a manual override.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根据峰值用量推算套餐上限，并允许手动覆盖。"
+          }
+        }
+      }
+    },
+    "Uses manual ceiling entries only; no inference from peak usage.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只使用手动填写的上限；不根据峰值用量推算。"
+          }
+        }
+      }
+    },
+    "Infers plan ceilings strictly from observed peak usage.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "严格根据观测到的峰值用量推算套餐上限。"
+          }
+        }
+      }
+    },
+    "Monitor Ollama": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "监视 Ollama"
+          }
+        }
+      }
+    },
+    "Ollama server address": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama 服务器地址"
+          }
+        }
+      }
+    },
+    "Speed and thinking": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "速度与思考"
+          }
+        }
+      }
+    },
+    "Waiting for a completed response through this address.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等待通过这个地址完成的响应。"
+          }
+        }
+      }
+    },
+    "Set your chat client's Ollama address to the one above, or run this in Terminal:": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把聊天客户端的 Ollama 地址设为上面这个，或在终端运行："
+          }
+        }
+      }
+    },
+    "Keep Codenotch open. Speed appears after each completed native Ollama response. Requests sent directly to the server address only provide model detection here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持 Codenotch 打开。每次原生 Ollama 响应完成后显示速度。直接发到服务器地址的请求在这里只能用于识别模型。"
+          }
+        }
+      }
+    },
+    "Never": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从不"
+          }
+        }
+      }
+    },
+    "On full-screen": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全屏时"
+          }
+        }
+      }
+    },
+    "On overlap": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重叠时"
+          }
+        }
+      }
+    },
+    "The notch stays in place even over full-screen apps or overlapping windows.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即使有全屏应用或窗口重叠，刘海也保持原位。"
+          }
+        }
+      }
+    },
+    "The notch folds away while a full-screen app is frontmost, and returns when you leave it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全屏应用在最前面时刘海收起，离开后恢复。"
+          }
+        }
+      }
+    },
+    "The notch folds away when a full-screen app or active window overlaps its frame.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全屏应用或当前窗口与刘海重叠时，刘海收起。"
+          }
+        }
+      }
+    },
+    "Monitor oMLX": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "监视 oMLX"
+          }
+        }
+      }
+    },
+    "oMLX server address": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "oMLX 服务器地址"
+          }
+        }
+      }
+    },
+    "Activity, speed and tokens": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "活动、速度与 token"
+          }
+        }
+      }
+    },
+    "No requests found in oMLX's server log yet.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "oMLX 的服务器日志里还没有请求。"
+          }
+        }
+      }
+    },
+    "Reading oMLX's server log…": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在读取 oMLX 的服务器日志…"
+          }
+        }
+      }
+    },
+    "What a model is doing comes from oMLX's admin activity endpoint, polled several times a second. Speed and token counts are read from ~/.omlx/logs; only the numbers are kept, never a prompt or a reply.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型在做什么来自 oMLX 的管理活动接口，每秒轮询数次。速度和 token 数从 ~/.omlx/logs 读取；只保留数字，从不保留提示词或回复。"
+          }
+        }
+      }
+    },
+    "Monitor LM Studio": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "监视 LM Studio"
+          }
+        }
+      }
+    },
+    "LM Studio server address": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LM Studio 服务器地址"
+          }
+        }
+      }
+    },
+    "No requests found in LM Studio's server log yet.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LM Studio 的服务器日志里还没有请求。"
+          }
+        }
+      }
+    },
+    "Reading LM Studio's server log…": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在读取 LM Studio 的服务器日志…"
+          }
+        }
+      }
+    },
+    "What a model is doing comes from LM Studio's own status, polled several times a second. Speed, context use and token counts are read from ~/.lmstudio/server-logs; only the numbers are kept, never a prompt or a reply. Responses through the OpenAI-compatible endpoint carry no clock, so their speed is timed here and marked ~.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型在做什么来自 LM Studio 自己的状态，每秒轮询数次。速度、上下文占用和 token 数从 ~/.lmstudio/server-logs 读取；只保留数字，从不保留提示词或回复。经由 OpenAI 兼容端点的响应不带计时，所以速度在这里计时并标记 ~。"
+          }
+        }
+      }
+    },
+    "Kiro CLI rejected --agent-engine v2. Update kiro-cli to read usage.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiro CLI 拒绝了 --agent-engine v2。请更新 kiro-cli 以读取用量。"
+          }
+        }
+      }
+    },
+    "Daily (midnight)": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每天（午夜）"
+          }
+        }
+      }
+    },
+    "Weekly (Monday)": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每周（周一）"
+          }
+        }
+      }
+    },
+    "Monthly (1st)": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每月（1 号）"
+          }
+        }
+      }
+    },
+    "Manual reset only": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅手动重置"
+          }
+        }
+      }
+    },
+    "Counts usage locally against limits you declare.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按你声明的额度在本地统计用量。"
+          }
+        }
+      }
+    },
+    "No limit set": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未设上限"
+          }
+        }
+      }
+    },
+    "Krea CLI": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krea CLI"
+          }
+        }
+      }
+    },
+    "Couldn't reach Krea. Check your connection.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接 Krea。请检查网络连接。"
+          }
+        }
+      }
+    },
+    "Use an HTTP address on this Mac, such as http://127.0.0.1:8000.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请使用这台 Mac 上的 HTTP 地址，例如 http://127.0.0.1:8000。"
+          }
+        }
+      }
+    },
+    "oMLX server unavailable. Start the server in oMLX and check the address.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "oMLX 服务器不可用。请在 oMLX 中启动服务器并检查地址。"
+          }
+        }
+      }
+    },
+    "This server did not return an oMLX model listing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个服务器没有返回 oMLX 模型列表。"
+          }
+        }
+      }
+    },
+    "oMLX refused the request. The API key in ~/.omlx/settings.json could not be read or is not the main key.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "oMLX 拒绝了请求。~/.omlx/settings.json 中的 API 密钥无法读取，或不是主密钥。"
+          }
+        }
+      }
+    },
+    "Run `cursor-agent login` once — the notch reads that session. The Cursor editor works the same way, if you have it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行一次 `cursor-agent login` — 刘海会读取那个会话。如果你装了 Cursor 编辑器，它也一样可用。"
+          }
+        }
+      }
+    },
+    "No Krea workspaces or credits found.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有找到 Krea 工作区或积分。"
+          }
+        }
+      }
+    },
+    "No Krea credit balance reported.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krea 未返回积分余额。"
+          }
+        }
+      }
+    },
+    "Use an HTTP address on this Mac, such as http://127.0.0.1:1234.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请使用这台 Mac 上的 HTTP 地址，例如 http://127.0.0.1:1234。"
+          }
+        }
+      }
+    },
+    "LM Studio server unavailable. Start the server in LM Studio's Developer tab and check the address.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LM Studio 服务器不可用。请在 LM Studio 的 Developer 标签页启动服务器并检查地址。"
+          }
+        }
+      }
+    },
+    "This server did not return an LM Studio model listing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个服务器没有返回 LM Studio 模型列表。"
+          }
+        }
+      }
+    },
+    "LM Studio requires an API token. Create one in LM Studio → Developer → Server Settings and paste it in Settings → LM Studio.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LM Studio 需要 API token。在 LM Studio → Developer → Server Settings 中创建一个，然后粘贴到「设置 → LM Studio」。"
+          }
+        }
+      }
+    },
+    "Use an HTTP address on this Mac, such as http://127.0.0.1:11434.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请使用这台 Mac 上的 HTTP 地址，例如 http://127.0.0.1:11434。"
+          }
+        }
+      }
+    },
+    "Ollama server unavailable. Open Ollama and check the server address.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama 服务器不可用。请打开 Ollama 并检查服务器地址。"
+          }
+        }
+      }
+    },
+    "This server did not return an Ollama model listing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个服务器没有返回 Ollama 模型列表。"
+          }
+        }
+      }
+    },
+    "Cannot start relay. Check that port 11435 is free and the server uses a different port.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法启动中继。请检查 11435 端口是否空闲，且服务器使用的是其他端口。"
+          }
+        }
+      }
+    },
+    "Run krea auth login in Terminal, or paste a Krea API key in Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在终端运行 krea auth login，或在设置里粘贴 Krea API 密钥"
+          }
+        }
+      }
+    },
+    "Krea CLI exited with status %d": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krea CLI 退出，状态码 %d"
+          }
+        }
+      }
+    },
+    "Higgsfield CLI exited with status %d": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Higgsfield CLI 退出，状态码 %d"
+          }
+        }
+      }
+    },
+    "%lld of %lld · +%lld extra": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld / %lld · 额外 +%lld"
+          }
+        }
+      }
+    },
+    "%lld credits left": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剩余 %lld 积分"
+          }
+        }
+      }
+    },
+    "LM Studio returned HTTP %lld. Check the server address and configuration.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LM Studio 返回 HTTP %lld。请检查服务器地址和配置。"
+          }
+        }
+      }
+    },
+    "oMLX returned HTTP %lld. Check the server address and configuration.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "oMLX 返回 HTTP %lld。请检查服务器地址和配置。"
+          }
+        }
+      }
+    },
+    "Ollama returned HTTP %lld. Check the server address and configuration.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama 返回 HTTP %lld。请检查服务器地址和配置。"
+          }
+        }
+      }
+    },
+    "Every %lld hours": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每 %lld 小时"
+          }
+        }
+      }
+    },
+    "Every %lld minutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每 %lld 分钟"
+          }
+        }
+      }
+    },
+    "Ready · %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "就绪 · %@"
+          }
+        }
+      }
+    },
+    "Listening at %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在监听 %@"
+          }
+        }
+      }
+    },
+    "Today: %lld requests · %@ tokens in · %@ out, across %lld model(s) with history.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今日：%lld 次请求 · 输入 %@ token · 输出 %@，涉及 %lld 个有历史记录的模型。"
+          }
+        }
+      }
+    },
+    "Generation speed received for %lld model(s).": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已收到 %lld 个模型的生成速度。"
+          }
+        }
+      }
+    },
+    "Observed peak: %@ tokens": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "观测峰值：%@ token"
+          }
+        }
+      }
+    },
+    "Inferred: ~%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推算：约 %@"
+          }
+        }
+      }
+    },
+    "Observed peak: %lld requests": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "观测峰值：%lld 次请求"
+          }
+        }
+      }
+    },
+    "Inferred: ~%lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推算：约 %lld"
+          }
+        }
+      }
+    },
+    "Ready on %@:%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在 %@:%@ 就绪"
           }
         }
       }

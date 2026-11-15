@@ -20,7 +20,7 @@ struct LMStudioSettingsRow: View {
                 ProviderGlyphView(glyph: .lmstudio, size: 16)
                 Text("LM Studio")
                 Spacer()
-                Toggle("Monitor LM Studio", isOn: Binding(
+                Toggle(L10n.t("Monitor LM Studio"), isOn: Binding(
                     get: { enabled },
                     set: { on in
                         preferences.setConnected(on, for: providerID)
@@ -40,7 +40,7 @@ struct LMStudioSettingsRow: View {
                 TextField(L10n.t("Server address"), text: $address)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { applyAddress() }
-                    .accessibilityLabel("LM Studio server address")
+                    .accessibilityLabel(L10n.t("LM Studio server address"))
                 Button(address == preferences.lmstudioEndpoint ? L10n.t("Check connection") : L10n.t("Apply")) {
                     applyAddress()
                 }
@@ -138,19 +138,19 @@ private struct LMStudioMetricsStatus: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Activity, speed and tokens").font(.body.weight(.medium))
+            Text(L10n.t("Activity, speed and tokens")).font(.body.weight(.medium))
             Text(metrics.status)
                 .foregroundStyle(metrics.linked ? Color.secondary : .orange)
                 .textSelection(.enabled)
             if metrics.historyLoaded {
                 Text(metrics.ledger.isEmpty
-                     ? "No requests found in LM Studio's server log yet."
-                     : "Today: \(today.requests) requests · \(LimitWindow.compact(today.inputTokens)) tokens in · \(LimitWindow.compact(today.outputTokens)) out, across \(metrics.ledger.instances.count) model(s) with history.")
+                     ? L10n.t("No requests found in LM Studio's server log yet.")
+                     : L10n.t("Today: \(today.requests) requests · \(LimitWindow.compact(today.inputTokens)) tokens in · \(LimitWindow.compact(today.outputTokens)) out, across \(metrics.ledger.instances.count) model(s) with history."))
                     .foregroundStyle(.secondary)
             } else {
-                Text("Reading LM Studio's server log…").foregroundStyle(.secondary)
+                Text(L10n.t("Reading LM Studio's server log…")).foregroundStyle(.secondary)
             }
-            Text("What a model is doing comes from LM Studio's own status, polled several times a second. Speed, context use and token counts are read from ~/.lmstudio/server-logs; only the numbers are kept, never a prompt or a reply. Responses through the OpenAI-compatible endpoint carry no clock, so their speed is timed here and marked ~.")
+            Text(L10n.t("What a model is doing comes from LM Studio's own status, polled several times a second. Speed, context use and token counts are read from ~/.lmstudio/server-logs; only the numbers are kept, never a prompt or a reply. Responses through the OpenAI-compatible endpoint carry no clock, so their speed is timed here and marked ~."))
                 .foregroundStyle(.secondary)
         }
     }

@@ -87,15 +87,15 @@ enum OMLXError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .invalidEndpoint:
-            return "Use an HTTP address on this Mac, such as http://127.0.0.1:8000."
+            return L10n.t("Use an HTTP address on this Mac, such as http://127.0.0.1:8000.")
         case .unavailable:
-            return "oMLX server unavailable. Start the server in oMLX and check the address."
+            return L10n.t("oMLX server unavailable. Start the server in oMLX and check the address.")
         case .invalidResponse:
-            return "This server did not return an oMLX model listing."
+            return L10n.t("This server did not return an oMLX model listing.")
         case .needsKey:
-            return "oMLX refused the request. The API key in ~/.omlx/settings.json could not be read or is not the main key."
+            return L10n.t("oMLX refused the request. The API key in ~/.omlx/settings.json could not be read or is not the main key.")
         case .http(let code):
-            return "oMLX returned HTTP \(code). Check the server address and configuration."
+            return L10n.t("oMLX returned HTTP \(code). Check the server address and configuration.")
         }
     }
 }

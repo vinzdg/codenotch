@@ -12,7 +12,7 @@ final class PhoneLinkWindowController: NSWindowController, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "Connect your phone"
+        window.title = L10n.t("Connect your phone")
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.center()
