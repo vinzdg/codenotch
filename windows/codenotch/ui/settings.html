@@ -1337,14 +1337,18 @@ document.getElementById('close').addEventListener('click', () => {
 });
 
 /* ---- providers ---------------------------------------------------------- */
-const ORDER = ['claude', 'codex', 'glm', 'opencode', 'commandcode', 'cursor', 'grok', 'copilot', 'gemini', 'deepseek', 'qoder'];
-const FALLBACK_LABEL = { claude:'Claude', codex:'Codex', glm:'z.ai', opencode:'OpenCode', commandcode:'Command Code', cursor:'Cursor', grok:'Grok', copilot:'GitHub Copilot', gemini:'Antigravity', deepseek:'DeepSeek Harness', qoder:'Qoder' };
+const ORDER = ['claude', 'codex', 'glm', 'opencode', 'commandcode', 'cursor', 'grok', 'copilot', 'gemini', 'deepseek', 'qoder', 'mistral'];
+const FALLBACK_LABEL = { claude:'Claude', codex:'Codex', glm:'z.ai', opencode:'OpenCode', commandcode:'Command Code', cursor:'Cursor', grok:'Grok', copilot:'GitHub Copilot', gemini:'Antigravity', deepseek:'DeepSeek Harness', qoder:'Qoder', mistral:'Mistral' };
 let options = [];      // [{id,label,status,used}] from get_tray_options
 let glyphs = {};       // id -> {kind:'svg'|'png'|'appicon', svg, url}
 function providerList(){
   return options.length ? options : ORDER.map(id => ({ id, label:FALLBACK_LABEL[id], status:'' }));
 }
 function statusText(p){
+  if(p.id === 'mistral'){
+    if(p.status === 'absent' || !p.status) return ui('No API key discovered — set MISTRAL_API_KEY, mistral.json, or ~/.vibe/.env', 'No API key discovered — set MISTRAL_API_KEY, mistral.json, or ~/.vibe/.env');
+    if((p.status === 'needsAuth' || p.status === 'error') && p.note) return p.note;
+  }
   const words = STATUS_TEXT[uiLang] || STATUS_TEXT.en;
   return words[p.status] !== undefined ? words[p.status] : String(p.status || '');
 }
@@ -2117,6 +2121,7 @@ function boot(){
   ];
   try { window.__TAURI__.event.listen('glyphs', e => { if(e.payload){ glyphs = e.payload; renderAccounts(); } }); } catch(e) { /* the letters stay */ }
   try { window.__TAURI__.event.listen('claude_accounts_changed', () => refreshClaude()); } catch(e) { /* read again on focus */ }
+  try { window.__TAURI__.event.listen('mistral', () => refreshOptions()); } catch(e) { /* read again on focus */ }
   // The window stays hidden until this first state is drawn (settings_window.rs), so it opens already
   // translated and with every switch where it belongs. A read that hangs holds it back 1.5 s at most.
   Promise.race([Promise.allSettled(first), new Promise(r => setTimeout(r, 1500))])

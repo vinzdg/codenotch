@@ -132,6 +132,9 @@ pub struct Config {
     /// The same one-shot migration for the Qoder ring.
     #[serde(default)]
     pub qoder_notch_fixed: bool,
+    /// Add Mistral to a previously saved notch selection once when a credential is present.
+    #[serde(default)]
+    pub mistral_notch_fixed: bool,
     /// false = the pill is kept off the screen edge entirely; the tray icon is then the only way in
     #[serde(default = "yes")]
     pub notch_visible: bool,
@@ -347,6 +350,7 @@ impl Default for Config {
             commandcode_notch_fixed: true,
             copilot_notch_fixed: true,
             qoder_notch_fixed: true,
+            mistral_notch_fixed: true,
             notch_visible: true,
             notch_on_hover: true,
             tray_visible: true,
@@ -424,6 +428,8 @@ pub fn load() -> Config {
     migrate_copilot_notch(&mut cfg, &raw);
     // And for Qoder.
     migrate_qoder_notch(&mut cfg, &raw);
+    // And for Mistral, only when a credential is already present.
+    migrate_mistral_notch(&mut cfg, &raw);
 
     // Both hidden would leave the app unreachable: no pill, no tray icon, no way to open settings.
     if !cfg.notch_visible && !cfg.tray_visible {
@@ -516,6 +522,23 @@ fn migrate_qoder_notch(cfg: &mut Config, raw: &Option<String>) {
         cfg.notch_slots.push(TraySlot { provider: "qoder".into() });
     }
     cfg.qoder_notch_fixed = true;
+}
+
+fn migrate_mistral_notch(cfg: &mut Config, raw: &Option<String>) {
+    let predates = raw
+        .as_deref()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
+        .is_some_and(|v| v.get("mistral_notch_fixed").is_none());
+    if !predates {
+        return;
+    }
+    if crate::mistral::present()
+        && !cfg.notch_slots.is_empty()
+        && !cfg.notch_slots.iter().any(|s| s.provider == "mistral")
+    {
+        cfg.notch_slots.push(TraySlot { provider: "mistral".into() });
+    }
+    cfg.mistral_notch_fixed = true;
 }
 
 pub fn save(cfg: &Config) {

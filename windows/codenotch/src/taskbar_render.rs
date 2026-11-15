@@ -60,7 +60,7 @@ fn letter(provider: &str) -> &'static str {
     match provider {
         "claude" => "C", "codex" => "Cx", "glm" => "Z.ai", "deepseek" => "DS", "opencode" => "OC",
         "commandcode" => "CC", "cursor" => "Cu", "grok" => "Gk", "copilot" => "Cp", "gemini" => "Ag",
-        "qoder" => "Q", _ => "?",
+        "qoder" => "Q", "mistral" => "M", _ => "?",
     }
 }
 
