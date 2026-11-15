@@ -293,7 +293,7 @@ fn word_quota_available(lang: &str) -> &'static str {
         "zh-Hant" => "額度已恢復",
         "ja" => "利用枠が回復しました",
         "uk" => "Ліміт знову доступний",
-        "ko" => "사용 가능 한도가 회복되었습니다",
+        "ko" => "할당량 사용 가능",
         _ => "Quota available",
     }
 }
