@@ -281,7 +281,7 @@ final class MiniMaxCredentialsTests: XCTestCase {
         )
         XCTAssertEqual(fromCookie?.source, "MiniMax")
         XCTAssertEqual(fromCookie?.manageURL,
-                       URL(string: "https://platform.minimaxi.com/user-center/payment/coding-plan"))
+                       URL(string: "https://platform.minimax.cn/user-center/payment/coding-plan"))
     }
 
     func testInternationalAndChinaHostsStayOnTheirOwnConsoles() {
@@ -296,13 +296,18 @@ final class MiniMaxCredentialsTests: XCTestCase {
         XCTAssertEqual(MiniMaxRegion.international.displayName, "International")
 
         XCTAssertEqual(MiniMaxRegion.china.apiBase.absoluteString, "https://api.minimaxi.com")
-        XCTAssertEqual(MiniMaxRegion.china.platformOrigin.absoluteString, "https://platform.minimaxi.com")
+        XCTAssertEqual(MiniMaxRegion.china.platformOrigin.absoluteString, "https://platform.minimax.cn")
         XCTAssertEqual(MiniMaxRegion.china.remainsURL.absoluteString,
-                       "https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains")
+                       "https://www.minimax.cn/v1/api/openplatform/coding_plan/remains")
         XCTAssertEqual(MiniMaxRegion.china.tokenPlanRemainsURL.absoluteString,
                        "https://api.minimaxi.com/v1/token_plan/remains")
         XCTAssertEqual(MiniMaxRegion.china.codingPlanRemainsURL.absoluteString,
                        "https://api.minimaxi.com/v1/api/openplatform/coding_plan/remains")
+        XCTAssertEqual(MiniMaxProvider.apiKeyRemainsURLs(for: .china).map(\.absoluteString), [
+            "https://api.minimaxi.com/v1/token_plan/remains",
+            "https://www.minimax.cn/v1/token_plan/remains",
+            "https://api.minimaxi.com/v1/api/openplatform/coding_plan/remains"
+        ])
         XCTAssertEqual(MiniMaxRegion.china.displayName, "China")
 
         XCTAssertEqual(MiniMaxRegion.allCases, [.international, .china])
