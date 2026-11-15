@@ -270,7 +270,7 @@ fn local_agent() -> Option<ureq::Agent> {
         .danger_accept_invalid_hostnames(true)
         .build()
         .ok()?;
-    Some(ureq::AgentBuilder::new().tls_connector(Arc::new(tls)).timeout(Duration::from_secs(10)).build())
+    Some(ureq::AgentBuilder::new().try_proxy_from_env(false).tls_connector(Arc::new(tls)).timeout(Duration::from_secs(10)).build())
 }
 
 fn bridge_quota(ep: &Endpoint) -> Result<Vec<LimitWindow>, String> {
@@ -900,6 +900,79 @@ fn legacy_probe() -> String {
 mod tests {
     use super::{requests_in, state_roots_in};
     use std::path::{Path, PathBuf};
+
+    // Environment changes stay in a child test process, away from parallel unit tests.
+    #[test]
+    fn local_bridge_proxy_transport() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "antigravity::tests::proxy_transport_child", "--nocapture"])
+            .env("CODENOTCH_PROXY_TEST_CHILD", "1")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    }
+
+    #[test]
+    fn proxy_transport_child() {
+        if std::env::var_os("CODENOTCH_PROXY_TEST_CHILD").is_none() {
+            return;
+        }
+
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::thread;
+        use std::time::{Duration, Instant};
+
+        fn capture() -> (u16, thread::JoinHandle<Option<Vec<u8>>>) {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            listener.set_nonblocking(true).unwrap();
+            let handle = thread::spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(2);
+                while Instant::now() < deadline {
+                    match listener.accept() {
+                        Ok((mut stream, _)) => {
+                            stream.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+                            let mut buf = [0; 1024];
+                            let len = stream.read(&mut buf).unwrap_or(0);
+                            let _ = stream.write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n");
+                            return Some(buf[..len].to_vec());
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => thread::sleep(Duration::from_millis(5)),
+                        Err(e) => panic!("local listener: {e}"),
+                    }
+                }
+                None
+            });
+            (port, handle)
+        }
+
+        for key in ["ALL_PROXY", "all_proxy", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy"] {
+            std::env::remove_var(key);
+        }
+        let (proxy_port, proxy) = capture();
+        let (bridge_port, bridge) = capture();
+        std::env::set_var("HTTPS_PROXY", format!("http://127.0.0.1:{proxy_port}"));
+        std::env::set_var("NO_PROXY", "localhost,127.0.0.1");
+        assert!(super::local_agent().is_some(), "local TLS setup failed");
+        let _ = super::bridge_quota(&super::Endpoint { ports: vec![bridge_port], csrf: "fixture".into() });
+        let bridge_bytes = bridge.join().unwrap();
+        let proxy_bytes = proxy.join().unwrap();
+        assert!(bridge_bytes.is_some(), "bridge did not connect directly; proxy CONNECT observed: {}",
+            proxy_bytes.as_deref().is_some_and(|b| b.starts_with(b"CONNECT 127.0.0.1:")));
+        assert!(proxy_bytes.is_none(), "bridge contacted the proxy");
+
+        let (proxy_port, proxy) = capture();
+        std::env::set_var("HTTPS_PROXY", format!("http://127.0.0.1:{proxy_port}"));
+        let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(2)).build();
+        let _ = agent.get("https://example.invalid/fixture").call();
+        assert!(proxy.join().unwrap().as_deref().is_some_and(|b| b.starts_with(b"CONNECT example.invalid:443 ")));
+
+        std::env::remove_var("HTTPS_PROXY");
+        let (bridge_port, bridge) = capture();
+        let _ = super::bridge_quota(&super::Endpoint { ports: vec![bridge_port], csrf: "fixture".into() });
+        assert!(bridge.join().unwrap().is_some());
+    }
 
     #[test]
     fn quota_sources_use_cadence_fields_and_keep_unknown_lanes_unknown() {
