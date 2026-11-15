@@ -62,6 +62,8 @@ final class StatusItemSummaryTests: XCTestCase {
                          hideDepleted: Bool = false,
                          reading: MenuBarReading = .automatic,
                          visualMode: MenuBarVisualMode = .text,
+                         watchLimit: Double = 0.50,
+                         criticalLimit: Double = 0.70,
                          autoOrder: Bool = false) -> StatusItemSummary {
         StatusItemSummary.make(
             from: snapshots,
@@ -69,6 +71,7 @@ final class StatusItemSummaryTests: XCTestCase {
             now: now, format: format, showingWeeklyLimit: weekly,
             showingRemaining: remaining, hidingDepleted: hideDepleted, reading: reading,
             visualMode: visualMode,
+            watchLimit: watchLimit, criticalLimit: criticalLimit,
             autoOrdering: autoOrder)
     }
 
@@ -1270,6 +1273,58 @@ final class StatusItemSummaryTests: XCTestCase {
                           entries: markersSummary.entries, frames: artwork.indicatorFrames)
         XCTAssertTrue(indicators.showing.isEmpty)
         XCTAssertTrue(view.subviews.isEmpty, "switching to text clears overlay views")
+    }
+
+    // MARK: - Visual indicator colour
+
+    /// The band each provider's indicator is drawn in, from the summary the
+    /// controller would hand the overlay.
+    private func bands(_ summary: StatusItemSummary, mode: MenuBarVisualMode) -> [String: UsageBand] {
+        let indicators = StatusItemVisualIndicators()
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 22))
+        let artwork = StatusItemArtwork(summary: summary, height: 22)
+        indicators.update(view: view, imageSize: artwork.size, mode: mode,
+                          entries: summary.entries, frames: artwork.indicatorFrames,
+                          watchLimit: summary.watchLimit, criticalLimit: summary.criticalLimit)
+        var bands: [String: UsageBand] = [:]
+        for id in indicators.showing { bands[id] = indicators.band(for: id) }
+        return bands
+    }
+
+    /// Watch at 80% and Critical at 90%: a session 60% spent is still green on
+    /// the notch's ring and in the menu's card, so the marker beside the clock
+    /// must not be yellow.
+    func testMarkersTakeTheirColourFromTheUsersThresholds() {
+        for mode in [MenuBarVisualMode.markers, .bars] {
+            for (used, expected) in [(0.60, UsageBand.ample), (0.85, .watch), (0.95, .critical)] {
+                let s = summary([claude(used, resetIn: 2 * hour)], visualMode: mode,
+                                watchLimit: 0.80, criticalLimit: 0.90)
+                XCTAssertEqual(bands(s, mode: mode)["claude"], expected, "\(mode) at \(used)")
+            }
+        }
+    }
+
+    /// Lower thresholds than the shipped ones count too: Watch at 20% makes a
+    /// quarter-spent session yellow, which the fixed 50% would leave green.
+    func testLowerThresholdsWarnSooner() {
+        let s = summary([claude(0.25, resetIn: 2 * hour)], visualMode: .markers,
+                        watchLimit: 0.20, criticalLimit: 0.40)
+        XCTAssertEqual(bands(s, mode: .markers)["claude"], .watch)
+    }
+
+    /// Untouched Settings colour the indicators exactly as before.
+    func testShippedThresholdsKeepTheirColours() {
+        let s = summary([claude(0.60, resetIn: 2 * hour)], visualMode: .markers)
+        XCTAssertEqual(bands(s, mode: .markers)["claude"], .watch)
+    }
+
+    /// The face redraws only when its summary changes, so a threshold moved in
+    /// Settings has to change the summary, or the colour waits for the next
+    /// reading to land.
+    func testAThresholdChangeChangesTheSummary() {
+        let snapshot = claude(0.60, resetIn: 2 * hour)
+        XCTAssertNotEqual(summary([snapshot], visualMode: .markers),
+                          summary([snapshot], visualMode: .markers, watchLimit: 0.80, criticalLimit: 0.90))
     }
 }
 
