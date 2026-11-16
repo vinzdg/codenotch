@@ -153,7 +153,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Settings changes it, because the fetch URLs live on the site.
             let miniMaxWeb = WebSessionProvider(site: Sites.minimax(region: preferences.minimaxRegion))
             self.miniMaxWeb = miniMaxWeb
-            let webProviders: [WebSessionProvider] = [deepSeek, qianwen, qoder]
+            // DeepSeek's ring is DeepSeekProvider, which reads either this
+            // sign-in or an API key, so the WebView is not a ring of its own.
+            let webProviders: [WebSessionProvider] = [qianwen, qoder]
             fleet.signInItems = [deepSeek, miniMaxWeb, qianwen, qoder].map { provider in
                 let name = provider.displayName
                 return (title: L10n.t("Sign in to \(name)…"),
@@ -223,6 +225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.manualProvider = manual
                     return [manual as UsageProvider]
                 }()
+                + [DeepSeekProvider(web: deepSeek)]
                 + webProviders
                 + customProviders
                 + remoteProviders
@@ -579,6 +582,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             statusItem.clickAction = preferences.menuBarClickAction
             statusItem.autoOrders = preferences.ringOrder == .remaining
             statusItem.reading = preferences.menuBarReading
+            statusItem.visualMode = preferences.menuBarVisualMode
             statusItem.activityStyle = preferences.menuBarActivityStyle
 
             preferences.$appPresence
@@ -654,6 +658,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak statusItem] in statusItem?.reading = $0 }
                 .store(in: &cancellables)
 
+            preferences.$menuBarVisualMode
+                .removeDuplicates()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak statusItem] in statusItem?.visualMode = $0 }
+                .store(in: &cancellables)
+
             preferences.$menuBarActivityStyle
                 .removeDuplicates()
                 .receive(on: DispatchQueue.main)
@@ -703,6 +713,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let active = enabled && schedule.offPeakOnChineseHolidays
                         && (preferences?.isConnected("deepseek") ?? false)
                     ChineseHolidays.shared.setActive(active)
+                }
+                .store(in: &cancellables)
+
+            // The sign-in and a key can be different accounts, so the old
+            // source's reading is discarded rather than shown under the new one.
+            preferences.$deepSeekSource
+                .dropFirst()
+                .removeDuplicates()
+                .receive(on: RunLoop.main)
+                .sink { [weak store] _ in
+                    store?.providerContextChanged(providerID: "deepseek") {}
                 }
                 .store(in: &cancellables)
 
@@ -1021,9 +1042,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // and logs the API calls it makes — for finding an undocumented
             // endpoint by watching the site rather than guessing at path names.
             if let target = ProcessInfo.processInfo.environment["CODENOTCH_DISCOVER"],
-               let url = URL(string: target),
-               let provider = webProviders.first(where: { url.host?.contains($0.id) == true })
-                   ?? webProviders.first {
+               let url = URL(string: target) {
+                let provider = ([deepSeek] + webProviders).first(where: { url.host?.contains($0.id) == true })
+                    ?? deepSeek
                 Task {
                     let calls = await provider.recordCalls(on: url)
                     Log.usage.notice("discovered: \(calls.joined(separator: "  "), privacy: .public)")

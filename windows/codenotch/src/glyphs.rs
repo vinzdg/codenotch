@@ -26,10 +26,10 @@ pub struct Glyph {
     pub source: String,
 }
 
-pub const IDS: [&str; 10] = ["claude", "codex", "cursor", "grok", "copilot", "gemini", "opencode", "commandcode", "deepseek", "qoder"];
+pub const IDS: [&str; 11] = ["claude", "codex", "cursor", "grok", "copilot", "gemini", "opencode", "commandcode", "deepseek", "qoder", "mistral"];
 
 /// Built-in artwork (@lobehub/icons-static-svg, MIT): the OpenAI mark for codex (matching upstream's glyph choice), the Antigravity mark for gemini
-pub(crate) const BUILTIN: [(&str, &str); 10] = [
+pub(crate) const BUILTIN: [(&str, &str); 11] = [
     ("claude", include_str!("../glyphs/claude.svg")),
     ("codex", include_str!("../glyphs/codex.svg")),
     ("cursor", include_str!("../glyphs/cursor.svg")),
@@ -40,6 +40,7 @@ pub(crate) const BUILTIN: [(&str, &str); 10] = [
     ("commandcode", include_str!("../glyphs/commandcode.svg")),
     ("deepseek", include_str!("../glyphs/deepseek.svg")),
     ("qoder", include_str!("../glyphs/qoder.svg")),
+    ("mistral", include_str!("../glyphs/mistral.svg")),
 ];
 
 /// Minimal SVG sanitising before inlining into the DOM: drop <script> blocks and on*="…" event

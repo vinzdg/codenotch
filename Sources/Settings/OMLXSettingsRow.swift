@@ -18,7 +18,7 @@ struct OMLXSettingsRow: View {
                 ProviderGlyphView(glyph: .omlx, size: 16)
                 Text("oMLX")
                 Spacer()
-                Toggle("Monitor oMLX", isOn: Binding(
+                Toggle(L10n.t("Monitor oMLX"), isOn: Binding(
                     get: { enabled },
                     set: { on in
                         preferences.setConnected(on, for: providerID)
@@ -38,7 +38,7 @@ struct OMLXSettingsRow: View {
                 TextField(L10n.t("Server address"), text: $address)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { applyAddress() }
-                    .accessibilityLabel("oMLX server address")
+                    .accessibilityLabel(L10n.t("oMLX server address"))
                 Button(address == preferences.omlxEndpoint ? L10n.t("Check connection") : L10n.t("Apply")) {
                     applyAddress()
                 }
@@ -92,19 +92,19 @@ private struct OMLXMetricsStatus: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Activity, speed and tokens").font(.body.weight(.medium))
+            Text(L10n.t("Activity, speed and tokens")).font(.body.weight(.medium))
             Text(metrics.status)
                 .foregroundStyle(metrics.linked ? Color.secondary : .orange)
                 .textSelection(.enabled)
             if metrics.historyLoaded {
                 Text(metrics.ledger.isEmpty
-                     ? "No requests found in oMLX's server log yet."
-                     : "Today: \(today.requests) requests · \(LimitWindow.compact(today.inputTokens)) tokens in · \(LimitWindow.compact(today.outputTokens)) out, across \(metrics.ledger.instances.count) model(s) with history.")
+                     ? L10n.t("No requests found in oMLX's server log yet.")
+                     : L10n.t("Today: \(today.requests) requests · \(LimitWindow.compact(today.inputTokens)) tokens in · \(LimitWindow.compact(today.outputTokens)) out, across \(metrics.ledger.instances.count) model(s) with history."))
                     .foregroundStyle(.secondary)
             } else {
-                Text("Reading oMLX's server log…").foregroundStyle(.secondary)
+                Text(L10n.t("Reading oMLX's server log…")).foregroundStyle(.secondary)
             }
-            Text("What a model is doing comes from oMLX's admin activity endpoint, polled several times a second. Speed and token counts are read from ~/.omlx/logs; only the numbers are kept, never a prompt or a reply.")
+            Text(L10n.t("What a model is doing comes from oMLX's admin activity endpoint, polled several times a second. Speed and token counts are read from ~/.omlx/logs; only the numbers are kept, never a prompt or a reply."))
                 .foregroundStyle(.secondary)
         }
     }

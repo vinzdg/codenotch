@@ -194,11 +194,15 @@ actor AntigravityProvider: UsageProvider {
 
         // 4. Fallback to OMP SQLite store if offline or direct call fails
         if profile.slug == nil {
-            let ompWindows = Self.ompUsageWindows(forEmail: AntigravityCredentials.held(for: profile)?.email)
-            if !ompWindows.isEmpty {
-                let chosen = selection(for: ompWindows)
+            let omp = Self.ompUsage(forEmail: AntigravityCredentials.held(for: profile)?.email)
+            if !omp.windows.isEmpty {
+                let chosen = selection(for: omp.windows)
+                var status = ProviderStatus.ok
+                if let recordedAt = omp.recordedAt, Date().timeIntervalSince(recordedAt) > Self.ompFreshness {
+                    status = .stale(since: recordedAt)
+                }
                 return ProviderSnapshot(id: id, displayName: displayName, glyph: glyph,
-                                        fidelity: .official, status: .ok, windows: chosen.windows,
+                                        fidelity: .official, status: status, windows: chosen.windows,
                                         headlineID: chosen.headlineID,
                                         weeklyID: chosen.weeklyID)
             }
@@ -529,70 +533,119 @@ actor AntigravityProvider: UsageProvider {
         AntigravityQuotaParser.parse(data, now: now)
     }
 
-    static func ompUsageWindows(forEmail email: String? = nil) -> [LimitWindow] {
-        let dbURL = URL(fileURLWithPath: ("~/.omp/agent/agent.db" as NSString).expandingTildeInPath)
-        guard let db = SQLiteStore.open(dbURL) else { return [] }
+    /// Where oh-my-pi (omp) keeps its credentials and its usage history.
+    static let ompDatabaseURL = URL(fileURLWithPath: ("~/.omp/agent/agent.db" as NSString).expandingTildeInPath)
+
+    /// The last quota omp read for this account, for when nothing live answers.
+    ///
+    /// omp records every usage fetch in `usage_history` (`recorded_at, provider,
+    /// account_key, email, account_id, limit_id, label, window_label,
+    /// used_fraction, status, resets_at`, times in milliseconds). The query has
+    /// to name those columns: asking for any other one fails to prepare, and the
+    /// fallback then returns nothing on every Mac.
+    ///
+    /// `recordedAt` is when omp took the newest reading used, so the caller can
+    /// say how old it is instead of passing history off as a live answer.
+    ///
+    /// Left out, each because it would report a number that is not this
+    /// family's current one:
+    /// - a row whose window has reset since omp read it, and a row with no
+    ///   reset time that is more than a week old;
+    /// - omp's `gemini-argon-` buckets, since Argon's weekly allowance is its
+    ///   own and folding it into the Gemini slot would show Argon's number as
+    ///   Gemini's;
+    /// - the `default` counter, which omp uses for a quota it could not place
+    ///   in any family.
+    static func ompUsage(forEmail email: String? = nil,
+                         databaseURL: URL = ompDatabaseURL,
+                         now: Date = Date()) -> (windows: [LimitWindow], recordedAt: Date?) {
+        guard let db = SQLiteStore.open(databaseURL) else { return ([], nil) }
         defer { sqlite3_close(db) }
 
         var targetEmail = email
         if targetEmail == nil {
-            let sql = "SELECT email FROM usage_history WHERE provider = 'google-antigravity' AND email IS NOT NULL AND email != '' ORDER BY recorded_at DESC, id DESC LIMIT 1;"
-            var stmt: OpaquePointer?
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                if sqlite3_step(stmt) == SQLITE_ROW, let em = sqlite3_column_text(stmt, 0) {
-                    targetEmail = String(cString: em)
-                }
-                sqlite3_finalize(stmt)
-            }
+            targetEmail = SQLiteStore.rows(in: db, sql: """
+                SELECT email FROM usage_history
+                WHERE provider = 'google-antigravity' AND email IS NOT NULL AND email != ''
+                ORDER BY recorded_at DESC, id DESC LIMIT 1;
+                """).first
         }
 
+        let nowMs = Int64(now.timeIntervalSince1970 * 1000)
+        let weekAgoMs = nowMs - 7 * 86_400_000
+        let filtered = !(targetEmail ?? "").isEmpty
         let sql = """
-        SELECT model_id, duration_label, remaining_fraction, reset_at
+        SELECT limit_id, label, window_label, used_fraction, resets_at, recorded_at
         FROM usage_history
         WHERE provider = 'google-antigravity'
+          AND used_fraction IS NOT NULL
+          AND (resets_at > ?1 OR (resets_at IS NULL AND recorded_at > ?2))
+          AND limit_id NOT LIKE '%:gemini-argon-%'\(filtered ? "\n  AND email = ?3 COLLATE NOCASE" : "")
         ORDER BY recorded_at DESC, id DESC
-        LIMIT 10;
+        LIMIT 30;
         """
 
         var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return ([], nil) }
         defer { sqlite3_finalize(stmt) }
-
-        var windows: [LimitWindow] = []
-        var seenIDs = Set<String>()
-
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            guard let model = sqlite3_column_text(stmt, 0),
-                  let duration = sqlite3_column_text(stmt, 1) else { continue }
-            let modelID = String(cString: model)
-            let durationLabel = String(cString: duration)
-            let remaining = sqlite3_column_double(stmt, 2)
-            let resetText = sqlite3_column_text(stmt, 3).map { String(cString: $0) }
-
-            let windowID = "\(modelID)-\(durationLabel)"
-            guard !seenIDs.contains(windowID) else { continue }
-            seenIDs.insert(windowID)
-
-            let isWeekly = durationLabel.lowercased().contains("week")
-            let durationSecs: TimeInterval = isWeekly ? 7 * 86400 : 5 * 3600
-            let usedFraction = max(0.0, min(1.0, 1.0 - remaining))
-            let resetsAt = resetText.flatMap { ISO8601DateFormatter().date(from: $0) }
-
-            let group = modelID.lowercased().contains("gemini") ? "Gemini Models" : "Claude and GPT models"
-            let label = isWeekly ? "Weekly Limit" : "5-hour Limit"
-
-            windows.append(LimitWindow(
-                id: windowID,
-                group: group,
-                label: label,
-                usedFraction: usedFraction,
-                resetsAt: resetsAt,
-                duration: durationSecs
-            ))
+        sqlite3_bind_int64(stmt, 1, nowMs)
+        sqlite3_bind_int64(stmt, 2, weekAgoMs)
+        if filtered, let targetEmail {
+            sqlite3_bind_text(stmt, 3, targetEmail, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
         }
 
-        return windows
+        var latestByID: [String: (window: LimitWindow, recordedAt: Int64)] = [:]
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let limitText = sqlite3_column_text(stmt, 0) else { continue }
+            let limitID = String(cString: limitText)
+            let rawLabel = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
+            let windowLabel = sqlite3_column_text(stmt, 2).map { String(cString: $0).lowercased() } ?? ""
+            let usedFraction = max(0, min(1, sqlite3_column_double(stmt, 3)))
+            let resetsAtMs = sqlite3_column_type(stmt, 4) != SQLITE_NULL ? sqlite3_column_double(stmt, 4) : 0
+            let resetsAt = resetsAtMs > 0 ? Date(timeIntervalSince1970: resetsAtMs / 1000) : nil
+            let recordedAt = sqlite3_column_int64(stmt, 5)
+
+            // `google-antigravity:<counter>:<tier>:<bucket or window>`
+            let parts = limitID.split(separator: ":", omittingEmptySubsequences: false)
+            let counter = parts.count > 1 ? String(parts[1]) : ""
+            let isGemini: Bool
+            switch counter {
+            case "google": isGemini = true
+            case "anthropic", "openai": isGemini = false
+            case "default": continue
+            default:
+                guard rawLabel.contains("Google") else { continue }
+                isGemini = true
+            }
+            let isWeekly = windowLabel.contains("week")
+            let id = isGemini ? (isWeekly ? "gemini-weekly" : "gemini-hourly") : (isWeekly ? "3p-weekly" : "3p-hourly")
+
+            // Rows come newest first. One fetch can write several rows for a
+            // slot (one per tier); like the live reader, the most used of
+            // those is the slot's reading. An older fetch never replaces it.
+            if let kept = latestByID[id] {
+                guard kept.recordedAt == recordedAt, usedFraction > (kept.window.usedFraction ?? 0) else { continue }
+            }
+            latestByID[id] = (LimitWindow(
+                id: id,
+                group: isGemini ? L10n.t("Gemini Models") : L10n.t("Claude and GPT models"),
+                label: isWeekly ? L10n.t("Weekly Limit") : L10n.t("5-hour Limit"),
+                usedFraction: usedFraction,
+                resetsAt: resetsAt,
+                // omp also files its Daily windows here, so the short slot
+                // claims no length rather than a 5 hours it may not have.
+                duration: isWeekly ? 7 * 86400 : nil), recordedAt)
+        }
+
+        let windows = ["gemini-hourly", "gemini-weekly", "3p-hourly", "3p-weekly"].compactMap { latestByID[$0]?.window }
+        let newest = latestByID.values.map(\.recordedAt).max()
+        return (windows, newest.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) })
     }
+
+    /// How old an omp reading may be before it is shown as stale. omp reads
+    /// usage on its own schedule, so anything older than a few refreshes is
+    /// history rather than the current state.
+    static let ompFreshness: TimeInterval = 10 * 60
 
     /// Read the plan name from `loadCodeAssist`.
     static func tier(in data: Data) -> String {

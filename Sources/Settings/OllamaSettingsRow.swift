@@ -17,7 +17,7 @@ struct OllamaSettingsRow: View {
                 ProviderGlyphView(glyph: .ollamaLocal, size: 16)
                 Text("Ollama")
                 Spacer()
-                Toggle("Monitor Ollama", isOn: Binding(
+                Toggle(L10n.t("Monitor Ollama"), isOn: Binding(
                     get: { enabled },
                     set: { on in
                         preferences.setConnected(on, for: "ollama-local")
@@ -37,7 +37,7 @@ struct OllamaSettingsRow: View {
                 TextField(L10n.t("Server address"), text: $address)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { applyAddress() }
-                    .accessibilityLabel("Ollama server address")
+                    .accessibilityLabel(L10n.t("Ollama server address"))
                 Button(address == preferences.ollamaEndpoint ? L10n.t("Check connection") : L10n.t("Apply")) {
                     applyAddress()
                 }
@@ -93,21 +93,21 @@ private struct OllamaRelayStatus: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Speed and thinking").font(.body.weight(.medium))
-            Text(relay.ready ? "Listening at \(OllamaActivityRelay.address)" : relay.status)
+            Text(L10n.t("Speed and thinking")).font(.body.weight(.medium))
+            Text(relay.ready ? L10n.t("Listening at \(OllamaActivityRelay.address)") : relay.status)
                 .foregroundStyle(relay.ready ? Color.secondary : .orange)
                 .textSelection(.enabled)
             if relay.ready {
                 Text(relay.performances.isEmpty
-                     ? "Waiting for a completed response through this address."
-                     : "Generation speed received for \(relay.performances.count) model(s).")
+                     ? L10n.t("Waiting for a completed response through this address.")
+                     : L10n.t("Generation speed received for \(relay.performances.count) model(s)."))
                     .foregroundStyle(.secondary)
-                Text("Set your chat client's Ollama address to the one above, or run this in Terminal:")
+                Text(L10n.t("Set your chat client's Ollama address to the one above, or run this in Terminal:"))
                     .foregroundStyle(.secondary)
                 Text("OLLAMA_HOST=\(OllamaActivityRelay.address) ollama")
                     .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
-                Text("Keep Codenotch open. Speed appears after each completed native Ollama response. Requests sent directly to the server address only provide model detection here.")
+                Text(L10n.t("Keep Codenotch open. Speed appears after each completed native Ollama response. Requests sent directly to the server address only provide model detection here."))
                     .foregroundStyle(.secondary)
             }
         }

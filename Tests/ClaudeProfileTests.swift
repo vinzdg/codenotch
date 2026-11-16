@@ -129,6 +129,23 @@ final class ClaudeProfileTests: XCTestCase {
         XCTAssertEqual(found[2].configDirectory.path, home.appendingPathComponent(".claude-work").path)
     }
 
+    /// `~/.claude_<name>` is an account too (#546). Spelled both ways, the
+    /// hyphen keeps the ring, so two rings never share an id.
+    func testAnUnderscoreProfileIsFoundAndTheHyphenWinsATie() throws {
+        XCTAssertEqual(ClaudeProfile.slug(fromDirectoryName: ".claude_ops"), "ops")
+        XCTAssertNil(ClaudeProfile.slug(fromDirectoryName: ".claude_"), "empty slug")
+        let home = try home([
+            ".claude": ["settings.json"],
+            ".claude_ops": [".claude.json"],
+            ".claude-dup": ["settings.json"],
+            ".claude_dup": ["settings.json"]
+        ])
+        let found = ClaudeProfile.discover(home: home, hasCredential: signedIn)
+        XCTAssertEqual(found.map(\.id), ["claude", "claude-dup", "claude-ops"])
+        XCTAssertEqual(found[1].configDirectory.lastPathComponent, ".claude-dup")
+        XCTAssertEqual(found[2].configDirectory.lastPathComponent, ".claude_ops")
+    }
+
     /// An empty directory is not a profile: a permanent "sign in" ring for an
     /// account that does not exist is worse than no ring.
     func testDirectoriesClaudeCodeHasNeverUsedAreIgnored() throws {

@@ -204,11 +204,9 @@ final class OpenCodeCredentialsTests: XCTestCase {
 
     // MARK: - Which source wins
 
-    /// The case OpenCode 2.x made common: a key left in `auth.json` by a
-    /// pre-rotation OpenCode, and a fresh one in the database. The file's key
-    /// answers 401 once OpenCode rotates past it, while the database's answers
-    /// 200 — so the file must never shadow a database that has a row, however
-    /// much older the file's habit of being read first is.
+    /// A console key in the database still beats a stale `sk-` key left in
+    /// `auth.json`. A file console key beats a database row only when that
+    /// row is not itself a console key.
     func testTheDatabaseBeatsAStaleFileKey() throws {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("opencode-home-\(UUID().uuidString)")
@@ -260,6 +258,75 @@ final class OpenCodeCredentialsTests: XCTestCase {
         XCTAssertEqual(OpenCodeCredentials.load(in: directory)?.token, "sk-legacy")
     }
 
+    /// Console migration: the live key is `auth.json` `"opencode"` as an API
+    /// key, and the leftover `"opencode-go"` `sk-` entry must not be sent.
+    func testAConsoleKeyInAuthJsonBeatsALeftoverGoKey() throws {
+        let directory = try homeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try consoleAuth().write(to: directory.appendingPathComponent("auth.json"),
+                                 atomically: true, encoding: .utf8)
+
+        let c = try XCTUnwrap(OpenCodeCredentials.load(in: directory))
+        XCTAssertEqual(c.token, "oc_sk_console")
+        XCTAssertFalse(c.oauth)
+        XCTAssertEqual(OpenCodeProvider.endpoint(for: c).absoluteString,
+                       "https://opencode.ai/zen/go/v1/usage")
+    }
+
+    /// A database row must not hide a console key that lives only in the file.
+    /// The database still wins when it holds the `oc_sk_` key itself — that
+    /// case is `testTheDatabaseBeatsAStaleFileKey`.
+    func testAConsoleKeyInAuthJsonBeatsAStaleDatabaseGoKey() throws {
+        let directory = try homeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try consoleAuth().write(to: directory.appendingPathComponent("auth.json"),
+                                 atomically: true, encoding: .utf8)
+        let db = try database([("opencode-go", #"{"type":"api","key":"sk-stale"}"#, 1, 3)])
+        defer { try? FileManager.default.removeItem(at: db) }
+        try FileManager.default.copyItem(at: db, to: directory.appendingPathComponent("opencode.db"))
+
+        let c = try XCTUnwrap(OpenCodeCredentials.load(in: directory))
+        XCTAssertEqual(c.token, "oc_sk_console")
+        XCTAssertFalse(c.oauth)
+    }
+
+    /// No console key: an OAuth-only `auth.json` is still the sign-in, on the
+    /// inference route, and a lone `opencode-go` `sk-` key is still that key.
+    func testOAuthOnlyAuthJsonAndALoneGoKeyStayOnTheOldPath() throws {
+        let oauthHome = try homeDirectory()
+        defer { try? FileManager.default.removeItem(at: oauthHome) }
+        try #"{"opencode":{"type":"oauth","access":"st_file"}}"#
+            .write(to: oauthHome.appendingPathComponent("auth.json"),
+                   atomically: true, encoding: .utf8)
+        let oauth = try XCTUnwrap(OpenCodeCredentials.load(in: oauthHome))
+        XCTAssertEqual(oauth.token, "st_file")
+        XCTAssertTrue(oauth.oauth)
+        XCTAssertEqual(OpenCodeProvider.endpoint(for: oauth).absoluteString,
+                       "https://opencode.ai/inference/go/v1/usage")
+
+        let keyHome = try homeDirectory()
+        defer { try? FileManager.default.removeItem(at: keyHome) }
+        try #"{"opencode-go":{"type":"api","key":"sk-lone"}}"#
+            .write(to: keyHome.appendingPathComponent("auth.json"),
+                   atomically: true, encoding: .utf8)
+        let key = try XCTUnwrap(OpenCodeCredentials.load(in: keyHome))
+        XCTAssertEqual(key.token, "sk-lone")
+        XCTAssertFalse(key.oauth)
+        XCTAssertEqual(OpenCodeProvider.endpoint(for: key).absoluteString,
+                       "https://opencode.ai/zen/go/v1/usage")
+    }
+
+    private func homeDirectory() throws -> URL {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("opencode-home-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private func consoleAuth() -> String {
+        #"{"opencode-go":{"type":"api","key":"sk-stale"},"opencode":{"type":"api","key":"oc_sk_console"}}"#
+    }
+
     func testTheDatabaseNeverClaimsAnotherVendorsRow() throws {
         let db = try database([("openrouter", #"{"type":"api","key":"sk-or"}"#, nil, 5)])
         defer { try? FileManager.default.removeItem(at: db) }
@@ -303,5 +370,25 @@ final class OpenCodeCredentialsTests: XCTestCase {
 
         try Data().write(to: directory.appendingPathComponent("opencode.db"))
         XCTAssertTrue(OpenCodeCredentials.present(in: directory))
+    }
+}
+
+/// Recorded from a live `oc_sk_` key the usage endpoint refused. The body is
+/// enough: recognizing it must not need the network, and must not be confused
+/// with every other 401.
+final class OpenCodeExpiredKeyTests: XCTestCase {
+    private let expired = """
+    {"error":{"type":"authentication_error","code":"api_key_expired","message":"This API key has expired. Create a new API key in OpenCode Console and replace it in your client or secret store. Signing in again will not renew this key."}}
+    """
+
+    func testAnExpiredConsoleKeyIsRecognized() {
+        XCTAssertTrue(OpenCodeProvider.isExpiredAPIKey(Data(expired.utf8)))
+    }
+
+    func testADifferentUnauthorizedCodeIsNotAnExpiredKey() {
+        let body = Data(
+            #"{"error":{"type":"authentication_error","code":"invalid_api_key","message":"bad key"}}"#
+                .utf8)
+        XCTAssertFalse(OpenCodeProvider.isExpiredAPIKey(body))
     }
 }

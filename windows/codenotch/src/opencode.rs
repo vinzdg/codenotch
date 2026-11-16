@@ -7,14 +7,19 @@
 //! `percent` is *used*, so the ring needs no inversion.
 //!
 //! The credential is borrowed from OpenCode's own sign-in, never written, and which one it is
-//! decides the endpoint — each route refuses the other's credential:
-//!   1. auth.json → `opencode-go` ({"type":"api","key":...}), the Go plan's API key, the one the
-//!      Mac reads and what OpenCode wrote before 1.18 → GET opencode.ai/zen/go/v1/usage;
-//!   2. opencode.db → the `credential` table. OpenCode 1.18 moved sign-in into SQLite and signs in
-//!      to OpenCode itself over OAuth: an active `opencode` row whose value is
-//!      {"type":"oauth","access":...,"expires":ms,"metadata":{"server":...,"orgID":...}}. That
-//!      token is what OpenCode sends to its `inference/` routes → GET opencode.ai/inference/go/v1/usage
-//!      (the zen/go route answers it 401 even on an account with Go);
+//! decides the endpoint — each route refuses the other's credential. After the Console migration
+//! the live key is a non-OAuth `oc_sk_…` personal key. One of those wins wherever it is stored,
+//! because a leftover `opencode-go` `sk-` key is expired and signing in again does not renew it.
+//! Several console keys resolve as: database `opencode`, database `opencode-go`, auth.json
+//! `opencode` (type api, a bare string, or the usual key fields), auth.json `opencode-go`.
+//! With none, the older order is unchanged:
+//!   1. auth.json → `opencode-go` ({"type":"api","key":...}), the Go plan's API key OpenCode wrote
+//!      before 1.18 → GET opencode.ai/zen/go/v1/usage;
+//!   2. opencode.db → the `credential` table (`opencode-go`, else `opencode`). OpenCode 1.18 moved
+//!      sign-in into SQLite: an OAuth row is {"type":"oauth","access":...,"expires":ms,
+//!      "metadata":{"server":...,"orgID":...}} and is what OpenCode sends to its `inference/`
+//!      routes → GET opencode.ai/inference/go/v1/usage (the zen/go route answers it 401 even on
+//!      an account with Go). A non-OAuth key, including `oc_sk_`, stays on zen/go;
 //!   3. auth.json → the `opencode` oauth entry. OpenCode stops updating it once the database holds
 //!      the sign-in, so it is only a fallback for when the database cannot be opened.
 //! Both files live in OpenCode's XDG data dir, which on Windows is still ~/.local/share/opencode.
@@ -84,7 +89,7 @@ fn persist(s: &UsageSnapshot) {
 
 // ---------------- Credentials (borrowed, never written) ----------------
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 struct Credential {
     token: String,
     /// An OAuth sign-in rather than the Go API key: it decides the usage endpoint
@@ -175,45 +180,106 @@ fn open_ro(path: &std::path::Path) -> Option<rusqlite::Connection> {
     .filter(works)
 }
 
-/// The active `opencode-go` row, else the active `opencode` one. Another integration's row is that
-/// vendor's key, and claiming it would read the wrong account under OpenCode's name.
+/// Active OpenCode rows, newest first. Another integration's row is that vendor's key, and
+/// claiming it would read the wrong account under OpenCode's name.
+fn credential_rows(conn: &rusqlite::Connection) -> Option<Vec<(String, String)>> {
+    conn.prepare(
+        "SELECT integration_id, value FROM credential \
+         WHERE integration_id IN ('opencode-go', 'opencode') AND COALESCE(active, 1) != 0 \
+         ORDER BY time_updated DESC",
+    )
+    .and_then(|mut s| {
+        s.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .map(|it| it.flatten().collect())
+    })
+    .ok()
+}
+
+fn credential_for(rows: &[(String, String)], id: &str) -> Option<Credential> {
+    rows.iter().filter(|(i, _)| i == id).find_map(|(_, v)| {
+        serde_json::from_str::<serde_json::Value>(v).ok().and_then(|v| credential_from(&v, "OpenCode"))
+    })
+}
+
+/// The active `opencode-go` row, else the active `opencode` one.
 fn credential_from_db(conn: &rusqlite::Connection) -> Option<Credential> {
-    let rows: Vec<(String, String)> = conn
-        .prepare(
-            "SELECT integration_id, value FROM credential \
-             WHERE integration_id IN ('opencode-go', 'opencode') AND COALESCE(active, 1) != 0 \
-             ORDER BY time_updated DESC",
-        )
-        .and_then(|mut s| {
-            s.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
-                .map(|it| it.flatten().collect())
-        })
-        .ok()?;
-    ["opencode-go", "opencode"].iter().find_map(|id| {
-        rows.iter()
-            .filter(|(i, _)| i == id)
-            .find_map(|(_, v)| serde_json::from_str::<serde_json::Value>(v).ok().and_then(|v| credential_from(&v, "OpenCode")))
+    let rows = credential_rows(conn)?;
+    ["opencode-go", "opencode"].iter().find_map(|id| credential_for(&rows, id))
+}
+
+/// A console personal key: not OAuth, and the token OpenCode Console issues.
+fn is_console_key(cred: &Credential) -> bool {
+    !cred.oauth && cred.token.starts_with("oc_sk_")
+}
+
+struct DirCreds {
+    file_go: Option<Credential>,
+    file_opencode: Option<Credential>,
+    /// Active OpenCode rows, newest first. Empty when the database cannot be read.
+    db_rows: Vec<(String, String)>,
+}
+
+fn creds_in(dir: &std::path::Path) -> DirCreds {
+    let root = read_auth_json(dir);
+    DirCreds {
+        file_go: root.as_ref().and_then(|r| r.get("opencode-go")).and_then(|e| credential_from(e, "OpenCode")),
+        file_opencode: root.as_ref().and_then(|r| r.get("opencode")).and_then(|e| credential_from(e, "OpenCode")),
+        db_rows: open_ro(&dir.join("opencode.db")).and_then(|conn| credential_rows(&conn)).unwrap_or_default(),
+    }
+}
+
+/// Newest console key of this integration. A newer `sk-` row of the same id does not hide an
+/// older `oc_sk_` one: any console key beats a credential that is not one.
+fn console_for(rows: &[(String, String)], id: &str) -> Option<Credential> {
+    rows.iter().filter(|(i, _)| i == id).find_map(|(_, raw)| {
+        let cred = serde_json::from_str::<serde_json::Value>(raw).ok().and_then(|v| credential_from(&v, "OpenCode"))?;
+        is_console_key(&cred).then_some(cred)
     })
 }
 
 fn load_credential() -> Option<Credential> {
-    let dirs = data_dirs();
-    // 1. the Go plan's own key, as OpenCode wrote it before 1.18 (and the Mac reads it)
-    for d in &dirs {
-        if let Some(c) = read_auth_json(d).and_then(|r| r.get("opencode-go").and_then(|e| credential_from(e, "OpenCode"))) {
+    load_credential_from(&data_dirs())
+}
+
+/// Console key first: database `opencode`, database `opencode-go`, auth.json `opencode`, auth.json
+/// `opencode-go`. A database `sk-` row must not hide an `oc_sk_` key that exists only in auth.json,
+/// and a database `oc_sk_` still beats a file `sk-`. With no console key the pre-migration order is
+/// unchanged: auth.json `opencode-go`, then the database (`opencode-go` then `opencode`), then
+/// auth.json `opencode` OAuth.
+fn load_credential_from(dirs: &[PathBuf]) -> Option<Credential> {
+    let found: Vec<DirCreds> = dirs.iter().map(|d| creds_in(d)).collect();
+    for d in &found {
+        if let Some(c) = console_for(&d.db_rows, "opencode") {
             return Some(c);
         }
     }
-    // 2. OpenCode 1.18+: the sign-in lives in opencode.db
-    for d in &dirs {
-        if let Some(c) = open_ro(&d.join("opencode.db")).and_then(|conn| credential_from_db(&conn)) {
+    for d in &found {
+        if let Some(c) = console_for(&d.db_rows, "opencode-go") {
             return Some(c);
         }
     }
-    // 3. the same OAuth sign-in mirrored into auth.json
-    for d in &dirs {
-        let Some(root) = read_auth_json(d) else { continue };
-        if let Some(c) = root.get("opencode").filter(|e| e.get("type").and_then(|t| t.as_str()) == Some("oauth")).and_then(|e| credential_from(e, "OpenCode")) {
+    for d in &found {
+        if let Some(c) = d.file_opencode.clone().filter(is_console_key) {
+            return Some(c);
+        }
+    }
+    for d in &found {
+        if let Some(c) = d.file_go.clone().filter(is_console_key) {
+            return Some(c);
+        }
+    }
+    for d in &found {
+        if let Some(c) = d.file_go.clone() {
+            return Some(c);
+        }
+    }
+    for d in &found {
+        if let Some(c) = credential_for(&d.db_rows, "opencode-go").or_else(|| credential_for(&d.db_rows, "opencode")) {
+            return Some(c);
+        }
+    }
+    for d in &found {
+        if let Some(c) = d.file_opencode.clone().filter(|c| c.oauth) {
             return Some(c);
         }
     }
@@ -235,6 +301,8 @@ pub fn db_path() -> Option<PathBuf> {
 
 enum FetchErr {
     Unauthorized,
+    /// 401 whose body is `error.code == api_key_expired`: a dead console key, not a sign-in to renew.
+    ExpiredKey,
     Forbidden,
     RateLimited(u64),
     Other(String),
@@ -260,10 +328,20 @@ fn usage_url(cred: &Credential) -> &'static str {
     }
 }
 
+/// `error.code == "api_key_expired"` in a 401 body. Any other code, or a body that is not that
+/// object, is not this case. The body itself is never logged.
+fn is_api_key_expired(body: &str) -> bool {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(body) else { return false };
+    v.get("error").and_then(|e| e.get("code")).and_then(|c| c.as_str()) == Some("api_key_expired")
+}
+
 fn fetch(cred: &Credential) -> Result<serde_json::Value, FetchErr> {
     match get(usage_url(cred), cred).call() {
         Ok(r) => r.into_json().map_err(|e| FetchErr::Other(format!("parse: {e}"))),
-        Err(ureq::Error::Status(401, _)) => Err(FetchErr::Unauthorized),
+        Err(ureq::Error::Status(401, response)) => {
+            let body = response.into_string().unwrap_or_default();
+            if is_api_key_expired(&body) { Err(FetchErr::ExpiredKey) } else { Err(FetchErr::Unauthorized) }
+        }
         Err(ureq::Error::Status(403, _)) => Err(FetchErr::Forbidden),
         Err(ureq::Error::Status(429, r)) => {
             let ra = r.header("retry-after").and_then(|s| s.trim().parse::<u64>().ok()).unwrap_or(0);
@@ -274,9 +352,9 @@ fn fetch(cred: &Credential) -> Result<serde_json::Value, FetchErr> {
     }
 }
 
-/// Is this OAuth sign-in still good? Asked only after the usage endpoint's 401, which cannot tell
-/// a bad token from an account without a Go plan. The Go API key has no such check: its 401 stays
-/// needsAuth, as on the Mac.
+/// Is this OAuth sign-in still good? Asked only after a usage 401 that is not `api_key_expired`,
+/// which cannot tell a bad token from an account without a Go plan. A Go API key has no such
+/// check: that 401 stays needsAuth, unless the body says the key itself has expired.
 fn signed_in(cred: &Credential) -> bool {
     if !cred.oauth {
         return false;
@@ -357,6 +435,12 @@ fn read_once() -> UsageSnapshot {
             snap.status = "none".into();
             snap.fetched_at = now_ms();
             snap.note = "No OpenCode Go subscription on this account".into();
+        }
+        Err(FetchErr::ExpiredKey) => {
+            snap.status = "none".into();
+            snap.fetched_at = now_ms();
+            snap.note = "This OpenCode key has expired. Create a new key in the OpenCode console".into();
+            crate::applog("opencode: usage endpoint answered 401 api_key_expired, status=none");
         }
         Err(FetchErr::Unauthorized) => {
             if signed_in(&cred) {
@@ -592,5 +676,125 @@ mod tests {
             ("opencode", r#"{"type":"oauth","access":"st_live"}"#, Some(1), 1),
         ]);
         assert_eq!(credential_from_db(&c).unwrap().token, "st_live");
+    }
+
+    struct Tmp(PathBuf);
+    impl Tmp {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "codenotch-oc-{name}-{}-{}",
+                std::process::id(),
+                now_ms()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+    }
+    impl Drop for Tmp {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn write_auth(dir: &std::path::Path, body: &str) {
+        std::fs::write(dir.join("auth.json"), body).unwrap();
+    }
+
+    fn write_db(dir: &std::path::Path, rows: &[(&str, &str, Option<i64>, i64)]) {
+        let c = rusqlite::Connection::open(dir.join("opencode.db")).unwrap();
+        c.execute_batch(
+            "CREATE TABLE credential (id text PRIMARY KEY, integration_id text, label text NOT NULL,
+             value text NOT NULL, connector_id text, method_id text, active integer,
+             time_created integer NOT NULL, time_updated integer NOT NULL)",
+        )
+        .unwrap();
+        for (i, (integration, value, active, updated)) in rows.iter().enumerate() {
+            c.execute(
+                "INSERT INTO credential VALUES (?1, ?2, 'x', ?3, NULL, NULL, ?4, 0, ?5)",
+                rusqlite::params![format!("cred_{i}"), integration, value, active, updated],
+            )
+            .unwrap();
+        }
+    }
+
+    const AUTH_STALE_AND_CONSOLE: &str = r#"{"opencode-go":{"type":"api","key":"sk-stale"},"opencode":{"type":"api","key":"oc_sk_console"}}"#;
+
+    #[test]
+    fn auth_console_key_beats_a_stale_go_key_when_the_database_has_no_usable_row() {
+        let dir = Tmp::new("auth-console");
+        write_auth(&dir.0, AUTH_STALE_AND_CONSOLE);
+        write_db(&dir.0, &[("openrouter", r#"{"type":"api","key":"sk-or"}"#, Some(1), 9)]);
+        let c = load_credential_from(&[dir.0.clone()]).unwrap();
+        assert_eq!(c.token, "oc_sk_console");
+        assert!(!c.oauth);
+        assert_eq!(usage_url(&c), "https://opencode.ai/zen/go/v1/usage");
+    }
+
+    #[test]
+    fn a_stale_database_go_key_does_not_hide_the_auth_console_key() {
+        let dir = Tmp::new("db-stale");
+        write_auth(&dir.0, AUTH_STALE_AND_CONSOLE);
+        write_db(&dir.0, &[("opencode-go", r#"{"type":"api","key":"sk-stale"}"#, Some(1), 9)]);
+        let c = load_credential_from(&[dir.0.clone()]).unwrap();
+        assert_eq!(c.token, "oc_sk_console");
+        assert!(!c.oauth);
+        assert_eq!(usage_url(&c), "https://opencode.ai/zen/go/v1/usage");
+    }
+
+    #[test]
+    fn a_newer_non_console_row_does_not_hide_an_older_console_key() {
+        let dir = Tmp::new("older-console");
+        write_db(&dir.0, &[
+            ("opencode", r#"{"type":"api","key":"sk-newer"}"#, Some(1), 9),
+            ("opencode", r#"{"type":"api","key":"oc_sk_older"}"#, Some(1), 1),
+        ]);
+        let c = load_credential_from(&[dir.0.clone()]).unwrap();
+        assert_eq!(c.token, "oc_sk_older");
+        assert!(!c.oauth);
+        assert_eq!(usage_url(&c), "https://opencode.ai/zen/go/v1/usage");
+    }
+
+    #[test]
+    fn a_database_console_key_beats_a_stale_file_key() {
+        let dir = Tmp::new("db-console");
+        write_auth(&dir.0, r#"{"opencode-go":{"type":"api","key":"sk-stale"}}"#);
+        write_db(&dir.0, &[("opencode", r#"{"type":"api","key":"oc_sk_db"}"#, Some(1), 1)]);
+        let c = load_credential_from(&[dir.0.clone()]).unwrap();
+        assert_eq!(c.token, "oc_sk_db");
+        assert!(!c.oauth);
+        assert_eq!(usage_url(&c), "https://opencode.ai/zen/go/v1/usage");
+    }
+
+    /// No console key: a lone `opencode-go` key and an OAuth entry still resolve as before,
+    /// and the file's Go key still comes ahead of OAuth.
+    #[test]
+    fn without_a_console_key_the_previous_order_still_resolves() {
+        let go = Tmp::new("lone-go");
+        write_auth(&go.0, r#"{"opencode-go":{"type":"api","key":"sk-go"}}"#);
+        let c = load_credential_from(&[go.0.clone()]).unwrap();
+        assert_eq!(c.token, "sk-go");
+        assert!(!c.oauth);
+        assert_eq!(usage_url(&c), "https://opencode.ai/zen/go/v1/usage");
+
+        let oauth = Tmp::new("lone-oauth");
+        write_auth(&oauth.0, r#"{"opencode":{"type":"oauth","access":"st_abc","metadata":{"orgID":"org_1"}}}"#);
+        let c = load_credential_from(&[oauth.0.clone()]).unwrap();
+        assert_eq!(c.token, "st_abc");
+        assert!(c.oauth);
+        assert_eq!(c.org.as_deref(), Some("org_1"));
+        assert_eq!(usage_url(&c), "https://opencode.ai/inference/go/v1/usage");
+
+        let both = Tmp::new("go-before-oauth");
+        write_auth(&both.0, r#"{"opencode-go":{"type":"api","key":"sk-go"},"opencode":{"type":"oauth","access":"st_abc"}}"#);
+        let c = load_credential_from(&[both.0.clone()]).unwrap();
+        assert_eq!(c.token, "sk-go");
+        assert!(!c.oauth);
+    }
+
+    #[test]
+    fn api_key_expired_body_is_recognized_and_another_code_is_not() {
+        let expired = r#"{"error":{"type":"authentication_error","code":"api_key_expired","message":"This API key has expired. Create a new API key in OpenCode Console and replace it in your client or secret store. Signing in again will not renew this key."}}"#;
+        assert!(is_api_key_expired(expired));
+        assert!(!is_api_key_expired(&expired.replacen("api_key_expired", "invalid_api_key", 1)));
     }
 }

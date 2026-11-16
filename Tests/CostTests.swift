@@ -108,4 +108,61 @@ final class CostTests: XCTestCase {
         let next = beat.addingTimeInterval(CostReadingGate.heartbeat)
         XCTAssertTrue(gate.admits([usage(0.1), runtime(1)], at: next))
     }
+
+    // MARK: Activity window on daylight saving days
+
+    private var newYork: Calendar {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "America/New_York")!
+        return cal
+    }
+
+    private func local(_ cal: Calendar, _ y: Int, _ m: Int, _ d: Int, _ h: Int, _ min: Int = 0) -> Date {
+        cal.date(from: DateComponents(year: y, month: m, day: d, hour: h, minute: min))!
+    }
+
+    /// The clocks go back on 1 November 2026 in New York, so that day lasts
+    /// 25 hours. A fixed 24 hour span ended the day at 11 PM and dropped the
+    /// last hour's sessions from both that day and the next.
+    func testActivityDayCoversAllTwentyFiveHoursWhenTheClocksGoBack() {
+        let cal = newYork
+        let day = cal.startOfDay(for: local(cal, 2026, 11, 1, 12))
+        let span = TimelinePane.interval(of: .day, containing: day, calendar: cal)
+        XCTAssertEqual(span.duration, 25 * 3600)
+        XCTAssertTrue(span.contains(local(cal, 2026, 11, 1, 23, 30)))
+        XCTAssertEqual(span.end, cal.startOfDay(for: local(cal, 2026, 11, 2, 12)))
+    }
+
+    /// The clocks go forward on 8 March 2026, a 23 hour day. A fixed 24 hour
+    /// span reached into the first hour of 9 March.
+    func testActivityDayStopsAtMidnightWhenTheClocksGoForward() {
+        let cal = newYork
+        let day = cal.startOfDay(for: local(cal, 2026, 3, 8, 12))
+        let span = TimelinePane.interval(of: .day, containing: day, calendar: cal)
+        XCTAssertEqual(span.duration, 23 * 3600)
+        XCTAssertFalse(span.contains(local(cal, 2026, 3, 9, 0, 30)))
+    }
+
+    /// The lane chart's axis is labelled in clock hours, so a session must be
+    /// placed by its clock time, not by seconds since midnight, or every bar
+    /// after the change sits an hour away from its label.
+    func testActivityLanesPlaceSessionsByClockTimeOnChangeDays() {
+        let cal = newYork
+        let march = cal.startOfDay(for: local(cal, 2026, 3, 8, 12))
+        XCTAssertEqual(TimelinePane.clockHours(local(cal, 2026, 3, 8, 10), on: march, calendar: cal), 10, accuracy: 0.0001)
+        let november = cal.startOfDay(for: local(cal, 2026, 11, 1, 12))
+        XCTAssertEqual(TimelinePane.clockHours(local(cal, 2026, 11, 1, 23, 30), on: november, calendar: cal), 23.5, accuracy: 0.0001)
+    }
+
+    /// An ordinary day keeps the old placement, and a session that runs past
+    /// midnight still lands beyond the end of the axis so its bar is clamped
+    /// to the right edge instead of wrapping back to the left.
+    func testActivityLanesKeepOrdinaryDaysAndOverflowPastMidnight() {
+        let cal = newYork
+        let day = cal.startOfDay(for: local(cal, 2026, 6, 10, 12))
+        XCTAssertEqual(TimelinePane.interval(of: .day, containing: day, calendar: cal).duration, 24 * 3600)
+        XCTAssertEqual(TimelinePane.clockHours(local(cal, 2026, 6, 10, 14, 15), on: day, calendar: cal), 14.25, accuracy: 0.0001)
+        XCTAssertGreaterThan(TimelinePane.clockHours(local(cal, 2026, 6, 11, 0, 30), on: day, calendar: cal), 24)
+        XCTAssertLessThan(TimelinePane.clockHours(local(cal, 2026, 6, 9, 23, 30), on: day, calendar: cal), 0)
+    }
 }

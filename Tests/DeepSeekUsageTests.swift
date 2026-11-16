@@ -460,4 +460,47 @@ final class DeepSeekMultiWalletTests: XCTestCase {
         XCTAssertEqual(reading.currency, "CNY")
         XCTAssertEqual(reading.usedFraction, 9.20 / 20.07, accuracy: 0.001)
     }
+
+    /// Granted credit is spendable too, so it counts toward what is left.
+    func testGrantedBalanceCountsAsRemaining() throws {
+        let json = #"{"data":{"biz_data":{"normal_wallets":[{"currency":"CNY","balance":"8.75"}],"bonus_wallets":[{"currency":"CNY","balance":"2.25"}],"total_costs":[{"currency":"CNY","amount":"9"}]}}}"#
+        let reading = try DeepSeekUsage.reading(fromJSON: json)
+        XCTAssertEqual(reading.balance, 11, accuracy: 0.001)
+        XCTAssertEqual(reading.usedFraction, 9.0 / 20.0, accuracy: 0.001)
+    }
+}
+
+/// DeepSeek answers an expired or missing token with HTTP 200 and an error code
+/// in the body. That has to read as signed out, or the card keeps showing the
+/// last reading with no hint that a sign-in would fix it.
+@MainActor
+final class DeepSeekExpiredSessionTests: XCTestCase {
+    private func payload(summary: String) throws -> String {
+        let object: [String: Any] = ["summary": summary, "amount": "{}", "cost": "{}",
+                                     "start": 0, "end": 1, "time_zone_seconds": 28_800]
+        return String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
+    }
+
+    func testAnInvalidTokenReadsAsSignedOut() throws {
+        let json = try payload(summary: #"{"code":40003,"msg":"Authorization Failed (invalid token)","data":null}"#)
+        XCTAssertThrowsError(try Sites.deepSeek.parse(json)) { error in
+            guard case UsageProviderError.needsAuth = error else {
+                return XCTFail("expected needsAuth, got \(error)")
+            }
+        }
+    }
+
+    func testAMissingTokenReadsAsSignedOut() throws {
+        let json = try payload(summary: #"{"code":40002,"msg":"Missing Token","data":null}"#)
+        XCTAssertThrowsError(try Sites.deepSeek.parse(json)) { error in
+            guard case UsageProviderError.needsAuth = error else {
+                return XCTFail("expected needsAuth, got \(error)")
+            }
+        }
+    }
+
+    func testTheSignInProbeRejectsAnExpiredToken() throws {
+        let probe = try XCTUnwrap(Sites.deepSeek.authProbeScript)
+        XCTAssertTrue(probe.contains("40002") && probe.contains("40003"))
+    }
 }

@@ -24,6 +24,9 @@ struct StatusItemSummary: Equatable {
         /// Weekly allowance consumed, for the compact ring. Nil means the
         /// provider did not publish a valid current weekly percentage.
         let weeklyFraction: Double?
+        /// The metered fraction of the five-hour window used (0.0...1.0),
+        /// or nil if there is no current reading or the window is over.
+        let usedFraction: Double?
         /// What the tooltip and VoiceOver say about this entry, in full.
         let detail: String
 
@@ -41,6 +44,8 @@ struct StatusItemSummary: Equatable {
     /// default so the memberwise initialiser keeps working for everything
     /// that builds a summary without an opinion about it.
     var reading: MenuBarReading = .automatic
+    /// Whether the bar displays text, compact markers, or usage bars.
+    var visualMode: MenuBarVisualMode = .text
 
     /// Two readings sit side by side comfortably. Past that each keeps its mark
     /// and percentage, and the countdowns stay in the tooltip and the menu.
@@ -86,6 +91,7 @@ struct StatusItemSummary: Equatable {
                      showingRemaining: Bool = false,
                      hidingDepleted: Bool = false,
                      reading: MenuBarReading = .automatic,
+                     visualMode: MenuBarVisualMode = .text,
                      autoOrdering: Bool = false) -> StatusItemSummary {
         guard limits.isOn else { return StatusItemSummary(entries: [], nextChange: nil) }
         let chosen = snapshots.filter { snapshot in
@@ -108,7 +114,7 @@ struct StatusItemSummary: Equatable {
             .compactMap { $0.fiveHourWindow?.resetsAt }
             .compactMap { ResetCopy.nextCountdownChange(to: $0, now: now) }
             .min()
-        return StatusItemSummary(entries: entries, nextChange: nextChange, reading: reading)
+        return StatusItemSummary(entries: entries, nextChange: nextChange, reading: reading, visualMode: visualMode)
     }
 
     static func isFiveHourFamily(_ providerID: String) -> Bool {
@@ -159,6 +165,9 @@ struct StatusItemSummary: Equatable {
             // either one is reporting a window the provider never declared.
             detail += " · \(weeklyWindow.label): \(weeklyWindow.summary(showingRemaining: showingRemaining))"
         }
+        let usedFraction = (!isOver && window?.usedFraction?.isFinite == true)
+            ? window?.usedFraction
+            : nil
         return Entry(
             id: snapshot.id,
             glyph: snapshot.glyph,
@@ -168,6 +177,7 @@ struct StatusItemSummary: Equatable {
             isStale: snapshot.status.isStale
                 && (percent != Entry.unknown || weeklyFraction != nil),
             weeklyFraction: weeklyFraction,
+            usedFraction: usedFraction,
             detail: detail
         )
     }
@@ -248,6 +258,10 @@ struct StatusItemArtwork {
         case activityBadge(NSRect)
         /// Room for the waiting dot: a clear disc with nothing drawn in it.
         case waitingCutout(NSRect)
+        /// Compact status marker point.
+        case marker(NSRect, isBlank: Bool)
+        /// Usage bar with track and filled progress.
+        case bar(track: NSRect, fill: NSRect, isBlank: Bool)
     }
 
     private var separator: String { " · " }
@@ -277,7 +291,7 @@ struct StatusItemArtwork {
     var size: NSSize { NSSize(width: layout().width, height: height) }
 
     func image() -> NSImage {
-        let (width, marks, _, _) = layout()
+        let (width, marks, _, _, _) = layout()
         let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
             for (mark, alpha) in marks { draw(mark, alpha: alpha) }
             return true
@@ -291,11 +305,18 @@ struct StatusItemArtwork {
         layout().glyphFrames[providerID]
     }
 
+    func indicatorFrame(for providerID: String) -> NSRect? {
+        layout().indicatorFrames[providerID]
+    }
+
     /// Where each waiting dot goes, in the image's coordinates.
     var waitingBadgeFrames: [String: NSRect] { layout().waitingBadges }
 
+    /// Where each visual indicator goes, in the image's coordinates.
+    var indicatorFrames: [String: NSRect] { layout().indicatorFrames }
+
     private func layout() -> (width: CGFloat, marks: [(Mark, CGFloat)], glyphFrames: [String: NSRect],
-                              waitingBadges: [String: NSRect]) {
+                              waitingBadges: [String: NSRect], indicatorFrames: [String: NSRect]) {
         // Figures centred on the bar by their cap height, which is what the eye
         // measures digits by; the marks are centred on the same line.
         let baseline = ((height - font.capHeight) / 2 * 2).rounded() / 2
@@ -303,6 +324,7 @@ struct StatusItemArtwork {
         var marks: [(Mark, CGFloat)] = []
         var glyphFrames: [String: NSRect] = [:]
         var waitingBadges: [String: NSRect] = [:]
+        var indicatorFrames: [String: NSRect] = [:]
         var x: CGFloat = 0
         func text(_ string: String, alpha: CGFloat) {
             marks.append((.text(string, NSPoint(x: x, y: baseline)), alpha))
@@ -334,17 +356,42 @@ struct StatusItemArtwork {
                 text(label, alpha: alpha)
                 x += glyphGap
             }
-            if entry.isBlank {
-                text(StatusItemSummary.Entry.unknown, alpha: alpha)
-                continue
-            }
-            text(entry.percent, alpha: alpha)
-            if !summary.isCompact {
-                text(separator, alpha: alpha)
-                text(entry.countdown, alpha: alpha)
+            switch summary.visualMode {
+            case .text:
+                if entry.isBlank {
+                    text(StatusItemSummary.Entry.unknown, alpha: alpha)
+                    continue
+                }
+                text(entry.percent, alpha: alpha)
+                if !summary.isCompact {
+                    text(separator, alpha: alpha)
+                    text(entry.countdown, alpha: alpha)
+                }
+            case .markers:
+                let diameter: CGFloat = 8
+                let markerRect = NSRect(x: x, y: (middle - diameter / 2).rounded(), width: diameter, height: diameter)
+                indicatorFrames[entry.id] = markerRect
+                marks.append((.marker(markerRect, isBlank: entry.isBlank), alpha))
+                x += diameter
+            case .bars:
+                let barWidth: CGFloat = 28
+                let barHeight: CGFloat = 5
+                let trackRect = NSRect(x: x, y: (middle - barHeight / 2).rounded(), width: barWidth, height: barHeight)
+                let fillWidth: CGFloat
+                if entry.isBlank {
+                    fillWidth = 0
+                } else {
+                    let f = CGFloat(min(max(entry.usedFraction ?? 0, 0), 1))
+                    fillWidth = (barWidth * f).rounded()
+                }
+                let fillRect = NSRect(x: trackRect.minX, y: trackRect.minY,
+                                      width: max(0, min(fillWidth, barWidth)), height: barHeight)
+                indicatorFrames[entry.id] = trackRect
+                marks.append((.bar(track: trackRect, fill: fillRect, isBlank: entry.isBlank), alpha))
+                x += barWidth
             }
         }
-        return (x.rounded(.up), marks, glyphFrames, waitingBadges)
+        return (x.rounded(.up), marks, glyphFrames, waitingBadges, indicatorFrames)
     }
 
     /// The upper trailing corner, where a notification badge sits on a Dock
@@ -456,6 +503,21 @@ struct StatusItemArtwork {
             NSColor.black.setFill()
             NSBezierPath(ovalIn: dot.insetBy(dx: -1.5, dy: -1.5)).fill()
             NSGraphicsContext.restoreGraphicsState()
+        case .marker(let rect, let isBlank):
+            if isBlank {
+                ink.withAlphaComponent(alpha * 0.35).setFill()
+                NSBezierPath(ovalIn: rect).fill()
+            } else {
+                ink.setFill()
+                NSBezierPath(ovalIn: rect).fill()
+            }
+        case .bar(let track, let fill, let isBlank):
+            ink.withAlphaComponent(alpha * 0.22).setFill()
+            NSBezierPath(roundedRect: track, xRadius: track.height / 2, yRadius: track.height / 2).fill()
+            if !isBlank && fill.width > 0 {
+                ink.setFill()
+                NSBezierPath(roundedRect: fill, xRadius: fill.height / 2, yRadius: fill.height / 2).fill()
+            }
         }
     }
 }

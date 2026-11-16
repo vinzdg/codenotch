@@ -1205,15 +1205,19 @@ final class EverySizeSettingAppliesEverywhereTests: XCTestCase {
     /// chosen while the notch is on the hardware edge is exactly what it is when
     /// it arrives on any other.
     func testTheSizeSettingSurvivesTheHardwareEdge() throws {
-        guard NSScreen.screens.contains(where: { $0.hardwareNotch != nil }) else {
+        // The notched screen itself, not NSScreen.main: with an external
+        // display in front, main has no cutout and the test checked the wrong
+        // screen (#554).
+        guard let notched = NSScreen.screens.first(where: { $0.hardwareNotch != nil }) else {
             throw XCTSkip("Needs a display with a notch")
         }
         let controller = NotchWindowController()
         controller.model.updateSnapshots(Fixtures.snapshots())
+        controller.assignedScreen = notched
         defer { controller.stop() }
 
         controller.apply(edge: .top)
-        controller.relocate()
+        controller.relocate(on: notched)
         controller.apply(scale: 0.75)
         XCTAssertEqual(controller.model.requestedScale, 0.75, accuracy: 0.001,
                        "the top edge overwrote the setting again")
@@ -1221,7 +1225,7 @@ final class EverySizeSettingAppliesEverywhereTests: XCTestCase {
                         "on the hardware edge the cutout is what sets the size")
 
         controller.model.edge = .right
-        controller.relocate()
+        controller.relocate(on: notched)
         XCTAssertNil(controller.model.mergedScale, "a side edge has no cutout to follow")
         XCTAssertEqual(controller.model.sizeScale, 0.75, accuracy: 0.001,
                        "the size the user chose did not survive the move")

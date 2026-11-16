@@ -459,6 +459,12 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(menuBarReading.rawValue, forKey: Keys.menuBarReading) }
     }
 
+    /// Whether the menu bar presents text, compact markers, or usage bars.
+    /// `.text` is the default because it preserves the original layout.
+    @Published var menuBarVisualMode: MenuBarVisualMode {
+        didSet { defaults.set(menuBarVisualMode.rawValue, forKey: Keys.menuBarVisualMode) }
+    }
+
     /// How the item shows that an agent is working. `.pulse` is what it has
     /// always done, so an upgrade changes nothing; the other two exist because
     /// movement in the menu bar is not everyone's idea of an indicator, and
@@ -713,6 +719,13 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(minimaxRegion.rawValue, forKey: Keys.minimaxRegion) }
     }
 
+    /// Where DeepSeek is read from: the Codenotch sign-in (balance, spend and
+    /// usage detail) or an API key (balance only). Absent means the sign-in,
+    /// which is what DeepSeek always used.
+    @Published var deepSeekSource: DeepSeekSource {
+        didSet { defaults.set(deepSeekSource.rawValue, forKey: Keys.deepSeekSource) }
+    }
+
     /// The version whose changes have already been shown.
     ///
     /// Written when the What's New dialogue is dismissed rather than when it
@@ -761,6 +774,7 @@ final class Preferences: ObservableObject {
         static let showsWeeklyLimitInMenuBar = "showsWeeklyLimitInMenuBar"
         static let menuBarActivityStyle = "menuBarActivityStyle"
         static let menuBarReading = "menuBarReading"
+        static let menuBarVisualMode = "menuBarVisualMode"
         static let menuBarClickAction = "menuBarClickAction"
         static let menuBarProviders = "menuBarProviders"
         static let expandedDetailProviders = "expandedDetailProviders"
@@ -821,6 +835,7 @@ final class Preferences: ObservableObject {
         static let antigravityHeadlineModel = "antigravityHeadlineModel"
         static let deepSeekPricingEnabled = "deepSeekPricingEnabled"
         static let deepSeekPricingSchedule = "deepSeekPricingSchedule"
+        static let deepSeekSource = "deepSeekSource"
         static let showCodexExtraLimits = "showCodexExtraLimits"
         static let planCeilingMode = "planCeilingMode"
         static let ceilingWarningThreshold = "ceilingWarningThreshold"
@@ -1014,6 +1029,14 @@ final class Preferences: ObservableObject {
         return []
     }
 
+    /// The DeepSeek source read straight from disk, off the main actor, for
+    /// the same reason as the MiniMax region below.
+    nonisolated static func storedDeepSeekSource(
+        defaults: UserDefaults = .standard
+    ) -> DeepSeekSource {
+        DeepSeekSource(rawValue: defaults.string(forKey: Keys.deepSeekSource) ?? "") ?? .web
+    }
+
     /// The MiniMax region read straight from disk, off the main actor.
     ///
     /// The provider is an actor and asks for this on every fetch, and
@@ -1179,6 +1202,8 @@ final class Preferences: ObservableObject {
             .flatMap(MenuBarActivityStyle.init(rawValue:)) ?? .pulse
         self.menuBarReading = defaults.string(forKey: Keys.menuBarReading)
             .flatMap(MenuBarReading.init(rawValue:)) ?? .automatic
+        self.menuBarVisualMode = defaults.string(forKey: Keys.menuBarVisualMode)
+            .flatMap(MenuBarVisualMode.init(rawValue:)) ?? .text
         self.menuBarClickAction = defaults.string(forKey: Keys.menuBarClickAction)
             .flatMap(MenuBarClickAction.init(rawValue:)) ?? .menu
         // Absent is kept distinct from empty: never chosen is not choosing none.
@@ -1304,6 +1329,7 @@ final class Preferences: ObservableObject {
         self.manualProviderLimit = Self.storedManualProviderLimit(defaults: defaults)
         self.manualProviderSchedule = defaults.string(forKey: Keys.manualProviderSchedule) ?? "3h"
         self.minimaxRegion = Self.storedMinimaxRegion(defaults: defaults)
+        self.deepSeekSource = Self.storedDeepSeekSource(defaults: defaults)
         self.qoderRegion = Sites.QoderRegion(rawValue: defaults.string(forKey: Keys.qoderRegion) ?? "") ?? .global
         if let data = defaults.data(forKey: Keys.customEndpoints),
            let list = try? JSONDecoder().decode([CustomEndpoint].self, from: data) {

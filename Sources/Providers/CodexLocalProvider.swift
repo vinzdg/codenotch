@@ -28,19 +28,54 @@ actor CodexLocalProvider: UsageProvider {
     }
 
     nonisolated var signInRoute: SignInRoute {
+        if profile.isCodexAuth {
+            return .command(profile.signInCommand, name: displayName,
+                            install: URL(string: "https://github.com/Loongphy/codex-auth"))
+        }
         guard profile.slug != nil else { return .openApp(bundleID: "com.openai.codex", name: "Codex") }
         return .command(profile.signInCommand, name: displayName,
                         install: URL(string: "https://developers.openai.com/codex/cli"))
     }
 
+    nonisolated func presentAccountSwitch() {
+        if let authAccount = profile.authAccount {
+            let target = authAccount.alias ?? authAccount.accountKey
+            Task {
+                if (try? CodexAuthCLI.switchAccount(query: target)) != nil {
+                    return
+                }
+                await MainActor.run {
+                    TerminalCommand.run(self.profile.signInCommand)
+                }
+            }
+            return
+        }
+        presentSignIn()
+    }
+
     nonisolated func account() -> ProviderAccount? {
-        CodexCredentials.account(from: authURL, source: profile.sourceName)
+        if let authAccount = profile.authAccount {
+            if profile.isCurrentlyActive, let live = CodexCredentials.account(from: authURL, source: profile.sourceName) {
+                return live
+            }
+            return ProviderAccount(
+                label: authAccount.email ?? authAccount.alias ?? authAccount.accountKey,
+                plan: authAccount.plan,
+                source: profile.sourceName,
+                manageURL: URL(string: "https://chatgpt.com/#settings/Account")
+            )
+        }
+        return CodexCredentials.account(from: authURL, source: profile.sourceName)
     }
 
     func fetchSnapshot() async throws -> ProviderSnapshot {
         let now = Date()
         if let retryNoEarlierThan, retryNoEarlierThan > now {
             throw UsageProviderError.rateLimited(retryAfter: retryNoEarlierThan.timeIntervalSince(now))
+        }
+
+        if profile.isCodexAuth && !profile.isCurrentlyActive {
+            throw UsageProviderError.needsAuth
         }
 
         // Codex can rotate its token between polls; this app never refreshes or writes it.
