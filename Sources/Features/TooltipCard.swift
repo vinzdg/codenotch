@@ -1358,6 +1358,8 @@ struct TooltipCard: View {
     var sessionCap: Int = NotchLayout.defaultSessionCap
     /// Project rows the cost section may list, as the view model solved it.
     var costRows: Int = 0
+    /// Task rows the tasks card may list.
+    var taskRows: Int = TasksCard.maxRows
     var resetTimeFormat: ResetTimeFormat = .automatic
     var deepSeekPricingEnabled: Bool = true
     var deepSeekPricingSchedule: DeepSeekPricing.Schedule = .current
@@ -1369,7 +1371,8 @@ struct TooltipCard: View {
     /// The same figure the hover region uses, so what is drawn and what is
     /// reachable can never drift apart.
     private var height: CGFloat {
-        NotchLayout.cardHeight(
+        if snapshot.id == TasksProvider.providerID { return TasksCard.height(rows: taskRows) }
+        return NotchLayout.cardHeight(
             windowCount: snapshot.windows.count,
             groupCount: snapshot.windowGroupCount,
             moneyWindowCount: snapshot.windows.filter { $0.money != nil }.count,
@@ -1399,19 +1402,25 @@ struct TooltipCard: View {
             // instead of shoving each other around. Top-aligned so neither
             // drifts while the card resizes around them.
             ZStack(alignment: .topLeading) {
-                ProviderDetailContent(snapshot: snapshot, activity: activity, now: now,
-                                      sessionCap: sessionCap, costRows: costRows,
-                                      resetTimeFormat: resetTimeFormat,
-                                      deepSeekPricingEnabled: deepSeekPricingEnabled,
-                                      deepSeekPricingSchedule: deepSeekPricingSchedule,
-                                      onFocusSession: onFocusSession)
-                // An identity, so one provider's rows are never interpolated
-                // into another's — that is what slid text through positions
-                // belonging to neither layout. A crossfade rather than an
-                // instant swap, so the change is part of the movement instead
-                // of a cut in the middle of it.
-                .id(snapshot.id)
-                .transition(.opacity.animation(NotchMotion.crossfade))
+                if snapshot.id == TasksProvider.providerID {
+                    TasksCard(now: now, rows: taskRows)
+                        .id(snapshot.id)
+                        .transition(.opacity.animation(NotchMotion.crossfade))
+                } else {
+                    ProviderDetailContent(snapshot: snapshot, activity: activity, now: now,
+                                          sessionCap: sessionCap, costRows: costRows,
+                                          resetTimeFormat: resetTimeFormat,
+                                          deepSeekPricingEnabled: deepSeekPricingEnabled,
+                                          deepSeekPricingSchedule: deepSeekPricingSchedule,
+                                          onFocusSession: onFocusSession)
+                        // An identity, so one provider's rows are never interpolated
+                        // into another's — that is what slid text through positions
+                        // belonging to neither layout. A crossfade rather than an
+                        // instant swap, so the change is part of the movement instead
+                        // of a cut in the middle of it.
+                        .id(snapshot.id)
+                        .transition(.opacity.animation(NotchMotion.crossfade))
+                }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }

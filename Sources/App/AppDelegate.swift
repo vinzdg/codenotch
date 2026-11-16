@@ -229,6 +229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 + webProviders
                 + customProviders
                 + remoteProviders
+                + [TasksProvider()]
             preferences.reconcile(discoveredIDs: allProviders.map(\.id))
             let store = UsageStore(
                 providers: allProviders,
@@ -275,6 +276,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 .store(in: &cancellables)
             Costs.attach(to: store)
+            Tasks.attach(to: store)
             deepSeek.onAuthenticated = { [weak store] in
                 store?.providerAuthenticationChanged(providerID: "deepseek")
             }
@@ -1017,10 +1019,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak statusItem, weak preferences] snapshots, paced in
                     let snapshots = DailyPace.apply(to: snapshots, enabled: paced)
                     statusItem?.snapshots = snapshots
-                    notifier.observe(snapshots)
-                    resetWatcher.observe(snapshots)
-                    limitWatcher.observe(snapshots)
-                    for snapshot in snapshots {
+                    // The Tasks ring is done ÷ open, not a vendor's quota. A
+                    // list emptying or loading is not a limit resetting, and
+                    // fed to the watchers it announced "Tasks has reset" as
+                    // the day's to-dos came in.
+                    let watched = snapshots.filter { $0.id != TasksProvider.providerID }
+                    notifier.observe(watched)
+                    resetWatcher.observe(watched)
+                    limitWatcher.observe(watched)
+                    for snapshot in watched {
                         if let used = snapshot.headline?.used, used > 0 {
                             preferences?.recordPeakUsage(providerID: snapshot.id, used: used)
                         }

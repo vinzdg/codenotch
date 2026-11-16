@@ -77,6 +77,7 @@ final class MenuUsageCardTests: XCTestCase {
             L10n.t("Refresh all"),
             L10n.t("Connect Phone…"),
             L10n.t("Activity…"),
+            L10n.t("Focus…"),
             L10n.t("Settings…"),
             L10n.t("Quit Codenotch")
         ]), [], commands.joined(separator: "\n"))

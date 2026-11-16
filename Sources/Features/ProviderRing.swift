@@ -48,6 +48,9 @@ struct ProviderRing: View {
     var weeklyFraction: Double?
     /// Where the user asked for it, if at all.
     var weeklyRing: WeeklyRing = .off
+    /// A colour of the provider's own for the arc, when the reading is not a
+    /// share of a limit: a focus block runs violet whatever its progress.
+    var tint: Color? = nil
     var bandOverride: UsageBand? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -80,7 +83,9 @@ struct ProviderRing: View {
         return max(NotchLayout.localArcMinimumSweep, CGFloat(min(max(contextFraction, 0), 1)))
     }
     private var primaryColor: Color {
-        isStale ? Palette.textSecondary : band.color(accent: accentColor)
+        if isStale { return Palette.textSecondary }
+        if let tint { return tint }
+        return band.color(accent: accentColor)
     }
 
     /// The ring's actual stroke colour: a continuous ramp when that style is chosen, falling
@@ -186,7 +191,7 @@ struct ProviderRing: View {
                         .inset(by: NotchLayout.trackStroke / 2)
                         .trim(from: 0, to: sweep)
                         .stroke(
-                            primaryRingColor,
+                            tint ?? primaryRingColor,
                             style: StrokeStyle(lineWidth: NotchLayout.progressStroke, lineCap: .round)
                         )
                         // Refreshing spins the reading itself rather than
@@ -402,6 +407,7 @@ struct ProviderCell: View {
                 localContextFraction: snapshot.localContextFraction,
                 weeklyFraction: snapshot.hasReading ? snapshot.weeklyFraction : nil,
                 weeklyRing: weeklyRing,
+                tint: snapshot.headlineID == "focus" ? TaskColors.violet : nil,
                 bandOverride: snapshot.bandOverride
             )
             if showsReading { reading }
@@ -571,8 +577,15 @@ struct ProviderReading: View {
     /// Which end of that room it sits at — the Mac's notch's.
     var acrossAlignment: Alignment = .leading
 
+    /// A running focus ticks every second, straight from its store, rather
+    /// than waiting for the next provider poll.
+    @ObservedObject private var focus = FocusStore.shared
+
+    private var isFocusClock: Bool { snapshot.headlineID == "focus" && focus.isActive }
+
     /// A dash, not "0%": nothing read is not the same as nothing used.
     var text: String {
+        if isFocusClock { return FocusStore.clock(focus.elapsed) }
         guard snapshot.hasReading else { return "—" }
         guard let weekly = weeklyReading else { return snapshot.headlineText(showingRemaining: showsRemaining) }
         // The second number flips with the first: in remaining mode both ends
@@ -632,8 +645,8 @@ struct ProviderReading: View {
                 // Never into the side's own curved end: smaller before that.
                 .minimumScaleFactor(0.4)
                 .frame(width: width, alignment: acrossAlignment)
-                .contentTransition(.numericText())
-                .animation(NotchMotion.reading, value: text)
+                .contentTransition(isFocusClock ? .identity : .numericText())
+                .animation(isFocusClock ? nil : NotchMotion.reading, value: text)
         } else {
             underTheRing
         }
@@ -650,7 +663,7 @@ struct ProviderReading: View {
             .fixedSize(horizontal: snapshot.localModel == nil, vertical: false)
             .frame(width: snapshot.localModel == nil ? nil : NotchLayout.ringDiameter,
                    height: NotchLayout.percentLineHeight)
-            .contentTransition(.numericText())
-            .animation(NotchMotion.reading, value: text)
+            .contentTransition(isFocusClock ? .identity : .numericText())
+            .animation(isFocusClock ? nil : NotchMotion.reading, value: text)
     }
 }
