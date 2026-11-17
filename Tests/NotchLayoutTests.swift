@@ -994,6 +994,14 @@ final class NotchVisibilityTests: XCTestCase {
         XCTAssertTrue(NotchVisibility.hidden.explanation.contains("Applications"))
     }
 
+    @MainActor
+    func testKeepOpenWhileSessionActiveIsOffByDefaultAndSurvivesARestart() {
+        let defaults = defaults()
+        XCTAssertFalse(Preferences(defaults: defaults).keepOpenWhileSessionActive)
+        Preferences(defaults: defaults).keepOpenWhileSessionActive = true
+        XCTAssertTrue(Preferences(defaults: defaults).keepOpenWhileSessionActive)
+    }
+
     func testEveryModeIsOfferedAndNamed() {
         XCTAssertEqual(NotchVisibility.allCases.count, 3)
         for mode in NotchVisibility.allCases {

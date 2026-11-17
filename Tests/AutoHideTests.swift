@@ -202,4 +202,64 @@ final class AutoHideTests: XCTestCase {
         prefs.foldsForFullScreen = true
         XCTAssertEqual(prefs.autoHideMode, .onFullscreen)
     }
+
+    // MARK: - Keep open while a session is active
+
+    private func hoverController() -> NotchWindowController {
+        let controller = NotchWindowController()
+        controller.show()
+        controller.isFullScreenActive = { false }
+        controller.isWindowOverlapActive = { false }
+        controller.apply(.onHover)
+        return controller
+    }
+
+    /// Lets the scheduled hover fold (`foldGrace`) run.
+    private func waitPastFoldGrace() {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+    }
+
+    func testActiveSessionOpensTheNotchAndHoldsItAgainstThePointerLeaving() {
+        let controller = hoverController()
+        defer { controller.stop() }
+
+        controller.apply(sessionActive: true)
+        XCTAssertTrue(controller.model.isExpanded, "An active session must open the notch in hover mode")
+
+        controller.cursorMoved(at: CGPoint(x: -500, y: -500))
+        waitPastFoldGrace()
+        XCTAssertTrue(controller.model.isExpanded, "The pointer being away must not fold it while a session is active")
+    }
+
+    func testSessionEndingHandsTheNotchBackToHover() {
+        let controller = hoverController()
+        defer { controller.stop() }
+
+        controller.apply(sessionActive: true)
+        controller.apply(sessionActive: false)
+        controller.cursorMoved(at: CGPoint(x: -500, y: -500))
+        waitPastFoldGrace()
+        XCTAssertFalse(controller.model.isExpanded, "Once no session is active the notch folds like ordinary hover")
+    }
+
+    func testActiveSessionDoesNotOverruleHidden() {
+        let controller = hoverController()
+        defer { controller.stop() }
+
+        controller.apply(.hidden)
+        controller.apply(sessionActive: true)
+        XCTAssertFalse(controller.model.isExpanded, "Hidden stays hidden whatever the sessions are doing")
+    }
+
+    func testSessionEndingDoesNotUndoAManualPin() {
+        let controller = hoverController()
+        defer { controller.stop() }
+
+        controller.apply(sessionActive: true)
+        controller.model.isPinned = true
+        controller.apply(sessionActive: false)
+        waitPastFoldGrace()
+        XCTAssertTrue(controller.model.isPinned)
+        XCTAssertTrue(controller.model.isExpanded, "A pin made by hand outlives the session")
+    }
 }

@@ -962,6 +962,15 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
+                if preferences.notchVisibility == .onHover {
+                    Toggle(L10n.t("Keep open while a session is active"),
+                           isOn: $preferences.keepOpenWhileSessionActive)
+                    Text(L10n.t("The notch stays open while any session is working or waiting on you, and goes back to opening on hover once none is."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 Picker(L10n.t("Auto-hide"), selection: $preferences.autoHideMode) {
                     ForEach(AutoHideMode.allCases) { Text($0.title).tag($0) }
                 }

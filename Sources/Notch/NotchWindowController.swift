@@ -112,6 +112,12 @@ final class NotchWindowController {
     private var peekUntil: Date?
     /// The standing visibility choice, so a peek never overrides Hidden.
     private var visibility: NotchVisibility = .onHover
+    /// Set by the fleet: "Keep open while a session is active" is on and some
+    /// session is busy or waiting. Kept apart from `isPinned` so a session
+    /// ending never undoes a "Keep open" made by hand.
+    private var sessionActive = false
+    /// Only "Show on hover" honours it; the other two modes already decide.
+    private var holdsForSession: Bool { sessionActive && visibility == .onHover }
     /// Whether we have pushed the pointing hand onto the cursor stack.
     private var shownCursor: NSCursor?
     /// Where the pointer let go of the notch by its dots, while it has not
@@ -225,7 +231,7 @@ final class NotchWindowController {
                 }
             }
             foldForFullScreen()
-        } else if (model.isAlwaysOn || model.isPinned) && !model.isExpanded {
+        } else if (model.isAlwaysOn || model.isPinned || holdsForSession) && !model.isExpanded {
             withAnimation(NotchMotion.unfold) {
                 model.isExpanded = true
             }
@@ -1560,7 +1566,7 @@ final class NotchWindowController {
         // A peek holds the notch open for its own duration; only after that
         // does the pointer get a say again.
         if let peekUntil, peekUntil > Date() { return }
-        guard model.isExpanded, foldWork == nil, !model.isPinned else { return }
+        guard model.isExpanded, foldWork == nil, !model.isPinned, !holdsForSession else { return }
         // Pinned is settled above; what is left to decide is whether "Always
         // show" holds it, and only a frontmost full-screen app overrules that.
         let ignoresAlwaysOn = model.isAlwaysOn && ignoreAlwaysOn()
@@ -1568,7 +1574,7 @@ final class NotchWindowController {
         let work = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                let stillHoldsOpen = self.model.isPinned || (self.model.isAlwaysOn && !ignoresAlwaysOn)
+                let stillHoldsOpen = self.model.isPinned || self.holdsForSession || (self.model.isAlwaysOn && !ignoresAlwaysOn)
                 guard !stillHoldsOpen else {
                     self.foldWork = nil
                     return
@@ -1911,8 +1917,9 @@ final class NotchWindowController {
             // Fold now rather than waiting for the pointer to leave: it may
             // already be somewhere else, in which case nothing would arrive to
             // close it and "on hover" would look exactly like "always show".
+            // An active session, with its setting on, is the one exception.
             withAnimation(NotchMotion.unfold) {
-                model.isExpanded = false
+                model.isExpanded = holdsForSession
                 model.hoveredIndex = nil
             }
         case .hidden:
@@ -1925,6 +1932,23 @@ final class NotchWindowController {
             panel?.orderOut(nil)
         }
         setPointing(false)
+        updateInteractiveRects()
+    }
+
+    /// Opens the notch when a session becomes active, and lets the hover fold
+    /// close it once none is. A no-op outside "Show on hover".
+    func apply(sessionActive active: Bool) {
+        guard active != sessionActive else { return }
+        sessionActive = active
+        guard visibility == .onHover else { return }
+        if active {
+            // Same path that restores "Always show": opens unless a
+            // full-screen app or overlapping window says otherwise.
+            handleActiveSpaceOrAppChange()
+        } else {
+            // Scheduled, not immediate: honours the pointer, a pin and a peek.
+            setExpanded(false)
+        }
         updateInteractiveRects()
     }
 
@@ -1967,7 +1991,7 @@ final class NotchWindowController {
                 guard let self, let panel = self.panel else { return }
                 self.peekWork = nil
                 self.peekUntil = nil
-                let stillHoldsOpen = self.model.isPinned || (self.model.isAlwaysOn && !(self.foldsForFullScreen && self.isFullScreenActive()))
+                let stillHoldsOpen = self.model.isPinned || ((self.model.isAlwaysOn || self.holdsForSession) && !(self.foldsForFullScreen && self.isFullScreenActive()))
                 guard !stillHoldsOpen else { return }
                 // Left open if the peek did its job and the pointer is already
                 // there; the ordinary hover fold takes it from here.

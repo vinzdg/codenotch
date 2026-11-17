@@ -675,6 +675,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak fleet] in fleet?.apply($0) }
                 .store(in: &cancellables)
 
+            preferences.$keepOpenWhileSessionActive
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet] in fleet?.apply(keepOpenWhileSessionActive: $0) }
+                .store(in: &cancellables)
+
             preferences.$autoHideMode
                 .receive(on: RunLoop.main)
                 .sink { [weak fleet] in fleet?.apply(autoHideMode: $0) }
@@ -1301,7 +1306,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fleet.apply(showsRemainingInNotch: preferences.showsRemainingInNotch)
         fleet.apply(shutRingsWhenSpent: preferences.shutRingsWhenSpent)
         fleet.apply(autoHideMode: preferences.autoHideMode)
-        fleet.apply(surfaceStyle: preferences.notchSurfaceStyle)
+        fleet.apply(keepOpenWhileSessionActive: preferences.keepOpenWhileSessionActive)
+        fleet.apply(surfaceStyle:preferences.notchSurfaceStyle)
         fleet.apply(deepSeekPricingEnabled: preferences.deepSeekPricingEnabled)
         fleet.apply(deepSeekPricingSchedule: preferences.deepSeekPricingSchedule)
         fleet.show()
