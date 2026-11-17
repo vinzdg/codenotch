@@ -89,6 +89,63 @@ final class ClaudeUsageCLITests: XCTestCase {
         XCTAssertThrowsError(try ClaudeUsageCLI.parse("Please run /login first", now: Date()))
     }
 
+    /// Output with ANSI escape sequences (emitted by npm or color-enabled CLIs).
+    func testANSIEscapeCodesInOutputAreParsed() throws {
+        let text = """
+        \u{001B}[1mCurrent session:\u{001B}[0m \u{001B}[32m25%\u{001B}[39m used · resets Sep 7 at 2:59pm (Asia/Jakarta)
+        \u{001B}[1mCurrent week (all models):\u{001B}[0m 5% used · resets Sep 14 at 5:59am (Asia/Jakarta)
+        """
+
+        let windows = try ClaudeUsageCLI.parse(text, now: date("2026-09-07T06:00:00Z"))
+
+        XCTAssertEqual(windows.map(\.id), ["session", "weekly_all"])
+        XCTAssertEqual(windows[0].usedFraction!, 0.25, accuracy: 0.0001)
+        XCTAssertEqual(windows[1].usedFraction!, 0.05, accuracy: 0.0001)
+    }
+
+    /// Limit lines where "Current" prefix is omitted, e.g. "Session: ..." or "Weekly: ...".
+    func testOutputWithoutCurrentPrefixIsParsed() throws {
+        let text = """
+        Session: 40% used · resets Sep 7 at 2:59pm (Asia/Jakarta)
+        Weekly (all models): 8% used · resets Sep 14 at 5:59am (Asia/Jakarta)
+        """
+
+        let windows = try ClaudeUsageCLI.parse(text, now: date("2026-09-07T06:00:00Z"))
+
+        XCTAssertEqual(windows.map(\.id), ["session", "weekly_all"])
+        XCTAssertEqual(windows[0].usedFraction!, 0.40, accuracy: 0.0001)
+        XCTAssertEqual(windows[1].usedFraction!, 0.08, accuracy: 0.0001)
+    }
+
+    /// Alternative separators (bullets, dashes, "resets at").
+    func testAlternativeSeparatorsAndDatePrefixes() throws {
+        let text = "Session: 50% used • resets at Sep 7 at 3pm (Asia/Jakarta)"
+
+        let windows = try ClaudeUsageCLI.parse(text, now: date("2026-09-07T06:00:00Z"))
+
+        XCTAssertEqual(windows.count, 1)
+        XCTAssertEqual(windows[0].usedFraction!, 0.50, accuracy: 0.0001)
+        XCTAssertEqual(windows[0].resetsAt, date("2026-09-07T08:00:00Z"))
+    }
+
+    /// #95: Claude Code 2.1.266 installed via npm prints session cost summary without limit lines.
+    func testCostOnlySummaryWithoutLimitsThrowsBadResponse() {
+        let text = """
+        Total cost:            $0.0000
+        Total duration (API):  0s
+        Total duration (wall): 2s
+        Total code changes:    0 lines added, 0 lines removed
+        Usage:                 0 input, 0 output, 0 cache read, 0 cache write
+        """
+
+        XCTAssertThrowsError(try ClaudeUsageCLI.parse(text, now: Date())) { error in
+            guard case UsageProviderError.badResponse(status: 0) = error else {
+                XCTFail("expected badResponse(status: 0), got \(error)")
+                return
+            }
+        }
+    }
+
     /// The per-model weekly windows use the endpoint's own vocabulary, so one
     /// table of labels serves both sources and an archived reading survives the
     /// source changing under it.
