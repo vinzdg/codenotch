@@ -208,4 +208,42 @@ final class WeeklyExhaustionBlockTests: XCTestCase {
         let blocked = s.blockingSpentWeek()
         XCTAssertEqual(try XCTUnwrap(blocked.block).reason, "Weekly limit reached")
     }
+
+    private let monthlyReset = Date(timeIntervalSince1970: 1791763200)
+
+    private func withMonth(_ s: ProviderSnapshot, used: Double?) -> ProviderSnapshot {
+        var s = s
+        s.windows.append(LimitWindow(id: "monthly", label: "Monthly", usedFraction: used,
+                                     resetsAt: monthlyReset, duration: 31 * 24 * 3600))
+        return s
+    }
+
+    func testSpentMonthBlocksARoomyHeadlineAndWeek() throws {
+        let blocked = withMonth(snapshot(headlineFraction: 0, weeklyFraction: 0), used: 1).blockingSpentWeek()
+        let block = try XCTUnwrap(blocked.block)
+        XCTAssertEqual(block.reason, "Monthly limit reached")
+        XCTAssertEqual(block.resetsAt, monthlyReset)
+        XCTAssertEqual(blocked.usedFraction, 0)
+    }
+
+    func testNearlySpentMonthDoesNotBlock() {
+        XCTAssertNil(withMonth(snapshot(headlineFraction: 0, weeklyFraction: 0), used: 0.999).blockingSpentWeek().block)
+    }
+
+    func testSpentWeekLeadsASpentMonth() throws {
+        let blocked = withMonth(snapshot(headlineFraction: 0, weeklyFraction: 1), used: 1).blockingSpentWeek()
+        XCTAssertEqual(try XCTUnwrap(blocked.block).reason, "Weekly limit reached")
+    }
+
+    func testAProviderBlockOutranksASpentMonth() {
+        let providerBlock = UsageBlock(reason: "Paused", resetsAt: nil)
+        var s = withMonth(snapshot(headlineFraction: 0, weeklyFraction: 0), used: 1)
+        s.block = providerBlock
+        XCTAssertEqual(s.blockingSpentWeek().block, providerBlock)
+    }
+
+    func testSpentMonthIsDepleted() {
+        XCTAssertTrue(withMonth(snapshot(headlineFraction: 0, weeklyFraction: 0), used: 1).isDepleted)
+        XCTAssertFalse(withMonth(snapshot(headlineFraction: 0, weeklyFraction: 0), used: 0.5).isDepleted)
+    }
 }

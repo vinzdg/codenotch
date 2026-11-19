@@ -73333,6 +73333,41 @@
         }
       }
     },
+    "Monthly limit reached": {
+      "extractionState": "manual",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Límite mensual alcanzado"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "月間の上限に達しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "월간 한도 도달"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Місячний ліміт вичерпано"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已达每月额度"
+          }
+        }
+      }
+    },
     "Weekly limit reached": {
       "extractionState": "manual",
       "localizations": {

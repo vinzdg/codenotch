@@ -491,6 +491,24 @@ struct ProviderSnapshot: Identifiable, Equatable {
                           isWeeklyExhaustion: true)
     }
 
+    /// A window longer than the week — a monthly plan allowance — is spent.
+    /// It shuts the headline the way a spent week does: the shorter windows
+    /// can show room, but nothing on them is usable until it resets.
+    var spentLongWindowBlock: UsageBlock? {
+        guard block == nil, spentWeeklyBlock == nil,
+              let spent = spentLongWindow else { return nil }
+        return UsageBlock(reason: L10n.t("Monthly limit reached"), resetsAt: spent.resetsAt,
+                          isWeeklyExhaustion: true)
+    }
+
+    private var spentLongWindow: LimitWindow? {
+        windows.first {
+            $0.id != headlineID && $0.id != weeklyID
+                && ($0.duration ?? 0) > 7 * 24 * 3600
+                && ($0.usedFraction ?? 0) >= 1
+        }
+    }
+
     /// Nothing left to spend: the headline window or the weekly allowance is
     /// at 0% remaining, so the account cannot be used until a window resets.
     /// Stale readings never count — an old number is not proof the account
@@ -499,6 +517,7 @@ struct ProviderSnapshot: Identifiable, Equatable {
         guard !status.isStale else { return false }
         return (headline?.usedFraction ?? 0) >= 1
             || (weeklyLimitWindow?.usedFraction ?? 0) >= 1
+            || spentLongWindow != nil
     }
 
     /// The snapshot with a spent week attached as a block, so every surface
@@ -506,7 +525,7 @@ struct ProviderSnapshot: Identifiable, Equatable {
     /// shut. Applied by the store on publication, before any derivation
     /// swaps the headline and weekly ids around.
     func blockingSpentWeek() -> ProviderSnapshot {
-        guard let spent = spentWeeklyBlock else { return self }
+        guard let spent = spentWeeklyBlock ?? spentLongWindowBlock else { return self }
         var snapshot = self
         snapshot.block = spent
         return snapshot
