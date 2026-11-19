@@ -225,4 +225,12 @@ final class PaceMarkerTests: XCTestCase {
         XCTAssertEqual(paceMarkerX(position: 0, trackWidth: 536, markerWidth: 2), 0, accuracy: 1e-9)
         XCTAssertEqual(paceMarkerX(position: 1, trackWidth: 536, markerWidth: 2), 534, accuracy: 1e-9)
     }
+
+    func testRingMarkerAngleStartsAtTwelveOClockAndMovesClockwise() {
+        XCTAssertEqual(ringPaceMarkerAngle(position: 0), 0, accuracy: 1e-9)
+        XCTAssertEqual(ringPaceMarkerAngle(position: 0.25), 90, accuracy: 1e-9)
+        XCTAssertEqual(ringPaceMarkerAngle(position: 0.5), 180, accuracy: 1e-9)
+        XCTAssertEqual(ringPaceMarkerAngle(position: 0.75), 270, accuracy: 1e-9)
+        XCTAssertEqual(ringPaceMarkerAngle(position: 1.0), 360, accuracy: 1e-9)
+    }
 }
