@@ -528,6 +528,7 @@ struct ProviderSnapshot: Identifiable, Equatable {
         guard let spent = spentWeeklyBlock ?? spentLongWindowBlock else { return self }
         var snapshot = self
         snapshot.block = spent
+        if spentWeeklyBlock == nil, let long = spentLongWindow { snapshot.headlineID = long.id }
         return snapshot
     }
 

@@ -223,7 +223,8 @@ final class WeeklyExhaustionBlockTests: XCTestCase {
         let block = try XCTUnwrap(blocked.block)
         XCTAssertEqual(block.reason, "Monthly limit reached")
         XCTAssertEqual(block.resetsAt, monthlyReset)
-        XCTAssertEqual(blocked.usedFraction, 0)
+        XCTAssertEqual(blocked.headlineID, "monthly")
+        XCTAssertEqual(blocked.usedFraction, 1)
     }
 
     func testNearlySpentMonthDoesNotBlock() {
