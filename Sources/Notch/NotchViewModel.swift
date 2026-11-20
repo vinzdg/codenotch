@@ -983,7 +983,8 @@ final class NotchViewModel: ObservableObject {
         shape.emergesFrom = .init(
             buried: (mergesWithCutout ? cutout.overlap : NotchGeometry.cutoutOverlap) / scale,
             // Measured: a circular arc of 31.2px on a 90px-deep cutout.
-            corner: cutout.depth * 31.2 / 90 / scale)
+            corner: cutout.depth * 31.2 / 90 / scale,
+            holeDepth: cutout.depth / scale)
         return shape
     }
 
