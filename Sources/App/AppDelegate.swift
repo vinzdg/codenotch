@@ -583,6 +583,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             statusItem.autoOrders = preferences.ringOrder == .remaining
             statusItem.reading = preferences.menuBarReading
             statusItem.visualMode = preferences.menuBarVisualMode
+            statusItem.watchLimit = preferences.watchLimit
+            statusItem.criticalLimit = preferences.criticalLimit
             statusItem.activityStyle = preferences.menuBarActivityStyle
 
             preferences.$appPresence
@@ -825,8 +827,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             preferences.$watchLimit
                 .combineLatest(preferences.$criticalLimit)
                 .receive(on: RunLoop.main)
-                .sink { [weak fleet] watch, critical in
+                .sink { [weak fleet, weak statusItem] watch, critical in
                     fleet?.apply(watchLimit: watch, criticalLimit: critical)
+                    statusItem?.watchLimit = watch
+                    statusItem?.criticalLimit = critical
                 }
                 .store(in: &cancellables)
 

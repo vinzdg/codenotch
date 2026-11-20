@@ -30,7 +30,8 @@ final class StatusItemVisualIndicators {
     }
 
     func update(view: NSView, imageSize: NSSize, mode: MenuBarVisualMode,
-                entries: [StatusItemSummary.Entry], frames: [String: NSRect]) {
+                entries: [StatusItemSummary.Entry], frames: [String: NSRect],
+                watchLimit: Double = 0.50, criticalLimit: Double = 0.70) {
         self.view = view
         self.imageSize = imageSize
         self.frames = frames
@@ -49,7 +50,9 @@ final class StatusItemVisualIndicators {
         for entry in entries {
             guard let frame = frames[entry.id] else { continue }
             let fraction = entry.usedFraction
-            let band = fraction.map { UsageBand.band(for: $0) } ?? .ample
+            let band = fraction.map {
+                UsageBand.band(for: $0, watchLimit: watchLimit, criticalLimit: criticalLimit)
+            } ?? .ample
             let model = Model(
                 providerID: entry.id,
                 mode: mode,
@@ -83,6 +86,9 @@ final class StatusItemVisualIndicators {
 
     func frame(for providerID: String) -> NSRect? { indicators[providerID]?.frame }
 
+    /// The band a provider's indicator is drawn in, for tests.
+    func band(for providerID: String) -> UsageBand? { indicators[providerID]?.band }
+
     private func layout() {
         guard let view else { return }
         let dx = ((view.bounds.width - imageSize.width) / 2).rounded()
@@ -104,6 +110,8 @@ final class StatusItemVisualIndicators {
         }
 
         required init?(coder: NSCoder) { fatalError("not used") }
+
+        var band: UsageBand? { model?.band }
 
         func update(model: Model) {
             self.model = model

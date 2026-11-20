@@ -146,6 +146,22 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             updateButton()
         }
     }
+    /// Watch and Critical from Appearance, for the markers' and bars' colour.
+    /// Held here rather than read off `model` at draw time: the face only
+    /// redraws when its summary changes, and these are part of it, so a new
+    /// threshold recolours the bar at once instead of at the next reading.
+    var watchLimit: Double = 0.50 {
+        didSet {
+            guard watchLimit != oldValue else { return }
+            updateButton()
+        }
+    }
+    var criticalLimit: Double = 0.70 {
+        didSet {
+            guard criticalLimit != oldValue else { return }
+            updateButton()
+        }
+    }
     /// Pulse, a still dot, or nothing at all while an agent works. Reduce
     /// Motion still has the last word over the pulse.
     var activityStyle: MenuBarActivityStyle = .pulse {
@@ -370,6 +386,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                                           hidingDepleted: hidesDepleted,
                                           reading: reading,
                                           visualMode: visualMode,
+                                          watchLimit: watchLimit,
+                                          criticalLimit: criticalLimit,
                                           autoOrdering: autoOrders)
         scheduleCountdown(at: next.nextChange)
         guard next != summary else { return }
@@ -484,7 +502,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // Still in either case: the dot is the signal, and it does not move.
         waitingBadges.update(view: button, imageSize: artwork.size, badges: artwork.waitingBadgeFrames)
         visualIndicators.update(view: button, imageSize: artwork.size, mode: summary.visualMode,
-                                entries: summary.entries, frames: artwork.indicatorFrames)
+                                entries: summary.entries, frames: artwork.indicatorFrames,
+                                watchLimit: summary.watchLimit, criticalLimit: summary.criticalLimit)
         if !activityStyle.animates(reducesMotion: reducesMotion) {
             // Accessibility changes are synchronous: no fading settle after
             // Reduce Motion is enabled. The artwork above keeps activity

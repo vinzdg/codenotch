@@ -46,6 +46,10 @@ struct StatusItemSummary: Equatable {
     var reading: MenuBarReading = .automatic
     /// Whether the bar displays text, compact markers, or usage bars.
     var visualMode: MenuBarVisualMode = .text
+    /// The user's Watch and Critical thresholds, which colour the markers and
+    /// bars the way they colour the notch's rings and the menu's cards.
+    var watchLimit: Double = 0.50
+    var criticalLimit: Double = 0.70
 
     /// Two readings sit side by side comfortably. Past that each keeps its mark
     /// and percentage, and the countdowns stay in the tooltip and the menu.
@@ -92,6 +96,8 @@ struct StatusItemSummary: Equatable {
                      hidingDepleted: Bool = false,
                      reading: MenuBarReading = .automatic,
                      visualMode: MenuBarVisualMode = .text,
+                     watchLimit: Double = 0.50,
+                     criticalLimit: Double = 0.70,
                      autoOrdering: Bool = false) -> StatusItemSummary {
         guard limits.isOn else { return StatusItemSummary(entries: [], nextChange: nil) }
         let chosen = snapshots.filter { snapshot in
@@ -114,7 +120,8 @@ struct StatusItemSummary: Equatable {
             .compactMap { $0.fiveHourWindow?.resetsAt }
             .compactMap { ResetCopy.nextCountdownChange(to: $0, now: now) }
             .min()
-        return StatusItemSummary(entries: entries, nextChange: nextChange, reading: reading, visualMode: visualMode)
+        return StatusItemSummary(entries: entries, nextChange: nextChange, reading: reading, visualMode: visualMode,
+                                 watchLimit: watchLimit, criticalLimit: criticalLimit)
     }
 
     static func isFiveHourFamily(_ providerID: String) -> Bool {
