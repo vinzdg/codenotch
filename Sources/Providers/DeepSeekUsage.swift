@@ -27,6 +27,97 @@ enum DeepSeekUsage {
             guard funded > 0 else { return 0 }
             return min(max(spent / funded, 0), 1)
         }
+
+        var formattedBalance: String {
+            DeepSeekUsage.formatMoney(balance, currency: currency)
+        }
+
+        var balanceLeftText: String {
+            String(format: L10n.t("%@ left"), formattedBalance)
+        }
+    }
+
+    static func currencySymbol(for currency: String) -> String {
+        switch currency.uppercased() {
+        case "CNY", "RMB", "JPY": return "¥"
+        case "USD": return "$"
+        case "EUR": return "€"
+        default: return "\(currency) "
+        }
+    }
+
+    static func formatMoney(_ value: Double, currency: String) -> String {
+        let symbol = currencySymbol(for: currency)
+        return "\(symbol)\(String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), value))"
+    }
+
+    static func windows(
+        from reading: Reading,
+        displayMode: DeepSeekDisplayMode = .balance
+    ) -> [LimitWindow] {
+        switch displayMode {
+        case .balance:
+            var windows = [
+                LimitWindow(
+                    id: "balance",
+                    label: L10n.t("Credit balance"),
+                    usedFraction: nil,
+                    remaining: nil,
+                    used: 0,
+                    usedText: reading.balanceLeftText,
+                    detail: reading.balanceLeftText,
+                    money: nil,
+                    resetsAt: nil,
+                    duration: nil,
+                    bandOverride: reading.balance <= 0 ? .exhausted : .ample,
+                    prefersUsedText: true
+                ),
+                LimitWindow(
+                    id: "spend",
+                    label: L10n.t("Account usage (\(reading.currency))"),
+                    usedFraction: reading.usedFraction,
+                    remaining: nil,
+                    used: nil,
+                    usedText: nil,
+                    detail: nil,
+                    money: UsageMoneyBreakdown(currency: reading.currency,
+                                               spent: reading.spent,
+                                               remaining: reading.balance),
+                    resetsAt: nil,
+                    duration: nil,
+                    bandOverride: nil,
+                    prefersUsedText: false
+                )
+            ]
+            if let availableTokens = reading.availableTokens {
+                windows.append(LimitWindow(
+                    id: "available-tokens",
+                    label: L10n.t("Available tokens (estimate)"),
+                    detail: "\(LimitWindow.compact(availableTokens)) available"
+                ))
+            }
+            return windows
+
+        case .lifetimeSpend:
+            var windows = [
+                LimitWindow(
+                    id: "spend",
+                    label: L10n.t("Account usage (\(reading.currency))"),
+                    usedFraction: reading.usedFraction,
+                    money: UsageMoneyBreakdown(currency: reading.currency,
+                                               spent: reading.spent,
+                                               remaining: reading.balance)
+                )
+            ]
+            if let availableTokens = reading.availableTokens {
+                windows.append(LimitWindow(
+                    id: "available-tokens",
+                    label: L10n.t("Available tokens (estimate)"),
+                    detail: "\(LimitWindow.compact(availableTokens)) available"
+                ))
+            }
+            return windows
+        }
     }
 
     enum ParseError: Error { case malformed, noWallet }
