@@ -585,6 +585,33 @@ fn hover_position(strip: Rect, screen: Rect, anchor_x: f64, anchor_width: f64, s
     Some(Rect { left: x, top: y, right: x + width, bottom: y + height })
 }
 
+/// A card that comes out of the strip as it would out of the notch, in physical px. `edge` names the
+/// side its tail points at, as the notch's edges do; `tail` is false where the tail would miss the strip.
+#[derive(Debug, PartialEq)]
+pub(crate) struct Popup { pub x: i32, pub y: i32, pub width: u32, pub height: u32, pub scale: f64, pub edge: &'static str, pub tail: bool }
+
+/// `width` and `height` are logical px, the tail included, drawn at the card's middle.
+pub(crate) fn popup_beside_strip(app: &AppHandle, width: f64, height: f64) -> Option<Popup> {
+    let strip = strip_geometry(app)?;
+    popup_position(strip.bounds, strip.screen, strip.scale, width, height)
+}
+
+fn popup_position(strip: Rect, screen: Rect, scale: f64, width: f64, height: f64) -> Option<Popup> {
+    if !scale.is_finite() || scale <= 0.0 || !width.is_finite() || !height.is_finite() || strip.right <= strip.left || strip.bottom <= strip.top {
+        return None;
+    }
+    let gap = (8.0 * scale).round().max(1.0) as i32;
+    let tail_gap = (TAIL_GAP * scale).round().max(1.0) as i32;
+    let w = ((width * scale).round() as i32).min(screen.right - screen.left - 2 * gap);
+    let h = ((height * scale).round() as i32).min(screen.bottom - screen.top - 2 * gap);
+    if w <= 0 || h <= 0 { return None; }
+    let x = ((strip.left + strip.right) / 2 - w / 2).clamp(screen.left + gap, screen.right - w - gap);
+    let above = strip.top - h - tail_gap;
+    let (y, edge) = if above >= screen.top + gap { (above, "bottom") } else { (strip.bottom + tail_gap, "top") };
+    let tail = (strip.left..strip.right).contains(&(x + w / 2));
+    Some(Popup { x, y, width: w as u32, height: h as u32, scale, edge, tail })
+}
+
 /// A maximized app's invisible frame can extend across the taskbar. Only the actual client
 /// area covering this monitor indicates fullscreen; a fullscreen app on another monitor does not.
 fn client_covers_monitor(client: Rect, monitor: Rect) -> bool {
@@ -1100,6 +1127,33 @@ mod tests {
         assert!(hover_position(strip, screen, f64::NAN, 40.0, 1.0, 360.0).is_none());
         assert!(hover_position(strip, screen, 0.0, 0.0, 1.0, 360.0).is_none());
         assert!(hover_position(strip, screen, 0.0, 40.0, 0.0, 360.0).is_none());
+    }
+    #[test]
+    fn a_card_comes_out_of_the_strip_above_the_taskbar() {
+        let screen = Rect { left:0, top:0, right:1920, bottom:1080 };
+        let strip = Rect { left:800, top:1043, right:1080, bottom:1077 };
+        let card = popup_position(strip, screen, 1.0, 280.0, 150.0).unwrap();
+        assert_eq!(card, Popup { x:800, y:882, width:280, height:150, scale:1.0, edge:"bottom", tail:true });
+        assert_eq!(card.y + card.height as i32 + 11, strip.top, "the tail stops as short of the strip as the hover card's");
+    }
+    #[test]
+    fn a_card_from_a_strip_at_the_screen_corner_stays_on_screen() {
+        let screen = Rect { left:0, top:0, right:1920, bottom:1080 };
+        let wide = popup_position(Rect { left:8, top:1043, right:288, bottom:1077 }, screen, 1.0, 280.0, 150.0).unwrap();
+        assert_eq!((wide.x, wide.tail), (8, true));
+        let narrow = popup_position(Rect { left:8, top:1043, right:100, bottom:1077 }, screen, 1.0, 280.0, 150.0).unwrap();
+        assert_eq!((narrow.x, narrow.tail), (8, false), "a tail that would point past the strip is left off");
+    }
+    #[test]
+    fn a_card_drops_below_a_top_taskbar_and_scales_with_the_strip_monitor() {
+        let screen = Rect { left:0, top:0, right:1920, bottom:1080 };
+        let top = popup_position(Rect { left:800, top:3, right:1080, bottom:37 }, screen, 1.0, 280.0, 150.0).unwrap();
+        assert_eq!((top.y, top.edge), (48, "top"));
+        let screen = Rect { left:-2880, top:-200, right:0, bottom:1420 };
+        let card = popup_position(Rect { left:-1500, top:1360, right:-1080, bottom:1414 }, screen, 1.5, 280.0, 150.0).unwrap();
+        assert_eq!(card, Popup { x:-1500, y:1119, width:420, height:225, scale:1.5, edge:"bottom", tail:true });
+        assert!(popup_position(Rect { left:10, right:10, ..BAR }, screen, 1.0, 280.0, 150.0).is_none());
+        assert!(popup_position(BAR, screen, f64::NAN, 280.0, 150.0).is_none());
     }
     #[test]
     fn maximized_client_is_visible_despite_its_invisible_frame_covering_the_screen() {
