@@ -63,6 +63,7 @@ const RENEW_COOLDOWN_MS: u64 = 10 * 60 * 1000;
 const RENEW_RETRY_CAP_MS: u64 = 60 * 60 * 1000;
 const RENEW_TIMEOUT_SECS: u64 = 30;
 const EXPIRED_NOTE: &str = "Credential expired — run claude once in a terminal to renew it";
+const SIGNED_OUT_NOTE: &str = "Claude Code sign-in expired and cannot renew — sign in again";
 
 #[derive(Default)]
 struct RefreshRequest {
@@ -286,6 +287,9 @@ struct Credential {
     expires_at: Option<u64>,
     /// "max" | "pro" | … as the credential names it, for the card's account heading
     plan: Option<String>,
+    /// Whether a refresh token sits beside the access token. Claude Code drops it when a refresh is refused
+    /// (invalid_grant), and from then on `claude -p` cannot renew anything: only signing in again can
+    can_refresh: bool,
 }
 
 impl Credential {
@@ -313,7 +317,11 @@ fn read_credentials(dir: &Path) -> Option<Credential> {
             }
             let expires_at = oauth.get("expiresAt").and_then(|x| x.as_f64()).map(|ms| ms as u64);
             let plan = oauth.get("subscriptionType").and_then(|x| x.as_str()).map(String::from);
-            return Some(Credential { token: tok.to_string(), expires_at, plan });
+            let can_refresh = oauth
+                .get("refreshToken")
+                .and_then(|x| x.as_str())
+                .is_some_and(|r| !r.trim().is_empty());
+            return Some(Credential { token: tok.to_string(), expires_at, plan, can_refresh });
         }
     }
     None
@@ -475,6 +483,10 @@ impl Renewer {
     /// Renews if the token is about to expire. Some(true) = the expiry moved; judged on the outcome, never on the
     /// exit status, because refusing the empty prompt is a non-zero exit and a successful renewal at the same time
     fn maybe_renew(&mut self, cred: &Credential, dir: &Path, who: &str) -> Option<bool> {
+        // Without a refresh token the CLI has nothing to renew with: launching it only fails, every hour, forever
+        if !cred.can_refresh {
+            return None;
+        }
         let _auth = crate::claude_auth::try_acquire()?;
         let now = now_ms();
         if !should_renew(cred.expires_at, now, self.attempted_for, self.last_attempt, self.failures) {
@@ -843,6 +855,13 @@ fn poll_account(p: &Profile, acc: &mut Account, group: Option<&str>) {
             acc.note = "No Claude Code credential found".into();
         }
         // Expired is not signed out: keep the last reading, dimmed and dated, and send nothing
+        // Expired with no refresh token is signed out in all but name: nothing can renew it, so it must say
+        // needsAuth -- the only status the card offers Sign in for. Left "stale", the last reading stayed on
+        // screen, dimmed, with no way out.
+        Some(cred) if cred.expired(now_ms()) && !cred.can_refresh => {
+            acc.status = "needsAuth".into();
+            acc.note = SIGNED_OUT_NOTE.into();
+        }
         Some(cred) if cred.expired(now_ms()) => {
             acc.status = if acc.windows.is_empty() { "needsAuth" } else { "stale" }.into();
             acc.note = EXPIRED_NOTE.into();
@@ -1371,5 +1390,42 @@ mod tests {
         assert!(c.expired(EXP));
         assert!(!c.expired(EXP - 1));
         assert!(!Credential { token: "t".into(), expires_at: None, ..Default::default() }.expired(EXP));
+    }
+
+    fn cred_dir(name: &str, oauth: serde_json::Value) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("codenotch-test-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(".credentials.json"), serde_json::json!({ "claudeAiOauth": oauth }).to_string()).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_credential_without_a_refresh_token_cannot_refresh() {
+        let with = cred_dir("with", serde_json::json!({"accessToken": "a", "refreshToken": "r", "expiresAt": 1.0}));
+        let without = cred_dir("without", serde_json::json!({"accessToken": "a", "expiresAt": 1.0}));
+        assert!(read_credentials(&with).unwrap().can_refresh);
+        assert!(!read_credentials(&without).unwrap().can_refresh);
+        let _ = std::fs::remove_dir_all(with);
+        let _ = std::fs::remove_dir_all(without);
+    }
+
+    #[test]
+    fn an_unrenewable_token_is_never_handed_to_the_cli() {
+        let cred = Credential { token: "t".into(), expires_at: Some(1), can_refresh: false, ..Default::default() };
+        let mut r = Renewer::default();
+        assert_eq!(r.maybe_renew(&cred, Path::new("/nowhere"), "test"), None);
+        assert_eq!(r.last_attempt, None, "no launch was made");
+    }
+
+    #[test]
+    fn expired_and_unrenewable_asks_for_sign_in_even_with_a_reading() {
+        let dir = cred_dir("signedout", serde_json::json!({"accessToken": "a", "expiresAt": 1.0}));
+        let p = Profile { dir: dir.clone(), slug: Some("signedout".into()) };
+        let mut acc = Account { windows: vec![win("session")], ..Default::default() };
+        poll_account(&p, &mut acc, None);
+        assert_eq!(acc.status, "needsAuth");
+        assert_eq!(acc.note, SIGNED_OUT_NOTE);
+        assert_eq!(acc.windows.len(), 1, "the last reading is kept");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
