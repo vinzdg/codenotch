@@ -423,6 +423,28 @@ enum GlyphOutline {
          CGPoint(x: 0.2600, y: 1.0000)]
     ]
 
+    /// MiMo's mark, a defined geometric "M" — now only a fallback. The real
+    /// "M" (the asymmetric one from Xiaomi's own wordmark: a full-height right
+    /// stem, the middle V, and a short separate left stem) is flattened into
+    /// the `glyph-mimo` asset and wins at draw time, the way `.minimax` carries
+    /// its own emblem. This geometric letter shows only if that asset is ever
+    /// removed.
+    ///
+    /// One loop, no counters: the two stem-and-diagonal pairs meet at the top
+    /// of the V (0.40 down) and part again below it, so the central notch
+    /// opens upward and the space between the legs opens downward — neither is
+    /// an enclosed hole. The diagonals are drawn parallel to their own inner
+    /// edges (slope 1.818 on both), which keeps their weight even from the
+    /// stem to the vertex.
+    static let mimo: [[CGPoint]] = [
+        [CGPoint(x: 0.0500, y: 1.0000), CGPoint(x: 0.0500, y: 0.0000),
+         CGPoint(x: 0.2800, y: 0.0000), CGPoint(x: 0.5000, y: 0.4000),
+         CGPoint(x: 0.7200, y: 0.0000), CGPoint(x: 0.9500, y: 0.0000),
+         CGPoint(x: 0.9500, y: 1.0000), CGPoint(x: 0.7200, y: 1.0000),
+         CGPoint(x: 0.7200, y: 0.3600), CGPoint(x: 0.5000, y: 0.7600),
+         CGPoint(x: 0.2800, y: 0.3600), CGPoint(x: 0.2800, y: 1.0000)]
+    ]
+
     /// Kilo's mark, flattened from the `logo.svg` in Kilo's own repository —
     /// an exact copy, not a trace, so it is correct at any size.
     ///
