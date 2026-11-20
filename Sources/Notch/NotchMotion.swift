@@ -22,6 +22,12 @@ enum NotchMotion {
     /// into. See its `animatableData`.
     static let unfold = Animation.spring(response: 0.62, dampingFraction: 0.72)
 
+    /// **The joined notch stretching across the camera** once it is let go
+    /// onto the hole. Looser than `unfold`: the ends reach a touch past the
+    /// copies and draw back, which is what makes one body of black read as
+    /// liquid spreading rather than a bar being resized.
+    static let join = Animation.spring(response: 0.55, dampingFraction: 0.58)
+
     /// **Letting go of the display's notch** when the notch is picked up.
     ///
     /// Short and firm, because it is the one movement that can still be running

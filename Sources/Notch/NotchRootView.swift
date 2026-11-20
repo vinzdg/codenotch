@@ -488,11 +488,25 @@ struct NotchRootView: View {
         model.mergedShape
             .fill(Palette.notch)
             .frame(width: size.width, height: size.height)
+            // Surface tension: taking the hole, the body sags a little deeper
+            // under its own weight and draws back up, so the stretch lands
+            // like liquid rather than a rect resizing.
+            .keyframeAnimator(initialValue: CGFloat(1), trigger: shown) { body, sag in
+                body.scaleEffect(x: 1, y: sag, anchor: bezelAnchor)
+            } keyframes: { _ in
+                if shown && !reduceMotion {
+                    SpringKeyframe(1.12, duration: 0.16, spring: .smooth)
+                    SpringKeyframe(0.97, duration: 0.22, spring: .smooth)
+                    SpringKeyframe(1, duration: 0.4, spring: .bouncy)
+                } else {
+                    LinearKeyframe(1, duration: 0.01)
+                }
+            }
             .scaleEffect(model.sizeScale, anchor: bezelAnchor)
             .position(place.point(along: span.lead + span.length / 2, across: span.depth / 2))
             .offset(x: model.edge.outward.x * Self.bezelBleed,
                     y: model.edge.outward.y * Self.bezelBleed)
-            .animation(model.holdsOffTheCutout ? nil : motion(NotchMotion.unfold),
+            .animation(model.holdsOffTheCutout ? nil : motion(NotchMotion.join),
                        value: MergedSpanKey(lead: span.lead, length: span.length))
             .opacity(shown ? 1 : 0)
             .animation(shown ? nil : motion(NotchMotion.unfold), value: shown)
