@@ -45,6 +45,13 @@ enum OpenCodeCredentials {
         let expires: Date?
         /// Where it was read from, for the settings line. Never the token.
         let source: String
+
+        struct Identity: Hashable {
+            let token: String
+            let oauth: Bool
+        }
+
+        var identity: Identity { Identity(token: token, oauth: oauth) }
     }
 
     /// OpenCode's data directory: `$XDG_DATA_HOME/opencode` when set, else
@@ -69,22 +76,49 @@ enum OpenCodeCredentials {
         }
     }
 
-    /// Console key first, then the pre-console order. See the file comment for
-    /// which source wins: a database `sk-` row must not hide an `oc_sk_` key
-    /// that exists only in `auth.json`.
+    /// The preferred candidate: console key first, then the pre-console order.
+    /// See the file comment for which source wins: a database `sk-` row must
+    /// not hide an `oc_sk_` key that exists only in `auth.json`.
     static func load(in directory: URL = dataDirectory) -> Credential? {
+        candidates(in: directory).first
+    }
+
+    /// **Every sign-in on file, in the order they are worth trying**: a console
+    /// key wherever it was written, then the database's Go key and `opencode`
+    /// row, then `auth.json`'s Go key and its OAuth sign-in. Identical tokens on
+    /// the same route are asked only once; reading a mirror of a refused token
+    /// cannot make it valid again.
+    ///
+    /// More than one, because the first is not always good. OpenCode 2.x keeps
+    /// the Go key it imported from `auth.json` in the database beside the
+    /// OAuth sign-in it now makes, and when that key has expired at the console
+    /// it answers 401 while the sign-in next to it answers 200. The server is
+    /// the only judge of that, so the provider asks it credential by
+    /// credential rather than this loader guessing from the rows.
+    static func candidates(in directory: URL = dataDirectory) -> [Credential] {
         let auth = directory.appendingPathComponent("auth.json")
         let stored = databaseCredentials(directory.appendingPathComponent("opencode.db"))
         let fileGo = loadGoKey(from: auth)
         let fileAccount = authEntry("opencode", from: auth)
 
+        var ordered: [Credential] = []
         if let console = consoleKey(in: stored, fileAccount: fileAccount, fileGo: fileGo) {
-            return console
+            ordered.append(console)
         }
-        if let preferred = preferredDatabase(stored) { return preferred }
-        if let fileGo { return fileGo }
-        if let fileAccount, fileAccount.oauth { return fileAccount }
-        return nil
+        ordered += preferredDatabaseRows(stored)
+        if let fileGo { ordered.append(fileGo) }
+        if let fileAccount, fileAccount.oauth || isConsoleKey(fileAccount) {
+            ordered.append(fileAccount)
+        }
+        return unique(ordered)
+    }
+
+    /// Tokens are only comparable on the route that accepts them. Keep the
+    /// first copy so database metadata wins, without sending a refused token
+    /// twice just because OpenCode mirrored it into another store.
+    static func unique(_ candidates: [Credential]) -> [Credential] {
+        var seen = Set<Credential.Identity>()
+        return candidates.filter { seen.insert($0.identity).inserted }
     }
 
     // MARK: - Sources
@@ -114,7 +148,14 @@ enum OpenCodeCredentials {
     /// the other `opencode` row). `load` re-ranks these rows when one of them
     /// is a console key.
     static func loadFromDatabase(_ url: URL = databaseURL) -> Credential? {
-        preferredDatabase(databaseCredentials(url))
+        candidatesFromDatabase(url).first
+    }
+
+    /// The database's sign-ins, one per integration id: the newest live Go
+    /// key, then the newest live `opencode` row. Empty when the database is
+    /// missing, unreadable, or holds no OpenCode row.
+    static func candidatesFromDatabase(_ url: URL = databaseURL) -> [Credential] {
+        preferredDatabaseRows(databaseCredentials(url))
     }
 
     private struct StoredCredential {
@@ -150,16 +191,14 @@ enum OpenCodeCredentials {
     }
 
     /// Go key first, then the other `opencode` row — the same order the file
-    /// sources use when neither is a console key. The first parseable row of
-    /// that id wins, which is the newest because the query is
-    /// `time_updated DESC`.
-    private static func preferredDatabase(_ rows: [StoredCredential]) -> Credential? {
-        for wanted in ["opencode-go", "opencode"] {
-            if let found = rows.first(where: { $0.integrationID == wanted }) {
-                return found.credential
-            }
+    /// sources use when neither is a console key. One of each, the first
+    /// parseable row of that id, which is the newest because the query is
+    /// `time_updated DESC`: an older row of the same id is the one the newer
+    /// replaced, not a second account.
+    private static func preferredDatabaseRows(_ rows: [StoredCredential]) -> [Credential] {
+        ["opencode-go", "opencode"].compactMap { wanted in
+            rows.first(where: { $0.integrationID == wanted })?.credential
         }
-        return nil
     }
 
     /// The first console key in source order. A newer non-console row of the
