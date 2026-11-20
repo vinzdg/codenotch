@@ -1401,4 +1401,27 @@ extension MergesWithTheCutoutTests {
         }
         XCTAssertTrue(unpainted.isEmpty, "wallpaper at x = \(unpainted.prefix(5))…")
     }
+
+    /// Carried deep into the hole, the bar's end is rounded under the housing,
+    /// so a capture shows a notch's end rather than a square block — and the
+    /// crook of the hole's own corner, beside the wall, is still covered.
+    func testDeepInTheHoleTheCarriedEndIsRoundNotABlock() throws {
+        let held = model(Notched(), offset: -60)
+        held.surfaceStyle = .solid
+        held.holdsOffTheCutout = true
+        held.adopt(screen: Notched())
+        let hole = held.joinedWakeAlong(in: [])
+        let wall = hole.lead + hole.length
+        let tip = held.cellWing.lead
+        XCTAssertGreaterThan(wall - tip, 40, "the end is well inside the hole")
+
+        let rep = try XCTUnwrap(render(held))
+        let foot = 36  // a row just above the hole's foot (38)
+        func painted(_ x: CGFloat) -> Bool {
+            (rep.colorAt(x: Int(x), y: foot)?.alphaComponent ?? 0) > 0.5
+        }
+        XCTAssertFalse(painted(tip + 1), "the end's bottom corner is round, not square")
+        XCTAssertTrue(painted(tip + 20), "past the corner it is the bar's full foot")
+        XCTAssertTrue(painted(wall - 3), "the crook of the hole's corner stays covered")
+    }
 }

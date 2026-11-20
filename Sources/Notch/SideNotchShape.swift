@@ -475,6 +475,21 @@ struct SideNotchShape: Shape {
         func relaxed(_ value: CGFloat, toward limit: CGFloat) -> CGFloat {
             value - dipAmount * max(0, value - limit)
         }
+        // **The corner an end keeps once it is in past a wall**, under the
+        // housing. Closing up square is what covers the lit sliver in the crook
+        // of the hole's own rounded corner while the end is still beside the
+        // wall. Further in it covers nothing anybody can see on the display —
+        // but a screenshot or a recording has no housing, and there the square
+        // tip read as a block cut off in mid-air. So the end rounds again, with
+        // the hole's own corner, as far as it can without reaching back into
+        // that crook: its corner never comes nearer the wall than the hole's
+        // corner reaches, so on the display nothing changes.
+        func tipCorner(inside: CGFloat) -> CGFloat {
+            guard let d = dip, d.corner > 0, inside > 0 else { return 0 }
+            return min(d.corner, max(0, inside - d.corner)) * dipAmount
+        }
+        let leadTip = dip.map { $0.easesAfter ? tipCorner(inside: $0.to - rect.minY) : 0 } ?? 0
+        let trailTip = dip.map { $0.easesBefore ? tipCorner(inside: rect.maxY - $0.from) : 0 } ?? 0
         let leadShare = open * emerging(leadOut)
         let trailShare = flareShare * trailOpen * emerging(trailOut)
         let leadCurl = curl * leadShare
@@ -597,6 +612,7 @@ struct SideNotchShape: Shape {
                 if let out = leadOut {
                     leadCorner = relaxed(leadCorner, toward: d.corner + max(0, out - leadCurl))
                 }
+                leadCorner = max(leadCorner, min(leadTip, room))
             }
             let leadTop = rect.minY + leadCurl
             let leadFar = rect.maxX - localDepth(leadTop + leadCorner)
@@ -629,6 +645,7 @@ struct SideNotchShape: Shape {
             if let out = trailOut {
                 trailCorner = relaxed(trailCorner, toward: d.corner + max(0, out - trailCurl))
             }
+            trailCorner = max(trailCorner, min(trailTip, room))
         }
         let trailFar = rect.maxX - localDepth(bodyBottom - trailCorner)
         // The far side: straight, or following the dip where there is one.
