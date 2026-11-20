@@ -80,6 +80,8 @@ final class NotchViewModel: ObservableObject {
     /// the cursor is over it, so SwiftUI cannot see the crossing that turns
     /// event handling on in the first place.
     @Published var hoveredIndex: Int?
+    /// Frames reported by the rendered cells, in the panel's coordinates.
+    var renderedCellFrames: [String: CGRect] = [:]
     /// Ticked on refresh so the "Resets in N min" copy stays honest.
     @Published var now: Date = Date()
     @Published var resetTimeFormat: ResetTimeFormat = .automatic

@@ -26,6 +26,16 @@ final class CursorGeometry {
         model.ringAlong(index: index, in: cellWing, spacing: cellSpacing)
     }
 
+    func cellIndex(at point: CGPoint) -> Int? {
+        if let drawn = model.snapshots.firstIndex(where: {
+            model.renderedCellFrames[$0.id]?.contains(point) == true
+        }) {
+            return drawn
+        }
+        guard notchRect.contains(point) else { return nil }
+        return cellIndex(along: placement.along(of: point))
+    }
+
     func cellIndex(along: CGFloat) -> Int? {
         guard model.alongWithin(along, of: cellWing) != nil else { return nil }
         let pitch = (NotchLayout.cellAlong(for: model.edge) + cellSpacing) * model.sizeScale
