@@ -123,11 +123,14 @@ actor ClaudeOAuthProvider: UsageProvider {
     private var lastCLIWindows: (windows: [LimitWindow], at: Date)?
     /// The named tier the last `/usage` print named, if it named one.
     private var lastCLIPlan: String?
-    /// Stamped when Claude Code fails with `needsAuth` (signed out). Without it,
-    /// a Claude Code that is installed but signed out costs a process on every tick,
-    /// forever. Transient failures do not set this so a momentary blip can retry
+    /// Stamped when Claude Code fails with `needsAuth` (signed out) or repeatedly
+    /// fails parsing/answering. Without it, a Claude Code that is installed but cannot
+    /// answer costs a process on every tick, forever. Transient single failures retry
     /// on the next tick without locking out the CLI for five minutes.
     private var lastCLIFailure: Date?
+    /// Number of consecutive CLI failures. A single failure allows an immediate retry
+    /// on the subsequent tick, while consecutive failures engage the 5-minute cooldown.
+    private var consecutiveCLIFailures = 0
 
     /// `displayName` is injected only so a set of profiles can be named
     /// together: two accounts on one provider derive the same name from their
@@ -477,11 +480,15 @@ actor ClaudeOAuthProvider: UsageProvider {
             lastCLIWindows = (reading.windows, now)
             lastCLIPlan = reading.plan
             lastCLIFailure = nil
+            consecutiveCLIFailures = 0
             Log.usage.debug("\(self.id, privacy: .public): read \(reading.windows.count) windows from claude /usage")
             return reading.windows
         } catch {
             Log.usage.debug("\(self.id, privacy: .public): claude /usage did not answer, falling back to the token")
+            consecutiveCLIFailures += 1
             if case UsageProviderError.needsAuth = error {
+                lastCLIFailure = now
+            } else if consecutiveCLIFailures >= 2 {
                 lastCLIFailure = now
             }
             return nil

@@ -187,7 +187,8 @@ struct ClaudeUsageCLI: Sendable {
 
     /// The named tier `/usage` prints above the windows, copied as printed.
     static func plan(in text: String) -> String? {
-        let head = text.split(whereSeparator: \.isNewline).prefix(4).joined(separator: "\n")
+        let clean = stripANSI(text)
+        let head = clean.split(whereSeparator: \.isNewline).prefix(4).joined(separator: "\n")
         for phrase in ["Max 20x", "Max 5x", "extra usage", "Max", "Pro", "Team"] {
             if let match = head.range(of: phrase, options: .caseInsensitive) {
                 if phrase == "Max", head.range(of: "Max 5x", options: .caseInsensitive) != nil
@@ -274,6 +275,17 @@ struct ClaudeUsageCLI: Sendable {
 
     // MARK: - Reading what it said
 
+    /// Strips ANSI terminal styling and escape codes (colors, bold, cursor controls)
+    /// that npm-installed or terminal-wrapped CLI tools may output.
+    private static let ansiSequence = try! NSRegularExpression(
+        pattern: #"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])"#
+    )
+
+    static func stripANSI(_ text: String) -> String {
+        let range = NSRange(text.startIndex..., in: text)
+        return ansiSequence.stringByReplacingMatches(in: text, range: range, withTemplate: "")
+    }
+
     /// The lines `/usage` leads with, e.g.
     ///
     ///     Current session: 38% used · resets Sep 7 at 2:59pm (Asia/Jakarta)
@@ -283,18 +295,19 @@ struct ClaudeUsageCLI: Sendable {
     /// ignored — it is approximate by its own admission, and none of it is a
     /// limit.
     private static let line = try! NSRegularExpression(
-        pattern: #"^Current (?:(session)|week \(([^)]+)\)):\s*(\d+)%\s*used(?:\s*·\s*resets\s*(.+?))?\s*$"#,
-        options: [.anchorsMatchLines]
+        pattern: #"^(?:Current\s+)?(?:(session)|week(?:ly)?\s*\(([^)]+)\)):\s*(\d+(?:\.\d+)?)%\s*used(?:\s*[·•\-\–,|]?\s*resets(?:\s*at)?\s*(.+?))?\s*$"#,
+        options: [.anchorsMatchLines, .caseInsensitive]
     )
 
     static func parse(_ text: String, now: Date = Date()) throws -> [LimitWindow] {
-        let range = NSRange(text.startIndex..., in: text)
+        let clean = stripANSI(text)
+        let range = NSRange(clean.startIndex..., in: clean)
         var windows: [LimitWindow] = []
 
-        for match in line.matches(in: text, range: range) {
+        for match in line.matches(in: clean, range: range) {
             func group(_ index: Int) -> String? {
-                guard let r = Range(match.range(at: index), in: text) else { return nil }
-                return String(text[r])
+                guard let r = Range(match.range(at: index), in: clean) else { return nil }
+                return String(clean[r])
             }
             guard let percent = group(3).flatMap(Double.init) else { continue }
 
@@ -347,6 +360,9 @@ struct ClaudeUsageCLI: Sendable {
     /// Dec 31, is next year's, and `Dec 31` read on `Jan 2` is last year's.
     static func resetDate(from text: String, now: Date) -> Date? {
         var stamp = text.trimmingCharacters(in: .whitespaces)
+        if stamp.lowercased().hasPrefix("at ") {
+            stamp = String(stamp.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+        }
         var zone = TimeZone.current
 
         // The zone comes last, in brackets, and has to come off before the

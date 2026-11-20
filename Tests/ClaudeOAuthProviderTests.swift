@@ -451,6 +451,39 @@ final class ClaudeOAuthProviderTests: XCTestCase {
         XCTAssertEqual(spawns.value, 2)
     }
 
+    /// #95: Repeated bad responses (such as Claude Code 2.1.266 omitting limit lines)
+    /// retry once immediately, but engage the 5-minute throttle after consecutive failures
+    /// to avoid spawning a Node subprocess on every tick indefinitely.
+    func testRepeatedCLIBadResponsesThrottleSubsequentSpawns() async throws {
+        StubEndpoint.reset(Array(repeating: .init(status: 200, body: Self.usagePayload), count: 3))
+        let source = CredentialSource(readable: true)
+        let spawns = Counter()
+        let provider = makeProvider(source: source,
+                                    cli: Self.cli {
+                                        spawns.increment()
+                                        return """
+                                        Total cost:            $0.0000
+                                        Total duration (API):  0s
+                                        Total duration (wall): 2s
+                                        Total code changes:    0 lines added, 0 lines removed
+                                        Usage:                 0 input, 0 output, 0 cache read, 0 cache write
+                                        """
+                                    })
+
+        // Tick 1: first failure, falls back to token path.
+        _ = try await provider.fetchSnapshot()
+        XCTAssertEqual(spawns.value, 1)
+
+        // Tick 2: retries immediately to allow recovery from a transient blip, fails again.
+        _ = try await provider.fetchSnapshot()
+        XCTAssertEqual(spawns.value, 2)
+
+        // Tick 3: consecutive failure detected, throttled for cliRefreshInterval.
+        _ = try await provider.fetchSnapshot()
+        XCTAssertEqual(spawns.value, 2, "a repeatedly failing CLI was spawned on tick 3 instead of being throttled")
+        XCTAssertEqual(StubEndpoint.requestCount, 3, "fallback to endpoint occurred on each tick")
+    }
+
     /// When Desktop cache is stale and CLI is available, usage must be read via
     /// CLI without touching the keychain or endpoint.
     func testAStaleDesktopSnapshotUsesCLIWhenAvailableWithoutKeychainRead() async throws {
