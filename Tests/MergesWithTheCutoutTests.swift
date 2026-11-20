@@ -1334,3 +1334,71 @@ final class MergesWithTheCutoutTests: XCTestCase {
         }
     }
 }
+
+/// Screenshots and recordings see the framebuffer, not the housing: joined as
+/// two copies, the notch was captured as two pieces with wallpaper between
+/// them, and landing showed square ends at the hole's walls.
+extension MergesWithTheCutoutTests {
+    func testJoinedTheNotchIsOneShapeFromEndToEnd() throws {
+        let open = model(Notched())
+        XCTAssertTrue(open.drawsMergedNotch)
+        let span = try XCTUnwrap(open.mergedSpan)
+        let drawn = open.wings.filter { $0.length > 0 }
+        XCTAssertEqual(drawn.count, 2, "two copies, one either side")
+        let first = try XCTUnwrap(drawn.map(\.lead).min())
+        let end = try XCTUnwrap(drawn.map { $0.lead + $0.length }.max())
+        XCTAssertEqual(span.lead, first, accuracy: 0.001, "from the outer end of one copy")
+        XCTAssertEqual(span.lead + span.length, end, accuracy: 0.001, "to the outer end of the other")
+        // Across the hole, so nothing between the copies is left unpainted.
+        let hole = model(Notched(), open: false).joinedWakeAlong(in: [])
+        XCTAssertLessThan(span.lead, hole.lead)
+        XCTAssertGreaterThan(span.lead + span.length, hole.lead + hole.length)
+        // The plain notch outline: nothing of the join, which only the housing hides.
+        XCTAssertNil(open.mergedShape.dip)
+        XCTAssertEqual(open.mergedShape.leadingJoin, 0)
+        XCTAssertEqual(open.mergedShape.trailingJoin, 0)
+    }
+
+    /// In the hand it is the carried bar's own span, unseen, so that letting
+    /// go stretches *that* bar across the hole rather than bringing in a
+    /// second shape.
+    func testInTheHandItIsTheBarItselfAndUnseen() throws {
+        for offset in stride(from: CGFloat(150), through: 0, by: -10) {
+            let held = model(Notched(), offset: offset)
+            held.holdsOffTheCutout = true
+            held.adopt(screen: Notched())
+            XCTAssertFalse(held.drawsMergedNotch, "in the hand at \(offset), not shown")
+            guard let span = held.mergedSpan else { continue }
+            let bar = held.cellWing
+            XCTAssertEqual(span.lead, bar.lead, accuracy: 0.001)
+            XCTAssertEqual(span.length, bar.length, accuracy: 0.001)
+        }
+    }
+
+    func testFoldedOrWithNoHoleThereIsNoMergedShape() throws {
+        let folded = model(Notched(), open: false)
+        XCTAssertFalse(folded.drawsMergedNotch)
+        // Folded, it closes to the hole itself on its way out.
+        let span = try XCTUnwrap(folded.mergedSpan)
+        let hole = folded.joinedWakeAlong(in: [])
+        XCTAssertEqual(span.lead, hole.lead, accuracy: 0.001)
+        XCTAssertEqual(span.length, hole.length, accuracy: 0.001)
+        XCTAssertNil(model(Plain()).mergedSpan, "no hole, nothing to merge")
+    }
+
+    /// Rendered, the joined notch has no wallpaper anywhere between its two
+    /// outer ends along the hole's depth.
+    func testTheJoinedNotchRendersWithNoGap() throws {
+        let m = model(Notched())
+        m.surfaceStyle = .solid
+        let rep = try XCTUnwrap(render(m))
+        let span = try XCTUnwrap(m.mergedSpan)
+        let y = 20  // inside the hole's depth, below the bezel bleed
+        var unpainted: [Int] = []
+        for x in Int(span.lead + 40)..<Int(span.lead + span.length - 40) {
+            let alpha = rep.colorAt(x: x, y: y)?.alphaComponent ?? 0
+            if alpha < 0.5 { unpainted.append(x) }
+        }
+        XCTAssertTrue(unpainted.isEmpty, "wallpaper at x = \(unpainted.prefix(5))…")
+    }
+}

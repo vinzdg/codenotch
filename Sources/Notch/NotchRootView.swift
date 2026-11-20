@@ -25,6 +25,12 @@ struct NotchRootView: View {
                         .fill(Palette.notch)
                         .transition(.identity)
                 }
+                // The joined notch's black, as one shape across the hole — see
+                // `NotchViewModel.mergedSpan`. Under the copies, which carry only
+                // their content while it shows.
+                if let span = model.mergedSpan {
+                    mergedNotch(place, span: span)
+                }
                 ForEach(model.wings) { wing in
                     notch(place, wing: wing)
                         // The side carrying the percentage across the Mac's
@@ -293,6 +299,7 @@ struct NotchRootView: View {
     /// `GooArc` — where a spring here spent the stretch in its first instant.
     static let arcDivide = Animation.timingCurve(0.35, 0, 0.25, 1, duration: 0.95)
 
+
     @ViewBuilder
     private func notch(_ place: NotchPlacement, wing: NotchViewModel.Wing) -> some View {
         // Configured by the model, never assembled here — see `notchShape`.
@@ -394,7 +401,8 @@ struct NotchRootView: View {
                 // No `else`: the solid fill below is mounted in every style anyway,
                 // and below macOS 26 `glassy` is always false, so it is simply left
                 // at full opacity.
-                shape.fill(Palette.notch).opacity(glassy || dock ? 0 : 1)
+                // Joined, the black is the one merged span underneath instead.
+                shape.fill(Palette.notch).opacity(glassy || dock || model.drawsMergedNotch ? 0 : 1)
 
             }
         }   
@@ -460,6 +468,35 @@ struct NotchRootView: View {
             // the Dock keeps from the screen's edge.
             .offset(x: model.edge.outward.x * (dock ? -model.edgeGap : Self.bezelBleed),
                     y: model.edge.outward.y * (dock ? -model.edgeGap : Self.bezelBleed))
+    }
+
+    /// **The joined notch as one shape**, stretching across the hole.
+    ///
+    /// Placed and scaled exactly as a copy is — same frame, same anchor at the
+    /// bezel, same bleed past it — so where it and a copy overlap they are the
+    /// same outline. In the hand it follows the carried bar unanimated and
+    /// unseen; let go onto the hole it shows at once and its ends ride the
+    /// unfold spring out to the copies', which is the notch stretching. Fading
+    /// is only for leaving: folding into the hole, or being picked back up.
+    @ViewBuilder
+    private func mergedNotch(_ place: NotchPlacement,
+                             span: (lead: CGFloat, length: CGFloat, depth: CGFloat)) -> some View {
+        let wing = NotchViewModel.Wing(id: -1, lead: span.lead, onTheLeft: false,
+                                       carriesCells: false, length: span.length, depth: span.depth)
+        let size = copySize(wing)
+        let shown = model.drawsMergedNotch
+        model.mergedShape
+            .fill(Palette.notch)
+            .frame(width: size.width, height: size.height)
+            .scaleEffect(model.sizeScale, anchor: bezelAnchor)
+            .position(place.point(along: span.lead + span.length / 2, across: span.depth / 2))
+            .offset(x: model.edge.outward.x * Self.bezelBleed,
+                    y: model.edge.outward.y * Self.bezelBleed)
+            .animation(model.holdsOffTheCutout ? nil : motion(NotchMotion.unfold),
+                       value: MergedSpanKey(lead: span.lead, length: span.length))
+            .opacity(shown ? 1 : 0)
+            .animation(shown ? nil : motion(NotchMotion.unfold), value: shown)
+            .allowsHitTesting(false)
     }
 
     /// A copy's frame in the notch's design measurements, which the size
@@ -1060,4 +1097,9 @@ struct GooNeck: Shape {
         path.closeSubpath()
         return path
     }
+}
+
+private struct MergedSpanKey: Equatable {
+    let lead: CGFloat
+    let length: CGFloat
 }
