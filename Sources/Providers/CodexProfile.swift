@@ -73,7 +73,7 @@ struct CodexProfile: Equatable, Hashable {
         // A signed-out profile can still have settings or sessions. Keep its
         // row so it can explain how to sign that account back in.
         return ["auth.json", "config.toml", "sessions", "history.jsonl", "state_5.sqlite",
-                "sqlite/codex-dev.db", "registry.json"].contains {
+                "sqlite/codex-dev.db", CodexAuthRegistry.relativePath].contains {
             fileManager.fileExists(atPath: url.appendingPathComponent($0).path)
         }
     }
@@ -117,7 +117,7 @@ struct CodexProfile: Equatable, Hashable {
     }
 
     var authURL: URL { configDirectory.appendingPathComponent("auth.json") }
-    var registryURL: URL { configDirectory.appendingPathComponent("registry.json") }
+    var registryURL: URL { configDirectory.appendingPathComponent(CodexAuthRegistry.relativePath) }
     var stateURL: URL { configDirectory.appendingPathComponent("state_5.sqlite") }
     var desktopStoreURL: URL { configDirectory.appendingPathComponent("sqlite/codex-dev.db") }
 

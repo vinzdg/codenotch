@@ -4,6 +4,8 @@ import Foundation
 ///
 /// Follows the version 1 JSON API schema specification from `@loongphy/codex-auth`:
 /// https://github.com/Loongphy/codex-auth/blob/main/docs/json-api.md
+/// and the records in its on-disk registry:
+/// https://github.com/Loongphy/codex-auth/blob/main/docs/schema.md
 struct CodexAuthAccount: Codable, Equatable, Hashable, Sendable {
     let number: Int?
     let accountKey: String
@@ -52,12 +54,44 @@ struct CodexAuthAccount: Codable, Equatable, Hashable, Sendable {
         self.planExpiresAt = planExpiresAt
         self.active = active
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // The on-disk registry stores an empty alias or email as "" and has no
+        // per-account `active` (the active account is a top-level key), while
+        // `list --json` uses null and `active`. Read both the same way.
+        func text(_ key: CodingKeys) -> String? {
+            guard let value = try? container.decodeIfPresent(String.self, forKey: key),
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return value
+        }
+        number = try? container.decodeIfPresent(Int.self, forKey: .number)
+        accountKey = try container.decode(String.self, forKey: .accountKey)
+        email = text(.email)
+        alias = text(.alias)
+        accountName = text(.accountName)
+        plan = text(.plan)
+        authMode = text(.authMode)
+        accessTokenExpiresAt = try? container.decodeIfPresent(Double.self, forKey: .accessTokenExpiresAt)
+        planExpiresAt = try? container.decodeIfPresent(Double.self, forKey: .planExpiresAt)
+        active = (try? container.decodeIfPresent(Bool.self, forKey: .active)) ?? false
+    }
+
+    func activated(_ isActive: Bool) -> CodexAuthAccount {
+        CodexAuthAccount(number: number, accountKey: accountKey, email: email, alias: alias,
+                         accountName: accountName, plan: plan, authMode: authMode,
+                         accessTokenExpiresAt: accessTokenExpiresAt, planExpiresAt: planExpiresAt,
+                         active: isActive)
+    }
 }
 
-/// The registry document or list response stored in `~/.codex/registry.json`
-/// or returned by `codex-auth list --json`.
+/// The registry document stored in `~/.codex/accounts/registry.json`, or the
+/// list response returned by `codex-auth list --json`.
 struct CodexAuthRegistry: Codable, Equatable, Sendable {
     static let currentSchemaVersion = 1
+    /// Where codex-auth keeps its registry inside a Codex home
+    /// (`registryPath` in codex-auth's src/registry/common.zig).
+    static let relativePath = "accounts/registry.json"
 
     let schemaVersion: Int
     let command: String?
@@ -67,6 +101,7 @@ struct CodexAuthRegistry: Codable, Equatable, Sendable {
         case schemaVersion = "schema_version"
         case command
         case accounts
+        case activeAccountKey = "active_account_key"
     }
 
     init(schemaVersion: Int = currentSchemaVersion, command: String? = nil, accounts: [CodexAuthAccount]) {
@@ -80,7 +115,13 @@ struct CodexAuthRegistry: Codable, Equatable, Sendable {
         if let container = try? decoder.container(keyedBy: CodingKeys.self) {
             schemaVersion = (try? container.decode(Int.self, forKey: .schemaVersion)) ?? Self.currentSchemaVersion
             command = try? container.decode(String.self, forKey: .command)
-            accounts = (try? container.decode([CodexAuthAccount].self, forKey: .accounts)) ?? []
+            let listed = (try? container.decode([CodexAuthAccount].self, forKey: .accounts)) ?? []
+            // On disk the active account is named once at the top level.
+            if let activeKey = try? container.decodeIfPresent(String.self, forKey: .activeAccountKey) {
+                accounts = listed.map { $0.activated($0.active || $0.accountKey == activeKey) }
+            } else {
+                accounts = listed
+            }
         } else if let singleContainer = try? decoder.singleValueContainer(),
                   let list = try? singleContainer.decode([CodexAuthAccount].self) {
             schemaVersion = Self.currentSchemaVersion
@@ -108,9 +149,9 @@ struct CodexAuthRegistry: Codable, Equatable, Sendable {
         return try JSONDecoder().decode(CodexAuthRegistry.self, from: data)
     }
 
-    /// Reads accounts from `<directory>/registry.json` if the file exists.
+    /// Reads accounts from `<directory>/accounts/registry.json` if the file exists.
     static func readAccounts(from directory: URL, fileManager: FileManager = .default) -> [CodexAuthAccount]? {
-        let registryURL = directory.appendingPathComponent("registry.json")
+        let registryURL = directory.appendingPathComponent(relativePath)
         var isDir: ObjCBool = false
         guard fileManager.fileExists(atPath: registryURL.path, isDirectory: &isDir), !isDir.boolValue else {
             return nil
