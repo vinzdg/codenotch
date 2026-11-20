@@ -1038,7 +1038,20 @@ struct GooNeck: Shape {
         // side with a sharp corner, cut off in mid-air. Taken a little further
         // in and turned with the hole's own corner, it reads as goo coming out
         // of the hole; all of what changed is still under the housing.
-        func closeInsideTheHole(_ y: CGFloat) {
+        func closeInsideTheHole(_ arrived: Departure) {
+            var y = arrived.y
+            // Arrived down the wall (the strand thinning up toward the bezel),
+            // turn the corner round rather than square: going on down the
+            // wall and in along a foot, never deeper than the hole, so it
+            // all stays under the housing on the display. Square, a capture
+            // showed a block with a flat side and a sharp corner cut off
+            // beside the bar.
+            let turn = max(0, min(r, n.holeDepth - y, (y - top) / 2))
+            if arrived.s > -0.5, turn > 0.5 {
+                path.addArc(tangent1End: at(arrived.s, y + turn),
+                            tangent2End: at(inside, y + turn), radius: turn)
+                y += turn
+            }
             path.addLine(to: at(inside, y))
             let rr = max(0, min(r, (y - top) / 2))
             if rr > 0.5 {
@@ -1096,7 +1109,7 @@ struct GooNeck: Shape {
                        at: place)
             Self.curve(&path, from: Departure(s: m.s, y: m.y, ds: -m.ds, dy: -m.dy),
                        to: Departure(s: h.s, y: h.y, ds: -h.ds, dy: -h.dy), at: place)
-            closeInsideTheHole(h.y)
+            closeInsideTheHole(h)
             return path
         }
 
@@ -1116,7 +1129,7 @@ struct GooNeck: Shape {
         path.addLine(to: at(mh, 0))
         Self.curve(&path, from: Departure(s: mh, y: 0, ds: -1, dy: 0),
                    to: Departure(s: h.s, y: h.y, ds: -h.ds, dy: -h.dy), at: place)
-        closeInsideTheHole(h.y)
+        closeInsideTheHole(h)
 
         path.move(to: at(mb, top))
         path.addLine(to: at(beyond, top))
