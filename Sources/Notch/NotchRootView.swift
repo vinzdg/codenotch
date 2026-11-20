@@ -495,8 +495,8 @@ struct NotchRootView: View {
                 body.scaleEffect(x: 1, y: sag, anchor: bezelAnchor)
             } keyframes: { _ in
                 if shown && !reduceMotion {
-                    SpringKeyframe(1.12, duration: 0.16, spring: .smooth)
-                    SpringKeyframe(0.97, duration: 0.22, spring: .smooth)
+                    SpringKeyframe(1.06, duration: 0.18, spring: .smooth)
+                    SpringKeyframe(0.985, duration: 0.22, spring: .smooth)
                     SpringKeyframe(1, duration: 0.4, spring: .bouncy)
                 } else {
                     LinearKeyframe(1, duration: 0.01)
@@ -1046,8 +1046,10 @@ struct GooNeck: Shape {
             // all stays under the housing on the display. Square, a capture
             // showed a block with a flat side and a sharp corner cut off
             // beside the bar.
-            let turn = max(0, min(r, n.holeDepth - y, (y - top) / 2))
-            if arrived.s > -0.5, turn > 0.5 {
+            // Grown in from nothing as it climbs the wall past the hole's own
+            // corner, so it never appears in a frame.
+            let turn = max(0, min(r, n.holeDepth - r - y, (y - top) / 2))
+            if arrived.s > -0.5, turn > 0.001 {
                 path.addArc(tangent1End: at(arrived.s, y + turn),
                             tangent2End: at(inside, y + turn), radius: turn)
                 y += turn

@@ -844,10 +844,17 @@ final class NotchViewModel: ObservableObject {
     var mergedSpan: (lead: CGFloat, length: CGFloat, depth: CGFloat)? {
         guard edge == .top, !floats, let cutout, cutout.width > 0 else { return nil }
         let bar = cellWing
-        guard mergesWithCutout, !holdsOffTheCutout else {
-            return (bar.lead, bar.length, bar.depth)
-        }
         let drawn = wings.filter { $0.length > 0 }
+        guard mergesWithCutout, !holdsOffTheCutout else {
+            // Unseen until it joins — but already over everything that is
+            // drawn, so taking the hole grows it from there. From the bar
+            // alone, the other copy, already out of the hole on its far side,
+            // blinked out as the copies left their fill to it and grew back.
+            guard let first = drawn.min(by: { $0.lead < $1.lead }),
+                  let last = drawn.max(by: { $0.lead + $0.length < $1.lead + $1.length })
+            else { return (bar.lead, bar.length, bar.depth) }
+            return (first.lead, last.lead + last.length - first.lead, bar.depth)
+        }
         guard isExpanded, let first = drawn.min(by: { $0.lead < $1.lead }),
               let last = drawn.max(by: { $0.lead + $0.length < $1.lead + $1.length })
         else {
