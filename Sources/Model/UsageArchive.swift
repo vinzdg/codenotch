@@ -97,7 +97,7 @@ struct UsageArchive {
             var snapshot = ProviderSnapshot(
                 id: entry.id,
                 displayName: entry.displayName,
-                glyph: entry.id == "devin" && entry.glyph == .third ? .devin : entry.glyph,
+                glyph: Self.restoredGlyph(id: entry.id, glyph: entry.glyph),
                 fidelity: entry.fidelity,
                 status: .stale(since: entry.fetchedAt),
                 windows: windows,
@@ -116,6 +116,19 @@ struct UsageArchive {
     }
 
     /// Window ids the live Codex provider still displays.
+    /// Readings archived before a provider had a mark of its own were written
+    /// with `.third`, which is Perplexity's. Drawn as stored, an old Devin or
+    /// Manual reading would open wearing somebody else's logo until the first
+    /// fetch replaced it.
+    static func restoredGlyph(id: String, glyph: ProviderGlyph) -> ProviderGlyph {
+        guard glyph == .third else { return glyph }
+        switch id {
+        case "devin": return .devin
+        case "manual": return .manual
+        default: return glyph
+        }
+    }
+
     private static func isLiveCodexWindow(_ id: String) -> Bool {
         id == "primary" || id == "secondary"
             || id.hasPrefix("spark")
