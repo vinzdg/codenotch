@@ -358,6 +358,12 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(hideDepletedAccounts, forKey: Keys.hideDepletedAccounts) }
     }
 
+    /// In "Show on hover", holds the notch open while any session is busy or
+    /// waiting on you, and hands it back to the pointer once none is.
+    @Published var keepOpenWhileSessionActive: Bool {
+        didSet { defaults.set(keepOpenWhileSessionActive, forKey: Keys.keepOpenWhileSessionActive) }
+    }
+
     @Published var weeklyRingDashed: Bool {
         didSet { defaults.set(weeklyRingDashed, forKey: Keys.weeklyRingDashed) }
     }
@@ -798,6 +804,7 @@ final class Preferences: ObservableObject {
         static let autoOrderByDeficit = "autoOrderByDeficit"
         static let ringOrder = "ringOrder"
         static let hideDepletedAccounts = "hideDepletedAccounts"
+        static let keepOpenWhileSessionActive = "keepOpenWhileSessionActive"
         static let claudeDailyPaceRing = "claudeDailyPaceRing"
         static let weeklyHeadline = "weeklyHeadline"
         static let notchSurfaceStyle = "notchSurfaceStyle"
@@ -1273,6 +1280,7 @@ final class Preferences: ObservableObject {
             ?? (defaults.bool(forKey: Keys.autoOrderByDeficit) ? .deficit
                 : defaults.bool(forKey: Keys.autoOrderByRemaining) ? .remaining : .manual)
         self.hideDepletedAccounts = defaults.bool(forKey: Keys.hideDepletedAccounts)
+        self.keepOpenWhileSessionActive = defaults.bool(forKey: Keys.keepOpenWhileSessionActive)
 
         self.weeklyRing = defaults.string(forKey: Keys.weeklyRing)
             .flatMap(WeeklyRing.init(rawValue:)) ?? .off

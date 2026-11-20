@@ -25,6 +25,11 @@ final class NotchFleet {
     private(set) var scope: NotchScreenScope
     private var edge: NotchEdge
     private var visibility: NotchVisibility = .onHover
+    private var keepsOpenWhileSessionActive = false
+    /// The preference is on and any provider has a session busy or waiting on you.
+    private var sessionActive: Bool {
+        keepsOpenWhileSessionActive && sessions.values.joined().contains { $0.state == .busy || $0.state == .waiting }
+    }
 
     private var snapshots: [ProviderSnapshot] = []
     private(set) var thinkingModels: [String: Date] = [:]
@@ -188,6 +193,14 @@ final class NotchFleet {
         self.visibility = visibility
         for controller in controllers.values {
             controller.apply(visibility)
+        }
+    }
+
+    func apply(keepOpenWhileSessionActive: Bool) {
+        keepsOpenWhileSessionActive = keepOpenWhileSessionActive
+        let active = sessionActive
+        for controller in controllers.values {
+            controller.apply(sessionActive: active)
         }
     }
 
@@ -447,6 +460,10 @@ final class NotchFleet {
             }
             controller.model.now = now
         }
+        let active = sessionActive
+        for controller in controllers.values {
+            controller.apply(sessionActive: active)
+        }
     }
 
     // MARK: - Reconciliation
@@ -593,6 +610,7 @@ final class NotchFleet {
         controller.model.refreshing = refreshing
         controller.model.sessions = sessions
         controller.model.now = Date()
+        controller.apply(sessionActive: sessionActive)
         controller.apply(visibility)
         controller.show()
         return controller
