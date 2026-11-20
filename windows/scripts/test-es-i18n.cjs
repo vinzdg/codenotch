@@ -14,6 +14,12 @@ function card(lang) {
 test('Spanish card keeps numbers, plan names and unknown vendor messages', () => {
   const {textCopy, ui} = card('es');
   assert.equal(textCopy('Current session'), 'Sesión actual');
+  assert.equal(textCopy('Claude and GPT models'), 'Modelos Claude, GPT y Argon');
+  assert.equal(textCopy('Argon'), 'Argon');
+  assert.equal(textCopy('Credits'), 'Créditos');
+  assert.equal(textCopy('$0.00 remaining of $2.00 · 39.1M tokens'), '$0.00 restantes de $2.00 · 39.1M tokens');
+  assert.equal(textCopy('$2.00 of $2.00 used · $0.00 left · 39.1M tokens'), '$2.00 de $2.00 usados · $0.00 restantes · 39.1M tokens');
+  assert.equal(textCopy('$2.00 / $2.00 USD ($0.00 left)'), '$2.00 / $2.00 USD ($0.00 restantes)');
   assert.equal(textCopy('Sign in'), 'Iniciar sesión');
   assert.equal(textCopy('Rate limited — retrying in 30s'), 'Límite de solicitudes — reintento en 30 s');
   assert.equal(textCopy('5h limit'), 'Límite de 5 h');

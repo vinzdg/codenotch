@@ -31,9 +31,12 @@ fn reg(args: &[&str]) -> Option<(bool, String)> {
 
 #[cfg(windows)]
 pub fn is_enabled() -> bool {
-    reg(&["query", RUN_KEY, "/v", NAME])
-        .map(|(ok, out)| ok && out.contains(NAME))
-        .unwrap_or(false)
+    use windows::core::HSTRING;
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_SZ};
+    let key = HSTRING::from(r"Software\Microsoft\Windows\CurrentVersion\Run");
+    let val = HSTRING::from(NAME);
+    let mut size = 0u32;
+    unsafe { RegGetValueW(HKEY_CURRENT_USER, &key, &val, RRF_RT_REG_SZ, None, None, Some(&mut size)) }.is_ok()
 }
 
 #[cfg(windows)]
