@@ -586,18 +586,26 @@ fn hover_position(strip: Rect, screen: Rect, anchor_x: f64, anchor_width: f64, s
 }
 
 /// A card that comes out of the strip as it would out of the notch, in physical px. `edge` names the
-/// side its tail points at, as the notch's edges do; `tail` is false where the tail would miss the strip.
+/// side its tail points at, as the notch's edges do; `tail_x` is what the tail aims at, from the
+/// card's left, as `place_hover` tells the hover card.
 #[derive(Debug, PartialEq)]
-pub(crate) struct Popup { pub x: i32, pub y: i32, pub width: u32, pub height: u32, pub scale: f64, pub edge: &'static str, pub tail: bool }
+pub(crate) struct Popup { pub x: i32, pub y: i32, pub width: u32, pub height: u32, pub scale: f64, pub edge: &'static str, pub tail_x: f64 }
 
-/// `width` and `height` are logical px, the tail included, drawn at the card's middle.
-pub(crate) fn popup_beside_strip(app: &AppHandle, width: f64, height: f64) -> Option<Popup> {
+/// `width` and `height` are logical px, the tail included, and `side` the empty window on each side
+/// of the card itself. The card is about `provider`: its tail aims at that provider's ring, or at the
+/// strip's middle when the strip shows no ring for it.
+pub(crate) fn popup_beside_strip(app: &AppHandle, provider: &str, width: f64, height: f64, side: f64) -> Option<Popup> {
     let strip = strip_geometry(app)?;
-    popup_position(strip.bounds, strip.screen, strip.scale, width, height)
+    #[cfg(windows)]
+    let ring = crate::taskbar_native::ring_of(provider).map(|(x, w)| (x as f64, w as f64));
+    #[cfg(not(windows))]
+    let ring = { let _ = provider; None };
+    popup_position(strip.bounds, strip.screen, strip.scale, (width, height, side), ring)
 }
 
-fn popup_position(strip: Rect, screen: Rect, scale: f64, width: f64, height: f64) -> Option<Popup> {
-    if !scale.is_finite() || scale <= 0.0 || !width.is_finite() || !height.is_finite() || strip.right <= strip.left || strip.bottom <= strip.top {
+/// `ring` is the ring's left and width in px from the strip's left, as the hover card's anchor is.
+fn popup_position(strip: Rect, screen: Rect, scale: f64, (width, height, side): (f64, f64, f64), ring: Option<(f64, f64)>) -> Option<Popup> {
+    if !scale.is_finite() || scale <= 0.0 || !width.is_finite() || !height.is_finite() || !side.is_finite() || strip.right <= strip.left || strip.bottom <= strip.top {
         return None;
     }
     let gap = (8.0 * scale).round().max(1.0) as i32;
@@ -605,11 +613,16 @@ fn popup_position(strip: Rect, screen: Rect, scale: f64, width: f64, height: f64
     let w = ((width * scale).round() as i32).min(screen.right - screen.left - 2 * gap);
     let h = ((height * scale).round() as i32).min(screen.bottom - screen.top - 2 * gap);
     if w <= 0 || h <= 0 { return None; }
-    let x = ((strip.left + strip.right) / 2 - w / 2).clamp(screen.left + gap, screen.right - w - gap);
+    let span = (strip.right - strip.left) as f64;
+    let aim = strip.left as f64 + ring.filter(|(x, w)| x.is_finite() && w.is_finite())
+        .map_or(span / 2.0, |(x, w)| (x + w / 2.0).clamp(0.0, span));
+    // The margin applies to the card, not its empty sides: a strip at the screen's corner puts the
+    // first ring nearly under the card's rounded corner, which its tail cannot reach.
+    let side = ((side * scale).round() as i32).clamp(0, w / 2);
+    let x = (aim.round() as i32 - w / 2).clamp(screen.left + gap - side, screen.right - w - gap + side);
     let above = strip.top - h - tail_gap;
     let (y, edge) = if above >= screen.top + gap { (above, "bottom") } else { (strip.bottom + tail_gap, "top") };
-    let tail = (strip.left..strip.right).contains(&(x + w / 2));
-    Some(Popup { x, y, width: w as u32, height: h as u32, scale, edge, tail })
+    Some(Popup { x, y, width: w as u32, height: h as u32, scale, edge, tail_x: aim - x as f64 })
 }
 
 /// A maximized app's invisible frame can extend across the taskbar. Only the actual client
@@ -1128,32 +1141,51 @@ mod tests {
         assert!(hover_position(strip, screen, 0.0, 0.0, 1.0, 360.0).is_none());
         assert!(hover_position(strip, screen, 0.0, 40.0, 0.0, 360.0).is_none());
     }
+    /// The reset card: 280 × 150 with its tail, the card itself 17 px in from each side.
+    const CARD: (f64, f64, f64) = (280.0, 150.0, 17.0);
     #[test]
     fn a_card_comes_out_of_the_strip_above_the_taskbar() {
         let screen = Rect { left:0, top:0, right:1920, bottom:1080 };
         let strip = Rect { left:800, top:1043, right:1080, bottom:1077 };
-        let card = popup_position(strip, screen, 1.0, 280.0, 150.0).unwrap();
-        assert_eq!(card, Popup { x:800, y:882, width:280, height:150, scale:1.0, edge:"bottom", tail:true });
+        let card = popup_position(strip, screen, 1.0, CARD, None).unwrap();
+        assert_eq!(card, Popup { x:800, y:882, width:280, height:150, scale:1.0, edge:"bottom", tail_x:140.0 }, "no ring: the strip's middle");
         assert_eq!(card.y + card.height as i32 + 11, strip.top, "the tail stops as short of the strip as the hover card's");
     }
     #[test]
-    fn a_card_from_a_strip_at_the_screen_corner_stays_on_screen() {
+    fn a_card_centres_on_its_own_ring() {
         let screen = Rect { left:0, top:0, right:1920, bottom:1080 };
-        let wide = popup_position(Rect { left:8, top:1043, right:288, bottom:1077 }, screen, 1.0, 280.0, 150.0).unwrap();
-        assert_eq!((wide.x, wide.tail), (8, true));
-        let narrow = popup_position(Rect { left:8, top:1043, right:100, bottom:1077 }, screen, 1.0, 280.0, 150.0).unwrap();
-        assert_eq!((narrow.x, narrow.tail), (8, false), "a tail that would point past the strip is left off");
+        let strip = Rect { left:800, top:1043, right:1080, bottom:1077 };
+        let card = popup_position(strip, screen, 1.0, CARD, Some((48.0, 40.0))).unwrap();
+        assert_eq!((card.x, card.tail_x), (728, 140.0));
+        let past = popup_position(strip, screen, 1.0, CARD, Some((500.0, 40.0))).unwrap();
+        assert_eq!(past.x as f64 + past.tail_x, 1080.0, "a ring reported past the strip is aimed at its end");
+        let bad = popup_position(strip, screen, 1.0, CARD, Some((f64::NAN, 40.0))).unwrap();
+        assert_eq!(bad.tail_x, 140.0);
+    }
+    #[test]
+    fn a_card_from_a_strip_at_the_screen_corner_stays_on_screen_and_still_aims_at_the_ring() {
+        let screen = Rect { left:0, top:0, right:2560, bottom:1600 };
+        // The strip as it sits at the bottom left of a 150 % screen, two rings wide.
+        let strip = Rect { left:12, top:1531, right:227, bottom:1597 };
+        let middle = popup_position(strip, screen, 1.5, CARD, None).unwrap();
+        assert_eq!((middle.x, middle.y, middle.tail_x), (-14, 1290, 133.5));
+        assert_eq!(middle.x + 26, 12, "the card itself keeps the margin; only its empty side hangs past it");
+        let second = popup_position(strip, screen, 1.5, CARD, Some((120.0, 50.0))).unwrap();
+        assert_eq!((second.x, second.tail_x), (-14, 171.0), "the card stays on screen and the tail moves instead");
+        // The first ring, at 19–67 here: the tail's nearest reach, 50 px into the card at 1.5, is on it.
+        let first = popup_position(strip, screen, 1.5, CARD, Some((7.0, 48.0))).unwrap();
+        assert!(((first.x as f64 + 50.0 * 1.5) as i32) < 67);
     }
     #[test]
     fn a_card_drops_below_a_top_taskbar_and_scales_with_the_strip_monitor() {
         let screen = Rect { left:0, top:0, right:1920, bottom:1080 };
-        let top = popup_position(Rect { left:800, top:3, right:1080, bottom:37 }, screen, 1.0, 280.0, 150.0).unwrap();
+        let top = popup_position(Rect { left:800, top:3, right:1080, bottom:37 }, screen, 1.0, CARD, None).unwrap();
         assert_eq!((top.y, top.edge), (48, "top"));
         let screen = Rect { left:-2880, top:-200, right:0, bottom:1420 };
-        let card = popup_position(Rect { left:-1500, top:1360, right:-1080, bottom:1414 }, screen, 1.5, 280.0, 150.0).unwrap();
-        assert_eq!(card, Popup { x:-1500, y:1119, width:420, height:225, scale:1.5, edge:"bottom", tail:true });
-        assert!(popup_position(Rect { left:10, right:10, ..BAR }, screen, 1.0, 280.0, 150.0).is_none());
-        assert!(popup_position(BAR, screen, f64::NAN, 280.0, 150.0).is_none());
+        let card = popup_position(Rect { left:-1500, top:1360, right:-1080, bottom:1414 }, screen, 1.5, CARD, None).unwrap();
+        assert_eq!(card, Popup { x:-1500, y:1119, width:420, height:225, scale:1.5, edge:"bottom", tail_x:210.0 });
+        assert!(popup_position(Rect { left:10, right:10, ..BAR }, screen, 1.0, CARD, None).is_none());
+        assert!(popup_position(BAR, screen, f64::NAN, CARD, None).is_none());
     }
     #[test]
     fn maximized_client_is_visible_despite_its_invisible_frame_covering_the_screen() {

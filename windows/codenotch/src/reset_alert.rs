@@ -18,6 +18,8 @@ use windows::Win32::UI::WindowsAndMessaging::MB_ICONASTERISK;
 const LABEL: &str = "reset-alert";
 const CARD_W: f64 = 280.0;
 const CARD_H: f64 = 150.0;
+/// Over and under its tail, the card sits this far in from each side of its window (reset-alert.html).
+const CARD_SIDE: f64 = 17.0;
 const SHOW_FOR: Duration = Duration::from_secs(6);
 /// Logical px the pill occupies at the notch window's near edge on an upright edge (`#pill` in
 /// notch.html is 70 px wide); used as an approximation of its depth when the notch lies flat too,
@@ -48,6 +50,8 @@ struct CardPayload {
     lang: String,
     edge: String,
     attached: bool,
+    /// Beside the taskbar strip: what the tail aims at, in physical px from the card's left.
+    tail_x: Option<f64>,
     glyph: glyphs::Glyph,
     token: u64,
     title: String,
@@ -151,7 +155,7 @@ fn show_on_main(app: &AppHandle, event: ResetEvent, token: u64) -> Result<(), St
     let geometry = notch_geometry(app);
     // The hidden notch window still sits at its old place on its edge, which is not where the user
     // looks once the taskbar strip stands in for it.
-    let popup = if visible { None } else { crate::taskbar::popup_beside_strip(app, CARD_W, CARD_H) };
+    let popup = if visible { None } else { crate::taskbar::popup_beside_strip(app, &event.provider, CARD_W, CARD_H, CARD_SIDE) };
     let density = match &popup {
         Some(p) => p.scale,
         None => geometry
@@ -176,7 +180,8 @@ fn show_on_main(app: &AppHandle, event: ResetEvent, token: u64) -> Result<(), St
     let payload = CardPayload {
         lang: lang.clone(),
         edge: popup.as_ref().map_or_else(|| edge.clone(), |p| p.edge.to_string()),
-        attached: popup.as_ref().map_or(visible, |p| p.tail),
+        attached: popup.is_some() || visible,
+        tail_x: popup.as_ref().map(|p| p.tail_x),
         glyph,
         token,
         title: format!("{provider_name} {}", word_renewed(&lang)),

@@ -193,8 +193,22 @@ fn target(data: &Data, x: f32, y: f32) -> Option<(usize, f32, f32)> {
     if y < 0.0 || y >= data.height as f32 || !x.is_finite() || !y.is_finite() { return None; }
     taskbar_model::layout(&data.frame, data.width as f32, data.height as f32, data.scale)
         .into_iter().find(|slot| slot.contains(x, y, data.height as f32))
-        // The card centres on the ring and its tail points at it, not at the whole cell.
-        .map(|slot| (slot.index, slot.center_x - slot.unit * taskbar_model::UNITS / 2.0, slot.unit * taskbar_model::UNITS))
+        .map(|slot| { let (left, width) = ring(&slot); (slot.index, left, width) })
+}
+
+/// A card centres on the ring and its tail points at it, not at the whole cell.
+fn ring(slot: &taskbar_model::Slot) -> (f32, f32) {
+    (slot.center_x - slot.unit * taskbar_model::UNITS / 2.0, slot.unit * taskbar_model::UNITS)
+}
+
+/// Main thread only. The first ring the strip shows for `provider`, as `target` gives the hover card.
+pub fn ring_of(provider: &str) -> Option<(f32, f32)> {
+    let state = current_state().filter(|state| !state.closed.get() && !state.closing.get())?;
+    let data = state.data.try_borrow().ok()?;
+    let index = data.frame.items.iter().position(|item| item.provider == provider)?;
+    taskbar_model::layout(&data.frame, data.width as f32, data.height as f32, data.scale)
+        .into_iter().find(|slot| slot.index == index)
+        .map(|slot| ring(&slot))
 }
 
 fn bump_hover(state: &NativeState) -> u64 {
