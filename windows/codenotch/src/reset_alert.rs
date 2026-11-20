@@ -376,8 +376,9 @@ pub fn preview_reset_alert(app: AppHandle) -> Result<(), String> {
     let now = crate::now_ms();
     enqueue_unchecked(
         &app,
+        // Claude, as the Mac's preview (`previewUsageResetAlert`)
         ResetEvent {
-            provider: "codex".into(),
+            provider: "claude".into(),
             window_label: "5h limit".into(),
             used_fraction: 0.0,
             next_reset_at: Some(now + 300 * 60_000),
