@@ -1424,4 +1424,24 @@ extension MergesWithTheCutoutTests {
         XCTAssertTrue(painted(tip + 20), "past the corner it is the bar's full foot")
         XCTAssertTrue(painted(wall - 3), "the crook of the hole's corner stays covered")
     }
+
+    /// The strand's end inside the hole is rounded like a notch's end, not a
+    /// flat side dropping to a sharp corner — captures have no housing to hide
+    /// it behind.
+    func testTheStrandsEndInTheHoleIsRound() throws {
+        let held = model(Notched(), offset: 5)
+        held.holdsOffTheCutout = true
+        held.adopt(screen: Notched())
+        let neck = try XCTUnwrap(held.neck)
+        let path = GooNeck(neck: neck).path(in: .zero)
+        let r = min(neck.holeCorner, neck.holeDepth)
+        let far = -(r + 1) - 2 * r
+        func at(_ s: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: neck.wall + neck.side * s, y: y)
+        }
+        let foot = neck.holeDepth - 0.5
+        XCTAssertFalse(path.contains(at(far + 0.5, foot)), "no sharp corner at the end")
+        XCTAssertTrue(path.contains(at(far + r, neck.holeDepth - r)), "the end is filled up to its curve")
+        XCTAssertTrue(path.contains(at(-(r + 1) + 0.5, foot)), "the foot runs on to the corner's start")
+    }
 }

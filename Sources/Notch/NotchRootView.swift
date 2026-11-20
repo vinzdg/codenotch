@@ -1017,6 +1017,23 @@ struct GooNeck: Shape {
         let inside = -(r + 1)
         func at(_ s: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: n.wall + n.side * s, y: y) }
         var path = Path()
+        // **The strand's end inside the hole**, rounded like the end of a notch.
+        // It used to drop straight from the bezel to the hole's foot just in
+        // past the corner, which the housing hides on the display — but a
+        // screenshot or a recording has no housing, and there it was a flat
+        // side with a sharp corner, cut off in mid-air. Taken a little further
+        // in and turned with the hole's own corner, it reads as goo coming out
+        // of the hole; all of what changed is still under the housing.
+        func closeInsideTheHole(_ y: CGFloat) {
+            path.addLine(to: at(inside, y))
+            let rr = max(0, min(r, (y - top) / 2))
+            if rr > 0.5 {
+                let far = inside - 2 * rr
+                path.addArc(tangent1End: at(far, y), tangent2End: at(far, top), radius: rr)
+                path.addLine(to: at(far, top))
+            }
+            path.closeSubpath()
+        }
 
         // **Its end in past the wall**, the strand stays, still touching: from
         // the hole's foot at the wall to the bar's foot as far out as a flare
@@ -1065,8 +1082,7 @@ struct GooNeck: Shape {
                        at: place)
             Self.curve(&path, from: Departure(s: m.s, y: m.y, ds: -m.ds, dy: -m.dy),
                        to: Departure(s: h.s, y: h.y, ds: -h.ds, dy: -h.dy), at: place)
-            path.addLine(to: at(inside, h.y))
-            path.closeSubpath()
+            closeInsideTheHole(h.y)
             return path
         }
 
@@ -1086,8 +1102,7 @@ struct GooNeck: Shape {
         path.addLine(to: at(mh, 0))
         Self.curve(&path, from: Departure(s: mh, y: 0, ds: -1, dy: 0),
                    to: Departure(s: h.s, y: h.y, ds: -h.ds, dy: -h.dy), at: place)
-        path.addLine(to: at(inside, h.y))
-        path.closeSubpath()
+        closeInsideTheHole(h.y)
 
         path.move(to: at(mb, top))
         path.addLine(to: at(beyond, top))
