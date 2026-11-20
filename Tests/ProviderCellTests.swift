@@ -102,4 +102,64 @@ final class ProviderCellTests: XCTestCase {
         let healthy = ProviderRing(usedFraction: 0.3, glyph: .claude)
         XCTAssertFalse(healthy.showsShutRings)
     }
+
+    // MARK: - Pace / Deficit Marker on Progress Rings
+
+    func testDeficitMarkerOnHeadlineRingAppearsWhenSettingEnabled() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let timedWindow = LimitWindow(id: "session", label: "Session", usedFraction: 0.6,
+                                      resetsAt: now.addingTimeInterval(2.5 * 3600), duration: 5 * 3600)
+        let s = ProviderSnapshot(id: "claude", displayName: "Claude", glyph: .claude,
+                                 fidelity: .official, status: .ok, windows: [timedWindow],
+                                 headlineID: "session")
+
+        // Setting off: marker is nil
+        let cellOff = ProviderCell(snapshot: s, showsUsagePace: false, now: now)
+        XCTAssertNil(cellOff.headlinePaceMarker)
+
+        // Setting on: 2.5h of 5h elapsed = 0.5 marker position
+        let cellOn = ProviderCell(snapshot: s, showsUsagePace: true, now: now)
+        XCTAssertEqual(cellOn.headlinePaceMarker!, 0.5, accuracy: 1e-6)
+
+        // Remaining mode: 1 - 0.5 = 0.5
+        let cellRemaining = ProviderCell(snapshot: s, showsRemaining: true, showsUsagePace: true, now: now)
+        XCTAssertEqual(cellRemaining.headlinePaceMarker!, 0.5, accuracy: 1e-6)
+    }
+
+    func testDeficitMarkerOnWeeklyRingAppearsWhenWeeklyRingActive() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let session = LimitWindow(id: "session", label: "Session", usedFraction: 0.3,
+                                  resetsAt: now.addingTimeInterval(3600), duration: 5 * 3600)
+        let weekly = LimitWindow(id: "weekly_all", label: "Weekly", usedFraction: 0.8,
+                                 resetsAt: now.addingTimeInterval(86400), duration: 7 * 86400)
+        let s = ProviderSnapshot(id: "claude", displayName: "Claude", glyph: .claude,
+                                 fidelity: .official, status: .ok, windows: [session, weekly],
+                                 headlineID: "session", weeklyID: "weekly_all")
+
+        // Weekly ring off: weekly marker is nil
+        let cellWeeklyOff = ProviderCell(snapshot: s, weeklyRing: .off, showsUsagePace: true, now: now)
+        XCTAssertNil(cellWeeklyOff.weeklyPaceMarker)
+
+        // Weekly ring on (.inside or .outside): weekly marker is computed
+        let cellWeeklyOn = ProviderCell(snapshot: s, weeklyRing: .inside, showsUsagePace: true, now: now)
+        let expectedWeekly = weekly.paceMarkerFraction(now: now, showingRemaining: false)!
+        XCTAssertEqual(cellWeeklyOn.weeklyPaceMarker!, expectedWeekly, accuracy: 1e-6)
+    }
+
+    func testDeficitMarkerAbsentWithoutResetTimeOrForLocalModel() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let untimed = LimitWindow(id: "session", label: "Session", usedFraction: 0.4)
+        let sUntimed = ProviderSnapshot(id: "claude", displayName: "Claude", glyph: .claude,
+                                        fidelity: .official, status: .ok, windows: [untimed],
+                                        headlineID: "session")
+        let cellUntimed = ProviderCell(snapshot: sUntimed, showsUsagePace: true, now: now)
+        XCTAssertNil(cellUntimed.headlinePaceMarker)
+
+        var local = ProviderSnapshot(id: "ollama", displayName: "Ollama", glyph: .ollama,
+                                     fidelity: .official, status: .ok, windows: [untimed],
+                                     kind: .localRuntime)
+        local.localModel = LocalRuntimeReading.Model(name: "llama3", memoryBytes: 1024, contextLength: 4096, quantizationLevel: "Q4_0")
+        let cellLocal = ProviderCell(snapshot: local, showsUsagePace: true, now: now)
+        XCTAssertNil(cellLocal.headlinePaceMarker)
+    }
 }

@@ -49,6 +49,10 @@ struct ProviderRing: View {
     /// Where the user asked for it, if at all.
     var weeklyRing: WeeklyRing = .off
     var bandOverride: UsageBand? = nil
+    /// The expected pace marker fraction (0...1) along the progress arc,
+    /// derived from elapsed time in the reset window.
+    var paceMarkerFraction: Double? = nil
+    var weeklyPaceMarkerFraction: Double? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.codenotchReduceTransparency) private var reduceTransparency
@@ -198,6 +202,10 @@ struct ProviderRing: View {
                         // that sweeps reads as a measurement being taken.
                         .animation(NotchMotion.reading, value: sweep)
                         .animation(NotchMotion.reading, value: band)
+
+                    if let marker = paceMarkerFraction, !isRefreshing {
+                        RingPaceMarker(position: marker)
+                    }
                 }
 
                 // The weekly limit, when there is one and it has been asked
@@ -238,6 +246,13 @@ struct ProviderRing: View {
                         .rotationEffect(.degrees(-90))
                         .animation(NotchMotion.reading, value: weeklySweep)
                         .animation(NotchMotion.reading, value: weeklyBand)
+
+                    if let weeklyMarker = weeklyPaceMarkerFraction, !isRefreshing {
+                        RingPaceMarker(position: weeklyMarker,
+                                       radius: radius,
+                                       length: NotchLayout.weeklyRingStroke + Design.px(2),
+                                       width: Design.px(1.5))
+                    }
                 }
 
                 ProviderGlyphView(glyph: glyph, customIconFilename: customIconFilename)
@@ -369,6 +384,22 @@ struct ProviderCell: View {
     /// Whether a spent window shuts the rings: both arcs say shut rather
     /// than their own window's colour. Mirrors the Appearance setting.
     var shutRingsWhenSpent: Bool = true
+    var showsUsagePace: Bool? = nil
+    var now: Date = Date()
+
+    @AppStorage(Preferences.showUsagePaceKey) private var showUsagePace = false
+
+    private var effectiveShowsUsagePace: Bool { showsUsagePace ?? showUsagePace }
+
+    var headlinePaceMarker: Double? {
+        guard effectiveShowsUsagePace, snapshot.localModel == nil, snapshot.hasReading else { return nil }
+        return snapshot.headline?.paceMarkerFraction(now: now, showingRemaining: showsRemaining)
+    }
+
+    var weeklyPaceMarker: Double? {
+        guard effectiveShowsUsagePace, weeklyRing != .off, snapshot.hasReading else { return nil }
+        return snapshot.weeklyLimitWindow?.paceMarkerFraction(now: now, showingRemaining: showsRemaining)
+    }
 
     private var reading: ProviderReading {
         ProviderReading(snapshot: snapshot, weeklyRing: weeklyRing,
@@ -402,7 +433,9 @@ struct ProviderCell: View {
                 localContextFraction: snapshot.localContextFraction,
                 weeklyFraction: snapshot.hasReading ? snapshot.weeklyFraction : nil,
                 weeklyRing: weeklyRing,
-                bandOverride: snapshot.bandOverride
+                bandOverride: snapshot.bandOverride,
+                paceMarkerFraction: headlinePaceMarker,
+                weeklyPaceMarkerFraction: weeklyPaceMarker
             )
             if showsReading { reading }
         }
@@ -429,6 +462,32 @@ struct ProviderCell: View {
         guard let ledger = snapshot.localLedger else { return "" }
         let context = snapshot.localContextFraction.map { ", Context \(Percent.text(for: $0))% full" } ?? ""
         return "\(context), Tokens today \(ledger.tokensTodayText), \(ledger.requestsTodayText) requests"
+    }
+}
+
+/// Angle (in degrees) for a marker on a circular progress ring, starting at 12 o'clock and sweeping clockwise.
+func ringPaceMarkerAngle(position: Double) -> Double {
+    position * 360
+}
+
+/// The tick on a circular progress ring marking the share of the cycle elapsed —
+/// where the arc *should* be, so a glance says whether the burn is ahead of the
+/// clock (deficit) or behind it (reserve).
+struct RingPaceMarker: View {
+    /// 0...1 from the top (12 o'clock), sweeping clockwise — see `LimitWindow.paceMarkerFraction`.
+    let position: Double
+    var radius: CGFloat = (NotchLayout.ringDiameter - NotchLayout.trackStroke) / 2
+    var length: CGFloat = NotchLayout.trackStroke + Design.px(2)
+    var width: CGFloat = Design.px(2)
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: width / 2, style: .continuous)
+            .fill(Palette.textPrimary)
+            .frame(width: width, height: length)
+            .offset(y: -radius)
+            .frame(width: NotchLayout.ringDiameter, height: NotchLayout.ringDiameter)
+            .rotationEffect(.degrees(ringPaceMarkerAngle(position: position)))
+            .animation(NotchMotion.reading, value: position)
     }
 }
 
