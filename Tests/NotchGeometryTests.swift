@@ -435,6 +435,20 @@ final class AboveTheCutoutTests: XCTestCase {
                        "the pair is symmetric about the hole, so the panel is too")
     }
 
+    /// **Left loose, the hole is not there as far as placement goes**: the
+    /// panel is centred on the bezel exactly as on a display without one —
+    /// which on a MacBook is centred on the hole, for the notch to grow out of.
+    func testLeftLooseThePanelIsPlacedAsOnAPlainDisplay() {
+        let loose = NotchGeometry.panelFrame(for: Notched(), panelSize: size, edge: .top,
+                                             alongOffset: 30, joinsCutout: false)
+        let plain = NotchGeometry.panelFrame(for: Plain(), panelSize: size, edge: .top,
+                                             alongOffset: 30)
+        XCTAssertEqual(loose, plain, "a loose notch is placed like one on a plain display")
+        XCTAssertNil(NotchGeometry.cutoutProximity(for: Notched(), edge: .top, alongOffset: 0,
+                                                   joinsCutout: false),
+                     "left loose there is no join to report")
+    }
+
     /// A display without one loses nothing: centred, on the bezel, as before.
     func testAPlainDisplayIsCentredOnTheBezel() {
         let screen = Plain()

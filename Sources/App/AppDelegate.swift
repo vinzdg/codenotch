@@ -892,6 +892,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak fleet] in fleet?.apply(surfaceStyle: $0) }
                 .store(in: &cancellables)
 
+            preferences.$notchCutoutOddSide
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet] in fleet?.apply(cutoutOddSide: $0) }
+                .store(in: &cancellables)
+
+            preferences.$notchJoinsCutout
+                .receive(on: RunLoop.main)
+                .sink { [weak fleet] in fleet?.apply(joinsCutout: $0) }
+                .store(in: &cancellables)
+
             preferences.$colorTransitionStyle
                 .receive(on: RunLoop.main)
                 .sink { [weak fleet] in fleet?.apply(colorTransitionStyle: $0) }
@@ -1328,7 +1338,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         fleet.apply(shutRingsWhenSpent: preferences.shutRingsWhenSpent)
         fleet.apply(autoHideMode: preferences.autoHideMode)
         fleet.apply(keepOpenWhileSessionActive: preferences.keepOpenWhileSessionActive)
-        fleet.apply(surfaceStyle:preferences.notchSurfaceStyle)
+        fleet.apply(surfaceStyle: preferences.notchSurfaceStyle)
+        fleet.apply(joinsCutout: preferences.notchJoinsCutout)
+        fleet.apply(cutoutOddSide: preferences.notchCutoutOddSide)
         fleet.apply(deepSeekPricingEnabled: preferences.deepSeekPricingEnabled)
         fleet.apply(deepSeekPricingSchedule: preferences.deepSeekPricingSchedule)
         fleet.show()
