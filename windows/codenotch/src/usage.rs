@@ -1420,7 +1420,7 @@ mod tests {
     #[test]
     fn expired_and_unrenewable_asks_for_sign_in_even_with_a_reading() {
         let dir = cred_dir("signedout", serde_json::json!({"accessToken": "a", "expiresAt": 1.0}));
-        let p = Profile { dir: dir.clone(), slug: Some("signedout".into()) };
+        let p = Profile { dir: dir.clone(), slug: Some("signedout".into()), label: None, address: None };
         let mut acc = Account { windows: vec![win("session")], ..Default::default() };
         poll_account(&p, &mut acc, None);
         assert_eq!(acc.status, "needsAuth");

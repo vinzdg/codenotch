@@ -1,5 +1,6 @@
 //! codenotch-hook: the minimal client Claude Code's hooks call.
-//! Duties: 1) report the event plus stdin JSON to the main app; 2) launch the main app if it is not running.
+//! Duty: report the event plus stdin JSON to the main app. It never starts the app: as on the Mac,
+//! Codenotch runs when it is opened or at sign-in, and a hook that finds it closed gives up.
 //! Iron rule: never block Claude Code — ~2 s total budget, and every failure exits 0 silently.
 
 use std::io::{Read, Write};
@@ -17,24 +18,11 @@ fn main() {
     let _ = std::io::stdin().take(MAX_STDIN).read_to_string(&mut body);
 
     let port = read_port();
-    let mut token = read_token();
+    let token = read_token();
     let ppid = parent_pid();
 
-    if send(port, &token, &event, ppid, &body).is_ok() {
-        return;
-    }
-    // Main app not running: launch it detached, then retry briefly
-    spawn_main();
-    for _ in 0..20 {
-        std::thread::sleep(Duration::from_millis(100));
-        if token.is_empty() {
-            token = read_token();
-        }
-        if send(port, &token, &event, ppid, &body).is_ok() {
-            return;
-        }
-    }
-    // Give up quietly — never affect Claude Code
+    // Not running: give up quietly — never affect Claude Code
+    let _ = send(port, &token, &event, ppid, &body);
 }
 
 /// Pulls auth token out of %APPDATA%\codenotch\auth_token (hand-rolled scan, no dependency)
@@ -96,28 +84,6 @@ fn send(port: u16, token: &str, event: &str, ppid: u32, body: &str) -> std::io::
     let mut buf = [0u8; 64];
     let _ = s.read(&mut buf); // wait for a response fragment to confirm delivery; failure does not matter
     Ok(())
-}
-
-/// Launches the main app detached: no inherited handles, no window, never waits
-fn spawn_main() {
-    let Ok(me) = std::env::current_exe() else { return };
-    let Some(dir) = me.parent() else { return };
-    let exe = dir.join("codenotch.exe");
-    if !exe.exists() {
-        return;
-    }
-    let mut cmd = std::process::Command::new(exe);
-    cmd.stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW);
-    }
-    let _ = cmd.spawn();
 }
 
 /// Parent process PID (≈ the Claude Code CLI process) via NtQueryInformationProcess, no dependency

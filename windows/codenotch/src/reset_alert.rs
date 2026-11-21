@@ -1,4 +1,5 @@
-//! A short-lived, non-taskbar card beside the configured notch edge, for any provider whose quota
+//! A short-lived, non-taskbar card beside the notch (or the taskbar strip, while it stands in for a
+//! hidden notch), for any provider whose quota
 //! window just renewed. It is a separate window so the user's "Hide" choice stays in force while an
 //! alert can still be seen. Multiple alerts queued at once are shown one after another.
 
@@ -17,6 +18,8 @@ use windows::Win32::UI::WindowsAndMessaging::MB_ICONASTERISK;
 const LABEL: &str = "reset-alert";
 const CARD_W: f64 = 280.0;
 const CARD_H: f64 = 150.0;
+/// Over and under its tail, the card sits this far in from each side of its window (reset-alert.html).
+const CARD_SIDE: f64 = 17.0;
 const SHOW_FOR: Duration = Duration::from_secs(6);
 /// Logical px the pill occupies at the notch window's near edge on an upright edge (`#pill` in
 /// notch.html is 70 px wide); used as an approximation of its depth when the notch lies flat too,
@@ -47,6 +50,8 @@ struct CardPayload {
     lang: String,
     edge: String,
     attached: bool,
+    /// Beside the taskbar strip: what the tail aims at, in physical px from the card's left.
+    tail_x: Option<f64>,
     glyph: glyphs::Glyph,
     token: u64,
     title: String,
@@ -148,12 +153,18 @@ fn show_on_main(app: &AppHandle, event: ResetEvent, token: u64) -> Result<(), St
     };
     let vertical = config::edge_is_vertical(&edge);
     let geometry = notch_geometry(app);
-    let density = geometry
-        .map(|(_, _, w, h)| {
-            let logical = if vertical { crate::NOTCH_W } else { crate::NOTCH_LONG };
-            (if vertical { w } else { h }) as f64 / logical
-        })
-        .unwrap_or(screen.scale * cfg_scale);
+    // The hidden notch window still sits at its old place on its edge, which is not where the user
+    // looks once the taskbar strip stands in for it.
+    let popup = if visible { None } else { crate::taskbar::popup_beside_strip(app, &event.provider, CARD_W, CARD_H, CARD_SIDE) };
+    let density = match &popup {
+        Some(p) => p.scale,
+        None => geometry
+            .map(|(_, _, w, h)| {
+                let logical = if vertical { crate::NOTCH_W } else { crate::NOTCH_LONG };
+                (if vertical { w } else { h }) as f64 / logical
+            })
+            .unwrap_or(screen.scale * cfg_scale),
+    };
 
     let glyph = app
         .state::<AppState>()
@@ -168,8 +179,9 @@ fn show_on_main(app: &AppHandle, event: ResetEvent, token: u64) -> Result<(), St
     let window_label = traymenu::label(&event.window_label, &lang);
     let payload = CardPayload {
         lang: lang.clone(),
-        edge: edge.clone(),
-        attached: visible,
+        edge: popup.as_ref().map_or_else(|| edge.clone(), |p| p.edge.to_string()),
+        attached: popup.is_some() || visible,
+        tail_x: popup.as_ref().map(|p| p.tail_x),
         glyph,
         token,
         title: format!("{provider_name} {}", word_renewed(&lang)),
@@ -208,41 +220,51 @@ fn show_on_main(app: &AppHandle, event: ResetEvent, token: u64) -> Result<(), St
         .map_err(|e| e.to_string())?;
 
     let (ax, ay, aw, ah) = screen.area();
-    let width = ((CARD_W * density).round() as u32).min(aw.max(1) as u32);
-    let height = ((CARD_H * density).round() as u32).min(ah.max(1) as u32);
+    let (width, height) = match &popup {
+        Some(p) => (p.width, p.height),
+        None => (
+            ((CARD_W * density).round() as u32).min(aw.max(1) as u32),
+            ((CARD_H * density).round() as u32).min(ah.max(1) as u32),
+        ),
+    };
     window
         .set_size(tauri::PhysicalSize::new(width, height))
         .map_err(|e| e.to_string())?;
 
-    let (x, y) = match geometry {
-        // Beside (or above/below) the pill's own measured rectangle, not the screen edge: a notch
-        // dragged along its edge, or a taskbar docked to it, can leave the pill short of flush.
-        Some((nx, ny, nw, nh)) => {
-            let pill = (PILL_DEPTH * density).round() as i32;
-            match edge.as_str() {
-                "left" => (nx + pill, ny + nh / 2 - height as i32 / 2),
-                "top" => (nx + nw / 2 - width as i32 / 2, ny + pill),
-                "bottom" => (nx + nw / 2 - width as i32 / 2, ny + nh - pill - height as i32),
-                _ => (nx + nw - pill - width as i32, ny + nh / 2 - height as i32 / 2),
-            }
-        }
-        // The notch window could not be measured (very unlikely, since it exists from launch): fall
-        // back to a plain clearance from the work area's own edge.
+    let (x, y) = match &popup {
+        // Kept on the strip's own monitor, which need not be the one the notch is set to.
+        Some(p) => (p.x, p.y),
         None => {
-            let inset = ((if visible { 100.0 } else { 8.0 }) * density).round() as i32;
-            let along = |span: i32, len: i32| {
-                ((span as f64 * 0.5 - len as f64 / 2.0).round() as i32).clamp(0, (span - len).max(0))
+            let (x, y) = match geometry {
+                // Beside (or above/below) the pill's own measured rectangle, not the screen edge: a notch
+                // dragged along its edge, or a taskbar docked to it, can leave the pill short of flush.
+                Some((nx, ny, nw, nh)) => {
+                    let pill = (PILL_DEPTH * density).round() as i32;
+                    match edge.as_str() {
+                        "left" => (nx + pill, ny + nh / 2 - height as i32 / 2),
+                        "top" => (nx + nw / 2 - width as i32 / 2, ny + pill),
+                        "bottom" => (nx + nw / 2 - width as i32 / 2, ny + nh - pill - height as i32),
+                        _ => (nx + nw - pill - width as i32, ny + nh / 2 - height as i32 / 2),
+                    }
+                }
+                // The notch window could not be measured (very unlikely, since it exists from launch): fall
+                // back to a plain clearance from the work area's own edge.
+                None => {
+                    let inset = ((if visible { 100.0 } else { 8.0 }) * density).round() as i32;
+                    let along = |span: i32, len: i32| {
+                        ((span as f64 * 0.5 - len as f64 / 2.0).round() as i32).clamp(0, (span - len).max(0))
+                    };
+                    match edge.as_str() {
+                        "left" => (ax + inset, ay + along(ah, height as i32)),
+                        "top" => (ax + along(aw, width as i32), ay + inset),
+                        "bottom" => (ax + along(aw, width as i32), ay + ah - height as i32 - inset),
+                        _ => (ax + aw - width as i32 - inset, ay + along(ah, height as i32)),
+                    }
+                }
             };
-            match edge.as_str() {
-                "left" => (ax + inset, ay + along(ah, height as i32)),
-                "top" => (ax + along(aw, width as i32), ay + inset),
-                "bottom" => (ax + along(aw, width as i32), ay + ah - height as i32 - inset),
-                _ => (ax + aw - width as i32 - inset, ay + along(ah, height as i32)),
-            }
+            (x.clamp(ax, ax + aw - width as i32), y.clamp(ay, ay + ah - height as i32))
         }
     };
-    let x = x.clamp(ax, ax + aw - width as i32);
-    let y = y.clamp(ay, ay + ah - height as i32);
     window
         .set_position(tauri::PhysicalPosition::new(x, y))
         .map_err(|e| e.to_string())?;
@@ -354,8 +376,9 @@ pub fn preview_reset_alert(app: AppHandle) -> Result<(), String> {
     let now = crate::now_ms();
     enqueue_unchecked(
         &app,
+        // Claude, as the Mac's preview (`previewUsageResetAlert`)
         ResetEvent {
-            provider: "codex".into(),
+            provider: "claude".into(),
             window_label: "5h limit".into(),
             used_fraction: 0.0,
             next_reset_at: Some(now + 300 * 60_000),

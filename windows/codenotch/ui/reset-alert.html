@@ -87,7 +87,16 @@ if(glyph.kind === 'svg' && typeof glyph.svg === 'string' && glyph.svg.startsWith
   // the provider's own initial, matching how the tray icon falls back to text on Windows.
   glyphEl.textContent = (data.title || '?').trim().charAt(0).toUpperCase();
 }
-function fit(){document.documentElement.style.zoom = String(Math.min(innerWidth/280,innerHeight/150));}
+function fit(){document.documentElement.style.zoom = String(Math.min(innerWidth/280,innerHeight/150)); aimTail();}
+// From the taskbar strip, tail_x is the card's own ring in physical px from the window's left. The
+// tail goes there, kept off the card's rounded corners (#card spans 17–263, radius 16; #tail is 34
+// wide), as the strip's hover card keeps its own.
+function aimTail(){
+  const tail = document.getElementById('tail');
+  if(!Number.isFinite(data.tail_x) || !['top','bottom'].includes(document.body.dataset.edge)){ tail.style.left = ''; return; }
+  const scale = (window.devicePixelRatio || 1) * (parseFloat(document.documentElement.style.zoom) || 1);
+  tail.style.left = Math.round(Math.max(33, Math.min(213, data.tail_x / scale - 17))) + 'px';
+}
 fit(); window.addEventListener('resize',fit);
 document.getElementById('dismiss').addEventListener('click', () => {
   window.__TAURI__?.core?.invoke('dismiss_reset_alert',{token:data.token}).catch(() => {});

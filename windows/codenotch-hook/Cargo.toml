@@ -2,7 +2,7 @@
 name = "codenotch-hook"
 version = "0.3.0"
 edition = "2021"
-description = "Codenotch hook launcher: report Claude Code hook events, auto-start main app"
+description = "Codenotch hook client: report Claude Code hook events to the running app"
 license = "MIT"
 repository = "https://github.com/Im-Midi/codenotch-windows"
 
