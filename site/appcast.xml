@@ -3,22 +3,23 @@
     <channel>
         <title>Codenotch</title>
         <item>
-            <title>1.25.0</title>
-            <pubDate>Fri, 06 Nov 2026 20:41:01 +0700</pubDate>
-            <sparkle:version>27</sparkle:version>
-            <sparkle:shortVersionString>1.25.0</sparkle:shortVersionString>
+            <title>1.26.0</title>
+            <pubDate>Sat, 21 Nov 2026 11:16:16 +0700</pubDate>
+            <sparkle:version>28</sparkle:version>
+            <sparkle:shortVersionString>1.26.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<p>Claude sessions named by their title, a lighter cost indexer, Krea, Japanese brought up to date, and a Windows taskbar strip drawn like the notch.</p>
+            <description><![CDATA[<p>The notch folds into the Mac's own cutout and joins it as one liquid shape, menu bar bars, a font size setting, and Korean, Ukrainian and Chinese brought up to date.</p>
 <ul>
-<li><b>Sessions by title</b>: Claude Code sessions carry their own title instead of the folder name.</li>
-<li><b>Lighter on big histories</b>: the cost indexer checks each transcript far more cheaply, and costs react only when a reading changes.</li>
-<li><b>Krea</b> ring, a <b>Xiaomi MiMo</b> preset for Custom Endpoints, and one ring per <b>Grok</b> home directory.</li>
-<li><b>日本語</b> is up to date.</li>
-<li>Claude plans with only weekly limits read again, remote Claude readings are reused for five minutes, Kiro never sends /usage to the model, Kimi monthly quotas, MiniMax China keys, and deficit rings sort by the soonest expiry.</li>
-<li><b>Windows</b>: the taskbar strip and its card drawn as the notch, Claude accounts as rows in the provider list, Antigravity read through agy.exe, and hook events that must carry a local token.</li>
+<li><b>One with the camera notch</b>: folded, the notch is exactly the Mac's own cutout; dragged onto it, it joins as one shape that stretches across the camera, with no gaps or cut-off ends in screenshots. It stays open while a session is active.</li>
+<li><b>Menu bar indicators</b>: usage as bars in the menu bar, coloured by your Watch and Critical settings.</li>
+<li><b>Font size</b>: larger, more legible text in the notch and its cards.</li>
+<li>A deficit marker on the ring, and a ring that shuts once a monthly allowance is spent.</li>
+<li>MiMo's Token Plan, DeepSeek's balance with an API key, OpenCode Go, several codex-auth accounts, Codex weekly limits on prolite plans, MiniMax China, Claude Code from npm, and Manual's own icon.</li>
+<li><b>한국어</b>, <b>Українська</b> and <b>简体中文</b> are up to date.</li>
+<li><b>Windows</b>: Mistral, Cursor's sealed session and weekly allowance, Claude sign-ins that ask again when they can no longer renew, hooks that never start the app, and a reset card that follows the taskbar strip.</li>
 </ul>
 ]]></description>
-            <enclosure url="https://hivinz.com/Codenotch-1.25.0.dmg" length="13851246" type="application/octet-stream" sparkle:edSignature="sEWE9gYa6xh+1FwD9QYdJ5W+74ySMkymqxK21Sj6wIIgsxbMCP9gry6fC1TWSSe8XUs8TnZXCb2cDpt+yiOgBQ=="/>
+            <enclosure url="https://hivinz.com/Codenotch-1.26.0.dmg" length="14144790" type="application/octet-stream" sparkle:edSignature="oY6ClDbOou9WsJwaf6LpJ+1/q39Bawiv6s1l+h/6j7txZYQlkbl5NLfRHmfZLJWCg8QAuGtIPoj11uFNXidGCw=="/>
         </item>
     </channel>
 </rss>
