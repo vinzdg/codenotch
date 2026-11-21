@@ -524,7 +524,7 @@ struct ProviderSnapshot: Identifiable, Equatable {
     /// is spent, and its fraction is not a share used: DeepSeek's balance has
     /// none at all, and a custom endpoint showing what is left stores the
     /// remaining share there, so a full fraction means an untouched budget.
-    private var headlineIsSpent: Bool {
+    var headlineIsSpent: Bool {
         guard let headline else { return false }
         if let band = headline.bandOverride { return band == .exhausted }
         return (headline.usedFraction ?? 0) >= 1

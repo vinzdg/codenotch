@@ -256,4 +256,52 @@ final class UsageLimitWatcherTests: XCTestCase {
         watcher.observe([snap(session: 1.00, weekly: 1.00, spark: 1.00)])
         XCTAssertEqual(alerts.map(\.kind), [.sessionLimitReached, .weeklyLimitReached])
     }
+
+    // MARK: - Headlines with a band override
+
+    /// A custom endpoint showing what is left, built the way
+    /// CustomEndpointProvider builds it: the fraction is the remaining share,
+    /// and the band comes from the share spent.
+    private func remainingBudget(spent: Double) -> ProviderSnapshot {
+        let spentShare = min(max(spent, 0), 1)
+        return ProviderSnapshot(
+            id: "custom-endpoint", displayName: "My Endpoint", glyph: .openai,
+            fidelity: .official, status: .ok,
+            windows: [
+                LimitWindow(id: "monthly-budget", label: "Remaining Budget",
+                            usedFraction: 1 - spentShare,
+                            resetsAt: Date().addingTimeInterval(20 * 86400),
+                            duration: 30 * 86400,
+                            bandOverride: UsageBand.band(for: spentShare))
+            ],
+            headlineID: "monthly-budget"
+        )
+    }
+
+    func testARemainingBudgetSpentToNothingIsAnnounced() {
+        watcher.observe([remainingBudget(spent: 0.60)])
+        watcher.observe([remainingBudget(spent: 1.00)])
+        XCTAssertEqual(alerts.map(\.kind), [.sessionLimitReached],
+                       "0% left is a spent budget, even though its fraction reads 0")
+    }
+
+    func testARemainingBudgetThatRefillsIsNotAnnounced() {
+        watcher.observe([remainingBudget(spent: 0.60)])
+        watcher.observe([remainingBudget(spent: 0.00)])
+        XCTAssertTrue(alerts.isEmpty, "a full budget reads 100% left, which is not a spent limit")
+    }
+
+    /// The re-arm reads the same rule: a spent remaining budget has fraction
+    /// 0, and re-arming on that announced the limit again on every refresh.
+    func testARemainingBudgetThatStaysSpentIsAnnouncedOnce() {
+        watcher.observe([remainingBudget(spent: 0.60)])
+        watcher.observe([remainingBudget(spent: 1.00)])
+        watcher.observe([remainingBudget(spent: 1.00)])
+        watcher.observe([remainingBudget(spent: 1.00)])
+        XCTAssertEqual(alerts.count, 1)
+
+        watcher.observe([remainingBudget(spent: 0.10)])
+        watcher.observe([remainingBudget(spent: 1.00)])
+        XCTAssertEqual(alerts.count, 2, "spent again after room came back is news again")
+    }
 }
