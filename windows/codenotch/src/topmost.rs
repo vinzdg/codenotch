@@ -82,8 +82,36 @@ pub fn is_out_of_topmost_band(window: &WebviewWindow) -> bool {
 }
 
 #[cfg(not(windows))]
-pub fn is_out_of_topmost_band(_window: &WebviewWindow) -> bool {
-    false
+pub fn is_out_of_topmost_band(window: &WebviewWindow) -> bool {
+    window.is_visible().unwrap_or(false) && crate::x11_util::notch_missing_above()
+}
+
+#[cfg(not(windows))]
+pub fn reassert(_window: &WebviewWindow) {
+    let _ = crate::x11_util::raise_notch_above();
+}
+
+#[cfg(not(windows))]
+pub fn start_watchdog(app: AppHandle) {
+    use std::sync::atomic::{AtomicBool, Ordering::SeqCst};
+    static WAS_OUT: AtomicBool = AtomicBool::new(false);
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        if crate::DRAGGING.load(SeqCst) {
+            continue;
+        }
+        let Some(window) = app.get_webview_window("notch") else {
+            continue;
+        };
+        if !is_out_of_topmost_band(&window) {
+            WAS_OUT.store(false, SeqCst);
+            continue;
+        }
+        reassert(&window);
+        if !WAS_OUT.swap(true, SeqCst) {
+            crate::applog("topmost watchdog: notch had left the above band, reasserted");
+        }
+    });
 }
 
 /// Reasserts the notch at the top of the z-order with a direct Win32 call, bypassing `tao`'s
@@ -108,9 +136,6 @@ pub fn reassert(window: &WebviewWindow) {
         );
     }
 }
-
-#[cfg(not(windows))]
-pub fn reassert(_window: &WebviewWindow) {}
 
 /// Catches the unusual case where another application creates a topmost window without making it
 /// foreground. Foreground changes are the ordinary, event-driven path.
@@ -210,6 +235,3 @@ pub fn start_watchdog(app: AppHandle) {
         check(&app);
     });
 }
-
-#[cfg(not(windows))]
-pub fn start_watchdog(_app: AppHandle) {}

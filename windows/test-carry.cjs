@@ -13,7 +13,7 @@ const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 function page() {
   const element = () => ({ style: {}, children: [], setAttribute() {}, querySelector: () => element(), set innerHTML(_) {} });
   const context = vm.createContext({
-    window: { __TAURI__: { core: { invoke: () => Promise.resolve(null) }, event: { listen: () => Promise.resolve() } } },
+    window: { addEventListener() {}, __TAURI__: { core: { invoke: () => Promise.resolve(null) }, event: { listen: () => Promise.resolve() } } },
     document: { getElementById: element },
     matchMedia: () => ({ matches: false }),
     requestAnimationFrame() {},

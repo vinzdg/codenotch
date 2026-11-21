@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "resources": {
+      "../target/hook/release/codenotch-hook": "codenotch-hook"
+    }
+  }
+}
