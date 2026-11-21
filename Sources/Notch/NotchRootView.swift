@@ -2,6 +2,7 @@ import SwiftUI
 
 struct NotchRootView: View {
     @ObservedObject var model: NotchViewModel
+    private static let panelSpace = "notch-panel"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.codenotchReduceTransparency) private var reduceTransparency
     @Environment(\.codenotchHeadlessGlass) private var headlessGlass
@@ -194,6 +195,7 @@ struct NotchRootView: View {
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
+            .coordinateSpace(name: Self.panelSpace)
         }
         .animation(motion(NotchMotion.unfold), value: model.isExpanded)
         .tint(model.accentColor.color)
@@ -545,6 +547,12 @@ struct NotchRootView: View {
                 // edge that is the ring alone — the label sits below it, in the
                 // notch's depth, and claims nothing here.
                 .frame(width: model.edge.isVertical ? nil : NotchLayout.cellAlong(for: model.edge))
+                .onGeometryChange(for: CGRect.self) { geometry in
+                    geometry.frame(in: .named(Self.panelSpace))
+                } action: { frame in
+                    model.renderedCellFrames[snapshot.id] = frame
+                }
+                .onDisappear { model.renderedCellFrames.removeValue(forKey: snapshot.id) }
                 .opacity(model.isExpanded ? 1 : 0)
                 // A short slide toward the edge, no scaling: the clip is
                 // already doing the concealing, and scaling on top of it

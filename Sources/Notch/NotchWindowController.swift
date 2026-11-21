@@ -1478,15 +1478,16 @@ final class NotchWindowController {
         let onPill = model.isExpanded || geometry.restingRect.contains(local)
         if !inWake || onPill { resetBand() }
         let wakes = inWake && (onPill || bandDwellElapsed())
-        setExpanded(wakes || overTooltip,
+        let overCell = wasExpanded && geometry.cellIndex(at: local) != nil
+        setExpanded(wakes || overTooltip || overCell,
                     ignoreAlwaysOn: shouldFoldForActiveAppOrWindow)
         // Opening calls onLook, which may change content, scale or placement
         // synchronously. Never carry the folded evaluation across that call.
         if !wasExpanded { geometry = cursorGeometry }
 
         var target: Int?
-        if model.isExpanded, geometry.notchRect.contains(local) {
-            target = geometry.cellIndex(along: geometry.placement.along(of: local))
+        if model.isExpanded, let cell = geometry.cellIndex(at: local) {
+            target = cell
         } else if model.isExpanded, let current = model.hoveredIndex,
                   let card = geometry.tooltipRect(index: current),
                   card.contains(local) {

@@ -121,6 +121,18 @@ final class CursorGeometryTests: XCTestCase {
         }
     }
 
+    func testRenderedSecondCellWinsWhenTheLayoutAndHitBandsDisagree() {
+        let m = model(edge: .top)
+        let g = geometry(m)
+        let first = g.placement.point(along: m.ringAlong(index: 0, in: m.cellWing), across: 12)
+        XCTAssertEqual(g.cellIndex(at: first), 0)
+        m.renderedCellFrames[m.snapshots[1].id] =
+            CGRect(x: first.x - 5, y: first.y - 5, width: 10, height: 10)
+        XCTAssertEqual(g.cellIndex(at: first), 1)
+        XCTAssertNil(g.cellIndex(at: CGPoint(x: -1000, y: -1000)))
+        XCTAssertEqual(g.cellIndex(at: first), 1)
+    }
+
     func testGripCanBeRevealedAndHiddenWithinTheSameEvaluation() {
         let m = model()
         let g = geometry(m)
