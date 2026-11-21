@@ -71,6 +71,17 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         self.providers = providers
         self.signOut = signOut
         self.signIn = signIn
+        super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleSidebarToggled(_:)),
+            name: .settingsSidebarToggled,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     /// Bring the window to the front from an accessory app.
@@ -164,29 +175,56 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     /// the pane's title share. AppKit puts them back on some window events,
     /// so this runs again whenever the window comes forward rather than only
     /// at creation.
-    private func layoutTrafficLights(in window: NSWindow) {
+    private func layoutTrafficLights(in window: NSWindow, animated: Bool = false) {
         let buttons = [NSWindow.ButtonType.closeButton,
                        .miniaturizeButton,
                        .zoomButton]
             .compactMap { window.standardWindowButton($0) }
         guard let container = buttons.first?.superview else { return }
 
-        for (index, button) in buttons.enumerated() {
-            var frame = button.frame
-            frame.origin.x = Self.firstLightCentreX
-                + CGFloat(index) * Self.lightSpacing - frame.width / 2
-            // Flipped: AppKit measures a window's content from the bottom.
-            frame.origin.y = container.bounds.height
-                - SettingsView.headerHeight / 2 - frame.height / 2
-            button.frame = frame
+        let isCollapsed = UserDefaults.standard.bool(forKey: "settingsSidebarCollapsed")
+        let firstX = isCollapsed ? Self.collapsedFirstLightCentreX : Self.firstLightCentreX
+        let spacing = isCollapsed ? Self.collapsedLightSpacing : Self.lightSpacing
+
+        let update = {
+            for (index, button) in buttons.enumerated() {
+                var frame = button.frame
+                frame.origin.x = firstX
+                    + CGFloat(index) * spacing - frame.width / 2
+                // Flipped: AppKit measures a window's content from the bottom.
+                frame.origin.y = container.bounds.height
+                    - SettingsView.headerHeight / 2 - frame.height / 2
+                if animated {
+                    button.animator().frame = frame
+                } else {
+                    button.frame = frame
+                }
+            }
         }
+
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.28
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                update()
+            }
+        } else {
+            update()
+        }
+    }
+
+    @objc private func handleSidebarToggled(_ notification: Notification) {
+        guard let window else { return }
+        layoutTrafficLights(in: window, animated: true)
     }
 
     /// Centre of the close button, in from the window's left edge, and the
     /// centre-to-centre step to the next one — both measured off the design
     /// this panel is matching.
-    private static let firstLightCentreX: CGFloat = 26
-    private static let lightSpacing: CGFloat = 22.5
+    static let firstLightCentreX: CGFloat = 26
+    static let lightSpacing: CGFloat = 22.5
+    static let collapsedFirstLightCentreX: CGFloat = 18
+    static let collapsedLightSpacing: CGFloat = 18
 
     func windowDidBecomeKey(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }

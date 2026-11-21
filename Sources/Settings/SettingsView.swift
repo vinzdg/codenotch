@@ -192,6 +192,7 @@ private struct SettingsSidebarRow: View {
     /// A red dot — a newer version waiting, on General.
     var badge: Bool = false
     var disclosure: Binding<Bool>? = nil
+    var isMini: Bool = false
     let select: () -> Void
 
     @State private var isHovered = false
@@ -203,6 +204,14 @@ private struct SettingsSidebarRow: View {
     private static let pill = RoundedRectangle(cornerRadius: 8, style: .continuous)
 
     var body: some View {
+        if isMini {
+            miniBody
+        } else {
+            fullBody
+        }
+    }
+
+    private var fullBody: some View {
         HStack(spacing: 10) {
             HStack(spacing: 10) {
                 icon
@@ -278,6 +287,71 @@ private struct SettingsSidebarRow: View {
         .accessibilityAction { activate() }
     }
 
+    private var miniBody: some View {
+        ZStack {
+            icon
+                .frame(width: 18)
+                .foregroundStyle(.white.opacity(isSelected ? 0.95 : isHovered ? 0.85 : 0.6))
+                .offset(x: isHovered && !isSelected && !reduceMotion ? 1.0 : 0)
+
+            if badge {
+                Circle()
+                    .fill(Color(nsColor: .systemRed))
+                    .frame(width: 7, height: 7)
+                    .offset(x: 10, y: -8)
+                    .transition(.scale.combined(with: .opacity))
+            } else if let count, count > 0 {
+                Text("\(count)")
+                    .font(.system(size: 9, weight: .bold).monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 3)
+                    .background(Capsule().fill(Color.white.opacity(0.18)))
+                    .offset(x: 10, y: -7)
+            }
+        }
+        .frame(width: 44, height: 32)
+        .background {
+            ZStack {
+                if isHovered && !isSelected {
+                    Self.pill.fill(SettingsPalette.hovered)
+                        .transition(.opacity)
+                }
+                if isSelected {
+                    Self.pill
+                        .fill(SettingsPalette.selected)
+                        .overlay {
+                            Self.pill.strokeBorder(
+                                LinearGradient(colors: [.white.opacity(0.10), .white.opacity(0.02)],
+                                               startPoint: .top, endPoint: .bottom),
+                                lineWidth: 0.5)
+                        }
+                        .matchedGeometryEffect(id: "selection", in: selectionSpace)
+                }
+            }
+        }
+        .scaleEffect(isPressed && !reduceMotion ? 0.97 : 1)
+        .animation(.spring(response: 0.22, dampingFraction: 0.6), value: isPressed)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.14)) { isHovered = hovering }
+        }
+        .onChange(of: isSelected) { selected in
+            if selected { bounce += 1 }
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in if !isPressed { isPressed = true } }
+                .onEnded { value in
+                    isPressed = false
+                    if abs(value.translation.width) < 6, abs(value.translation.height) < 6 { activate() }
+                }
+        )
+        .help(section.title)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(section.title)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { activate() }
+    }
+
     /// Selecting Accounts should not also change its disclosure state. Once
     /// Accounts is already selected, the row remains a convenient larger
     /// target for folding its provider panes; the chevron stays an independent
@@ -347,6 +421,7 @@ private struct SettingsPressStyle: ButtonStyle {
 /// with the same hover pill, and a red that only shows once the pointer is on
 /// it — the one row here that does something irreversible.
 private struct SettingsQuitRow: View {
+    var isMini: Bool = false
     let quit: () -> Void
     @State private var isHovered = false
 
@@ -354,24 +429,31 @@ private struct SettingsQuitRow: View {
 
     var body: some View {
         Button(action: quit) {
-            HStack(spacing: 10) {
+            if isMini {
                 Image(systemName: "power")
-                    .font(.system(size: 12, weight: .regular))
-                    .frame(width: 18)
-                Text(L10n.t("Quit Codenotch"))
                     .font(.system(size: 13, weight: .regular))
+                    .frame(width: 44, height: 32)
+            } else {
+                HStack(spacing: 10) {
+                    Image(systemName: "power")
+                        .font(.system(size: 12, weight: .regular))
+                        .frame(width: 18)
+                    Text(L10n.t("Quit Codenotch"))
+                        .font(.system(size: 13, weight: .regular))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .foregroundStyle(isHovered ? Self.hoverRed : Color.white.opacity(0.55))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isHovered ? SettingsPalette.hovered : Color.clear)
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
+        .foregroundStyle(isHovered ? Self.hoverRed : Color.white.opacity(0.55))
+        .background {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isHovered ? SettingsPalette.hovered : Color.clear)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .buttonStyle(SettingsPressStyle())
+        .help(L10n.t("Quit Codenotch"))
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.14)) { isHovered = hovering }
         }
@@ -436,8 +518,8 @@ struct SettingsView: View {
     /// feedback of its own on macOS, so without this the only sign it is
     /// clickable is the cursor.
     @State private var authorLinkHovered = false
-    /// A gesture for this sitting, not a setting: the sidebar comes back on
-    /// the next open, the same way a window's own sidebar toggle behaves.
+    /// Whether the sidebar is in compact icon-only mode.
+    @AppStorage("settingsSidebarCollapsed") private var isSidebarCollapsed = false
     /// A short-lived acknowledgement for the recenter action. The notch may
     /// already be centred, in which case the action has no visible movement;
     /// the acknowledgement keeps the button from feeling inert.
@@ -588,28 +670,64 @@ struct SettingsView: View {
         }
     }
 
+    private func toggleSidebar() {
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+            isSidebarCollapsed.toggle()
+        }
+        NotificationCenter.default.post(name: .settingsSidebarToggled, object: isSidebarCollapsed)
+    }
+
     /// The subject list: a full-height column on a shade lighter than the
     /// pane, the app's own mark and name at its head, plain white symbols
     /// rather than coloured badges, and the selection as a soft grey pill.
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: isSidebarCollapsed ? .center : .leading, spacing: 0) {
             // The band the traffic lights sit in.
             Color.clear.frame(height: SettingsView.headerHeight)
 
-            HStack(spacing: 10) {
-                Image(nsImage: NSApp.applicationIconImage)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 22, height: 22)
-                Text("Codenotch")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
+            if isSidebarCollapsed {
+                Button(action: toggleSidebar) {
+                    Image(systemName: "sidebar.left")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundStyle(.white.opacity(0.75))
+                        .frame(width: 32, height: 28)
+                        .background {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Color.white.opacity(0.06))
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(SettingsPressStyle())
+                .help(L10n.t("Show Sidebar"))
+                .keyboardShortcut("s", modifiers: [.control, .command])
+                .padding(.bottom, 14)
+            } else {
+                HStack(spacing: 10) {
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: 22, height: 22)
+                    Text("Codenotch")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Spacer(minLength: 0)
+                    Button(action: toggleSidebar) {
+                        Image(systemName: "sidebar.left")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(SettingsPressStyle())
+                    .help(L10n.t("Hide Sidebar"))
+                    .keyboardShortcut("s", modifiers: [.control, .command])
+                }
+                .padding(.horizontal, 18)
+                .padding(.bottom, 16)
             }
-            .padding(.horizontal, 18)
-            .padding(.bottom, 16)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: isSidebarCollapsed ? .center : .leading, spacing: isSidebarCollapsed ? 6 : 2) {
                     ForEach(SettingsSection.topLevel) { section in
                         SettingsSidebarRow(
                             section: section,
@@ -618,6 +736,7 @@ struct SettingsView: View {
                             count: section == .accounts ? connectedCount : nil,
                             badge: section == .general && updater.pending != nil,
                             disclosure: section == .accounts ? $accountsExpanded : nil,
+                            isMini: isSidebarCollapsed,
                             select: { selectSection(section) }
                         )
                         if section == .accounts, accountsExpanded {
@@ -625,40 +744,56 @@ struct SettingsView: View {
                                 SettingsSidebarRow(section: child,
                                                    isSelected: selection == child,
                                                    selectionSpace: selectionSpace,
-                                                   indent: true,
+                                                   indent: isSidebarCollapsed ? false : true,
+                                                   isMini: isSidebarCollapsed,
                                                    select: { selectSection(child) })
                             }
                         }
                     }
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, isSidebarCollapsed ? (SettingsView.miniSidebarWidth - 44) / 2 : 10)
             }
             .scrollIndicators(.never)
 
             Spacer(minLength: 0)
 
-            VStack(alignment: .leading, spacing: 6) {
-                SettingsQuitRow(quit: quit)
-                HStack(spacing: 8) {
-                    Text("Codenotch \(updater.currentVersion)")
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundStyle(.white.opacity(0.32))
-                    Spacer(minLength: 0)
-                    // Only once a check has found a newer version. Sparkle
-                    // downloads it in the background either way; this is for
-                    // someone who would rather have it now than on next launch.
+            if isSidebarCollapsed {
+                VStack(spacing: 8) {
                     if let newer = updater.pending {
-                        Button(L10n.t("Update")) { updater.reoffer() }
-                            .buttonStyle(SettingsButtonStyle(kind: .prominent, compact: true))
-                            .help(L10n.t("Version \(newer) is available"))
-                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                        Button { updater.reoffer() } label: {
+                            Circle()
+                                .fill(Color(nsColor: .systemBlue))
+                                .frame(width: 8, height: 8)
+                                .frame(width: 32, height: 24)
+                        }
+                        .buttonStyle(SettingsPressStyle())
+                        .help(L10n.t("Version \(newer) is available"))
                     }
+                    SettingsQuitRow(isMini: true, quit: quit)
                 }
-                .animation(.easeOut(duration: 0.2), value: updater.outcome)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 16)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    SettingsQuitRow(isMini: false, quit: quit)
+                    HStack(spacing: 8) {
+                        Text("Codenotch \(updater.currentVersion)")
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundStyle(.white.opacity(0.32))
+                        Spacer(minLength: 0)
+                        if let newer = updater.pending {
+                            Button(L10n.t("Update")) { updater.reoffer() }
+                                .buttonStyle(SettingsButtonStyle(kind: .prominent, compact: true))
+                                .help(L10n.t("Version \(newer) is available"))
+                                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                        }
+                    }
+                    .animation(.easeOut(duration: 0.2), value: updater.outcome)
+                    .padding(.horizontal, 10)
+                }
                 .padding(.horizontal, 10)
+                .padding(.bottom, 16)
             }
-            .padding(.horizontal, 10)
-            .padding(.bottom, 16)
         }
         // Opening a provider's pane from elsewhere must not land on a row
         // that is folded out of sight.
@@ -666,7 +801,7 @@ struct SettingsView: View {
             if section == .accounts { accounts = providers() }
             if SettingsSection.providerPanes.contains(section) { accountsExpanded = true }
         }
-        .frame(width: SettingsView.sidebarWidth)
+        .frame(width: isSidebarCollapsed ? SettingsView.miniSidebarWidth : SettingsView.sidebarWidth)
         .frame(maxHeight: .infinity)
         .background(SettingsPalette.sidebar)
         .overlay(alignment: .trailing) {
@@ -1660,6 +1795,7 @@ struct SettingsView: View {
     static let sidebarInset: CGFloat = 4
     static let sidebarCornerRadius: CGFloat = 14
     static let sidebarWidth: CGFloat = 220
+    static let miniSidebarWidth: CGFloat = 68
 
     /// The sidebar plus a detail pane wide enough for an account row's name,
     /// buttons and switch without crowding.
@@ -2969,4 +3105,8 @@ struct PhoneSettingsPane: View {
             )
         }
     }
+}
+
+extension Notification.Name {
+    static let settingsSidebarToggled = Notification.Name("settingsSidebarToggled")
 }
