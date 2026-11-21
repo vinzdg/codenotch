@@ -11,6 +11,7 @@ struct UsageResetCard: View {
     @Environment(\.codenotchReduceTransparency) private var reduceTransparency
     @Environment(\.notchCardSurfaceStyle) private var surfaceStyle
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.typographyScale) private var typographyScale
 
     static let cardHeight: CGFloat = Design.px(210)
 
@@ -123,7 +124,7 @@ struct UsageResetCard: View {
                     VStack(alignment: .leading, spacing: 0) {
                         HStack(spacing: 0) {
                             Text(titleText)
-                                .font(Typography.cardTitle)
+                                .font(Typography.cardTitle(scale: typographyScale))
                                 .foregroundStyle(Palette.textPrimary)
                                 .layoutPriority(1)
 
@@ -141,7 +142,7 @@ struct UsageResetCard: View {
                         }
 
                         Text(subtitleText)
-                            .font(Typography.cardBody)
+                            .font(Typography.cardBody(scale: typographyScale))
                             .foregroundStyle(secondaryInk)
                             .lineLimit(1)
                     }
@@ -153,7 +154,7 @@ struct UsageResetCard: View {
                         .frame(width: Design.px(16), height: Design.px(16))
 
                     Text(statusText)
-                        .font(Typography.cardBody)
+                        .font(Typography.cardBody(scale: typographyScale))
                         .foregroundStyle(statusColor)
                         .lineLimit(1)
 
@@ -163,7 +164,7 @@ struct UsageResetCard: View {
 
                 if let resetsAt = event.resetsAt {
                     Text("\(resetTimePrefix) \(resetsAt.formatted(date: .omitted, time: .shortened))")
-                        .font(Typography.cardBody)
+                        .font(Typography.cardBody(scale: typographyScale))
                         .foregroundStyle(secondaryInk)
                         .lineLimit(1)
                         .padding(.top, Design.px(8))

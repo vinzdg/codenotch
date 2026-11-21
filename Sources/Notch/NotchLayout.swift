@@ -250,16 +250,23 @@ enum NotchLayout {
         return ceil(font.ascender - font.descender + font.leading)
     }()
 
-    static let cardTitleLineHeight: CGFloat = lineHeight(
-        NSFont.systemFont(ofSize: Design.fontSize(capPixels: 26), weight: .semibold)
-    )
+    static func cardTitleLineHeight(scale: CGFloat = 1.0) -> CGFloat {
+        lineHeight(NSFont.systemFont(ofSize: Typography.fontSize(capPixels: 26, scale: scale), weight: .semibold))
+    }
+    static let cardTitleLineHeight: CGFloat = cardTitleLineHeight(scale: 1.0)
+
     /// The card's body face. Held rather than rebuilt at each use: the line
     /// height below and the wrap measurement in `bodyTextHeight` have to be
     /// measuring the same font, or the budget and the text disagree.
-    static let cardBodyFont = NSFont.systemFont(
-        ofSize: Design.fontSize(capPixels: 18), weight: .regular
-    )
-    static let cardBodyLineHeight: CGFloat = lineHeight(cardBodyFont)
+    static func cardBodyFont(scale: CGFloat = 1.0) -> NSFont {
+        NSFont.systemFont(ofSize: Typography.fontSize(capPixels: 18, scale: scale), weight: .regular)
+    }
+    static let cardBodyFont = cardBodyFont(scale: 1.0)
+
+    static func cardBodyLineHeight(scale: CGFloat = 1.0) -> CGFloat {
+        lineHeight(cardBodyFont(scale: scale))
+    }
+    static let cardBodyLineHeight: CGFloat = cardBodyLineHeight(scale: 1.0)
 
     /// How wide a line of body text is inside the card.
     static var cardTextWidth: CGFloat { cardWidth - 2 * cardPadding }
@@ -281,15 +288,17 @@ enum NotchLayout {
     /// the default and the only one the panel geometry is solved against; the
     /// Detail panel passes its own, so a name that fits one line there is not
     /// given two lines of room.
-    static func bodyTextHeight(_ text: String, width: CGFloat = cardTextWidth) -> CGFloat {
-        guard !text.isEmpty else { return cardBodyLineHeight }
+    static func bodyTextHeight(_ text: String, width: CGFloat = cardTextWidth, scale: CGFloat = 1.0) -> CGFloat {
+        let baseLineHeight = cardBodyLineHeight(scale: scale)
+        guard !text.isEmpty else { return baseLineHeight }
+        let font = cardBodyFont(scale: scale)
         let bounds = (text as NSString).boundingRect(
             with: CGSize(width: width, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: [.font: cardBodyFont]
+            attributes: [.font: font]
         )
-        let lines = max(1, Int((bounds.height / cardBodyLineHeight).rounded(.up)))
-        return CGFloat(lines) * cardBodyLineHeight
+        let lines = max(1, Int((bounds.height / baseLineHeight).rounded(.up)))
+        return CGFloat(lines) * baseLineHeight
     }
 
     /// Whether a label and the value opposite it both fit on one row of
@@ -442,15 +451,18 @@ enum NotchLayout {
                            localLedgerRows: Int = 0,
                            compactRowCount: Int = 0,
                            showsDeepSeekPricing: Bool = true,
-                           costRows: Int = 0) -> CGFloat {
-        let header = max(glyphSize, cardTitleLineHeight)
-            + (hasPlan ? cardBodyLineHeight : 0)
+                           costRows: Int = 0,
+                           typographyScale: CGFloat = 1.0) -> CGFloat {
+        let bodyLine = cardBodyLineHeight(scale: typographyScale)
+        let titleLine = cardTitleLineHeight(scale: typographyScale)
+        let header = max(glyphSize, titleLine)
+            + (hasPlan ? bodyLine : 0)
         var height = 2 * cardPadding + header
 
         // The blocked line sits under the header, above everything else — it
         // is the reading that stops you working, so it leads.
         if let blockMessage {
-            height += headerToBlock + bodyTextHeight(blockMessage)
+            height += headerToBlock + bodyTextHeight(blockMessage, scale: typographyScale)
         }
 
         if let localModelName {
@@ -459,28 +471,28 @@ enum NotchLayout {
             // ledger lines.
             let rows: CGFloat = (showsLocalPerformance ? 7 : 4) + CGFloat(max(0, localLedgerRows))
             height += headerToBlock + modelNameHeight(localModelName)
-                + blockSpacing + rows * cardBodyLineHeight + (rows - 1) * sessionRowGap
+                + blockSpacing + rows * bodyLine + (rows - 1) * sessionRowGap
         } else if windowCount > 0 {
             let moneyCount = min(max(0, moneyWindowCount), windowCount)
             let fullCount = windowCount - compactRowCount - moneyCount
             // A full window row: label + bar + summary.
-            let fullBlock = 2 * cardBodyLineHeight + labelToBar + barHeight + barToUsed
-            let moneyBlock = cardBodyLineHeight + labelToBar + moneyBarHeight
-                + moneyBarToStats + 2 * cardBodyLineHeight + moneyStatGap
+            let fullBlock = 2 * bodyLine + labelToBar + barHeight + barToUsed
+            let moneyBlock = bodyLine + labelToBar + moneyBarHeight
+                + moneyBarToStats + 2 * bodyLine + moneyStatGap
             // A compact (count-only) row: a single SplitRow line.
-            let compactBlock = cardBodyLineHeight
+            let compactBlock = bodyLine
             height += headerToBlock
                 + CGFloat(fullCount) * fullBlock
                 + CGFloat(moneyCount) * moneyBlock
                 // A balance with a period adds its reset line under the stats,
                 // and its forecast once there is one.
                 + CGFloat(min(max(0, moneyResetCount), moneyCount)
-                          + min(max(0, moneyProjectionCount), moneyCount)) * (moneyStatGap + cardBodyLineHeight)
+                          + min(max(0, moneyProjectionCount), moneyCount)) * (moneyStatGap + bodyLine)
                 + CGFloat(compactRowCount) * compactBlock
                 + CGFloat(windowCount - 1) * blockSpacing
             if groupCount > 0 {
                 // Each group adds a title line, spacing (12), and 16px vertical padding inside the box
-                let groupExtra = cardBodyLineHeight + Design.px(12) + 2 * Design.px(16)
+                let groupExtra = bodyLine + Design.px(12) + 2 * Design.px(16)
                 height += CGFloat(groupCount) * groupExtra
 
                 if groupCount > 1 {
@@ -493,17 +505,17 @@ enum NotchLayout {
             }
         } else {
             // The status message, at whatever height it actually wraps to.
-            height += headerToBlock + bodyTextHeight(statusMessage ?? "")
+            height += headerToBlock + bodyTextHeight(statusMessage ?? "", scale: typographyScale)
         }
 
         if hasResetCredits {
-            height += codexUsageTop + hairline + codexResetCreditsHeight
+            height += codexUsageTop + hairline + (blockSpacing + 3 * bodyLine + 2 * codexUsageRowGap)
         }
 
         // "What used it": a line of range tabs, then one line per project.
         if costRows > 0 {
-            height += blockSpacing + cardBodyLineHeight
-                + CGFloat(costRows) * (cardBodyLineHeight + sessionRowGap)
+            height += blockSpacing + bodyLine
+                + CGFloat(costRows) * (bodyLine + sessionRowGap)
         }
 
         height += usageDetailHeight(usageDetailGroupCount,
@@ -513,20 +525,20 @@ enum NotchLayout {
             height += codexUsageTop + hairline + blockSpacing
                 + codexMetricTop + codexMetricHeight + codexMetricBottom
                 + hairline
-                + 2 * cardBodyLineHeight
+                + 2 * bodyLine
                 + codexUsageRowGap
                 + codexChartTop + codexChartHeight
         }
 
         if sessionCount > 0 {
             let shown = min(sessionCount, max(0, sessionCap))
-            let row = 2 * cardBodyLineHeight + sessionRowGap
+            let row = 2 * bodyLine + sessionRowGap
             height += blockSpacing + hairline + blockSpacing
                 + CGFloat(shown) * row
                 + CGFloat(max(0, shown - 1)) * blockSpacing
             // The "and N more" line, which only exists when something is hidden.
             if sessionCount > shown {
-                height += blockSpacing + cardBodyLineHeight
+                height += blockSpacing + bodyLine
             }
         }
         return height
