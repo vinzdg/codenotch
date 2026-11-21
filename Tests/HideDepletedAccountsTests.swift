@@ -67,6 +67,58 @@ final class HideDepletedAccountsTests: XCTestCase {
         XCTAssertFalse(snapshot(windows: []).isDepleted)
     }
 
+    func testAnEmptyDeepSeekBalanceDepletes() {
+        // Balance mode carries no fraction on its headline; the band is the
+        // only thing that says the wallet is empty.
+        let reading = DeepSeekUsage.Reading(currency: "CNY", spent: 100, balance: 0, availableTokens: nil)
+        let empty = ProviderSnapshot(id: "deepseek", displayName: "DeepSeek", glyph: .deepseek,
+                                     fidelity: .derived, status: .ok,
+                                     windows: DeepSeekUsage.windows(from: reading, displayMode: .balance))
+        XCTAssertTrue(empty.isDepleted)
+    }
+
+    func testAFundedDeepSeekBalanceDoesNotDeplete() {
+        let reading = DeepSeekUsage.Reading(currency: "CNY", spent: 100, balance: 5, availableTokens: nil)
+        let funded = ProviderSnapshot(id: "deepseek", displayName: "DeepSeek", glyph: .deepseek,
+                                      fidelity: .derived, status: .ok,
+                                      windows: DeepSeekUsage.windows(from: reading, displayMode: .balance))
+        XCTAssertFalse(funded.isDepleted)
+    }
+
+    /// The monthly window a custom endpoint builds when it is set to show
+    /// what is left: the remaining share as its fraction, the band from the
+    /// share spent (CustomEndpointProvider, currency budget branch).
+    private func remainingBudget(spent: Double, budget: Double) -> ProviderSnapshot {
+        let spentShare = min(max(spent / budget, 0), 1)
+        return snapshot(windows: [
+            LimitWindow(id: "monthly-budget", label: "Remaining Budget", usedFraction: 1 - spentShare,
+                        duration: 30 * 86400, bandOverride: UsageBand.band(for: spentShare)),
+        ], headlineID: "monthly-budget", weeklyID: nil)
+    }
+
+    func testAnUntouchedRemainingBudgetDoesNotDeplete() {
+        XCTAssertFalse(remainingBudget(spent: 0, budget: 20).isDepleted)
+    }
+
+    func testASpentRemainingBudgetDepletes() {
+        XCTAssertTrue(remainingBudget(spent: 20, budget: 20).isDepleted)
+    }
+
+    func testAStaleExhaustedBandDoesNotDeplete() {
+        var stale = remainingBudget(spent: 20, budget: 20)
+        stale.status = .stale(since: Date())
+        XCTAssertFalse(stale.isDepleted)
+    }
+
+    func testABudgetShowingUseStillReadsItsFraction() {
+        // Without the remaining option there is no band override, and the
+        // fraction is the share spent as everywhere else.
+        let spent = snapshot(windows: [
+            LimitWindow(id: "monthly-budget", label: "Monthly Budget", usedFraction: 1, duration: 30 * 86400),
+        ], headlineID: "monthly-budget", weeklyID: nil)
+        XCTAssertTrue(spent.isDepleted)
+    }
+
     func testProviderPauseWithRoomDoesNotDeplete() {
         // A pause the provider reported itself — rate limited, not spent —
         // is not a window at 0% left.

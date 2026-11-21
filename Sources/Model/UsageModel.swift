@@ -515,9 +515,19 @@ struct ProviderSnapshot: Identifiable, Equatable {
     /// is empty now; it may hold tokens the last fetch has not seen yet.
     var isDepleted: Bool {
         guard !status.isStale else { return false }
-        return (headline?.usedFraction ?? 0) >= 1
+        return headlineIsSpent
             || (weeklyLimitWindow?.usedFraction ?? 0) >= 1
             || spentLongWindow != nil
+    }
+
+    /// A headline that carries a band override has already said whether it
+    /// is spent, and its fraction is not a share used: DeepSeek's balance has
+    /// none at all, and a custom endpoint showing what is left stores the
+    /// remaining share there, so a full fraction means an untouched budget.
+    private var headlineIsSpent: Bool {
+        guard let headline else { return false }
+        if let band = headline.bandOverride { return band == .exhausted }
+        return (headline.usedFraction ?? 0) >= 1
     }
 
     /// The snapshot with a spent week attached as a block, so every surface
