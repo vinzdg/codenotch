@@ -32,6 +32,40 @@ enum ReleaseNotes {
     static var all: [ReleaseNote] {
         [
             ReleaseNote(
+                version: "1.26.0",
+                headline: L10n.t("The notch folds into the Mac's own cutout and joins it as one liquid shape, menu bar bars, a font size setting, and Korean, Ukrainian and Chinese brought up to date."),
+                changes: [
+                    ReleaseNote.Change(
+                        title: L10n.t("One with the camera notch"),
+                        detail: L10n.t("Folded, the notch is exactly the Mac's own cutout. Dragged onto it, it joins as one shape that stretches across the camera, with no gaps or cut-off ends in screenshots. It also stays open while a session is active.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("Menu bar indicators"),
+                        detail: L10n.t("Show usage as bars in the menu bar, coloured by your Watch and Critical settings.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("Font size"),
+                        detail: L10n.t("A setting for larger, more legible text in the notch and its cards.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("Rings that say more"),
+                        detail: L10n.t("A deficit marker on the ring, and a ring that shuts once a monthly allowance is spent.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("Providers"),
+                        detail: L10n.t("MiMo's Token Plan, DeepSeek's balance with an API key, OpenCode Go, several codex-auth accounts, Codex weekly limits on prolite plans, MiniMax China, Claude Code installed from npm, and Manual gets its own icon.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("Languages"),
+                        detail: L10n.t("Korean, Ukrainian and Simplified Chinese are up to date.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("Windows"),
+                        detail: L10n.t("Mistral, Cursor's sealed session and weekly allowance, Claude sign-ins that ask again when they can no longer renew, hooks that never start the app, and a reset card that follows the taskbar strip.")
+                    ),
+                ]
+            ),
+            ReleaseNote(
                 version: "1.25.0",
                 headline: L10n.t("Claude sessions named by their title, a lighter cost indexer, Krea, Japanese brought up to date, and a Windows taskbar strip drawn like the notch."),
                 changes: [
