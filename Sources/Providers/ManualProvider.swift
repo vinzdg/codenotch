@@ -212,7 +212,7 @@ final class InMemoryManualStorage: ManualStorage, @unchecked Sendable {
 actor ManualProvider: UsageProvider {
     static let defaultID = "manual"
     static let defaultDisplayName = "Manual"
-    static let defaultGlyph = ProviderGlyph.third
+    static let defaultGlyph = ProviderGlyph.manual
 
     nonisolated let id: String
     nonisolated let displayName: String

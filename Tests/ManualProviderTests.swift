@@ -345,3 +345,24 @@ private extension ManualProvider {
         self.onChanged = callback
     }
 }
+
+/// Manual wore `.third` — Perplexity's mark — and Settings showed it beside
+/// "Manual" as if the row were Perplexity's.
+final class ManualGlyphTests: XCTestCase {
+    func testManualHasAMarkOfItsOwnNotPerplexitys() {
+        XCTAssertEqual(ManualProvider.defaultGlyph, .manual)
+        XCTAssertNotEqual(ManualProvider.defaultGlyph, .third)
+        XCTAssertNotNil(NSImage(named: ProviderGlyph.manual.assetName),
+                        "the tally asset ships in the bundle")
+        XCTAssertFalse(ProviderGlyph.manual.outline.isEmpty, "a fallback exists if the asset goes")
+    }
+
+    func testAnArchivedManualReadingIsRedrawnWithItsOwnMark() {
+        XCTAssertEqual(UsageArchive.restoredGlyph(id: "manual", glyph: .third), .manual)
+        XCTAssertEqual(UsageArchive.restoredGlyph(id: "devin", glyph: .third), .devin)
+        // Only the two providers that borrowed it are moved; anything else
+        // archived with `.third` keeps what it was written with.
+        XCTAssertEqual(UsageArchive.restoredGlyph(id: "perplexity", glyph: .third), .third)
+        XCTAssertEqual(UsageArchive.restoredGlyph(id: "manual", glyph: .claude), .claude)
+    }
+}

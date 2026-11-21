@@ -828,6 +828,61 @@ final class NotchViewModel: ObservableObject {
         return last.lead + last.length - first.lead
     }
 
+    /// **The joined notch as one shape**: from the outer end of one copy to
+    /// the outer end of the other, across the display's hole.
+    ///
+    /// Joined, the notch is two copies, each reaching a little into the hole,
+    /// with square ends there that only the housing makes right. On the display
+    /// that reads as one notch. A screenshot or a recording has no housing, so
+    /// it showed two black pieces with wallpaper between them — and landing,
+    /// the carried bar's square tip and the other copy cut off at the far wall.
+    ///
+    /// So joined, the black is this one span, drawn as the plain notch shape
+    /// with its flare at either end, and the copies only carry what is printed
+    /// on them. In the hand it is the carried bar's own span and is not shown;
+    /// let go onto the hole, it is shown from there and its ends ease out to
+    /// the copies' — the notch stretching across the hole, one shape the whole
+    /// way. Folded, it eases back into the hole and fades with it.
+    var mergedSpan: (lead: CGFloat, length: CGFloat, depth: CGFloat)? {
+        guard edge == .top, !floats, let cutout, cutout.width > 0 else { return nil }
+        let bar = cellWing
+        let drawn = wings.filter { $0.length > 0 }
+        guard mergesWithCutout, !holdsOffTheCutout else {
+            // Unseen until it joins — but already over everything that is
+            // drawn, so taking the hole grows it from there. From the bar
+            // alone, the other copy, already out of the hole on its far side,
+            // blinked out as the copies left their fill to it and grew back.
+            guard let first = drawn.min(by: { $0.lead < $1.lead }),
+                  let last = drawn.max(by: { $0.lead + $0.length < $1.lead + $1.length })
+            else { return (bar.lead, bar.length, bar.depth) }
+            return (first.lead, last.lead + last.length - first.lead, bar.depth)
+        }
+        guard isExpanded, let first = drawn.min(by: { $0.lead < $1.lead }),
+              let last = drawn.max(by: { $0.lead + $0.length < $1.lead + $1.length })
+        else {
+            // Folded into the hole: the span closes to the hole itself.
+            let middle = (cutoutSpan(cellCount: snapshots.count) + 2 * slack) / 2
+            return (middle - cutout.width / 2, cutout.width, bar.depth)
+        }
+        return (first.lead, last.lead + last.length - first.lead, bar.depth)
+    }
+
+    /// The outline `mergedSpan` is drawn with: the notch's plain shape, the one
+    /// it has on any edge with no hole — a flare and a corner at either end,
+    /// and nothing of the join, because joined there is nothing to hide.
+    var mergedShape: SideNotchShape {
+        var shape = SideNotchShape(edge: edge)
+        shape.cornerRadius = drawnCornerRadius
+        shape.bezelHidden = NotchRootView.bezelBleed / max(sizeScale, 0.0001)
+        return shape
+    }
+
+    /// Whether `mergedSpan` is the black that shows: joined, open, and not in
+    /// the hand. The copies leave their own fill to it then.
+    var drawsMergedNotch: Bool {
+        mergedSpan != nil && mergesWithCutout && !holdsOffTheCutout && isExpanded
+    }
+
     /// **What wakes a notch joined to the display's own hole**, along the panel:
     /// the hole, and whatever of the notch is drawn either side of it.
     ///
@@ -937,7 +992,8 @@ final class NotchViewModel: ObservableObject {
         shape.emergesFrom = .init(
             buried: (mergesWithCutout ? cutout.overlap : NotchGeometry.cutoutOverlap) / scale,
             // Measured: a circular arc of 31.2px on a 90px-deep cutout.
-            corner: cutout.depth * 31.2 / 90 / scale)
+            corner: cutout.depth * 31.2 / 90 / scale,
+            holeDepth: cutout.depth / scale)
         return shape
     }
 

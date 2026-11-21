@@ -26,6 +26,12 @@ struct NotchRootView: View {
                         .fill(Palette.notch)
                         .transition(.identity)
                 }
+                // The joined notch's black, as one shape across the hole — see
+                // `NotchViewModel.mergedSpan`. Under the copies, which carry only
+                // their content while it shows.
+                if let span = model.mergedSpan {
+                    mergedNotch(place, span: span)
+                }
                 ForEach(model.wings) { wing in
                     notch(place, wing: wing)
                         // The side carrying the percentage across the Mac's
@@ -295,6 +301,7 @@ struct NotchRootView: View {
     /// `GooArc` — where a spring here spent the stretch in its first instant.
     static let arcDivide = Animation.timingCurve(0.35, 0, 0.25, 1, duration: 0.95)
 
+
     @ViewBuilder
     private func notch(_ place: NotchPlacement, wing: NotchViewModel.Wing) -> some View {
         // Configured by the model, never assembled here — see `notchShape`.
@@ -396,7 +403,8 @@ struct NotchRootView: View {
                 // No `else`: the solid fill below is mounted in every style anyway,
                 // and below macOS 26 `glassy` is always false, so it is simply left
                 // at full opacity.
-                shape.fill(Palette.notch).opacity(glassy || dock ? 0 : 1)
+                // Joined, the black is the one merged span underneath instead.
+                shape.fill(Palette.notch).opacity(glassy || dock || model.drawsMergedNotch ? 0 : 1)
 
             }
         }   
@@ -462,6 +470,49 @@ struct NotchRootView: View {
             // the Dock keeps from the screen's edge.
             .offset(x: model.edge.outward.x * (dock ? -model.edgeGap : Self.bezelBleed),
                     y: model.edge.outward.y * (dock ? -model.edgeGap : Self.bezelBleed))
+    }
+
+    /// **The joined notch as one shape**, stretching across the hole.
+    ///
+    /// Placed and scaled exactly as a copy is — same frame, same anchor at the
+    /// bezel, same bleed past it — so where it and a copy overlap they are the
+    /// same outline. In the hand it follows the carried bar unanimated and
+    /// unseen; let go onto the hole it shows at once and its ends ride the
+    /// unfold spring out to the copies', which is the notch stretching. Fading
+    /// is only for leaving: folding into the hole, or being picked back up.
+    @ViewBuilder
+    private func mergedNotch(_ place: NotchPlacement,
+                             span: (lead: CGFloat, length: CGFloat, depth: CGFloat)) -> some View {
+        let wing = NotchViewModel.Wing(id: -1, lead: span.lead, onTheLeft: false,
+                                       carriesCells: false, length: span.length, depth: span.depth)
+        let size = copySize(wing)
+        let shown = model.drawsMergedNotch
+        model.mergedShape
+            .fill(Palette.notch)
+            .frame(width: size.width, height: size.height)
+            // Surface tension: taking the hole, the body sags a little deeper
+            // under its own weight and draws back up, so the stretch lands
+            // like liquid rather than a rect resizing.
+            .keyframeAnimator(initialValue: CGFloat(1), trigger: shown) { body, sag in
+                body.scaleEffect(x: 1, y: sag, anchor: bezelAnchor)
+            } keyframes: { _ in
+                if shown && !reduceMotion {
+                    SpringKeyframe(1.06, duration: 0.18, spring: .smooth)
+                    SpringKeyframe(0.985, duration: 0.22, spring: .smooth)
+                    SpringKeyframe(1, duration: 0.4, spring: .bouncy)
+                } else {
+                    LinearKeyframe(1, duration: 0.01)
+                }
+            }
+            .scaleEffect(model.sizeScale, anchor: bezelAnchor)
+            .position(place.point(along: span.lead + span.length / 2, across: span.depth / 2))
+            .offset(x: model.edge.outward.x * Self.bezelBleed,
+                    y: model.edge.outward.y * Self.bezelBleed)
+            .animation(model.holdsOffTheCutout ? nil : motion(NotchMotion.join),
+                       value: MergedSpanKey(lead: span.lead, length: span.length))
+            .opacity(shown ? 1 : 0)
+            .animation(shown ? nil : motion(NotchMotion.unfold), value: shown)
+            .allowsHitTesting(false)
     }
 
     /// A copy's frame in the notch's design measurements, which the size
@@ -988,6 +1039,38 @@ struct GooNeck: Shape {
         let inside = -(r + 1)
         func at(_ s: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: n.wall + n.side * s, y: y) }
         var path = Path()
+        // **The strand's end inside the hole**, rounded like the end of a notch.
+        // It used to drop straight from the bezel to the hole's foot just in
+        // past the corner, which the housing hides on the display — but a
+        // screenshot or a recording has no housing, and there it was a flat
+        // side with a sharp corner, cut off in mid-air. Taken a little further
+        // in and turned with the hole's own corner, it reads as goo coming out
+        // of the hole; all of what changed is still under the housing.
+        func closeInsideTheHole(_ arrived: Departure) {
+            var y = arrived.y
+            // Arrived down the wall (the strand thinning up toward the bezel),
+            // turn the corner round rather than square: going on down the
+            // wall and in along a foot, never deeper than the hole, so it
+            // all stays under the housing on the display. Square, a capture
+            // showed a block with a flat side and a sharp corner cut off
+            // beside the bar.
+            // Grown in from nothing as it climbs the wall past the hole's own
+            // corner, so it never appears in a frame.
+            let turn = max(0, min(r, n.holeDepth - r - y, (y - top) / 2))
+            if arrived.s > -0.5, turn > 0.001 {
+                path.addArc(tangent1End: at(arrived.s, y + turn),
+                            tangent2End: at(inside, y + turn), radius: turn)
+                y += turn
+            }
+            path.addLine(to: at(inside, y))
+            let rr = max(0, min(r, (y - top) / 2))
+            if rr > 0.5 {
+                let far = inside - 2 * rr
+                path.addArc(tangent1End: at(far, y), tangent2End: at(far, top), radius: rr)
+                path.addLine(to: at(far, top))
+            }
+            path.closeSubpath()
+        }
 
         // **Its end in past the wall**, the strand stays, still touching: from
         // the hole's foot at the wall to the bar's foot as far out as a flare
@@ -1036,8 +1119,7 @@ struct GooNeck: Shape {
                        at: place)
             Self.curve(&path, from: Departure(s: m.s, y: m.y, ds: -m.ds, dy: -m.dy),
                        to: Departure(s: h.s, y: h.y, ds: -h.ds, dy: -h.dy), at: place)
-            path.addLine(to: at(inside, h.y))
-            path.closeSubpath()
+            closeInsideTheHole(h)
             return path
         }
 
@@ -1057,8 +1139,7 @@ struct GooNeck: Shape {
         path.addLine(to: at(mh, 0))
         Self.curve(&path, from: Departure(s: mh, y: 0, ds: -1, dy: 0),
                    to: Departure(s: h.s, y: h.y, ds: -h.ds, dy: -h.dy), at: place)
-        path.addLine(to: at(inside, h.y))
-        path.closeSubpath()
+        closeInsideTheHole(h)
 
         path.move(to: at(mb, top))
         path.addLine(to: at(beyond, top))
@@ -1068,4 +1149,9 @@ struct GooNeck: Shape {
         path.closeSubpath()
         return path
     }
+}
+
+private struct MergedSpanKey: Equatable {
+    let lead: CGFloat
+    let length: CGFloat
 }

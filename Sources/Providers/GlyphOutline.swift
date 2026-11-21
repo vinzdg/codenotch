@@ -1536,4 +1536,19 @@ enum GlyphOutline {
             CGPoint(x: 0.6846, y: 0.4269),
         ],
     ]
+
+    /// Four upright strokes of a tally, in the same 24-unit grid as
+    /// `glyph-manual`. The asset is what is drawn; this is its fallback.
+    static let manual: [[CGPoint]] = [
+        bar(x: 0.1667),
+        bar(x: 0.3583),
+        bar(x: 0.5500),
+        bar(x: 0.7417),
+    ]
+
+    private static func bar(x: CGFloat) -> [CGPoint] {
+        let width: CGFloat = 2.6 / 24, top: CGFloat = 3.5 / 24, bottom: CGFloat = 20.5 / 24
+        return [CGPoint(x: x, y: top), CGPoint(x: x + width, y: top),
+                CGPoint(x: x + width, y: bottom), CGPoint(x: x, y: bottom)]
+    }
 }

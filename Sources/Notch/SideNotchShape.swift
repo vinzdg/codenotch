@@ -145,6 +145,9 @@ struct SideNotchShape: Shape {
     struct Emergence: Equatable {
         var buried: CGFloat
         var corner: CGFloat
+        /// The hole's depth, in the shape's own measurements. 0 leaves the
+        /// joined end square, as it always was.
+        var holeDepth: CGFloat = 0
     }
     var emergesFrom: Emergence?
     var curlRadius: CGFloat = NotchLayout.curlRadius
@@ -475,6 +478,21 @@ struct SideNotchShape: Shape {
         func relaxed(_ value: CGFloat, toward limit: CGFloat) -> CGFloat {
             value - dipAmount * max(0, value - limit)
         }
+        // **The corner an end keeps once it is in past a wall**, under the
+        // housing. Closing up square is what covers the lit sliver in the crook
+        // of the hole's own rounded corner while the end is still beside the
+        // wall. Further in it covers nothing anybody can see on the display —
+        // but a screenshot or a recording has no housing, and there the square
+        // tip read as a block cut off in mid-air. So the end rounds again, with
+        // the hole's own corner, as far as it can without reaching back into
+        // that crook: its corner never comes nearer the wall than the hole's
+        // corner reaches, so on the display nothing changes.
+        func tipCorner(inside: CGFloat) -> CGFloat {
+            guard let d = dip, d.corner > 0, inside > 0 else { return 0 }
+            return min(d.corner, max(0, inside - d.corner)) * dipAmount
+        }
+        let leadTip = dip.map { $0.easesAfter ? tipCorner(inside: $0.to - rect.minY) : 0 } ?? 0
+        let trailTip = dip.map { $0.easesBefore ? tipCorner(inside: rect.maxY - $0.from) : 0 } ?? 0
         let leadShare = open * emerging(leadOut)
         let trailShare = flareShare * trailOpen * emerging(trailOut)
         let leadCurl = curl * leadShare
@@ -597,9 +615,32 @@ struct SideNotchShape: Shape {
                 if let out = leadOut {
                     leadCorner = relaxed(leadCorner, toward: d.corner + max(0, out - leadCurl))
                 }
+                leadCorner = max(leadCorner, min(leadTip, room))
             }
             let leadTop = rect.minY + leadCurl
             let leadFar = rect.maxX - localDepth(leadTop + leadCorner)
+            // **The joined end coming out of the hole, rounded in it.** Square
+            // at the wall it is the joined end, and the housing hides it — but a
+            // screenshot or a recording has no housing, and there the copy on
+            // the hole's far side was a block with a flat side and a sharp
+            // corner, cut off in mid-air. Carried on in past the wall far enough
+            // to turn the hole's own corner without reaching back into its crook,
+            // and no deeper than the hole, it reads as goo coming out of the hole
+            // and changes nothing on the display.
+            if let e = emergesFrom, e.holeDepth > 0, open < 0.001, leadCurl < 0.001 {
+                let foot = max(leadFar, rect.maxX - hidden - e.holeDepth)
+                let ext = max(0, 2 * e.corner - e.buried) + 1
+                let start = rect.minY - ext
+                let round = max(0, min(e.corner, ext, (rect.maxX - foot) / 2))
+                path.move(to: CGPoint(x: rect.maxX, y: start))
+                path.addLine(to: CGPoint(x: foot + round, y: start))
+                if round > 0.5 {
+                    path.addArc(tangent1End: CGPoint(x: foot, y: start),
+                                tangent2End: CGPoint(x: foot, y: rect.minY), radius: round)
+                }
+                path.addLine(to: CGPoint(x: foot, y: rect.minY))
+                path.addLine(to: CGPoint(x: leadFar, y: leadTop + leadCorner))
+            } else {
             // Screen edge, above the body.
             path.move(to: CGPoint(x: rect.maxX, y: rect.minY))
             if hidden > 0 { path.addLine(to: CGPoint(x: rect.maxX - hidden, y: rect.minY)) }
@@ -614,6 +655,7 @@ struct SideNotchShape: Shape {
                  leaving: CGVector(dx: -1, dy: 0),
                  arriving: floorHeading(leadTop + leadCorner),
                  radius: leadCorner)
+            }
         }
         // The far end is the notch's own end, merged or not: the corner it has
         // on every other edge, and the flare that makes it read as moulded into
@@ -629,6 +671,7 @@ struct SideNotchShape: Shape {
             if let out = trailOut {
                 trailCorner = relaxed(trailCorner, toward: d.corner + max(0, out - trailCurl))
             }
+            trailCorner = max(trailCorner, min(trailTip, room))
         }
         let trailFar = rect.maxX - localDepth(bodyBottom - trailCorner)
         // The far side: straight, or following the dip where there is one.
