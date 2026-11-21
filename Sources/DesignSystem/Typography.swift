@@ -4,8 +4,11 @@ import SwiftUI
 /// track `Design.scale` along with everything else.
 enum Typography {
     /// Computes scaled font point size from cap-height pixels and a typography scale factor.
+    /// Not rounded: at the default scale it has to be exactly the size the
+    /// card's fit and height measurements were solved against, or a row they
+    /// refuse is drawn as fitting, and truncated.
     static func fontSize(capPixels: CGFloat, scale: CGFloat = 1.0) -> CGFloat {
-        (Design.fontSize(capPixels: capPixels) * scale).rounded(.toNearestOrAwayFromZero)
+        Design.fontSize(capPixels: capPixels) * scale
     }
 
     /// The percent under each provider ring. Cap height 27px in the frame.
