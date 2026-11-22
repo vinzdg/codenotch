@@ -699,8 +699,9 @@ mod tests {
         assert_eq!(bundled_agy_in(&home), None);
         let bin = home.join(".gemini").join("bin");
         std::fs::create_dir_all(&bin).unwrap();
-        std::fs::write(bin.join("agy.exe"), "").unwrap();
-        assert_eq!(bundled_agy_in(&home), Some(bin.join("agy.exe")));
+        let exe = bin.join(agy_binary_name());
+        std::fs::write(&exe, "").unwrap();
+        assert_eq!(bundled_agy_in(&home), Some(exe));
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -923,9 +924,9 @@ mod tests {
         assert_eq!(find_agy_in(std::slice::from_ref(&temp)), None);
         let _ = std::fs::remove_dir_all(&temp);
 
-        let non_existent = PathBuf::from(r"C:\non\existent\path\agy.exe");
         #[cfg(windows)]
         {
+            let non_existent = PathBuf::from(r"C:\non\existent\path\agy.exe");
             let res = run_cmd_conpty(&non_existent, &["--print", "/usage"], None, Duration::from_secs(5));
             assert!(res.is_err());
         }
