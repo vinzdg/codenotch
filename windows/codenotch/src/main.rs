@@ -907,7 +907,7 @@ fn report_dpr(app: AppHandle, dpr: f64, w: f64, h: f64, settled: Option<bool>) {
 /// Slack around every hot rectangle: this is sampled on a timer, so a cursor arriving at the pill
 /// has to count as arrived slightly early, or a quick click lands between two polls while the
 /// window is still click-through and goes to whatever is behind it.
-#[cfg(any(test, not(target_os = "linux")))]
+#[allow(dead_code)]
 const HOT_PAD: f64 = 10.0;
 
 /// Is the cursor on something the window is there for? `window` is the outer size in physical
@@ -957,6 +957,7 @@ fn cursor_in_hot(rects: &[[f64; 4]], lx: f64, ly: f64, window: Option<(f64, f64)
     false
 }
 
+#[cfg(any(test, not(target_os = "linux")))]
 fn point_in_rect(lx: f64, ly: f64, r: &[f64; 4]) -> bool {
     lx >= r[0] - HOT_PAD
         && ly >= r[1] - HOT_PAD

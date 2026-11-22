@@ -727,15 +727,6 @@ pub fn lower_thread_priority() {
 #[cfg(not(windows))]
 pub fn lower_thread_priority() {}
 
-#[cfg(all(test, not(windows)))]
-mod tests {
-    #[test]
-    fn proc_io_reads_rchar_and_read_bytes() {
-        let text = "rchar: 100\nwchar: 5\nsyscr: 1\nsyscw: 2\nread_bytes: 40\nwrite_bytes: 0\n";
-        assert_eq!(super::proc_io_counters(text), Some((100, 40)));
-    }
-}
-
 pub fn start(app: AppHandle) {
     std::thread::spawn(move || {
         lower_thread_priority(); // the probe always yields to foreground input
@@ -771,6 +762,13 @@ pub fn start(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(not(windows))]
+    fn proc_io_reads_rchar_and_read_bytes() {
+        let text = "rchar: 100\nwchar: 5\nsyscr: 1\nsyscw: 2\nread_bytes: 40\nwrite_bytes: 0\n";
+        assert_eq!(proc_io_counters(text), Some((100, 40)));
+    }
 
     fn temp_db(tag: &str, setup: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("cn-opencode-{}-{tag}", std::process::id()));
