@@ -617,6 +617,16 @@ final class AntigravityQuotaTests: XCTestCase {
         let body = Data(#"{"buckets":[{"name":"d","used":1,"limit":4}]}"#.utf8)
         XCTAssertEqual(AntigravityProvider.windows(in: body).count, 1)
     }
+
+    /// `cloudcode-pa` answers 200 with untouched 100%-remaining windows for
+    /// accounts metered on `daily-cloudcode-pa` (the default `--cloud_code_endpoint`
+    /// of `antigravity acp`), so `daily-` must be asked first.
+    func testDirectQuotaAsksDailyCloudCodeBeforeProd() {
+        XCTAssertEqual(
+            AntigravityProvider.quotaEndpoints.map(\.host),
+            ["daily-cloudcode-pa.googleapis.com", "cloudcode-pa.googleapis.com"]
+        )
+    }
 }
 
 /// What an unlicensed account actually gets: a count of its own, rather than a
