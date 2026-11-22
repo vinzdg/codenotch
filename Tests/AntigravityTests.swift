@@ -71,6 +71,57 @@ final class AntigravityCredentialsTests: XCTestCase {
         XCTAssertEqual(creds.email, "user@example.com")
         XCTAssertFalse(creds.isExpired)
     }
+
+    func testItDecodesRawOAuthTokenFileWithEmail() throws {
+        let raw = Data("""
+        {"auth_method":"consumer","id_token_email":"dev@example.com",\
+        "token":{"access_token":"ya29.acp-token","token_type":"Bearer",\
+        "refresh_token":"1//r","expiry":"2126-11-21T19:59:41.123456-05:00","expires_in":3599}}
+        """.utf8)
+        let creds = try XCTUnwrap(AntigravityCredentials.decode(raw))
+        XCTAssertEqual(creds.accessToken, "ya29.acp-token")
+        XCTAssertEqual(creds.authMethod, "consumer")
+        XCTAssertEqual(creds.email, "dev@example.com")
+        XCTAssertFalse(creds.isExpired)
+    }
+
+    func testItReadsT3CodeACPFileCredentialsAndPrefersNewest() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AntigravityCredentialsTests.\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: home) }
+
+        let oldURL = home.appendingPathComponent(".gemini/antigravity-acp/antigravity-oauth-token")
+        let newURL = home.appendingPathComponent(".t3/userdata/providers/antigravity/abc123/antigravity-acp/antigravity-oauth-token")
+        try FileManager.default.createDirectory(at: oldURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: newURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        let oldJSON = """
+        {"auth_method":"consumer","id_token_email":"old@example.com",\
+        "token":{"access_token":"ya29.old","expiry":"2126-11-21T19:59:41Z"}}
+        """
+        let newJSON = """
+        {"auth_method":"consumer","id_token_email":"t3@example.com",\
+        "token":{"access_token":"ya29.t3","expiry":"2126-11-21T19:59:41Z"}}
+        """
+        try Data(oldJSON.utf8).write(to: oldURL)
+        try Data(newJSON.utf8).write(to: newURL)
+        let olderDate = Date(timeIntervalSince1970: 1_700_000_000)
+        let newerDate = Date(timeIntervalSince1970: 1_800_000_000)
+        try FileManager.default.setAttributes([.modificationDate: olderDate], ofItemAtPath: oldURL.path)
+        try FileManager.default.setAttributes([.modificationDate: newerDate], ofItemAtPath: newURL.path)
+
+        XCTAssertTrue(AntigravityCredentials.isSignedIn(home: home))
+        let creds = try XCTUnwrap(AntigravityCredentials.readACPFileCredentials(home: home))
+        XCTAssertEqual(creds.accessToken, "ya29.t3")
+        XCTAssertEqual(creds.email, "t3@example.com")
+        XCTAssertEqual(creds.sourceName, "Antigravity ACP")
+
+        let fileBacked = try XCTUnwrap(AntigravityCredentials.readFileBacked(home: home))
+        XCTAssertEqual(fileBacked.accessToken, "ya29.t3")
+        XCTAssertEqual(AntigravityCredentials.modificationDate(for: .acp, home: home)?.timeIntervalSince1970 ?? 0,
+                       newerDate.timeIntervalSince1970, accuracy: 1)
+    }
 }
 
 final class AntigravityTierTests: XCTestCase {
@@ -232,6 +283,17 @@ final class AntigravityActivityTests: XCTestCase {
         )
 
         XCTAssertTrue(AntigravityActivity.transcriptRoots(home: home).isEmpty)
+    }
+
+    func testT3CodeACPBrainDirectoryIsIncludedInTranscriptRoots() throws {
+        let home = try makeRoot()
+        let t3Brain = home.appendingPathComponent(
+            ".t3/userdata/providers/antigravity/abc123/antigravity-acp/brain"
+        )
+        try FileManager.default.createDirectory(at: t3Brain, withIntermediateDirectories: true)
+
+        XCTAssertEqual(AntigravityActivity.transcriptRoots(home: home).map(\.path), [t3Brain.path])
+        XCTAssertEqual(AntigravityFlavor.acp.brainDirectories(home: home).map(\.path), [t3Brain.path])
     }
 
     // MARK: - What the row is called
@@ -708,6 +770,57 @@ final class AntigravityBridgeTests: XCTestCase {
         )
 
         XCTAssertNil(endpoint.csrfToken)
+    }
+
+    func testAntigravityACPProcessIsFoundWithoutToken() throws {
+        let table = """
+        1 /sbin/launchd
+        9143 /Users/someone/.t3/tools/antigravity-acp/darwin-arm64/versions/abc/antigravity acp --gemini-dir /Users/someone/.t3/userdata/providers/antigravity/hash --app-data-dir antigravity-acp
+        """
+        let endpoint = try XCTUnwrap(
+            AntigravityBridge.discover(processTable: table, listeningPorts: { pid in
+                XCTAssertEqual(pid, 9143)
+                return [64328, 64329]
+            })
+        )
+
+        XCTAssertNil(endpoint.csrfToken)
+        XCTAssertEqual(endpoint.ports, [64328, 64329])
+    }
+
+    func testAntigravityBinaryCLIIsFoundAndAppBundleIsNot() throws {
+        let cliTable = "800 /Users/someone/.local/bin/antigravity"
+        let endpoint = try XCTUnwrap(
+            AntigravityBridge.discover(processTable: cliTable, listeningPorts: { _ in [51234] })
+        )
+        XCTAssertNil(endpoint.csrfToken)
+        XCTAssertEqual(endpoint.ports, [51234])
+
+        let appTable = "900 /Applications/Antigravity.app/Contents/MacOS/Antigravity"
+        XCTAssertNil(AntigravityBridge.discover(processTable: appTable, listeningPorts: { _ in [51234] }))
+    }
+
+    /// Hosts such as T3 Code keep more than one `antigravity acp` process open;
+    /// a first process with no bound ports yet must not hide a live sibling.
+    func testMultipleACPProcessesCollectPortsAcrossSiblings() throws {
+        let table = """
+        354 /Users/someone/.t3/tools/antigravity-acp/darwin-arm64/versions/abc/antigravity acp --gemini-dir /a --app-data-dir antigravity-acp
+        9143 /Users/someone/.t3/tools/antigravity-acp/darwin-arm64/versions/abc/antigravity acp --gemini-dir /a --app-data-dir antigravity-acp
+        9200 /Users/someone/.t3/tools/antigravity-acp/darwin-arm64/versions/abc/antigravity acp --gemini-dir /a --app-data-dir antigravity-acp
+        """
+        let endpoint = try XCTUnwrap(
+            AntigravityBridge.discover(processTable: table, listeningPorts: { pid in
+                switch pid {
+                case 354: return []
+                case 9143: return [63131, 63132]
+                case 9200: return [64328, 63131]
+                default: return []
+                }
+            })
+        )
+
+        XCTAssertNil(endpoint.csrfToken)
+        XCTAssertEqual(endpoint.ports, [63131, 63132, 64328])
     }
 
     /// The IDE keeps its place: it is the one that needs the token, and sending
@@ -2029,6 +2142,17 @@ final class AntigravityFlavorSelectionTests: XCTestCase {
         XCTAssertTrue(running.contains(.ide))
         XCTAssertTrue(running.contains(.cli))
         XCTAssertTrue(running.contains(.acp))
+    }
+
+    func testRunningFlavorsDistinguishesAntigravityACPFromCLI() {
+        let acpTable = "9143 /Users/someone/.t3/tools/antigravity-acp/darwin-arm64/versions/abc/antigravity acp --gemini-dir /a"
+        XCTAssertEqual(AntigravityFlavor.runningFlavors(processTable: acpTable), [.acp])
+
+        let agyACPTable = "9144 /usr/local/bin/agy acp"
+        XCTAssertEqual(AntigravityFlavor.runningFlavors(processTable: agyACPTable), [.acp])
+
+        let cliTable = "9145 /usr/local/bin/antigravity"
+        XCTAssertEqual(AntigravityFlavor.runningFlavors(processTable: cliTable), [.cli])
     }
 
     func testFlavorDisplayNames() {

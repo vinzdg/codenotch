@@ -16,6 +16,33 @@ enum AntigravityFlavor: String, CaseIterable, Sendable {
         }
     }
 
+    /// Isolated `antigravity-acp` data directories maintained by T3 Code under
+    /// `~/.t3/userdata/providers/antigravity/<hash>/antigravity-acp`.
+    static func t3ACPDataDirectories(home: URL = URL(fileURLWithPath: NSHomeDirectory()),
+                                     fileManager: FileManager = .default) -> [URL] {
+        let root = home
+            .appendingPathComponent(".t3")
+            .appendingPathComponent("userdata")
+            .appendingPathComponent("providers")
+            .appendingPathComponent("antigravity")
+        let names = (try? fileManager.contentsOfDirectory(atPath: root.path)) ?? []
+        return names.sorted().compactMap { name in
+            let dir = root.appendingPathComponent(name).appendingPathComponent("antigravity-acp")
+            var isDir: ObjCBool = false
+            guard fileManager.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else {
+                return nil
+            }
+            return dir
+        }
+    }
+
+    static func t3BrainDirectories(home: URL = URL(fileURLWithPath: NSHomeDirectory()),
+                                   fileManager: FileManager = .default) -> [URL] {
+        t3ACPDataDirectories(home: home, fileManager: fileManager)
+            .map { $0.appendingPathComponent("brain") }
+            .filter { fileManager.fileExists(atPath: $0.path) }
+    }
+
     func brainDirectories(home: URL = URL(fileURLWithPath: NSHomeDirectory())) -> [URL] {
         let gemini = home.appendingPathComponent(".gemini")
         switch self {
@@ -29,9 +56,10 @@ enum AntigravityFlavor: String, CaseIterable, Sendable {
                 gemini.appendingPathComponent("antigravity-cli").appendingPathComponent("brain")
             ].filter { FileManager.default.fileExists(atPath: $0.path) }
         case .acp:
-            return [
+            let standard = [
                 gemini.appendingPathComponent("antigravity-acp").appendingPathComponent("brain")
             ].filter { FileManager.default.fileExists(atPath: $0.path) }
+            return standard + Self.t3BrainDirectories(home: home)
         }
     }
 
@@ -247,17 +275,45 @@ struct AntigravityCredentials: Equatable {
         updateHeld(credentials, for: profile)
     }
 
+    static func acpTokenURLs(home: URL = URL(fileURLWithPath: NSHomeDirectory())) -> [URL] {
+        let acpDir = home.appendingPathComponent(".gemini/antigravity-acp")
+        let standard = [
+            acpDir.appendingPathComponent("acp_token.json"),
+            acpDir.appendingPathComponent("antigravity-oauth-token")
+        ]
+        let t3 = AntigravityFlavor.t3ACPDataDirectories(home: home)
+            .map { $0.appendingPathComponent("antigravity-oauth-token") }
+        return standard + t3
+    }
+
+    static func cliTokenURLs(home: URL = URL(fileURLWithPath: NSHomeDirectory())) -> [URL] {
+        let gemini = home.appendingPathComponent(".gemini")
+        return [
+            gemini.appendingPathComponent("antigravity-cli/antigravity-oauth-token"),
+            gemini.appendingPathComponent("antigravity-cli/oauth_creds.json"),
+            gemini.appendingPathComponent("oauth_creds.json")
+        ]
+    }
+
+    private static func newestModificationDate(of urls: [URL]) -> Date? {
+        urls.compactMap { url in
+            (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+        }.max()
+    }
+
     /// Whether Antigravity has filed a credential at all, judged from the
     /// item's attributes rather than its contents — those are not behind the
     /// access prompt the secret is, so this can be asked freely.
-    static func isSignedIn() -> Bool {
+    static func isSignedIn(home: URL = URL(fileURLWithPath: NSHomeDirectory())) -> Bool {
         if KeychainItem.modifiedAt(service: service, account: account) != nil { return true }
         if KeychainItem.modifiedAt(service: service, account: acpAccount) != nil { return true }
-        let acpTokenPath = ("~/.gemini/antigravity-acp/acp_token.json" as NSString).expandingTildeInPath
-        if FileManager.default.fileExists(atPath: acpTokenPath) { return true }
-        let jsonPath = ("~/.gemini/oauth_creds.json" as NSString).expandingTildeInPath
-        if FileManager.default.fileExists(atPath: jsonPath) { return true }
-        let ompDBPath = ("~/.omp/agent/agent.db" as NSString).expandingTildeInPath
+        if acpTokenURLs(home: home).contains(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+            return true
+        }
+        if cliTokenURLs(home: home).contains(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+            return true
+        }
+        let ompDBPath = home.appendingPathComponent(".omp/agent/agent.db").path
         if FileManager.default.fileExists(atPath: ompDBPath) { return true }
         return false
     }
@@ -292,13 +348,11 @@ struct AntigravityCredentials: Equatable {
                 itemModifiedAt: {
                     let keychainMod = KeychainItem.modifiedAt(service: service, account: account)
                     let acpKeychainMod = KeychainItem.modifiedAt(service: service, account: acpAccount)
-                    let acpTokenPath = ("~/.gemini/antigravity-acp/acp_token.json" as NSString).expandingTildeInPath
-                    let acpTokenMod = (try? FileManager.default.attributesOfItem(atPath: acpTokenPath))?[.modificationDate] as? Date
-                    let jsonPath = ("~/.gemini/oauth_creds.json" as NSString).expandingTildeInPath
-                    let jsonMod = (try? FileManager.default.attributesOfItem(atPath: jsonPath))?[.modificationDate] as? Date
+                    let acpTokenMod = newestModificationDate(of: acpTokenURLs())
+                    let cliTokenMod = newestModificationDate(of: cliTokenURLs())
                     let ompPath = ("~/.omp/agent/agent.db" as NSString).expandingTildeInPath
                     let ompMod = (try? FileManager.default.attributesOfItem(atPath: ompPath))?[.modificationDate] as? Date
-                    return [keychainMod, acpKeychainMod, acpTokenMod, jsonMod, ompMod].compactMap { $0 }.max()
+                    return [keychainMod, acpKeychainMod, acpTokenMod, cliTokenMod, ompMod].compactMap { $0 }.max()
                 },
                 reload: { try read(for: profile) }
             )
@@ -330,7 +384,9 @@ struct AntigravityCredentials: Equatable {
         )
     }
 
-    static func modificationDate(for flavor: AntigravityFlavor, profile: AntigravityProfile = .default()) -> Date? {
+    static func modificationDate(for flavor: AntigravityFlavor,
+                                 profile: AntigravityProfile = .default(),
+                                 home: URL = URL(fileURLWithPath: NSHomeDirectory())) -> Date? {
         switch flavor {
         case .ide:
             return KeychainItem.modifiedAt(service: service, account: account)
@@ -341,17 +397,13 @@ struct AntigravityCredentials: Equatable {
                 let dbMod = (try? FileManager.default.attributesOfItem(atPath: agentDB))?[.modificationDate] as? Date
                 return [jsonMod, dbMod].compactMap { $0 }.max()
             }
-            let cliPath = ("~/.gemini/antigravity-cli/oauth_creds.json" as NSString).expandingTildeInPath
-            let jsonPath = ("~/.gemini/oauth_creds.json" as NSString).expandingTildeInPath
-            let ompPath = ("~/.omp/agent/agent.db" as NSString).expandingTildeInPath
-            let cliMod = (try? FileManager.default.attributesOfItem(atPath: cliPath))?[.modificationDate] as? Date
-            let jsonMod = (try? FileManager.default.attributesOfItem(atPath: jsonPath))?[.modificationDate] as? Date
+            let cliMod = newestModificationDate(of: cliTokenURLs(home: home))
+            let ompPath = home.appendingPathComponent(".omp/agent/agent.db").path
             let ompMod = (try? FileManager.default.attributesOfItem(atPath: ompPath))?[.modificationDate] as? Date
-            return [cliMod, jsonMod, ompMod].compactMap { $0 }.max()
+            return [cliMod, ompMod].compactMap { $0 }.max()
         case .acp:
             let keychainMod = KeychainItem.modifiedAt(service: service, account: acpAccount)
-            let acpTokenPath = ("~/.gemini/antigravity-acp/acp_token.json" as NSString).expandingTildeInPath
-            let tokenMod = (try? FileManager.default.attributesOfItem(atPath: acpTokenPath))?[.modificationDate] as? Date
+            let tokenMod = newestModificationDate(of: acpTokenURLs(home: home))
             return [keychainMod, tokenMod].compactMap { $0 }.max()
         }
     }
@@ -368,6 +420,17 @@ struct AntigravityCredentials: Equatable {
         case .acp:
             return readACPCredentials(interactive: interactive)
         }
+    }
+
+    /// Reads file-backed ACP/CLI credentials without touching the macOS Keychain,
+    /// so Settings can recognise CLI/ACP logins before the first fetch without
+    /// risking a keychain prompt.
+    static func readFileBacked(for profile: AntigravityProfile = .default(),
+                               home: URL = URL(fileURLWithPath: NSHomeDirectory())) -> AntigravityCredentials? {
+        if profile.slug != nil {
+            return readCLICredentials(for: profile, home: home)
+        }
+        return readACPFileCredentials(home: home) ?? readCLICredentials(for: profile, home: home)
     }
 
     private static func readIDECredentials(interactive: Bool = false) -> AntigravityCredentials? {
@@ -399,7 +462,37 @@ struct AntigravityCredentials: Equatable {
         )
     }
 
-    private static func readACPCredentials(interactive: Bool = false) -> AntigravityCredentials? {
+    static func readACPFileCredentials(home: URL = URL(fileURLWithPath: NSHomeDirectory())) -> AntigravityCredentials? {
+        let candidates = acpTokenURLs(home: home)
+            .compactMap { url -> (url: URL, modified: Date)? in
+                guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) else {
+                    return nil
+                }
+                return (url, (attrs[.modificationDate] as? Date) ?? .distantPast)
+            }
+            .sorted { $0.modified > $1.modified }
+
+        for candidate in candidates {
+            if let fileCreds = readJSONCredentials(at: candidate.url.path) {
+                return AntigravityCredentials(
+                    accessToken: fileCreds.accessToken,
+                    expiresAt: fileCreds.expiresAt,
+                    authMethod: fileCreds.authMethod,
+                    projectId: fileCreds.projectId,
+                    email: fileCreds.email,
+                    refreshToken: fileCreds.refreshToken,
+                    clientID: fileCreds.clientID,
+                    clientSecret: fileCreds.clientSecret,
+                    tokenURI: fileCreds.tokenURI,
+                    sourceName: "Antigravity ACP"
+                )
+            }
+        }
+        return nil
+    }
+
+    private static func readACPCredentials(interactive: Bool = false,
+                                           home: URL = URL(fileURLWithPath: NSHomeDirectory())) -> AntigravityCredentials? {
         let (status, data) = (readKeychainForTesting != nil ? (errSecItemNotFound, nil as Data?) : KeychainSecret.read(
             query: [
                 kSecClass: kSecClassGenericPassword,
@@ -426,25 +519,11 @@ struct AntigravityCredentials: Equatable {
             )
         }
 
-        let acpTokenPath = ("~/.gemini/antigravity-acp/acp_token.json" as NSString).expandingTildeInPath
-        if let fileCreds = readJSONCredentials(at: acpTokenPath) {
-            return AntigravityCredentials(
-                accessToken: fileCreds.accessToken,
-                expiresAt: fileCreds.expiresAt,
-                authMethod: fileCreds.authMethod,
-                projectId: fileCreds.projectId,
-                email: fileCreds.email,
-                refreshToken: fileCreds.refreshToken,
-                clientID: fileCreds.clientID,
-                clientSecret: fileCreds.clientSecret,
-                tokenURI: fileCreds.tokenURI,
-                sourceName: "Antigravity ACP"
-            )
-        }
-        return nil
+        return readACPFileCredentials(home: home)
     }
 
-    private static func readCLICredentials(for profile: AntigravityProfile = .default()) -> AntigravityCredentials? {
+    private static func readCLICredentials(for profile: AntigravityProfile = .default(),
+                                           home: URL = URL(fileURLWithPath: NSHomeDirectory())) -> AntigravityCredentials? {
         if profile.slug != nil {
             if let creds = readJSONCredentials(at: profile.authURL.path) {
                 return AntigravityCredentials(
@@ -478,39 +557,24 @@ struct AntigravityCredentials: Equatable {
             return nil
         }
 
-        let cliPath = ("~/.gemini/antigravity-cli/oauth_creds.json" as NSString).expandingTildeInPath
-        if let creds = readJSONCredentials(at: cliPath) {
-            return AntigravityCredentials(
-                accessToken: creds.accessToken,
-                expiresAt: creds.expiresAt,
-                authMethod: creds.authMethod,
-                projectId: creds.projectId,
-                email: creds.email,
-                refreshToken: creds.refreshToken,
-                clientID: creds.clientID,
-                clientSecret: creds.clientSecret,
-                tokenURI: creds.tokenURI,
-                sourceName: "Antigravity CLI"
-            )
+        for url in cliTokenURLs(home: home) {
+            if let creds = readJSONCredentials(at: url.path) {
+                return AntigravityCredentials(
+                    accessToken: creds.accessToken,
+                    expiresAt: creds.expiresAt,
+                    authMethod: creds.authMethod,
+                    projectId: creds.projectId,
+                    email: creds.email,
+                    refreshToken: creds.refreshToken,
+                    clientID: creds.clientID,
+                    clientSecret: creds.clientSecret,
+                    tokenURI: creds.tokenURI,
+                    sourceName: "Antigravity CLI"
+                )
+            }
         }
 
-        let defaultJSON = ("~/.gemini/oauth_creds.json" as NSString).expandingTildeInPath
-        if let creds = readJSONCredentials(at: defaultJSON) {
-            return AntigravityCredentials(
-                accessToken: creds.accessToken,
-                expiresAt: creds.expiresAt,
-                authMethod: creds.authMethod,
-                projectId: creds.projectId,
-                email: creds.email,
-                refreshToken: creds.refreshToken,
-                clientID: creds.clientID,
-                clientSecret: creds.clientSecret,
-                tokenURI: creds.tokenURI,
-                sourceName: "Antigravity CLI"
-            )
-        }
-
-        if let omp = readOMPCredentials() {
+        if let omp = readOMPCredentials(at: home.appendingPathComponent(".omp/agent/agent.db")) {
             return AntigravityCredentials(
                 accessToken: omp.accessToken,
                 expiresAt: omp.expiresAt,
@@ -674,12 +738,6 @@ struct AntigravityCredentials: Equatable {
             return acp
         }
 
-        guard var text = String(data: data, encoding: .utf8) else { return nil }
-        if text.hasPrefix(goKeyringPrefix) {
-            text = String(text.dropFirst(goKeyringPrefix.count))
-        }
-        guard let payload = Data(base64Encoded: text) else { return nil }
-
         struct Stored: Decodable {
             struct Token: Decodable {
                 let access_token: String
@@ -691,6 +749,26 @@ struct AntigravityCredentials: Equatable {
             }
             let auth_method: String
             let token: Token
+            let id_token_email: String?
+        }
+
+        // File-backed `antigravity-oauth-token` writes this same envelope as
+        // raw JSON, while Keychain stores it base64-encoded behind Go keyring's
+        // prefix.
+        let payload: Data
+        if let rawStored = try? JSONDecoder().decode(Stored.self, from: data),
+           let expiry = parse(rawStored.token.expiry) {
+            return AntigravityCredentials(accessToken: rawStored.token.access_token,
+                                          expiresAt: expiry,
+                                          authMethod: rawStored.auth_method,
+                                          email: rawStored.id_token_email)
+        } else {
+            guard var text = String(data: data, encoding: .utf8) else { return nil }
+            if text.hasPrefix(goKeyringPrefix) {
+                text = String(text.dropFirst(goKeyringPrefix.count))
+            }
+            guard let decoded = Data(base64Encoded: text) else { return nil }
+            payload = decoded
         }
 
         guard let stored = try? JSONDecoder().decode(Stored.self, from: payload),
@@ -699,7 +777,8 @@ struct AntigravityCredentials: Equatable {
 
         return AntigravityCredentials(accessToken: stored.token.access_token,
                                       expiresAt: expiry,
-                                      authMethod: stored.auth_method)
+                                      authMethod: stored.auth_method,
+                                      email: stored.id_token_email)
     }
 
     /// Decodes raw JSON credentials, such as those stored by Antigravity ACP or oauth_creds.json.

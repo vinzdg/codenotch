@@ -76,7 +76,9 @@ actor AntigravityProvider: UsageProvider {
     }
 
     nonisolated func account() -> ProviderAccount? {
-        if AntigravityCredentials.isSignedIn(for: profile), let held = AntigravityCredentials.held(for: profile) {
+        if AntigravityCredentials.isSignedIn(for: profile),
+           let held = AntigravityCredentials.held(for: profile)
+            ?? AntigravityCredentials.readFileBacked(for: profile) {
             let email = held.email
             let plan = held.authMethod == "consumer" ? L10n.t("Personal") : held.authMethod
             let source = held.sourceName ?? profile.sourceName

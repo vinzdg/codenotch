@@ -49,37 +49,61 @@ enum AntigravityBridge {
         let lines = table.split(separator: "\n")
 
         // The IDE's language server, which is the one that carries a token.
-        if let line = lines.first(where: {
-            $0.contains("language_server") && $0.contains("--csrf_token")
-        }),
-           let token = value(of: "--csrf_token", in: String(line)),
-           let endpoint = endpoint(for: line, token: token, ports: listeningPorts) {
-            return endpoint
+        for line in lines where line.contains("language_server") && line.contains("--csrf_token") {
+            if let token = value(of: "--csrf_token", in: String(line)),
+               let endpoint = endpoint(for: line, token: token, ports: listeningPorts) {
+                return endpoint
+            }
         }
 
-        // Then the CLI, which serves the same RPC and is a whole install of its
-        // own — somebody who uses `agy` and never installs the IDE has a real
-        // quota to read and was getting the counted-requests fallback instead.
-        // It asks for no token: on loopback it answers anyone.
-        if let line = lines.first(where: isCLI),
-           let endpoint = endpoint(for: line, token: nil, ports: listeningPorts) {
-            return endpoint
+        // Then the CLI and ACP hosts (`agy`, `antigravity`, `antigravity acp`),
+        // which serve the same RPC on loopback without a CSRF token. Hosts such
+        // as T3 Code spawn one `antigravity acp` process per active session, so
+        // collect ports across every matching process instead of stopping at a
+        // first match that has not bound yet.
+        var ports: [Int] = []
+        var seen: Set<Int> = []
+        for line in lines where isCLI(line) || isACP(line) {
+            guard let endpoint = endpoint(for: line, token: nil, ports: listeningPorts) else {
+                continue
+            }
+            for port in endpoint.ports where seen.insert(port).inserted {
+                ports.append(port)
+            }
+        }
+        if !ports.isEmpty {
+            return Endpoint(ports: ports, csrfToken: nil)
         }
         return nil
     }
 
-    /// The CLI runs as plain `agy`, so match the executable's name rather than
-    /// looking for it anywhere in the line — "agy" is three letters and turns
-    /// up inside real words and real paths.
-    static func isCLI(_ line: Substring) -> Bool {
+    private static func executableAndSubcommand(_ line: Substring) -> (executable: String, subcommand: Substring?)? {
         let fields = line.trimmingCharacters(in: .whitespaces).split(separator: " ")
-        guard fields.count >= 2 else { return false }
-        return URL(fileURLWithPath: String(fields[1])).lastPathComponent == "agy"
+        guard fields.count >= 2 else { return nil }
+        let executable = URL(fileURLWithPath: String(fields[1])).lastPathComponent
+        let subcommand = fields.count >= 3 ? fields[2] : nil
+        return (executable, subcommand)
     }
 
-    /// ACP runs as `agy_acp_server.par` or `localharness_external`.
+    /// The CLI runs as plain `agy` or `antigravity`, so match the executable's
+    /// name rather than looking for it anywhere in the line — "agy" is three
+    /// letters and turns up inside real words and paths, and the macOS app
+    /// bundle runs as capitalised `Antigravity`.
+    static func isCLI(_ line: Substring) -> Bool {
+        guard let parts = executableAndSubcommand(line) else { return false }
+        return (parts.executable == "agy" || parts.executable == "antigravity")
+            && parts.subcommand != "acp"
+    }
+
+    /// ACP runs as `agy_acp_server.par`, `localharness_external`, or
+    /// `antigravity acp` / `agy acp`.
     static func isACP(_ line: Substring) -> Bool {
-        line.contains("agy_acp_server") || line.contains("localharness_external")
+        if line.contains("agy_acp_server") || line.contains("localharness_external") {
+            return true
+        }
+        guard let parts = executableAndSubcommand(line) else { return false }
+        return (parts.executable == "antigravity" || parts.executable == "agy")
+            && parts.subcommand == "acp"
     }
 
     /// Whether an Antigravity ACP server process is currently running.
