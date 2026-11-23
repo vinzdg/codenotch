@@ -161,11 +161,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // DeepSeek's ring is DeepSeekProvider, which reads either this
             // sign-in or an API key, so the WebView is not a ring of its own.
             let webProviders: [WebSessionProvider] = [qianwen, mimo, qoder]
-            fleet.signInItems = [deepSeek, miniMaxWeb, qianwen, mimo, qoder].map { provider in
-                let name = provider.displayName
-                return (title: L10n.t("Sign in to \(name)…"),
-                        action: { [weak provider] in provider?.presentSignIn() })
-            }
 
             // Cursor reads the editor's session, or cursor-agent's if the
             // editor is missing — never a browser one: signing into
