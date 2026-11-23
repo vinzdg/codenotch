@@ -43,6 +43,72 @@ final class WebSessionSignInTests: XCTestCase {
                        "opening the sheet is not a sign-in for a site that can confirm one")
     }
 
+    /// The page a read loads must not outlive the read. A console left alive
+    /// between polls was one WebContent process at 540 MB after six days, and
+    /// the UI process stalled on its layer tree every time a poll woke it.
+    ///
+    /// Driven through a real page: the sign-in sheet's view is the same view a
+    /// read uses, and opening it creates one without any network. While the
+    /// sheet is up the page is the person's; once it is gone, the next
+    /// release takes the page with it — and only *that* page, never a newer
+    /// one that a superseded read might otherwise have torn down.
+    func testReleasingThePageDropsTheViewButKeepsTheSession() {
+        let key = "perplexity.signedIn"
+        let provider = WebSessionProvider(site: Sites.perplexity)
+        provider.signInSheetDidOpen()
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: key))
+
+        provider.releasePage()
+        XCTAssertFalse(provider.holdsPageForTesting, "nothing had loaded a page yet")
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: key),
+                      "the session is the cookie jar's, not the page's")
+    }
+
+    func testASheetKeepsItsPageAndAClosedSheetReleasesIt() {
+        let provider = WebSessionProvider(site: Sites.perplexity)
+        provider.presentSignIn()
+        XCTAssertTrue(provider.holdsPageForTesting, "the sheet is showing a page")
+
+        // A refresh that races the sheet must leave the sheet's page alone.
+        provider.releasePage()
+        XCTAssertTrue(provider.holdsPageForTesting, "a sign-in sheet's page is the person's to close")
+
+        provider.signInWindowForTesting?.close()
+        XCTAssertFalse(provider.holdsPageForTesting, "with the sheet gone the next release takes the page")
+    }
+
+    /// A read that was superseded while suspended — a region change ran
+    /// `apply(site:)`, and a newer read loaded its own page — must not tear
+    /// the newer page down as it leaves. The pages are the sign-in sheet's,
+    /// because that is the one way to make a real page with no network.
+    func testAStaleReleaseTakesOnlyItsOwnPage() {
+        let provider = WebSessionProvider(site: Sites.perplexity)
+
+        provider.presentSignIn()
+        let oldPage = try! XCTUnwrap(provider.pageForTesting)
+        // The old read's exit, while its page is still the live one: takes it.
+        provider.signInWindowForTesting?.close()
+        XCTAssertFalse(provider.holdsPageForTesting)
+
+        provider.presentSignIn()
+        let newPage = try! XCTUnwrap(provider.pageForTesting)
+        XCTAssertNotIdentical(newPage, oldPage, "a fresh sheet loads a fresh page")
+        // The sheet goes without `windowWillClose` releasing the page, so the
+        // only thing standing between the stale exit and the new page is the
+        // `keeping` guard itself.
+        provider.signInWindowForTesting?.delegate = nil
+        provider.signInWindowForTesting?.close()
+        provider.clearSignInWindowForTesting()
+        XCTAssertTrue(provider.holdsPageForTesting)
+
+        // The old read's exit arriving *now*, after the newer page exists.
+        provider.releasePage(keeping: oldPage)
+        XCTAssertTrue(provider.holdsPageForTesting, "the newer page survives a stale read's exit")
+
+        provider.releasePage(keeping: newPage)
+        XCTAssertFalse(provider.holdsPageForTesting, "the newer read's own exit takes its page")
+    }
+
     func testDeepSeekOriginValidationRejectsContainingHostnames() {
         let origin = Sites.deepSeek.origin
         XCTAssertTrue(WebSessionProvider.matchesOrigin(origin, expected: origin))
