@@ -73,18 +73,22 @@ enum Palette {
     /// the reference.
     static let dockGlassTint = Color.black.opacity(0.15)
 
-    /// Tooltip copy retains the frame's #808080 secondary ink in Dark glass.
-    /// It needs a deeper local backing than the notch itself when a light
-    /// desktop is visible through `Glass.clear`, otherwise the two greys merge.
+    /// The backing beneath Dark glass's tooltip. It needs a deeper local
+    /// backing than the notch itself when a light desktop is visible through
+    /// `Glass.clear`, otherwise the card and its secondary ink merge.
     static let darkGlassTooltipDim = Color.black.opacity(0.80)
 
     /// The backing beneath the dock style's tooltip and cards. The floating
     /// panel claims active appearance so the slab's clear glass is truly
     /// clear, and a clear card over a terminal let the text behind it
     /// through; the cards take frosted `.regular` glass over this dim instead
-    /// (`NotchSurfaceStyle.glass`). 0.60 was the starting guess; 0.40 is what
-    /// the user chose by eye with the tooltip over a terminal full of text.
-    static let dockCardDim = Color.black.opacity(0.40)
+    /// (`NotchSurfaceStyle.glass`). 0.40 was chosen by eye over a dark
+    /// terminal, but `.regular` glass reads what is behind it: over a white
+    /// window the card came out #7C7C7C and its #808080 reset times measured
+    /// 1.1:1 on screen. The style promises "always dark", so the card has to
+    /// be dark over white too. 0.80 is Dark glass's own tooltip backing; with
+    /// it the card measured #474747 over white and the secondary ink 5.0:1.
+    static let dockCardDim = Color.black.opacity(0.80)
 
     /// A dark disc beneath each ring while the dock style floats. The ring
     /// colours were sampled for a black notch and go faint over clear glass
@@ -100,8 +104,11 @@ enum Palette {
 
     static let textPrimary   = Color(dark: .white, light: .black)
     static let textSecondary = Color(dark: NSColor(hex: 0x808080), light: NSColor(hex: 0x6B6B6B))
-    /// Used only by dark, standard Liquid Glass tooltips. Other surfaces keep
-    /// `textSecondary`, including their frame-accurate #808080 dark ink.
+    /// Secondary ink for cards drawn on glass that is meant to read dark: dark
+    /// standard Liquid Glass, Dark glass and the dock. The frame's #808080 was
+    /// sampled on pure black; on a dimmed glass card over a light desktop the
+    /// card is lighter than black and #808080 falls to about 3:1. `solid`
+    /// keeps the frame-accurate #808080.
     static let readableTooltipTextSecondary = Color(dark: NSColor(hex: 0xC2C2C2), light: NSColor(hex: 0x6B6B6B))
 
     /// The surface of a card in the menu bar's menu: a wash over the menu's own

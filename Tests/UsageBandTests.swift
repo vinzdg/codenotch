@@ -146,14 +146,19 @@ final class PaletteAppearanceTests: XCTestCase {
         assertTrack(Palette.barTrack, .aqua, white: 0, alpha: 0.15)
     }
 
-    func testOnlyDarkStandardLiquidGlassGetsReadableSecondaryInk() {
+    func testEveryDarkGlassCardGetsReadableSecondaryInk() {
         assertOpaque(TooltipGlassContrast.secondaryInk(surfaceStyle: .glass, colorScheme: .dark),
                      .darkAqua, is: 0xC2C2C2)
+        // `effective` falls back to `solid` where there is no glass at all.
+        let glassInk: UInt32 = NotchSurfaceStyle.glassAvailable ? 0xC2C2C2 : 0x808080
         assertOpaque(TooltipGlassContrast.secondaryInk(surfaceStyle: .darkGlass, colorScheme: .dark),
-                     .darkAqua, is: 0x808080)
+                     .darkAqua, is: glassInk)
         assertOpaque(TooltipGlassContrast.secondaryInk(surfaceStyle: .solid, colorScheme: .dark),
                      .darkAqua, is: 0x808080)
         assertOpaque(TooltipGlassContrast.secondaryInk(surfaceStyle: .dock, colorScheme: .dark),
+                     .darkAqua, is: glassInk)
+        assertOpaque(TooltipGlassContrast.secondaryInk(surfaceStyle: .dock, colorScheme: .dark,
+                                                        reduceTransparency: true),
                      .darkAqua, is: 0x808080)
         assertOpaque(TooltipGlassContrast.secondaryInk(surfaceStyle: .glass, colorScheme: .dark,
                                                         reduceTransparency: true),
@@ -202,8 +207,8 @@ final class PaletteAppearanceTests: XCTestCase {
             XCTAssertEqual(dockDim.blueComponent, 0, accuracy: 1.0 / 255)
         }
         let dockCardDim = try XCTUnwrap(resolve(Palette.dockCardDim, .darkAqua))
-        XCTAssertEqual(dockCardDim.alphaComponent, 0.40, accuracy: 1.0 / 255,
-                       "the opacity chosen with a tooltip over a terminal")
+        XCTAssertEqual(dockCardDim.alphaComponent, 0.80, accuracy: 1.0 / 255,
+                       "dark enough over a white window for white and #C2C2C2 ink")
         let notchDim = try XCTUnwrap(resolve(Palette.darkGlassDim, .darkAqua))
         XCTAssertEqual(notchDim.alphaComponent, 0.60, accuracy: 1.0 / 255)
     }
