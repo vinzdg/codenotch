@@ -67,11 +67,12 @@ enum Palette {
     /// to be `solid`.
     static let darkGlassDim = Color.black.opacity(0.60)
 
-    /// The tint on the dock style's slab (`NotchSurfaceStyle.slabGlass`),
-    /// chosen by eye beside the real Dock. 0.20 was the starting guess; 0.15
-    /// read closest, the same opacity as the AppKit glass tile that served as
-    /// the reference.
-    static let dockGlassTint = Color.black.opacity(0.15)
+    /// The tint on the dock style's slab (`NotchSurfaceStyle.slabGlass`).
+    /// 0.15 read closest to the real Dock beside it, but the Dock carries no
+    /// text and the slab does: over a white window it came out nearly white,
+    /// and the white percentage on it all but vanished. 0.60 keeps the slab
+    /// reading as dark glass over a light desktop, as the style promises.
+    static let dockGlassTint = Color.black.opacity(0.60)
 
     /// The backing beneath Dark glass's tooltip. It needs a deeper local
     /// backing than the notch itself when a light desktop is visible through
@@ -93,9 +94,9 @@ enum Palette {
     /// A dark disc beneath each ring while the dock style floats. The ring
     /// colours were sampled for a black notch and go faint over clear glass
     /// on a light desktop; the Dock's own icons carry their own ground for
-    /// the same reason. 0.35 was the starting guess; 0.25 is what the user
-    /// chose by eye with the rings over a white window.
-    static let dockRingBacking = Color.black.opacity(0.25)
+    /// the same reason. 0.25 was chosen by eye over a white window; 0.45
+    /// keeps the ring's ground clearly darker than the now darker slab.
+    static let dockRingBacking = Color.black.opacity(0.45)
 
     /// A tooltip-only wash for standard Liquid Glass in dark appearance. It is
     /// intentionally weaker than `darkGlassDim`: regular glass stays visibly

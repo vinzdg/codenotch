@@ -220,8 +220,8 @@ final class PaletteAppearanceTests: XCTestCase {
         XCTAssertEqual(tint.redComponent, 0, accuracy: 1.0 / 255)
         XCTAssertEqual(tint.greenComponent, 0, accuracy: 1.0 / 255)
         XCTAssertEqual(tint.blueComponent, 0, accuracy: 1.0 / 255)
-        XCTAssertEqual(tint.alphaComponent, 0.15, accuracy: 1.0 / 255,
-                       "the opacity chosen beside the real Dock")
+        XCTAssertEqual(tint.alphaComponent, 0.60, accuracy: 1.0 / 255,
+                       "dark enough over a white window for the slab's white label")
     }
 
     /// The disc only has to give the ring a ground; a hue would recolour the
@@ -231,8 +231,8 @@ final class PaletteAppearanceTests: XCTestCase {
         XCTAssertEqual(backing.redComponent, 0, accuracy: 1.0 / 255)
         XCTAssertEqual(backing.greenComponent, 0, accuracy: 1.0 / 255)
         XCTAssertEqual(backing.blueComponent, 0, accuracy: 1.0 / 255)
-        XCTAssertEqual(backing.alphaComponent, 0.25, accuracy: 1.0 / 255,
-                       "the opacity chosen with the rings over a white window")
+        XCTAssertEqual(backing.alphaComponent, 0.45, accuracy: 1.0 / 255,
+                       "a ground darker than the slab beneath each ring")
     }
 
     // MARK: -
