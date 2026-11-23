@@ -14,6 +14,7 @@ private final class TestSyntheticScreen: NSScreen {
 
     override var frame: CGRect { customFrame }
     override var visibleFrame: CGRect { customFrame }
+    override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
 
     override var deviceDescription: [NSDeviceDescriptionKey: Any] {
         [NSDeviceDescriptionKey("NSScreenNumber"): NSNumber(value: number)]
@@ -160,5 +161,58 @@ final class MultiDisplayPositionAndRecoveryTests: XCTestCase {
         let resolved = controller.currentScreen(in: [reallocated])
         XCTAssertTrue(resolved === reallocated)
         XCTAssertTrue(controller.assignedScreen === reallocated)
+    }
+
+    // MARK: - Edge Overrides and Multi-Display Drag
+
+    func testSettingsEdgeChangeClearsPerScreenEdgeOverrides() {
+        let defaults = makeDefaults()
+        let prefs = Preferences(defaults: defaults)
+
+        // Set per-screen edge for screen-A
+        prefs.setEdge(.top, for: "screen-A")
+        XCTAssertEqual(prefs.edge(for: "screen-A"), .top)
+
+        // User changes edge in Settings (notchEdge setter)
+        prefs.notchEdge = .left
+
+        // Overrides should be cleared; screen-A should now yield the new edge setting
+        XCTAssertEqual(prefs.edge(for: "screen-A"), .left)
+
+        // Fleet reconcile should also pick up the cleared setting
+        let fleet = NotchFleet(scope: .allDisplays, edge: .left)
+        defer { fleet.stop() }
+
+        let screenA = makeScreen(601)
+        fleet.edgeForScreen = { prefs.edge(for: $0.persistentScreenKey) }
+        fleet.reconcileForTesting(screens: [screenA])
+
+        let controller = try! XCTUnwrap(fleet.controllersByDisplayKeyForTesting[NotchFleet.key(for: screenA)])
+        XCTAssertEqual(controller.model.edge, .left)
+    }
+
+    func testMultiDisplayDragTransitionsToTargetScreen() {
+        let controller = NotchWindowController()
+        let screenA = makeScreen(701, frame: CGRect(x: 0, y: 0, width: 1440, height: 900))
+        let screenB = makeScreen(702, frame: CGRect(x: 1440, y: 0, width: 1920, height: 1080))
+
+        controller.scope = .mainDisplay
+        controller.assignedScreen = screenA
+        controller.screensProvider = { [screenA, screenB] }
+        controller.mouseLocationProvider = { CGPoint(x: 100, y: 800) }
+        controller.displayLinkProvider = { _, _, _ in nil }
+
+        controller.beginOptionDrag()
+        XCTAssertTrue(controller.assignedScreen === screenA)
+
+        // Move cursor across display boundary into screen B
+        controller.mouseLocationProvider = { CGPoint(x: 1600, y: 500) }
+        controller.dragged(dx: 10, dy: 0)
+
+        // Controller should now adopt screen B
+        XCTAssertTrue(controller.assignedScreen === screenB)
+        XCTAssertEqual(controller.model.screenSize, screenB.frame.size)
+
+        controller.endOptionDrag()
     }
 }

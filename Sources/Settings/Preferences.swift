@@ -139,9 +139,16 @@ final class Preferences: ObservableObject {
         }
     }
 
+    private var isApplyingPerScreenEdge = false
+
     /// Which screen edge the notch is welded to.
     @Published var notchEdge: NotchEdge {
-        didSet { defaults.set(notchEdge.rawValue, forKey: Keys.edge) }
+        didSet {
+            defaults.set(notchEdge.rawValue, forKey: Keys.edge)
+            if !isApplyingPerScreenEdge {
+                clearScreenEdgeOverrides()
+            }
+        }
     }
 
     /// How large the notch is drawn, as one of three named sizes.
@@ -259,8 +266,18 @@ final class Preferences: ObservableObject {
     func setEdge(_ edge: NotchEdge, for screenKey: String? = nil) {
         if let screenKey {
             defaults.set(edge.rawValue, forKey: Self.screenEdgeKey(screen: screenKey))
+            isApplyingPerScreenEdge = true
         }
+        defer { isApplyingPerScreenEdge = false }
         notchEdge = edge
+    }
+
+    /// Clears any per-screen edge overrides saved when dragging across screens.
+    func clearScreenEdgeOverrides() {
+        let keys = defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix("notchEdge.") }
+        for key in keys {
+            defaults.removeObject(forKey: key)
+        }
     }
 
     private static func offsetKey(for edge: NotchEdge) -> String { "notchOffset.\(edge.rawValue)" }

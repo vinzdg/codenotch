@@ -107,7 +107,9 @@ extension NSScreen: ScreenDescribing {
     /// is the only thing AppKit describes directly. A display without a notch
     /// reports no auxiliary areas.
     var hardwareNotch: HardwareNotch? {
-        guard let left = auxiliaryTopLeftArea, let right = auxiliaryTopRightArea else {
+        guard safeAreaInsets.top > 0,
+              let left = auxiliaryTopLeftArea,
+              let right = auxiliaryTopRightArea else {
             return nil
         }
         let width = frame.width - left.width - right.width

@@ -1591,7 +1591,7 @@ struct SettingsView: View {
             return L10n.t("Moves to the display containing the window receiving keyboard input.")
         case .display(let id):
             if let display = displays.first(where: { $0.id == id }) {
-                return L10n.t("Pinned to \(display.name).")
+                return L10n.t("Pinned to \(display.name). Dragging the notch to another display updates this.")
             }
             return L10n.t("That display is disconnected. Codenotch follows the active window until it returns.")
         }
