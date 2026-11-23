@@ -91,6 +91,12 @@ struct UsageArchive {
             if CodexProfile.isCodex(providerID: entry.id) {
                 windows = entry.windows.filter { Self.isLiveCodexWindow($0.id) }
                 if windows.isEmpty { continue }
+            } else if entry.id == "deepseek" {
+                // A balance archived before the ring's label was shortened
+                // still carries "¥51.83 left", which the notch clips. Rebuilt
+                // from the figure the same window's detail line holds, so the
+                // first launch on the new build does not open on the old cut.
+                windows = entry.windows.map(Self.shortenedDeepSeekBalance)
             } else {
                 windows = entry.windows
             }
@@ -127,6 +133,49 @@ struct UsageArchive {
         case "manual": return .manual
         default: return glyph
         }
+    }
+
+    /// The ring's label for a DeepSeek balance window, recomputed from the
+    /// exact figure its detail line carries ("¥51.83 left", "剩余 ¥51.39").
+    /// Anything that does not look like that — another window, or a label
+    /// the new formatter already wrote — is handed back untouched.
+    static func shortenedDeepSeekBalance(_ window: LimitWindow) -> LimitWindow {
+        guard window.id == "balance", window.prefersUsedText,
+              let detail = window.detail,
+              let amount = Self.moneyAmount(in: detail),
+              let currency = Self.currencyCode(in: detail)
+        else { return window }
+        return LimitWindow(id: window.id, group: window.group, label: window.label,
+                           usedFraction: window.usedFraction, remaining: window.remaining,
+                           used: window.used, usedText: DeepSeekUsage.wholeMoney(amount, currency: currency),
+                           detail: window.detail, money: window.money, resetsAt: window.resetsAt,
+                           duration: window.duration, bandOverride: window.bandOverride,
+                           prefersUsedText: window.prefersUsedText)
+    }
+
+    /// The first number in a money string such as "剩余 ¥51.39" or "$14.28 left",
+    /// read as the run of digits and at most one decimal point after the
+    /// currency marker — so "a1b2" is not read as 12.
+    static func moneyAmount(in text: String) -> Double? {
+        var digits = ""
+        var seenPoint = false
+        for character in text {
+            if character.isNumber { digits.append(character) }
+            else if character == ".", !seenPoint, !digits.isEmpty { digits.append(character); seenPoint = true }
+            else if !digits.isEmpty { break }
+        }
+        return Double(digits)
+    }
+
+    /// Which currency a money string names: by its symbol, or by the ISO code
+    /// the formatter writes in front of an unrecognised one ("GBP 25.50") —
+    /// three ASCII letters at the very start of the string, nothing else.
+    static func currencyCode(in text: String) -> String? {
+        let symbols = ["¥": "CNY", "$": "USD", "€": "EUR"]
+        for (symbol, code) in symbols where text.contains(symbol) { return code }
+        let code = text.prefix(3)
+        guard code.count == 3, code.allSatisfy({ $0.isASCII && $0.isLetter }) else { return nil }
+        return code.uppercased()
     }
 
     private static func isLiveCodexWindow(_ id: String) -> Bool {

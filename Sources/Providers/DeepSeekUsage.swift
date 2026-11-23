@@ -35,6 +35,12 @@ enum DeepSeekUsage {
         var balanceLeftText: String {
             String(format: L10n.t("%@ left"), formattedBalance)
         }
+
+        /// The same figure as the ring prints it: the symbol and the whole
+        /// units, "¥51". See `DeepSeekUsage.wholeMoney`.
+        var wholeBalanceText: String {
+            DeepSeekUsage.wholeMoney(balance, currency: currency)
+        }
     }
 
     static func currencySymbol(for currency: String) -> String {
@@ -51,6 +57,35 @@ enum DeepSeekUsage {
         return "\(symbol)\(String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), value))"
     }
 
+    /// What is left, to the whole unit, with no word beside it: "¥51".
+    ///
+    /// For the line under the ring, which is only as wide as the notch. Its
+    /// neighbour is a percentage — "39%", "100%" — and "¥51.83 left" is none:
+    /// 74 pt at this size, 79 as "剩余 ¥51.83" in Chinese, against 39 for
+    /// "100%". Drawn at its natural width, both ends were cut off. The exact
+    /// figure is still one hover away, on the card (`balanceLeftText`); this
+    /// is the one that has to sit in a percentage's width, so it is the symbol
+    /// and the units and nothing else.
+    ///
+    /// Truncated, not rounded: "¥51" promises at least ¥51, where "¥52" would
+    /// promise more than the wallet holds. Under one unit it is "<¥1" rather
+    /// than "¥0", for the reason `Percent.whole` prints "<1" — the ring is
+    /// still green there, and "¥0" beside it would say the opposite.
+    static func wholeMoney(_ value: Double, currency: String) -> String {
+        let symbol = currencySymbol(for: currency)
+        // Not an amount, or one too large for a whole-unit figure — "inf",
+        // "nan", 1e300 — is `formatMoney`'s business.
+        guard value.isFinite, value < Double(Int.max) else { return formatMoney(value, currency: currency) }
+        // Nothing left, or a negative the site should never send, is "0"; a
+        // sliver is "<1". Both judged before the `Int` conversion, which a
+        // balance parsed out of the site's own text must never reach trapping.
+        guard value >= 1 else { return value > 0 ? "<\(symbol)1" : "\(symbol)0" }
+        let whole = Int(value.rounded(.down))
+        // From ten thousand it compacts the way a token count does ("¥12k"),
+        // for the same reason: six digits do not fit under a ring.
+        return symbol + LimitWindow.compact(whole)
+    }
+
     static func windows(
         from reading: Reading,
         displayMode: DeepSeekDisplayMode = .balance
@@ -64,7 +99,7 @@ enum DeepSeekUsage {
                     usedFraction: nil,
                     remaining: nil,
                     used: 0,
-                    usedText: reading.balanceLeftText,
+                    usedText: reading.wholeBalanceText,
                     detail: reading.balanceLeftText,
                     money: nil,
                     resetsAt: nil,

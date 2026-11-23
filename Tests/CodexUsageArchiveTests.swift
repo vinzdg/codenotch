@@ -86,3 +86,54 @@ final class CodexUsageArchiveTests: XCTestCase {
         XCTAssertEqual(restored?.windows.map(\.id), ["session"])
     }
 }
+
+/// A DeepSeek balance archived before the ring's label was shortened carries
+/// "¥51.83 left" under the ring, which the notch clips. Relaunching on the
+/// new build must not open on that — the first read may be a minute away, or
+/// fail.
+@MainActor
+final class DeepSeekBalanceArchiveTests: XCTestCase {
+    private func makeDefaults() -> UserDefaults {
+        let name = "DeepSeekBalanceArchiveTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return defaults
+    }
+
+    private func restored(usedText: String, detail: String?) -> LimitWindow? {
+        let window = LimitWindow(id: "balance", label: "Credit balance", used: 0,
+                                 usedText: usedText, detail: detail,
+                                 bandOverride: .ample, prefersUsedText: true)
+        let snapshot = ProviderSnapshot(id: "deepseek", displayName: "DeepSeek", glyph: .deepseek,
+                                        fidelity: .derived, status: .ok, windows: [window])
+        let defaults = makeDefaults()
+        UsageArchive(defaults: defaults).save([snapshot.id: (snapshot, Date())])
+        return UsageArchive(defaults: defaults).load()[snapshot.id]?.snapshot.windows.first
+    }
+
+    func testAnOldLabelIsRebuiltFromTheExactDetailLine() {
+        let english = restored(usedText: "¥51.83 left", detail: "¥51.83 left")
+        XCTAssertEqual(english?.usedText, "¥51")
+        XCTAssertEqual(english?.detail, "¥51.83 left", "the card keeps the exact figure")
+
+        let chinese = restored(usedText: "剩余 ¥51.39", detail: "剩余 ¥50.26")
+        XCTAssertEqual(chinese?.usedText, "¥50", "read from the detail, not the stale label")
+        XCTAssertEqual(chinese?.detail, "剩余 ¥50.26")
+
+        let usd = restored(usedText: "$14.28 left", detail: "$14.28 left")
+        XCTAssertEqual(usd?.usedText, "$14")
+    }
+
+    func testALabelTheNewFormatterAlreadyWroteIsUnchanged() {
+        let fresh = restored(usedText: "¥51", detail: "¥51.83 left")
+        XCTAssertEqual(fresh?.usedText, "¥51")
+    }
+
+    /// Anything that does not look like a money line is left alone rather
+    /// than guessed at — an unparseable label is the old behaviour, not a
+    /// new wrong number.
+    func testAnUnreadableDetailLeavesTheWindowAlone() {
+        XCTAssertEqual(restored(usedText: "¥51.83 left", detail: nil)?.usedText, "¥51.83 left")
+        XCTAssertEqual(restored(usedText: "odd", detail: "No reading")?.usedText, "odd")
+    }
+}
