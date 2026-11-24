@@ -124,6 +124,11 @@ targets:
         # installed when Update is chosen — see `Updater`.
         SUAutomaticallyUpdate: false
         SUScheduledCheckInterval: 86400
+    entitlements:
+      path: Sources/Codenotch.entitlements
+      properties:
+        com.apple.security.automation.apple-events: true
+        com.apple.security.personal-information.calendars: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.vinz.codenotch

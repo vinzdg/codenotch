@@ -330,6 +330,8 @@ build-ci: gen
 		'<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
 		'<plist version="1.0"><dict>' \
 		'<key>com.apple.security.cs.disable-library-validation</key><true/>' \
+		'<key>com.apple.security.automation.apple-events</key><true/>' \
+		'<key>com.apple.security.personal-information.calendars</key><true/>' \
 		'</dict></plist>' > $(CI_ENTITLEMENTS)
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination '$(DEST)' \
 		-configuration Release -derivedDataPath $(CI_DERIVED) \
