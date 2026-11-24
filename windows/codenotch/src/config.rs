@@ -23,6 +23,19 @@ pub struct TraySlot {
     pub provider: String,
 }
 
+/// The providers the user has switched on, out of those with something to report, in `present`'s
+/// order: the notch's own rule (`providers()` in notch.html), so the tray menu and the notch never
+/// disagree. An empty choice means every provider, and so does a choice that matches none of
+/// `present`, rather than a menu with nothing in it.
+pub fn shown_providers<'a>(present: &[&'a str], slots: &[TraySlot]) -> Vec<&'a str> {
+    let picked: Vec<&str> = present
+        .iter()
+        .copied()
+        .filter(|id| slots.iter().any(|s| s.provider == *id))
+        .collect();
+    if picked.is_empty() { present.to_vec() } else { picked }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaudeProfileConfig {
     pub id: String,
@@ -664,8 +677,22 @@ mod tests {
     use super::{
         antialias_border_or_default, antialias_internal_or_default, carry_shared_position, clamp_critical_limit,
         clamp_watch_limit, color_transition_or_step, keep_open_on_upgrade, snap_scale, theme_or_system,
-        weekly_ring_or_off, without_bom, Config,
+        weekly_ring_or_off, without_bom, Config, shown_providers, TraySlot,
     };
+
+    #[test]
+    fn the_menu_lists_only_the_providers_switched_on() {
+        let slots = |ids: &[&str]| ids.iter().map(|p| TraySlot { provider: p.to_string() }).collect::<Vec<_>>();
+        // The reported case: Claude, Codex and Antigravity on; z.ai, OpenCode, Cursor and Copilot
+        // still have a snapshot (signed out, or a reading) and used to be listed regardless
+        let present = ["claude", "codex", "glm", "opencode", "cursor", "copilot", "gemini"];
+        assert_eq!(shown_providers(&present, &slots(&["claude", "codex", "gemini"])), ["claude", "codex", "gemini"]);
+        // Kept in the menu's own order, not the choice's
+        assert_eq!(shown_providers(&present, &slots(&["gemini", "claude"])), ["claude", "gemini"]);
+        // No choice means everything, and so does a choice that matches nothing present
+        assert_eq!(shown_providers(&present, &[]), present);
+        assert_eq!(shown_providers(&["claude", "codex"], &slots(&["qoder"])), ["claude", "codex"]);
+    }
 
     #[test]
     fn reset_switches_default_on_and_round_trip_without_changing_other_settings() {

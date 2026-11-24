@@ -143,10 +143,18 @@ pub fn start(app: tauri::AppHandle) {
         let mut watchers: HashMap<&'static str, ResetWatcher> = HashMap::new();
         loop {
             let now = crate::now_ms();
+            // Alerts only for the providers switched on in Settings, the ones the notch and the
+            // menu show. The rest are still observed, so switching one back on does not then
+            // announce a renewal that happened while it was off.
+            let shown = crate::tray::shown(&app);
             for &id in crate::TRAY_PROVIDER_IDS.iter() {
                 let snap = crate::snapshot_of(&app, id);
                 let watcher = watchers.entry(id).or_default();
-                for event in watcher.observe(id, &snap, now) {
+                let events = watcher.observe(id, &snap, now);
+                if !shown.contains(&id) {
+                    continue;
+                }
+                for event in events {
                     crate::reset_alert::enqueue(&app, event);
                 }
             }
