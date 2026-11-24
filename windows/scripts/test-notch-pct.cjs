@@ -41,8 +41,9 @@ ctx.showRemaining=false;
 for(const needle of ['meteredFraction(h.used,showRemaining)','meteredFraction(wk.used,showRemaining)','meteredFraction(w.used,showRemaining)']) assert.ok(html.includes(needle),needle);
 assert.equal((html.match(/meteredFraction\(/g)||[]).length,4);
 // Every language's remaining-first card line, run from the table itself so a missing or misordered entry fails here.
-const uiFn='function ui(){return UI[uiLang]||UI.en;}';
-const uiSrc=html.slice(html.indexOf('const UI={'),html.indexOf(uiFn)+uiFn.length);
+// From the table through the end of ui(), the first line after it that closes a top-level block
+const uiStart=html.indexOf('const UI={'), uiFnAt=html.indexOf('\nfunction ui(){',uiStart);
+const uiSrc=html.slice(uiStart,html.indexOf('\n}',uiFnAt+1)+2);
 const wantLeftUsed={'ko':'87% 남음 · 13% 사용','pt-BR':'87% restante · 13% usado','en':'87% left · 13% Used','uk':'лишилось 87% · Використано 13%','ru':'осталось 87% · Использовано 13%','zh':'剩余 87% · 已用 13%','zh-Hant':'剩餘 87% · 已用 13%'};
 for(const [lang,want] of Object.entries(wantLeftUsed)){
   const c=vm.createContext({});
