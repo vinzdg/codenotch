@@ -208,7 +208,8 @@ final class CursorCredentialsTests: XCTestCase {
     /// A signed-in editor wins so a laptop with both tools cannot flip
     /// accounts depending on which file we happened to read.
     func testTheEditorSessionIsPreferredOverTheAgent() throws {
-        let store = try writeEditorStore(account: "auth0|user_EDITOR", token: "editor-tok")
+        let editorToken = Self.jwt(sub: "auth0|user_EDITOR", exp: Date().timeIntervalSince1970 + 3600)
+        let store = try writeEditorStore(account: "auth0|user_EDITOR", token: editorToken)
         defer { try? FileManager.default.removeItem(at: store) }
         let token = Self.jwt(sub: "auth0|user_JWT", exp: Date().timeIntervalSince1970 + 3600)
         let config = try writeAgentConfig(authId: "auth0|user_CLI", userId: 1, email: "cli@example.com")
@@ -217,7 +218,19 @@ final class CursorCredentialsTests: XCTestCase {
         let credentials = try CursorCredentials.load(editorStore: store, agentToken: token,
                                                      agentConfig: config)
         XCTAssertEqual(credentials.sessionCookie,
-                       "WorkosCursorSessionToken=auth0|user_EDITOR::editor-tok")
+                       "WorkosCursorSessionToken=auth0|user_EDITOR::\(editorToken)")
+    }
+
+    func testAnOpaqueEditorTokenFallsThroughToTheAgent() throws {
+        let store = try writeEditorStore(account: "auth0|user_EDITOR", token: "cursor_opaque_token")
+        defer { try? FileManager.default.removeItem(at: store) }
+        let token = Self.jwt(sub: "auth0|user_JWT", exp: Date().timeIntervalSince1970 + 3600)
+        let config = try writeAgentConfig(authId: "auth0|user_CLI", userId: 1, email: "cli@example.com")
+        defer { try? FileManager.default.removeItem(at: config) }
+
+        let credentials = try CursorCredentials.load(editorStore: store, agentToken: token,
+                                                     agentConfig: config)
+        XCTAssertEqual(credentials.accountID, "auth0|user_CLI")
     }
 
     func testAMissingEditorFallsThroughToTheAgent() throws {

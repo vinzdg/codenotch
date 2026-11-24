@@ -102,8 +102,11 @@ struct CursorCredentials {
         guard let db = SQLiteStore.open(url) else { throw UsageProviderError.needsAuth }
         defer { sqlite3_close(db) }
 
+        // Recent Cursor builds store an opaque (non-JWT) editor token that
+        // cursor.com's cookie auth answers with 401. Treat it as signed out
+        // here so the `cursor-agent` session, which is still a JWT, is used.
         guard let token = value(forKey: "cursorAuth/accessToken", in: db),
-              !token.isEmpty
+              !token.isEmpty, isJWT(token)
         else { throw UsageProviderError.needsAuth }
 
         // Prefer the editor's cached WorkOS id when present. Recent Cursor
@@ -117,6 +120,13 @@ struct CursorCredentials {
         guard let account, !account.isEmpty else { throw UsageProviderError.needsAuth }
 
         return CursorCredentials(accountID: account, accessToken: token)
+    }
+
+    static func isJWT(_ token: String) -> Bool { token.split(separator: ".").count == 3 }
+
+    /// The `cursor-agent` session alone, for retrying after the editor's is rejected.
+    static func loadAgent() throws -> CursorCredentials {
+        try session(fromAgentToken: try CursorAgentKeychain.load(), configURL: agentConfigURL)
     }
 
     /// Same precedence as `load()`, with the agent token injected so the
