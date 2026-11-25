@@ -53,18 +53,16 @@ struct UpdateCard: View {
         stack
             .background {
                 if glassy {
-                    if #available(macOS 26.0, *) {
-                        Color.clear
-                            .glassEffect(surfaceStyle.glass,
-                                         in: TooltipSilhouette(direction: direction, tailOffset: clampedTailOffset))
-                            .background {
-                                if let dim = TooltipGlassContrast.dim(surfaceStyle: surfaceStyle,
-                                                                      colorScheme: colorScheme,
-                                                                      reduceTransparency: reduceTransparency) {
-                                    TooltipSilhouette(direction: direction, tailOffset: clampedTailOffset).fill(dim)
-                                }
+                    Color.clear
+                        .compatGlassEffect(surfaceStyle,
+                                           in: TooltipSilhouette(direction: direction, tailOffset: clampedTailOffset))
+                        .background {
+                            if let dim = TooltipGlassContrast.dim(surfaceStyle: surfaceStyle,
+                                                                  colorScheme: colorScheme,
+                                                                  reduceTransparency: reduceTransparency) {
+                                TooltipSilhouette(direction: direction, tailOffset: clampedTailOffset).fill(dim)
                             }
-                    }
+                        }
                 }
             }
     }

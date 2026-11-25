@@ -264,13 +264,19 @@ final class ManualProviderTests: XCTestCase {
     // MARK: - Dynamic Limit and Schedule Providers
 
     func testDynamicLimitAndSchedule() async throws {
-        var dynLimit: Int? = 50
-        var dynSchedule: ManualResetSchedule? = .interval(3 * 3600)
+        // `final class Box`, not `var`: both closures are `@Sendable`, and Swift
+        // 5.10 refuses to read a captured `var` from one ("reference to captured
+        // var 'dynLimit' in concurrently-executing code").
+        final class Box {
+            var limit: Int? = 50
+            var schedule: ManualResetSchedule? = .interval(3 * 3600)
+        }
+        let dynamic = Box()
 
         let storage = InMemoryManualStorage()
         let provider = ManualProvider(
-            limitProvider: { dynLimit },
-            scheduleProvider: { dynSchedule },
+            limitProvider: { dynamic.limit },
+            scheduleProvider: { dynamic.schedule },
             storage: storage
         )
 
@@ -279,8 +285,8 @@ final class ManualProviderTests: XCTestCase {
         XCTAssertEqual(snap.headline?.duration, 3 * 3600)
 
         // Change dynamic settings
-        dynLimit = 200
-        dynSchedule = .interval(5 * 3600)
+        dynamic.limit = 200
+        dynamic.schedule = .interval(5 * 3600)
 
         snap = try await provider.fetchSnapshot()
         XCTAssertEqual(snap.headline?.remaining, 200)
@@ -292,20 +298,23 @@ final class ManualProviderTests: XCTestCase {
     func testOnChangedFires() async {
         let storage = InMemoryManualStorage()
         let provider = ManualProvider(storage: storage)
-        var changeCount = 0
+        // Same reason as above: the callback is `@Sendable`, so the counter it
+        // increments is a box, not a captured `var`.
+        final class Box { var value = 0 }
+        let changeCount = Box()
 
         await provider.setOnChanged {
-            changeCount += 1
+            changeCount.value += 1
         }
 
         await provider.recordUsage(count: 1)
-        XCTAssertEqual(changeCount, 1)
+        XCTAssertEqual(changeCount.value, 1)
 
         await provider.setUsed(10)
-        XCTAssertEqual(changeCount, 2)
+        XCTAssertEqual(changeCount.value, 2)
 
         await provider.reset()
-        XCTAssertEqual(changeCount, 3)
+        XCTAssertEqual(changeCount.value, 3)
     }
 
     func testAccountReflectsLimit() {

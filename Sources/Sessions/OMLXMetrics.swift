@@ -187,7 +187,11 @@ final class OMLXMetrics: ObservableObject {
             let tail = OMLXLogTail(directory: directory, timeZone: timeZone)
             let events = tail.loadHistory()
             Log.usage.debug("omlx: read \(events.count) logged responses in \(Date().timeIntervalSince(started), format: .fixed(precision: 1))s")
-            await MainActor.run {
+            // `[weak self]` on the inner closure too: Swift 5.10 refuses to
+            // bind a captured `weak self` var from inside a nested
+            // concurrently-executing closure — the same shape as
+            // `LMStudioMetrics` and `GrokActivityMonitor`.
+            await MainActor.run { [weak self] in
                 guard let self, self.revision == revision else { return }
                 self.tail = tail
                 self.absorb(events, live: false)

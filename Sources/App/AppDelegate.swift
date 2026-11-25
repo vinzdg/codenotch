@@ -158,10 +158,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Settings changes it, because the fetch URLs live on the site.
             let miniMaxWeb = WebSessionProvider(site: Sites.minimax(region: preferences.minimaxRegion))
             self.miniMaxWeb = miniMaxWeb
+            // XyToken needs a browser session too: its refresh cookie is HttpOnly and
+            // rotates on every call, so the refresh+self sequence runs in the app's
+            // own WebView where the user signs in. It joins `webProviders`, so it gets
+            // a ring of its own; MiniMax stays out of that list for the reason above.
+            let xytoken = WebSessionProvider(site: Sites.xytoken)
             // DeepSeek's ring is DeepSeekProvider, which reads either this
             // sign-in or an API key, so the WebView is not a ring of its own.
-            let webProviders: [WebSessionProvider] = [qianwen, mimo, qoder]
-            fleet.signInItems = [deepSeek, miniMaxWeb, qianwen, mimo, qoder].map { provider in
+            let webProviders: [WebSessionProvider] = [qianwen, mimo, qoder, xytoken]
+            fleet.signInItems = [deepSeek, miniMaxWeb, qianwen, mimo, qoder, xytoken].map { provider in
                 let name = provider.displayName
                 return (title: L10n.t("Sign in to \(name)…"),
                         action: { [weak provider] in provider?.presentSignIn() })
@@ -202,38 +207,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let remoteProviders: [UsageProvider] = preferences.remoteHosts
                 .filter { $0.isEnabled && $0.isConfigured }
                 .map { $0.makeProvider() }
-            let allProviders: [UsageProvider] = claudeProviders
-                + [CursorLocalProvider()]
-                + codexProfiles.map { CodexLocalProvider(profile: $0) }
-                + antigravityProfiles.map { AntigravityProvider(profile: $0) }
-                + [GLMProvider(), MiniMaxProvider(web: miniMaxWeb), GrokBotProvider(), DevinLocalProvider(), OpenCodeProvider()]
-                + grokProfiles.map { GrokLocalProvider(profile: $0) }
-                + commandCodeProfiles.map { CommandCodeProvider(profile: $0) }
-                + [GitHubCopilotProvider(), KimiProvider(), KiroProvider(), AmpProvider(),
-                   ApifyProvider(), KiloProvider(), HiggsfieldProvider(), KreaProvider(),
-                   MuseLocalProvider(),
-                   OllamaLocalProvider(endpoint: URL(string: preferences.ollamaEndpoint)!),
-                   LMStudioLocalProvider(endpoint: URL(string: preferences.lmstudioEndpoint)!),
-                   OMLXLocalProvider(endpoint: URL(string: preferences.omlxEndpoint)!),
-                   OllamaProvider(),
-                   // A closure, not the value: the provider is an actor and
-                   // re-reads the budget on every fetch, so a ceiling typed
-                   // into Settings applies without a restart.
-                   GeminiAPIProvider(budget: {
-                       Preferences.storedEffectiveCeiling(for: "gemini-api")
-                   })]
-                + {
-                    let manual = ManualProvider(
-                        limitProvider: { Preferences.storedManualProviderLimit() },
-                        scheduleProvider: { Preferences.storedManualProviderSchedule() }
-                    )
-                    self.manualProvider = manual
-                    return [manual as UsageProvider]
-                }()
-                + [DeepSeekProvider(web: deepSeek)]
-                + webProviders
-                + customProviders
-                + remoteProviders
+            // One `+=` per line, and an explicit element type on every `map`,
+            // rather than upstream's single `+` chain: below Swift 6 that chain is
+            // one constraint system spanning every provider type here, and the 5.10
+            // type-checker gives up on it — "unable to type-check this expression in
+            // reasonable time". Same providers, same order.
+            var allProviders: [UsageProvider] = claudeProviders.map { $0 as UsageProvider }
+            allProviders += [CursorLocalProvider()]
+            allProviders += codexProfiles.map { CodexLocalProvider(profile: $0) as UsageProvider }
+            allProviders += antigravityProfiles.map { AntigravityProvider(profile: $0) as UsageProvider }
+            allProviders += [GLMProvider(), MiniMaxProvider(web: miniMaxWeb), GrokBotProvider(), DevinLocalProvider(), OpenCodeProvider()]
+            allProviders += grokProfiles.map { GrokLocalProvider(profile: $0) as UsageProvider }
+            allProviders += commandCodeProfiles.map { CommandCodeProvider(profile: $0) as UsageProvider }
+            allProviders += [GitHubCopilotProvider(), KimiProvider(), KiroProvider(), AmpProvider(),
+                             ApifyProvider(), KiloProvider(), HiggsfieldProvider(), KreaProvider(),
+                             MuseLocalProvider(),
+                             OllamaLocalProvider(endpoint: URL(string: preferences.ollamaEndpoint)!),
+                             LMStudioLocalProvider(endpoint: URL(string: preferences.lmstudioEndpoint)!),
+                             OMLXLocalProvider(endpoint: URL(string: preferences.omlxEndpoint)!),
+                             OllamaProvider(),
+                             // A closure, not the value: the provider is an actor and
+                             // re-reads the budget on every fetch, so a ceiling typed
+                             // into Settings applies without a restart.
+                             GeminiAPIProvider(budget: {
+                                 Preferences.storedEffectiveCeiling(for: "gemini-api")
+                             })]
+            allProviders += {
+                let manual = ManualProvider(
+                    limitProvider: { Preferences.storedManualProviderLimit() },
+                    scheduleProvider: { Preferences.storedManualProviderSchedule() }
+                )
+                self.manualProvider = manual
+                return [manual as UsageProvider]
+            }()
+            allProviders += [DeepSeekProvider(web: deepSeek)]
+            allProviders += webProviders.map { $0 as UsageProvider }
+            allProviders += customProviders
+            allProviders += remoteProviders
             preferences.reconcile(discoveredIDs: allProviders.map(\.id))
             let store = UsageStore(
                 providers: allProviders,
@@ -244,9 +254,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // order for a frame and then visibly shuffles.
                 order: preferences.providerOrder
             )
+            // The handler is bound here and the store read inside it: Swift 5.10
+            // refuses a `weak` capture read from a nested `Task {}` ("reference to
+            // captured var 'store' in concurrently-executing code"), so the weak
+            // unwrap happens once, outside the Task.
             self.manualProvider?.onChanged = { [weak store] in
+                guard let store else { return }
                 Task { @MainActor in
-                    _ = store?.refresh(providerID: "manual")
+                    _ = store.refresh(providerID: "manual")
                 }
             }
             preferences.$customEndpoints
@@ -294,6 +309,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             miniMaxWeb.onAuthenticated = { [weak store] in
                 store?.providerAuthenticationChanged(providerID: "minimax")
+            }
+            xytoken.onAuthenticated = { [weak store] in
+                store?.providerAuthenticationChanged(providerID: "xytoken")
             }
 
             let updater = Updater()

@@ -3,23 +3,17 @@ import CoreTransferable
 import SwiftUI
 import Combine
 
-/// A Liquid Glass background that falls back to a regular material on macOS
-/// 15, where `glassEffect` does not exist. The visual difference is minor — the
-/// sidebar gets a standard vibrancy material instead of the glass tint — and
-/// the layout and interactions are unchanged.
+/// A Liquid Glass background, routed through the compatibility shim so a
+/// toolchain without the macOS 26 SDK never has to see the `glassEffect`
+/// symbol. Upstream writes this one as a background rather than on the view
+/// itself, so the shim keeps that shape; older builds get the regular material
+/// the layout was always drawn against.
 extension View {
     @ViewBuilder
     func glassBackground(in shape: some Shape) -> some View {
-        if #available(macOS 26.0, *) {
-            background { Color.clear.glassEffect(.regular, in: shape) }
-        } else {
-            background {
-                shape.fill(.regularMaterial)
-            }
-        }
+        compatGlassBackground(.glass, in: shape)
     }
 }
-
 /// One entry in the sidebar. Grouped by subject rather than by how each
 /// setting is stored — a mute toggle for a provider's threshold alerts lives
 /// on that provider's own row in Accounts, not repeated here, but the
@@ -2039,7 +2033,7 @@ private struct AccountRow: View {
                 // It must sit *over* the content — behind it, SwiftUI's own
                 // pointer regions win and the rect is never consulted at all —
                 // and it must not take hits, or it swallows the drag.
-                .pointerStyle(isOrderable ? .grabIdle : nil)
+                .compatPointerStyle(active: isOrderable)
                 .overlay {
                     if isOrderable {
                         GrabCursor(refreshToken: cursorRefresh)

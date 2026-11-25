@@ -200,20 +200,18 @@ struct MoveGrip: View, Animatable {
     /// against a glass notch.
     @ViewBuilder
     private func glassDots(at: CGPoint) -> some View {
-        if #available(macOS 26.0, *) {
-            let dot = NotchLayout.gripDot * (1 + Self.hoverGrowth * hover)
-            ForEach(Array(Self.offsets(on: edge).enumerated()), id: \.offset) { i, offset in
-                let s = spread(i)
-                Color.clear
-                    .frame(width: 20, height: 20)
-                    .glassEffect(surfaceStyle.glass, in: Rectangle())
-                    .background { if let dim = surfaceStyle.glassDim { Rectangle().fill(dim) } }
-                    .frame(width: dot, height: dot)
-                    .clipShape(Circle())
-                    .scaleEffect(0.3 + 0.7 * s)
-                    .opacity(Double(Self.step(separation / 0.3)))
-                    .offset(x: at.x + offset.x * s, y: at.y + offset.y * s)
-            }
+        let dot = NotchLayout.gripDot * (1 + Self.hoverGrowth * hover)
+        ForEach(Array(Self.offsets(on: edge).enumerated()), id: \.offset) { i, offset in
+            let s = spread(i)
+            Color.clear
+                .frame(width: 20, height: 20)
+                .compatGlassEffect(surfaceStyle, in: Rectangle())
+                .background { if let dim = surfaceStyle.glassDim { Rectangle().fill(dim) } }
+                .frame(width: dot, height: dot)
+                .clipShape(Circle())
+                .scaleEffect(0.3 + 0.7 * s)
+                .opacity(Double(Self.step(separation / 0.3)))
+                .offset(x: at.x + offset.x * s, y: at.y + offset.y * s)
         }
     }
 }

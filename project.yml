@@ -1,8 +1,12 @@
 name: Codenotch
 options:
   bundleIdPrefix: com.vinz
+  # xcodegen's default (xcode16_3, object version 77) needs Xcode 16; pinning
+  # xcode15_0 keeps the project openable on older releases — no feature here
+  # needs the newer format.
+  projectFormat: xcode15_0
   deploymentTarget:
-    macOS: "15.0"
+    macOS: "14.3"
   createIntermediateGroups: true
   defaultLocalization: en
 
@@ -38,7 +42,11 @@ settings:
 packages:
   SwiftNIO:
     url: https://github.com/apple/swift-nio
-    from: "2.102.0"
+    # Not upstream's `from: 2.102.0`: 2.87.0 and later need Swift 6.1 tools,
+    # which Xcode 15.4 cannot resolve, and a floor of 2.102.0 leaves SwiftPM no
+    # older release to fall back to. SwiftPM skips the releases it cannot read,
+    # so the range lands on 2.86.2 — the version Package.resolved pins.
+    from: "2.86.0"
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     from: "2.6.0"
@@ -86,7 +94,7 @@ targets:
           - uz
           - tr
           - es
-        LSMinimumSystemVersion: "15.0"
+        LSMinimumSystemVersion: "14.3"
         # Sources/Info.plist is *generated* from this block, so editing that
         # file directly is undone by the next `make gen`. Pointing both at the
         # build settings keeps one place to bump.

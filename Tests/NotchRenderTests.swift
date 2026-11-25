@@ -268,7 +268,12 @@ final class NotchRenderTests: XCTestCase {
     /// this one paints the same panel size opaque black, so at four cells this
     /// read 1.0 in the full run and 0 alone. A size no other pixel test asks
     /// for keeps the hand-me-down out.
-    func testTheFoldedPillIsTransparentInTheGlassStyle() {
+    func testTheFoldedPillIsTransparentInTheGlassStyle() throws {
+        // Below macOS 26 there is no glass to hand the panel to: the style
+        // resolves to the solid one and the pill is painted opaque on purpose,
+        // which is what the sibling tests around it pin. Nothing to read here.
+        try XCTSkipUnless(NotchSurfaceStyle.glassAvailable,
+                          "no Liquid Glass below macOS 26 — the glass style is the solid one")
         for edge in NotchEdge.allCases {
             let m = model(edge: edge, cells: 3)
             m.surfaceStyle = .glass
@@ -754,9 +759,21 @@ final class EdgeCrossfadeTests: XCTestCase {
         XCTAssertEqual(controller.model.edge, .bottom)
         XCTAssertEqual(controller.panelAlphaForTesting, 1, accuracy: 0.01,
                        "the notch never came back")
-        guard let screen = NotchGeometry.preferredScreen(from: NSScreen.screens) else { return }
-        XCTAssertEqual(controller.panelFrameForTesting?.minY ?? -1,
-                       screen.frame.minY, accuracy: 1,
+        // The screen the panel is actually on, read off the panel itself.
+        // Re-resolving `NotchGeometry.preferredScreen(from:)` here would go back
+        // through `NSScreen.main`, which is not stable in a headless test host:
+        // this Mac runs an external monitor above the built-in one, and on the
+        // first run the assertion compared the built-in's 0.0 against the
+        // external's 982.0 — two different screens, not a misplaced panel.
+        guard let frame = controller.panelFrameForTesting else {
+            return XCTFail("no panel")
+        }
+        guard let screen = NSScreen.screens.first(where: {
+            $0.frame.contains(CGPoint(x: frame.midX, y: frame.midY))
+        }) else {
+            return XCTFail("the panel is on no screen at all")
+        }
+        XCTAssertEqual(frame.minY, screen.frame.minY, accuracy: 1,
                        "it did not end up on the edge it was sent to")
     }
 

@@ -65,11 +65,15 @@ final class GrokActivityMonitor: ObservableObject, AgentActivityMonitor {
         isScanning = true
         let activeURL = activeURL, sessionsRoot = sessionsRoot, staleAfter = staleAfter
         Self.scanQueue.async { [weak self] in
+            // Bound here, not inside the nested `DispatchQueue.main.async`:
+            // both are concurrently-executing closures, and Swift 5.10 refuses
+            // to read a captured `weak self` var from one nested inside
+            // another. The same shape as PhoneLinkServer's path handler.
+            guard let self else { return }
             let found = GrokActivity.read(activeURL: activeURL, sessionsRoot: sessionsRoot,
                                           staleAfter: staleAfter)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let self else { return }
                     self.isScanning = false
                     guard found != self.sessions else { return }
                     self.sessions = found

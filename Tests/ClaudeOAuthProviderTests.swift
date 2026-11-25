@@ -1030,14 +1030,15 @@ final class ClaudeAccountSourceTests: XCTestCase {
     }
 
     func testTheAccountComesFromTheInjectedSource() throws {
-        var reads = 0
+        final class Box { var value = 0 }
+        let reads = Box()
         let account = provider {
-            reads += 1
+            reads.value += 1
             return ClaudeCredentials(accessToken: "t", expiresAt: .distantFuture,
                                      subscriptionType: "team")
         }.account()
 
-        XCTAssertEqual(reads, 1, "the keychain must not be consulted behind our back")
+        XCTAssertEqual(reads.value, 1, "the keychain must not be consulted behind our back")
         XCTAssertEqual(account?.plan, "team")
     }
 

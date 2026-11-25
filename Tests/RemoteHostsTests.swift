@@ -150,9 +150,10 @@ final class ClaudeRemoteCredentialsTests: XCTestCase {
     }
 
     func testFallsBackToTheRemoteKeychain() throws {
-        var commands: [String] = []
+        final class Box { var value: [String] = [] }
+        let commands = Box()
         let credentials = try ClaudeRemoteCredentials.load(from: remoteHost()) { _, command in
-            commands.append(command)
+            commands.value.append(command)
             if command.contains("credentials.json") {
                 return Result(exitCode: 1, stdout: Data(),
                               stderr: "cat: .claude/.credentials.json: No such file or directory\n")
@@ -160,8 +161,8 @@ final class ClaudeRemoteCredentialsTests: XCTestCase {
             return self.ok(credentialsFile())
         }
         XCTAssertEqual(credentials.accessToken, "remote-token")
-        XCTAssertEqual(commands.count, 2)
-        XCTAssertTrue(commands[1].contains("security find-generic-password"))
+        XCTAssertEqual(commands.value.count, 2)
+        XCTAssertTrue(commands.value[1].contains("security find-generic-password"))
     }
 
     func testNoCredentialAnywhereNeedsAuth() {
@@ -628,9 +629,13 @@ final class ClaudeRemoteProviderTests: XCTestCase {
     }
 
     func testUnauthorizedReReadsOnceThenNeedsAuth() async throws {
-        var loads = 0
+        // `final class Box`, not `var`: the runner is a concurrently-executing
+        // closure, and Swift 5.10 refuses to mutate a captured `var` from one.
+        // The same shape as `ClaudeOAuthProviderTests`.
+        final class Box { var value = 0 }
+        let loads = Box()
         let provider = makeProvider(answers: [(401, ""), (401, "")]) { _, _ in
-            loads += 1
+            loads.value += 1
             return Result(exitCode: 0, stdout: credentialsFile(), stderr: "")
         }
         do {
@@ -640,7 +645,7 @@ final class ClaudeRemoteProviderTests: XCTestCase {
         } catch {
             XCTFail("wrong error: \(error)")
         }
-        XCTAssertEqual(loads, 2, "the file is re-read once before giving up")
+        XCTAssertEqual(loads.value, 2, "the file is re-read once before giving up")
         XCTAssertEqual(RemoteClaudeEndpoint.requestCount, 2)
     }
 
@@ -656,21 +661,22 @@ final class ClaudeRemoteProviderTests: XCTestCase {
     }
 
     func testExpiredTokenRenewsThenFetches() async throws {
-        var loads = 0
-        var renewals = 0
+        final class Box { var value = 0 }
+        let loads = Box()
+        let renewals = Box()
         let provider = makeProvider(
             answers: [(200, usage), (200, usage)],
             runner: { _, _ in
-                loads += 1
+                loads.value += 1
                 // The first read finds the rotted token; the re-read after the
                 // renewal finds what the server's own Claude Code filed.
-                let file = loads == 1
+                let file = loads.value == 1
                     ? credentialsFile(expiresMs: 1_000, token: "rotted-token")
                     : credentialsFile(token: "renewed-token")
                 return Result(exitCode: 0, stdout: file, stderr: "")
             },
             runRenewal: {
-                renewals += 1
+                renewals.value += 1
                 // Refusing the empty prompt is a non-zero exit and a
                 // successful renewal at the same time — judged by the
                 // re-read, never by this.
@@ -679,30 +685,31 @@ final class ClaudeRemoteProviderTests: XCTestCase {
             })
         let snapshot = try await provider.fetchSnapshot()
         XCTAssertEqual(snapshot.headlineText, "52%")
-        XCTAssertEqual(loads, 2)
-        XCTAssertEqual(renewals, 1)
+        XCTAssertEqual(loads.value, 2)
+        XCTAssertEqual(renewals.value, 1)
         XCTAssertEqual(RemoteClaudeEndpoint.requestCount, 1)
         XCTAssertEqual(RemoteClaudeEndpoint.bearers, ["renewed-token"],
                        "the renewed token is the one that travels")
         // The renewed token is held like any other.
         let again = try await provider.fetchSnapshot()
         XCTAssertEqual(again.headlineText, "52%")
-        XCTAssertEqual(loads, 2, "no re-read while the held copy is fresh")
-        XCTAssertEqual(renewals, 1, "no second renewal while the held copy is fresh")
+        XCTAssertEqual(loads.value, 2, "no re-read while the held copy is fresh")
+        XCTAssertEqual(renewals.value, 1, "no second renewal while the held copy is fresh")
     }
 
     func testRenewalThatChangesNothingStaysExpired() async throws {
-        var loads = 0
-        var renewals = 0
+        final class Box { var value = 0 }
+        let loads = Box()
+        let renewals = Box()
         let provider = makeProvider(
             answers: [(200, usage)],
             runner: { _, _ in
-                loads += 1
+                loads.value += 1
                 return Result(exitCode: 0, stdout: credentialsFile(expiresMs: 1_000),
                               stderr: "")
             },
             runRenewal: {
-                renewals += 1
+                renewals.value += 1
                 return Result(exitCode: 1, stdout: Data(), stderr: "")
             })
         do {
@@ -712,8 +719,8 @@ final class ClaudeRemoteProviderTests: XCTestCase {
         } catch {
             XCTFail("wrong error: \(error)")
         }
-        XCTAssertEqual(loads, 2, "the initial read plus the re-read after the renewal")
-        XCTAssertEqual(renewals, 1)
+        XCTAssertEqual(loads.value, 2, "the initial read plus the re-read after the renewal")
+        XCTAssertEqual(renewals.value, 1)
         XCTAssertEqual(RemoteClaudeEndpoint.requestCount, 0,
                        "an unrenewed token never reaches the endpoint")
         // One attempt per token: the same expiry next poll is refused without
@@ -725,8 +732,8 @@ final class ClaudeRemoteProviderTests: XCTestCase {
         } catch {
             XCTFail("wrong error: \(error)")
         }
-        XCTAssertEqual(loads, 3)
-        XCTAssertEqual(renewals, 1)
+        XCTAssertEqual(loads.value, 3)
+        XCTAssertEqual(renewals.value, 1)
     }
 
     func testRenewalWithoutAClaudeBinaryStaysExpired() async throws {
@@ -869,10 +876,14 @@ final class CodexRemoteProviderTests: XCTestCase {
     }
 
     func testAProxiedHostIsNotAskedAgainEveryTick() async throws {
-        var commands: [String] = []
+        // `final class Box`, not `var`: the runner is a concurrently-executing
+        // closure, and Swift 5.10 refuses to mutate a captured `var` in one
+        // ("mutation of captured var 'commands' in concurrently-executing code").
+        final class Box { var value: [String] = [] }
+        let commands = Box()
         let config = "model_provider = \"cliproxy\"\n[model_providers.cliproxy]\nbase_url = \"http://127.0.0.1:8317/v1\"\n"
         let provider = makeProvider(answers: []) { _, command in
-            commands.append(command)
+            commands.value.append(command)
             return command.hasSuffix("config.toml")
                 ? Result(exitCode: 0, stdout: Data(config.utf8), stderr: "")
                 : Result(exitCode: 1, stdout: Data(), stderr: "No such file\n")
@@ -887,15 +898,16 @@ final class CodexRemoteProviderTests: XCTestCase {
                 XCTFail("wrong error: \(error)")
             }
         }
-        XCTAssertEqual(commands.count, 2, "the second tick reuses the finding: \(commands)")
+        XCTAssertEqual(commands.value.count, 2, "the second tick reuses the finding: \(commands.value)")
         _ = try? await provider.fetchSnapshot(freshness: .fromSource)
-        XCTAssertEqual(commands.count, 4, "Refresh now looks again: \(commands)")
+        XCTAssertEqual(commands.value.count, 4, "Refresh now looks again: \(commands.value)")
     }
 
     func testUnauthorizedReReadsOnceThenNeedsAuth() async throws {
-        var loads = 0
+        final class Box { var value = 0 }
+        let loads = Box()
         let provider = makeProvider(answers: [(401, ""), (401, "")]) { _, _ in
-            loads += 1
+            loads.value += 1
             return Result(exitCode: 0, stdout: codexAuthFile(), stderr: "")
         }
         do {
@@ -905,7 +917,7 @@ final class CodexRemoteProviderTests: XCTestCase {
         } catch {
             XCTFail("wrong error: \(error)")
         }
-        XCTAssertEqual(loads, 2, "the file is re-read once before giving up")
+        XCTAssertEqual(loads.value, 2, "the file is re-read once before giving up")
     }
 
     func testRateLimitedBacksOff() async throws {

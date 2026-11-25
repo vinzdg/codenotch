@@ -180,7 +180,11 @@ actor PhoneLinkServer {
         guard monitor == nil else { return }
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] _ in
-            Task { await self?.networkDidChange() }
+            // Bound here, not inside the `Task`: the handler is a
+            // concurrently-executing closure, and Swift 5.10 refuses to read a
+            // captured `weak self` var from one nested inside it.
+            guard let self else { return }
+            Task { await self.networkDidChange() }
         }
         self.monitor = monitor
         monitor.start(queue: monitorQueue)

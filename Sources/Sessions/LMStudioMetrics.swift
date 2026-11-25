@@ -243,7 +243,9 @@ final class LMStudioMetrics: ObservableObject {
             let events = tail.loadHistory()
             let predictions = events.filter { if case .prediction = $0 { return true } else { return false } }.count
             Log.usage.debug("lmstudio: read \(predictions) logged responses in \(Date().timeIntervalSince(started), format: .fixed(precision: 1))s")
-            await MainActor.run {
+            // `[weak self]` again: Swift 5.10 will not bind a captured `weak
+            // self` var from inside this nested concurrently-executing closure.
+            await MainActor.run { [weak self] in
                 guard let self, self.revision == revision else { return }
                 self.tail = tail
                 self.absorb(events, live: false)

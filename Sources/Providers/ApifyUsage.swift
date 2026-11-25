@@ -71,6 +71,12 @@ enum ApifyUsage {
         formatter.numberStyle = .decimal
         formatter.usesGroupingSeparator = true
         formatter.groupingSeparator = ","
+        // `en_US_POSIX`'s decimal pattern carries no grouping at all
+        // (`groupingSize` is 0), so naming the separator alone inserts nothing on
+        // this Foundation: the digits run together and the thousands above are
+        // missing. Naming the group size is what the Console's own shape needs —
+        // a no-op on a locale whose pattern already groups by three.
+        formatter.groupingSize = 3
         formatter.decimalSeparator = "."
         formatter.minimumFractionDigits = 2
         formatter.maximumFractionDigits = 2

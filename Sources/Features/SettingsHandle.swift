@@ -137,23 +137,21 @@ struct SettingsOrb: View {
     private var restingArc: some View {
         if glassy {
             // `isGlass` is only ever true where `glassEffect` exists; the
-            // availability check is what tells the compiler so.
-            if #available(macOS 26.0, *) {
-                Color.clear
-                    .frame(width: 100, height: 100)
-                    .glassEffect(surfaceStyle.glass, in: Rectangle())
-                    .background { if let dim = surfaceStyle.glassDim { Rectangle().fill(dim) } }
-                    // The band's own inset cancels the extra stroke width here,
-                    // so this is the same circle the stroked arc follows.
-                    .frame(width: arcRadius * 2 + NotchLayout.orbStroke,
-                           height: arcRadius * 2 + NotchLayout.orbStroke)
-                    // Cut to the arc as it divides off the flare, as the solid
-                    // style draws it — see `GooArc`.
-                    .mask {
-                        GooArc(trim: restingTrim, edge: edge, convex: convex,
-                               radius: arcRadius, separation: separation, returning: returning, quick: quick)
-                    }
-            }
+            // compat shim is what tells the compiler so on an old SDK.
+            Color.clear
+                .frame(width: 100, height: 100)
+                .compatGlassEffect(surfaceStyle, in: Rectangle())
+                .background { if let dim = surfaceStyle.glassDim { Rectangle().fill(dim) } }
+                // The band's own inset cancels the extra stroke width here,
+                // so this is the same circle the stroked arc follows.
+                .frame(width: arcRadius * 2 + NotchLayout.orbStroke,
+                       height: arcRadius * 2 + NotchLayout.orbStroke)
+                // Cut to the arc as it divides off the flare, as the solid
+                // style draws it — see `GooArc`.
+                .mask {
+                    GooArc(trim: restingTrim, edge: edge, convex: convex,
+                           radius: arcRadius, separation: separation, returning: returning, quick: quick)
+                }
         } else {
             GooArc(trim: restingTrim, edge: edge, convex: convex,
                    radius: arcRadius, separation: separation, returning: returning, quick: quick)
@@ -165,14 +163,12 @@ struct SettingsOrb: View {
     @ViewBuilder
     private var hoverDisc: some View {
         if glassy {
-            if #available(macOS 26.0, *) {
-                Color.clear
-                    .frame(width: 100, height: 100)
-                    .glassEffect(surfaceStyle.glass.interactive(), in: Rectangle())
-                    .background { if let dim = surfaceStyle.glassDim { Rectangle().fill(dim) } }
-                    .frame(width: NotchLayout.orbDiameter, height: NotchLayout.orbDiameter)
-                    .clipShape(Circle())
-            }
+            Color.clear
+                .frame(width: 100, height: 100)
+                .compatGlassEffect(surfaceStyle, in: Rectangle(), interactive: true)
+                .background { if let dim = surfaceStyle.glassDim { Rectangle().fill(dim) } }
+                .frame(width: NotchLayout.orbDiameter, height: NotchLayout.orbDiameter)
+                .clipShape(Circle())
         } else {
             Circle()
                 .fill(Palette.notch)

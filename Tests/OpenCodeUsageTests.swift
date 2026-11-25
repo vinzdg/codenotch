@@ -15,7 +15,7 @@ final class OpenCodeUsageTests: XCTestCase {
 
     func testReadsAllThreeWindows() throws {
         let w = try OpenCodeUsage.windows(fromJSON: payload)
-        XCTAssertEqual(w.map(\.duration), [18000, 604800, 30 * 86400])
+        XCTAssertEqual(w.map(\.duration), [TimeInterval(18000), TimeInterval(604800), TimeInterval(30 * 86400)])
         XCTAssertEqual(w.map(\.id), ["rolling", "weekly", "monthly"])
         XCTAssertEqual(w.map(\.label), ["5h limit", "Weekly limit", "Monthly limit"])
         XCTAssertTrue(w.allSatisfy { ($0.usedFraction ?? -1) == 0 })

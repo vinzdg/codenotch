@@ -138,16 +138,19 @@ enum KreaUsage {
 
         let allowance = explicitAllowance ?? planType.flatMap { KreaPlan.allowance(for: $0) }
 
-        let resetDate = date(
-            active["resets_at"]
-            ?? active["resetsAt"]
-            ?? active["reset_at"]
-            ?? active["resetAt"]
-            ?? active["period_end"]
-            ?? active["periodEnd"]
-            ?? active["reset_date"]
-            ?? active["next_reset_at"]
-        )
+        // Read one key at a time, not as one eight-term `??` chain: every term is
+        // an `Any?` subscript, and Swift 5.10 gives up on the whole chain at
+        // once ("unable to type-check this expression in reasonable time").
+        // First match wins, which is what the chain meant.
+        var resetValue: Any?
+        for key in ["resets_at", "resetsAt", "reset_at", "resetAt",
+                    "period_end", "periodEnd", "reset_date", "next_reset_at"] {
+            if let value = active[key] {
+                resetValue = value
+                break
+            }
+        }
+        let resetDate = date(resetValue)
 
         let roundedCredits = Int(creditsNumber.rounded())
         var windows: [LimitWindow] = []

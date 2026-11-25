@@ -723,6 +723,11 @@ final class NotchSurfaceStyleTests: XCTestCase {
     /// darkening underneath. `glass` must keep asking for plain `.regular`,
     /// and so must `dock`, whose cards would otherwise be truly clear under
     /// the floating panel's active appearance.
+    ///
+    /// Behind `compiler(>=6.2)`, not merely `#available`: the `Glass` type this
+    /// compares does not exist in an old SDK, so the method cannot be compiled
+    /// there at all — the same reason `NotchSurfaceStyle.glass` is gated.
+    #if compiler(>=6.2)
     func testDarkGlassAsksForClearGlassAndGlassForRegular() throws {
         guard #available(macOS 26.0, *) else {
             throw XCTSkip("Glass does not exist before macOS 26")
@@ -732,6 +737,7 @@ final class NotchSurfaceStyleTests: XCTestCase {
                        "the dock's cards are frosted; only its slab is clear")
         XCTAssertEqual(NotchSurfaceStyle.glass.glass, .regular)
     }
+    #endif
 
     func testTheDockIsGlassWhereThereIsGlass() {
         guard NotchSurfaceStyle.glassAvailable else {

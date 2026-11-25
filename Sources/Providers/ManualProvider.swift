@@ -241,7 +241,13 @@ actor ManualProvider: UsageProvider {
     private let limitClosure: (@Sendable () -> Int?)?
     private let scheduleClosure: (@Sendable () -> ManualResetSchedule?)?
 
-    var onChanged: (@Sendable () -> Void)?
+    /// Called after a change the store has to hear about. `nonisolated(unsafe)`
+    /// because it is bound once, at startup, from `AppDelegate`: Swift 5.10
+    /// rejects mutating an actor's isolated property from the main actor
+    /// ("mutation of this property is only permitted within the actor"), and no
+    /// `await` form exists for an assignment. Same idiom, same reason, as
+    /// `cachedAccount` below — written once before any fetch, read only inside.
+    nonisolated(unsafe) var onChanged: (@Sendable () -> Void)?
 
     nonisolated(unsafe) private var cachedAccount: ProviderAccount?
 

@@ -321,22 +321,21 @@ struct NotchRootView: View {
                 // for it — the pixel tests check what is ours. See TASKS.md,
                 // "The hardware's band stays black".
                 if !headlessGlass {
-                    if #available(macOS 26.0, *) {
-                        let scale = model.sizeScale
-                        let size = copySize(wing)
-                        Color.clear
-                            .frame(width: size.width * scale, height: size.height * scale)
-                            .glassEffect(model.drawnSurfaceStyle.slabGlass,
-                                         in: DockSlab(trim: slab.trim * scale,
-                                                      radius: slab.radius * scale,
-                                                      vertical: slab.vertical))
-                            // The copy is scaled from the bezel, so its middle
-                            // across the edge sits at half the *scaled* depth.
-                            .position(place.point(along: wing.lead + wing.length / 2,
-                                                  across: wing.depth * scale / 2))
-                            .offset(x: -model.edge.outward.x * model.edgeGap,
-                                    y: -model.edge.outward.y * model.edgeGap)
-                    }
+                    let scale = model.sizeScale
+                    let size = copySize(wing)
+                    Color.clear
+                        .frame(width: size.width * scale, height: size.height * scale)
+                        .compatGlassEffect(model.drawnSurfaceStyle,
+                                           in: DockSlab(trim: slab.trim * scale,
+                                                        radius: slab.radius * scale,
+                                                        vertical: slab.vertical),
+                                           slab: true)
+                        // The copy is scaled from the bezel, so its middle
+                        // across the edge sits at half the *scaled* depth.
+                        .position(place.point(along: wing.lead + wing.length / 2,
+                                              across: wing.depth * scale / 2))
+                        .offset(x: -model.edge.outward.x * model.edgeGap,
+                                y: -model.edge.outward.y * model.edgeGap)
                 }
                 notchCopy(place, wing: wing, shape: shape, clip: slab, dock: true)
             }
@@ -364,32 +363,30 @@ struct NotchRootView: View {
 
         return ZStack {
             if glassy && !dock {
-                if #available(macOS 26.0, *) {
-                    // The same layer twice, once without the material: an
-                    // offscreen `ImageRenderer` cannot draw the system glass
-                    // faithfully, so the pixel tests ask for the glass path
-                    // with the material left out and check the parts that are
-                    // ours. See TASKS.md, "The hardware's band stays black".
-                    if headlessGlass {
-                        Color.clear
-                            .frame(width: place.panelSize.width, height: place.panelSize.height)
-                            .background {
-                                if let dim = model.drawnSurfaceStyle.glassDim {
-                                    Rectangle().fill(dim)
-                                }
+                // The same layer twice, once without the material: an
+                // offscreen `ImageRenderer` cannot draw the system glass
+                // faithfully, so the pixel tests ask for the glass path
+                // with the material left out and check the parts that are
+                // ours. See TASKS.md, "The hardware's band stays black".
+                if headlessGlass {
+                    Color.clear
+                        .frame(width: place.panelSize.width, height: place.panelSize.height)
+                        .background {
+                            if let dim = model.drawnSurfaceStyle.glassDim {
+                                Rectangle().fill(dim)
                             }
-                            .id(model.isExpanded)
-                    } else {
-                        Color.clear
-                            .frame(width: place.panelSize.width, height: place.panelSize.height)
-                            .glassEffect(model.drawnSurfaceStyle.glass, in: Rectangle())
-                            .background {
-                                if let dim = model.drawnSurfaceStyle.glassDim {
-                                    Rectangle().fill(dim)
-                                }
+                        }
+                        .id(model.isExpanded)
+                } else {
+                    Color.clear
+                        .frame(width: place.panelSize.width, height: place.panelSize.height)
+                        .compatGlassEffect(model.drawnSurfaceStyle, in: Rectangle())
+                        .background {
+                            if let dim = model.drawnSurfaceStyle.glassDim {
+                                Rectangle().fill(dim)
                             }
-                            .id(model.isExpanded)
-                    }
+                        }
+                        .id(model.isExpanded)
                 }
             }
 
@@ -488,6 +485,11 @@ struct NotchRootView: View {
                                        carriesCells: false, length: span.length, depth: span.depth)
         let size = copySize(wing)
         let shown = model.drawsMergedNotch
+        // Bound here, not read inside the animator: its content closure is
+        // `@Sendable`, and Swift 5.10 refuses a main-actor property from one
+        // ("main actor-isolated property 'bezelAnchor' can not be referenced
+        // from a Sendable closure"). Same anchor, same value.
+        let anchor = bezelAnchor
         model.mergedShape
             .fill(Palette.notch)
             .frame(width: size.width, height: size.height)
@@ -495,7 +497,7 @@ struct NotchRootView: View {
             // under its own weight and draws back up, so the stretch lands
             // like liquid rather than a rect resizing.
             .keyframeAnimator(initialValue: CGFloat(1), trigger: shown) { body, sag in
-                body.scaleEffect(x: 1, y: sag, anchor: bezelAnchor)
+                body.scaleEffect(x: 1, y: sag, anchor: anchor)
             } keyframes: { _ in
                 if shown && !reduceMotion {
                     SpringKeyframe(1.06, duration: 0.18, spring: .smooth)
@@ -505,7 +507,7 @@ struct NotchRootView: View {
                     LinearKeyframe(1, duration: 0.01)
                 }
             }
-            .scaleEffect(model.sizeScale, anchor: bezelAnchor)
+            .scaleEffect(model.sizeScale, anchor: anchor)
             .position(place.point(along: span.lead + span.length / 2, across: span.depth / 2))
             .offset(x: model.edge.outward.x * Self.bezelBleed,
                     y: model.edge.outward.y * Self.bezelBleed)
@@ -570,54 +572,7 @@ struct NotchRootView: View {
     @ViewBuilder
     private var cells: some View {
         let stack = ForEach(Array(model.snapshots.enumerated()), id: \.element.id) { index, snapshot in
-            ProviderCell(
-                snapshot: snapshot,
-                activity: model.activity(for: snapshot),
-                isRefreshing: model.isRefreshing(snapshot),
-                weeklyRing: model.weeklyRing,
-                showsWeeklyReading: model.weeklyReading,
-                showsReading: model.showsCellReading,
-                showsRemaining: model.showsRemainingInNotch,
-                shutRingsWhenSpent: model.shutRingsWhenSpent
-            )
-                // The ring colours were sampled for a black notch and go faint
-                // over the floating slab's clear glass on a light desktop, so
-                // each ring gets a ground of its own, as the Dock's icons do.
-                // A background, so the cell's size is untouched, and mounted
-                // here, under the fade and slide below, so it never shows
-                // without its ring.
-                .background(alignment: model.showsCellReading ? .top : .center) {
-                    if model.floats && !reduceTransparency {
-                        Circle()
-                            .fill(Palette.dockRingBacking)
-                            .frame(width: NotchLayout.ringDiameter, height: NotchLayout.ringDiameter)
-                    }
-                }
-                // Pinned to what the cell claims along the stack, or the drawn
-                // rings stop lining up with the centres `ringCenter` hands to
-                // the hover bands and the tooltip tails. Across a horizontal
-                // edge that is the ring alone — the label sits below it, in the
-                // notch's depth, and claims nothing here.
-                .frame(width: model.edge.isVertical ? nil : NotchLayout.cellAlong(for: model.edge))
-                .onGeometryChange(for: CGRect.self) { geometry in
-                    geometry.frame(in: .named(Self.panelSpace))
-                } action: { frame in
-                    model.renderedCellFrames[snapshot.id] = frame
-                }
-                .onDisappear { model.renderedCellFrames.removeValue(forKey: snapshot.id) }
-                .opacity(model.isExpanded ? 1 : 0)
-                // A short slide toward the edge, no scaling: the clip is
-                // already doing the concealing, and scaling on top of it
-                // reads as two effects fighting.
-                .offset(
-                    x: model.isExpanded ? 0 : model.edge.outward.x * Design.px(28),
-                    y: model.isExpanded ? 0 : model.edge.outward.y * Design.px(28)
-                )
-                .animation(motion(NotchMotion.stagger(index: index)), value: model.isExpanded)
-                .transition(.opacity.combined(with: .offset(
-                    x: model.edge.outward.x * Design.px(28),
-                    y: model.edge.outward.y * Design.px(28)
-                )).animation(motion(NotchMotion.unfold)))
+            cell(index, snapshot)
         }
 
         Group {
@@ -635,6 +590,74 @@ struct NotchRootView: View {
             }
         }
         .allowsHitTesting(model.isExpanded)
+    }
+
+    /// One cell, its ring's backing and its own fade/slide.
+    ///
+    /// Two methods rather than one closure body: as one expression — a
+    /// nine-argument `ProviderCell` under fourteen chained modifiers — Swift
+    /// 5.10 reports "unable to type-check this expression in reasonable time".
+    /// Same view tree, split at the seam the type-checker needs: the ring and
+    /// its measurements here, the fade and the slide over them below.
+    @ViewBuilder
+    private func cell(_ index: Int, _ snapshot: ProviderSnapshot) -> some View {
+        measuredCell(snapshot)
+            .opacity(model.isExpanded ? 1 : 0)
+            // A short slide toward the edge, no scaling: the clip is
+            // already doing the concealing, and scaling on top of it
+            // reads as two effects fighting.
+            .offset(
+                x: model.isExpanded ? 0 : edgeSlide.x,
+                y: model.isExpanded ? 0 : edgeSlide.y
+            )
+            .animation(motion(NotchMotion.stagger(index: index)), value: model.isExpanded)
+            .transition(.opacity.combined(with: .offset(x: edgeSlide.x, y: edgeSlide.y))
+                .animation(motion(NotchMotion.unfold)))
+    }
+
+    /// How far a hidden cell is pulled toward the edge, folding out of the notch.
+    private var edgeSlide: CGPoint {
+        CGPoint(x: model.edge.outward.x * Design.px(28),
+                y: model.edge.outward.y * Design.px(28))
+    }
+
+    @ViewBuilder
+    private func measuredCell(_ snapshot: ProviderSnapshot) -> some View {
+        ProviderCell(
+            snapshot: snapshot,
+            activity: model.activity(for: snapshot),
+            isRefreshing: model.isRefreshing(snapshot),
+            weeklyRing: model.weeklyRing,
+            showsWeeklyReading: model.weeklyReading,
+            showsReading: model.showsCellReading,
+            showsRemaining: model.showsRemainingInNotch,
+            shutRingsWhenSpent: model.shutRingsWhenSpent
+        )
+        // The ring colours were sampled for a black notch and go faint
+        // over the floating slab's clear glass on a light desktop, so
+        // each ring gets a ground of its own, as the Dock's icons do.
+        // A background, so the cell's size is untouched, and mounted
+        // here, under the fade and slide below, so it never shows
+        // without its ring.
+        .background(alignment: model.showsCellReading ? .top : .center) {
+            if model.floats && !reduceTransparency {
+                Circle()
+                    .fill(Palette.dockRingBacking)
+                    .frame(width: NotchLayout.ringDiameter, height: NotchLayout.ringDiameter)
+            }
+        }
+        // Pinned to what the cell claims along the stack, or the drawn
+        // rings stop lining up with the centres `ringCenter` hands to
+        // the hover bands and the tooltip tails. Across a horizontal
+        // edge that is the ring alone — the label sits below it, in the
+        // notch's depth, and claims nothing here.
+        .frame(width: model.edge.isVertical ? nil : NotchLayout.cellAlong(for: model.edge))
+        .compatOnGeometryChange(for: CGRect.self) { geometry in
+            geometry.frame(in: .named(Self.panelSpace))
+        } action: { frame in
+            model.renderedCellFrames[snapshot.id] = frame
+        }
+        .onDisappear { model.renderedCellFrames.removeValue(forKey: snapshot.id) }
     }
 
     /// **The one ring's percentage, on the other side of the Mac's notch** —

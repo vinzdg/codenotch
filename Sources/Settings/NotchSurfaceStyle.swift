@@ -73,6 +73,13 @@ enum NotchSurfaceStyle: String, CaseIterable, Identifiable {
     /// clear card laid over a terminal let the text behind it through. The
     /// tooltip and cards have to be read, so they take the frosted variant
     /// over `Palette.dockCardDim`, and only the slab (`slabGlass`) is clear.
+    ///
+    /// Behind `compiler(>=6.2)` because the type `Glass` itself is absent from an
+    /// old SDK: `@available` cannot hide a declaration from a toolchain that
+    /// has never heard of its return type. Everything that reads these
+    /// properties lives in `Sources/Compatibility/MacOS26Shims.swift`, which
+    /// carries the same `#if`.
+    #if compiler(>=6.2)
     @available(macOS 26.0, *)
     var glass: Glass {
         switch effective {
@@ -89,6 +96,7 @@ enum NotchSurfaceStyle: String, CaseIterable, Identifiable {
     var slabGlass: Glass {
         .clear.tint(Palette.dockGlassTint)
     }
+    #endif
 
     /// The wash drawn *beneath* the glass — never fed to `tint` — and only for
     /// `darkGlass` and `dock`. `nil` for `.glass` is not "no wash yet": laying

@@ -146,7 +146,12 @@ final class PaletteAppearanceTests: XCTestCase {
         assertTrack(Palette.barTrack, .aqua, white: 0, alpha: 0.15)
     }
 
-    func testOnlyDarkStandardLiquidGlassGetsReadableSecondaryInk() {
+    func testOnlyDarkStandardLiquidGlassGetsReadableSecondaryInk() throws {
+        // Every assertion here is about what the *glass* surface does with the
+        // ink, and below macOS 26 the glass styles resolve to `.solid` (see
+        // `NotchSurfaceStyle.effective`), so there is no glass to measure.
+        try XCTSkipUnless(NotchSurfaceStyle.glassAvailable,
+                          "no Liquid Glass below macOS 26 — the glass styles are the solid one")
         assertOpaque(TooltipGlassContrast.secondaryInk(surfaceStyle: .glass, colorScheme: .dark),
                      .darkAqua, is: 0xC2C2C2)
         assertOpaque(TooltipGlassContrast.secondaryInk(surfaceStyle: .darkGlass, colorScheme: .dark),
@@ -160,7 +165,11 @@ final class PaletteAppearanceTests: XCTestCase {
                      .darkAqua, is: 0x808080)
     }
 
-    func testOnlyDarkSystemLiquidGlassGetsTheReadableDim() {
+    func testOnlyDarkSystemLiquidGlassGetsTheReadableDim() throws {
+        // Same gate as the ink test above: `.glass` is `.solid` on this Mac, so
+        // `needsReadableDim` can only answer false here.
+        try XCTSkipUnless(NotchSurfaceStyle.glassAvailable,
+                          "no Liquid Glass below macOS 26 — the glass styles are the solid one")
         XCTAssertTrue(TooltipGlassContrast.needsReadableDim(surfaceStyle: .glass,
                                                             colorScheme: .dark))
         XCTAssertFalse(TooltipGlassContrast.needsReadableDim(surfaceStyle: .glass,
@@ -177,6 +186,11 @@ final class PaletteAppearanceTests: XCTestCase {
     }
 
     func testReadableLiquidGlassDimStaysDarkAndTranslucent() throws {
+        // `TooltipGlassContrast.dim` answers nil for every style once `.glass`
+        // and `.darkGlass` resolve to `.solid` (below macOS 26), so the unwraps
+        // below are about a surface this Mac does not have.
+        try XCTSkipUnless(NotchSurfaceStyle.glassAvailable,
+                          "no Liquid Glass below macOS 26 — the glass styles are the solid one")
         let dim = try XCTUnwrap(resolve(Palette.liquidGlassTooltipDim, .darkAqua))
         // `resolve` deliberately returns sRGB. `whiteComponent` is undefined
         // for that colour space and raises an AppKit exception, so assert the

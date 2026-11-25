@@ -215,7 +215,7 @@ final class ClaudeTokenRefresher: ObservableObject {
     /// volumes to the user as Codenotch asking for access.
     static let arguments = ["-p", "--no-session-persistence", "--strict-mcp-config"]
 
-    static func run(_ cli: URL, timeout: TimeInterval) throws
+    nonisolated static func run(_ cli: URL, timeout: TimeInterval) throws
         -> (pid: Int32, exit: () async -> Int32?) {
         let process = Process()
         process.executableURL = cli
