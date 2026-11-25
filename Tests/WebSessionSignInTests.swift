@@ -82,4 +82,25 @@ final class WebSessionSignInTests: XCTestCase {
     func testQianwenSignOutClearsTheAliyunSignIn() {
         XCTAssertTrue(Sites.qianwen.associatedHosts.contains("account.aliyun.com"))
     }
+
+    /// XyToken keeps its own site and parser, but it leans on this provider for
+    /// everything the settings list reads: the session flag is the account, so
+    /// signing in has to make the row show one and signing out has to clear it.
+    /// That is the whole of what the fork's dropped settings-side rework used to
+    /// add here, and it already works upstream.
+    func testXyTokenSignedInFlagBecomesItsAccount() {
+        let key = "xytoken.signedIn"
+        let saved = UserDefaults.standard.object(forKey: key)
+        defer {
+            if let saved { UserDefaults.standard.set(saved, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+
+        let provider = WebSessionProvider(site: Sites.xytoken)
+        UserDefaults.standard.removeObject(forKey: key)
+        XCTAssertNil(provider.account(), "a signed-out session is not an account")
+
+        UserDefaults.standard.set(true, forKey: key)
+        XCTAssertEqual(provider.account()?.source, "XyToken")
+    }
 }

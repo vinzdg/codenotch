@@ -90,6 +90,17 @@ final class WebSessionProvider: NSObject, UsageProvider {
         let authProbeScript: String?
         let sessionKey: String?
         let forbiddenMessage: String?
+        /// The station's own codes for a refusal that asks for a *second
+        /// factor* rather than for a new login.
+        ///
+        /// A stepped-up session is still a live session: the site answers 403
+        /// with one of these while it holds the login and waits for a code
+        /// (XyToken's `ADMIN_MFA_REQUIRED` under its per-role MFA, 2026-10-29).
+        /// It changes nothing about what the app does — a refusal is a refusal,
+        /// and `.needsAuth` is what opens the sheet that can answer it — only
+        /// about what the refusal line says, which is the difference between
+        /// "the session is gone" and "the session is waiting for you".
+        let mfaCodes: [String]
         let logsResponseBody: Bool
         /// Extra hosts whose website data is cleared on sign-out, besides
         /// `origin.host`. MiniMax's session is created on the platform origin
@@ -142,6 +153,7 @@ final class WebSessionProvider: NSObject, UsageProvider {
              authProbeScript: String? = nil,
              sessionKey: String? = nil,
              forbiddenMessage: String? = nil,
+             mfaCodes: [String] = [],
              logsResponseBody: Bool = true,
              associatedHosts: [String] = [],
              pollsDuringSignIn: Bool = false,
@@ -162,6 +174,7 @@ final class WebSessionProvider: NSObject, UsageProvider {
             self.authProbeScript = authProbeScript
             self.sessionKey = sessionKey
             self.forbiddenMessage = forbiddenMessage
+            self.mfaCodes = mfaCodes
             self.logsResponseBody = logsResponseBody
             self.associatedHosts = associatedHosts
             self.pollsDuringSignIn = pollsDuringSignIn
@@ -251,6 +264,17 @@ final class WebSessionProvider: NSObject, UsageProvider {
     /// `apply(site:)` cannot rebind DeepSeek's flag onto MiniMax or vice versa.
     nonisolated static func sessionKey(for site: Site) -> String {
         site.sessionKey ?? "\(site.id).signedIn"
+    }
+
+    /// Whether this site's response body may be written to the log.
+    ///
+    /// `Site.logsResponseBody` is the site's own instruction, and two sites
+    /// carry account detail beyond the numbers without having said so when the
+    /// flag was added — DeepSeek's summary and QianwenAI's console envelope —
+    /// so they are named here rather than trusted to opt out. One rule for the
+    /// success line and the refusal line alike.
+    private var logsResponseBody: Bool {
+        site.logsResponseBody && !["deepseek", "qianwenai"].contains(site.id)
     }
 
     private var hasSignedIn: Bool {
@@ -384,6 +408,25 @@ final class WebSessionProvider: NSObject, UsageProvider {
         return nil
     }
 
+    /// The station's own code for a refusal that wants a second factor rather
+    /// than a new login, when this site declared it.
+    ///
+    /// `403` and the body's `code` field, both: XyToken answers `401` when the
+    /// session is really gone and `403 ADMIN_MFA_REQUIRED` when it is only
+    /// waiting for a code, while its other `403`s remain plain refusals. The
+    /// status is not enough to tell them apart and neither is a search through
+    /// the body — the same code can appear in a message, so it is read from
+    /// the field the station puts it in.
+    nonisolated static func stepUpCode(status: Int, body: String, site: Site) -> String? {
+        guard status == 403, !site.mfaCodes.isEmpty,
+              let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let code = object["code"] as? String,
+              site.mfaCodes.contains(code)
+        else { return nil }
+        return code
+    }
+
     // MARK: - Fetching
 
     func fetchSnapshot() async throws -> ProviderSnapshot {
@@ -413,6 +456,12 @@ final class WebSessionProvider: NSObject, UsageProvider {
                 )
             } catch {
                 Log.usage.error("\(self.site.id, privacy: .public) fetch script failed: \(error.localizedDescription, privacy: .public)")
+                // The page did not answer. Whether the network, the web content
+                // process or the document is at fault, firing the next fetch into
+                // the same view repeats it: a run of these — which is what a wake
+                // left behind here, five in a row over two hours — is a stale page,
+                // and only a load replaces it. The next attempt starts with one.
+                isLoaded = false
                 throw UsageProviderError.badResponse(status: 0)
             }
 
@@ -424,22 +473,53 @@ final class WebSessionProvider: NSObject, UsageProvider {
                   let body = envelope["body"] as? String
             else {
                 Log.usage.error("\(self.site.id, privacy: .public) response unreadable: \(String(describing: result), privacy: .public)")
+                // An envelope this shape is never right, so the document is not the
+                // one this script expects. Same rule as a failed script: reload.
+                isLoaded = false
                 throw UsageProviderError.badResponse(status: 0)
             }
 
             if let failure = Self.responseFailure(status: status, site: site) {
+                // The refusal line is the one that explains a ring going blank, and
+                // it used to be written for `needsAuth` alone — before the body was
+                // recorded — so a session dying left no trace of *why*. The body is
+                // what names the station's reason (`AUTH_SESSION_REVOKED`,
+                // `AUTH_ORIGIN_FORBIDDEN`, …); a 409 from a routed refresh and a
+                // bare 500 are different problems too, and both now say so.
+                //
+                // `request=` is the station's `X-Request-Id` for the response that
+                // refused us: the only handle its own server log can be searched
+                // by, and the first thing to ask for when a session ends for a
+                // reason this side cannot see.
+                let requestID = (envelope["requestId"] as? String)
+                    .flatMap { $0.isEmpty ? nil : $0 }
+                    .map { " request=\($0)" } ?? ""
+                let reason = logsResponseBody
+                    ? "HTTP \(status)\(requestID) \(body.prefix(300))"
+                    : "HTTP \(status)\(requestID)"
                 if case .needsAuth = failure {
-                    // The status, logged before anything gives up on it: a 401
-                    // (the site retired this session) and a 403 (the door shut
-                    // on this client outright) used to arrive as the same
-                    // undifferentiated "needsAuth", with nothing in the log to
-                    // tell them apart.
-                    Log.usage.notice("\(self.site.id, privacy: .public) read refused: HTTP \(status, privacy: .public)")
+                    // A refusal that names a second factor is the station keeping a
+                    // live session, not losing one — its own Login sessions page
+                    // still lists it, last active (2026-10-29). The outcome is the
+                    // same either way: the sheet is where a step-up gets answered,
+                    // and `.needsAuth` is what makes Sign in open it, so the flag
+                    // still goes. Only the log can afford to tell the two apart,
+                    // and this is the line to read when the ring goes blank while
+                    // the session is demonstrably still there.
+                    if let code = Self.stepUpCode(status: status, body: body, site: site) {
+                        Log.usage.error(
+                            "\(self.site.id, privacy: .public) needsMfa: \(code, privacy: .public) \(reason, privacy: .public)"
+                        )
+                    } else {
+                        Log.usage.error("\(self.site.id, privacy: .public) needsAuth: \(reason, privacy: .public)")
+                    }
                     if !reloadedForSession, await reloadToReestablishSession() {
                         reloadedForSession = true
                         continue
                     }
                     hasSignedIn = false
+                } else {
+                    Log.usage.error("\(self.site.id, privacy: .public) request failed: \(reason, privacy: .public)")
                 }
                 throw failure
             }
@@ -447,14 +527,24 @@ final class WebSessionProvider: NSObject, UsageProvider {
             // Recorded verbatim so a parser can be written against the real thing.
             // Not for sites whose response carries account details beyond the
             // numbers: DeepSeek's, and QianwenAI's console envelope, whose other
-            // fields are undocumented.
-            if !site.logsResponseBody || ["deepseek", "qianwenai"].contains(site.id) {
+            // fields are undocumented. The same rule governs the failure line
+            // above, so a refusal cannot leak through the other path.
+            if !logsResponseBody {
                 Log.usage.notice("\(self.site.id, privacy: .public) usage response received")
             } else {
                 Log.usage.notice("\(self.site.id, privacy: .public) usage -> \(body.prefix(1200), privacy: .public)")
             }
             if let probes = envelope["probes"] as? String {
                 Log.usage.notice("\(self.site.id, privacy: .public) probes -> \(probes.prefix(2600), privacy: .public)")
+            }
+            // What the station thinks this session's lifetime is, when the site's
+            // script refreshed on this fetch. Timestamps only — no token, no sid —
+            // and the answer to "did it expire, or was it revoked" without a packet
+            // capture. Written even for sites that withhold their bodies: the
+            // numbers are not account detail, and a lifetime is the thing a session
+            // report is missing.
+            if let session = envelope["session"] as? String {
+                Log.usage.notice("\(self.site.id, privacy: .public) session -> \(session.prefix(300), privacy: .public)")
             }
 
             let windows: [LimitWindow]

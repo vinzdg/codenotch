@@ -437,5 +437,240 @@ enum Sites {
             parse: { try MiniMaxUsage.windows(fromJSON: $0) }
         )
     }
+    /// XyToken relay station (api.xytoken.xyb2b.com). Its wallet page calls
+    /// POST /api/user/auth/refresh (empty body, authenticated solely by the
+    /// HttpOnly `xy_token_api_refresh` cookie, which the server rotates on
+    /// every call) and then GET /api/subscription/self with the short-lived
+    /// bearer token that refresh returns. The cookie is invisible to page JS
+    /// and unreachable for URLSession, so the sequence runs in the app's
+    /// WebView: the user signs in once, and when the session is gone the ring
+    /// asks for sign-in again.
+    ///
+    /// The station's refresh is a **session-pinned rotation**: the page keeps
+    /// the session id (`data.session.sid`) from its first refresh and sends it
+    /// back as `X-Auth-Session` on every later one, answering `409
+    /// AUTH_REFRESH_RACE` (another client rotated first — retry) and `409
+    /// AUTH_SESSION_MISMATCH` (the cookie now belongs to a different session —
+    /// re-bootstrap without the header). This script follows the same contract,
+    /// because the app is a *second* client on that cookie: the SPA in this very
+    /// WebView refreshes it too, and a long-lived session that only ever
+    /// refreshed without its identity is the one shape the station never sees
+    /// from a browser. A page reload drops both globals, which turns the next
+    /// refresh back into a bootstrap — exactly what the page itself does.
+    ///
+    /// The bearer token is kept in a page global for its own lifetime (15
+    /// minutes); the idle schedule is 5 minutes, so caching it takes two
+    /// rotations out of every three. Deliberately not localStorage: the page
+    /// keeps its own token in memory only, and mirroring it to disk would widen
+    /// a 15-minute credential's exposure for nothing.
+    ///
+    /// `authProbeScript` is what confirms a sign-in. Without it the sheet used
+    /// to declare itself signed in the moment it opened — while it was still
+    /// the login page — and the first fetch made from there answered 401 and
+    /// cleared the flag for good, because nothing sets it back once the login
+    /// really succeeds (`windowWillClose` only confirms a site that has a
+    /// probe). The probe also reports `session.sid`, the identity an account
+    /// switch has to change.
+    ///
+    /// What counts as signed in is the station's own definition, not "the
+    /// refresh succeeded and a session came back": its console only accepts a
+    /// *bundle* — access token, user, session — and it keeps the two-factor
+    /// form on screen while it is merely a session. A probe that stops at
+    /// `sid` committed a sign-in the site had not finished and closed the
+    /// window on the code input (2026-10-29).
+    ///
+    /// The body is wrapped in try/catch and reports a `0` status instead of
+    /// throwing: a rejected `fetch` — which is what a suspended WebView looks
+    /// like after a wake — used to surface as an opaque "JavaScript exception"
+    /// with no trace of *why*. The refresh's session timestamps ride along in
+    /// the envelope so the provider can log what the station thinks the
+    /// session's lifetime is, rather than the app inferring it.
+    static let xytoken = WebSessionProvider.Site(
+        id: "xytoken",
+        displayName: "XyToken",
+        glyph: .third,
+        origin: URL(string: "https://api.xytoken.xyb2b.com/")!,
+        script: """
+        const now = Math.floor(Date.now() / 1000);
+        const cached = window.__codenotchXyToken;
+        let token = cached && cached.expiresAt > now + 60 ? cached.token : null;
+        const fromCache = !!token;
+
+        const remember = (data, requestId) => {
+            if (!data) return;
+            if (typeof data.access_token === 'string' && data.access_token) {
+                window.__codenotchXyToken = {
+                    token: data.access_token,
+                    expiresAt: Number(data.access_expires_at) || 0
+                };
+            }
+            const session = data.session || null;
+            if (session && typeof session.sid === 'string' && session.sid) {
+                window.__codenotchXySession = session.sid;
+            }
+            if (session) {
+                window.__codenotchXySessionInfo =
+                    'created=' + String(session.created_at || '') +
+                    ' last_active=' + String(session.last_active_at || '') +
+                    ' expires=' + String(session.expires_at || '') +
+                    (requestId ? ' request=' + requestId : '');
+            }
+        };
+        const forget = () => {
+            window.__codenotchXyToken = null;
+            window.__codenotchXySession = null;
+        };
+
+        const ask = async (expected) => {
+            const headers = { 'Accept': 'application/json' };
+            if (expected) headers['X-Auth-Session'] = expected;
+            const r = await fetch('/api/user/auth/refresh', {
+                method: 'POST',
+                credentials: 'include',
+                headers: headers
+            });
+            const body = await r.text();
+            let parsed = null;
+            try { parsed = JSON.parse(body); } catch (_) {}
+            return {
+                status: r.status,
+                body: body,
+                data: parsed && parsed.data,
+                code: parsed && parsed.code,
+                requestId: r.headers.get('X-Request-Id') || ''
+            };
+        };
+
+        const refresh = async () => {
+            const expected = window.__codenotchXySession || null;
+            let result = await ask(expected);
+            // Another client on this cookie rotated first: retry once, the way
+            // the page's own client does. A mismatch means the cookie now
+            // belongs to a different session, so the identity must go.
+            if (result.status === 409 && result.code === 'AUTH_REFRESH_RACE') {
+                await new Promise((resolve) => setTimeout(resolve, 150));
+                result = await ask(expected);
+            } else if (result.status === 409 && result.code === 'AUTH_SESSION_MISMATCH' && expected) {
+                window.__codenotchXySession = null;
+                result = await ask(null);
+            }
+            if (result.status < 200 || result.status >= 300) {
+                if (result.status === 401 || result.status === 403) forget();
+                return { status: result.status, body: result.body, requestId: result.requestId };
+            }
+            const fresh = result.data && result.data.access_token;
+            if (!fresh) return { status: 502, body: result.body, requestId: result.requestId };
+            remember(result.data, result.requestId);
+            return { token: fresh, requestId: result.requestId };
+        };
+
+        const readSelf = (bearer) => fetch('/api/subscription/self', {
+            credentials: 'include',
+            headers: { 'Accept': 'application/json', 'Authorization': 'Bearer ' + bearer }
+        });
+
+        try {
+            let refreshed = false;
+            if (!token) {
+                const result = await refresh();
+                if (!result.token) return JSON.stringify({ status: result.status, body: result.body, requestId: result.requestId });
+                token = result.token;
+                refreshed = true;
+            }
+
+            let s = await readSelf(token);
+            // A token taken from the cache can be dead before its own expiry —
+            // the session was ended somewhere else. Ask for one fresh token
+            // before reporting the session gone, because that report is what
+            // signs the user out of the app.
+            if (fromCache && (s.status === 401 || s.status === 403)) {
+                forget();
+                const result = await refresh();
+                if (!result.token) return JSON.stringify({ status: result.status, body: result.body, requestId: result.requestId });
+                token = result.token;
+                refreshed = true;
+                s = await readSelf(token);
+            }
+
+            const envelope = { status: s.status, body: await s.text() };
+            // The station's own id for this response: the one thing its
+            // server-side log can be searched by when a session ends and
+            // nobody can say why.
+            const selfRequestId = s.headers.get('X-Request-Id') || '';
+            if (selfRequestId) envelope.requestId = selfRequestId;
+            if (refreshed && window.__codenotchXySessionInfo) {
+                envelope.session = window.__codenotchXySessionInfo;
+            }
+            return JSON.stringify(envelope);
+        } catch (error) {
+            return JSON.stringify({
+                status: 0,
+                body: 'script error: ' + String((error && error.message) || error)
+            });
+        }
+        """,
+        authProbeScript: #"""
+        try {
+            // A sign-in mints a new session; the token and the identity cached
+            // for the old one must not answer for it.
+            window.__codenotchXyToken = null;
+            window.__codenotchXySession = null;
+            window.__codenotchXySessionInfo = null;
+            const r = await fetch('/api/user/auth/refresh', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Accept': 'application/json' }
+            });
+            if (!r.ok) return JSON.stringify({ authenticated: false });
+            let data = null;
+            try { data = JSON.parse(await r.text()).data; } catch (_) {}
+            // A session is not a sign-in. While the station waits for a second
+            // factor it has already minted one — `sid` and all — and answers
+            // this refresh `200`, but without the access token and user its own
+            // console needs. Its frontend calls that "not signed in"
+            // (`isAuthBundle`) and keeps the verification form on screen, so
+            // committing on `sid` alone closed the window on the code input
+            // (2026-10-29) — the one screen the app cannot get past for the
+            // user. Ask for the same bundle the station asks itself for.
+            const user = data && data.user;
+            const session = data && data.session;
+            const signedIn = !!data
+                && typeof data.access_token === 'string' && data.access_token.length > 0
+                && !!user && Number(user.id) > 0
+                && !!session && typeof session.sid === 'string' && session.sid.length > 0;
+            if (!signedIn) return JSON.stringify({ authenticated: false });
+            return JSON.stringify({ authenticated: true, fingerprint: session.sid });
+        } catch (_) { return JSON.stringify({ authenticated: false }); }
+        """#,
+        // The station moved its administrator MFA to a per-role requirement
+        // ("Require MFA" on each role), and answers a session that has not
+        // verified yet with `403 ADMIN_MFA_REQUIRED` — while still holding
+        // that session, which is why its own session list shows it alive. The
+        // app read that as a lost login, blanked the ring and stopped asking
+        // (2026-10-29). Only this code: a `401` still means the session is
+        // gone, and the other `403`s still mean the request was refused.
+        mfaCodes: ["ADMIN_MFA_REQUIRED"],
+        pollsDuringSignIn: true,
+        // Role declarations, by the window ids `XyTokenUsage` derives — the
+        // stable half of the station's `rule_key` (`day:1`, `week:1`), never the
+        // reset schedule after the `|`. Consumers resolve by exact id
+        // (`ProviderSnapshot.headline`, `weeklyLimitWindow`/`weeklyWindow`), so
+        // these are what make the weekly-ring settings and the weekly watcher
+        // apply here. The two differ (daily is the headline, weekly is the thin
+        // second ring), so the notch draws one main ring plus the optional
+        // weekly arc, as it does for Kimi and OpenCode — and declaring the
+        // headline also stops it following the response's array order. If the
+        // station ever renames them the ids resolve to nothing — a blank main
+        // ring, no weekly arc — which is the answer every id-declaring provider
+        // gives (see `QianwenUsage`), not the first window this used to fall
+        // back to. The menu bar is out of reach either way: `StatusItemSummary`
+        // needs a five-hour window or Claude/Codex. These ids were first written
+        // as the whole `rule_key` — copied from the test fixture, which rewrites
+        // it — and never matched the live `week:1|week:MON 00:00`, so the weekly
+        // ring drew nothing until the id was narrowed to its stable half.
+        headlineID: "day:1",
+        weeklyID: "week:1",
+        parse: XyTokenUsage.windows(fromJSON:)
+    )
 
 }
