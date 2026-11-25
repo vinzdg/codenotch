@@ -52,14 +52,31 @@ actor AntigravityProvider: UsageProvider {
     /// would otherwise go uncovered.
     private let localQuotaOverride: (@Sendable () async -> [LimitWindow]?)?
 
+    /// Official `agy --print /usage` fallback for Antigravity IDE 2.x / `agy`
+    /// 1.5+, whose `--hub` process rejects tokenless loopback RPCs with 401.
+    nonisolated private let usageCLI: AntigravityUsageCLI?
+    private let cliRefreshInterval: TimeInterval
+    private let liveCLIRefreshInterval: TimeInterval
+    private var lastCLIWindows: (windows: [LimitWindow], at: Date)?
+    private var lastCLIFailure: Date?
+    private var consecutiveCLIFailures = 0
+
     init(profile: AntigravityProfile = .default(),
          session: URLSession = .shared,
-         localQuota: (@Sendable () async -> [LimitWindow]?)? = nil) {
+         localQuota: (@Sendable () async -> [LimitWindow]?)? = nil,
+         usageCLI: AntigravityUsageCLI? = nil,
+         cliRefreshInterval: TimeInterval = 5 * 60,
+         liveCLIRefreshInterval: TimeInterval = 90) {
         self.profile = profile
         self.id = profile.id
         self.displayName = profile.displayName
         self.session = session
         self.localQuotaOverride = localQuota
+        // Keep `localQuota:` tests isolated from whatever `agy` binary happens
+        // to be installed on the developer's machine.
+        self.usageCLI = usageCLI ?? (localQuota == nil ? AntigravityUsageCLI.locate() : nil)
+        self.cliRefreshInterval = cliRefreshInterval
+        self.liveCLIRefreshInterval = liveCLIRefreshInterval
         self.localSession = URLSession(configuration: .ephemeral,
                                        delegate: LocalhostTrust(),
                                        delegateQueue: nil)
@@ -101,6 +118,20 @@ actor AntigravityProvider: UsageProvider {
     }
 
     func fetchSnapshot() async throws -> ProviderSnapshot {
+        try await fetchSnapshot(freshness: .standard)
+    }
+
+    func fetchSnapshot(freshness: UsageFreshness) async throws -> ProviderSnapshot {
+        let cliAllowance: TimeInterval
+        switch freshness {
+        case .standard:
+            cliAllowance = cliRefreshInterval
+        case .live:
+            cliAllowance = min(liveCLIRefreshInterval, cliRefreshInterval)
+        case .fromSource:
+            cliAllowance = 0
+        }
+
         // Antigravity's own language server first, before anything is asked of
         // the keychain. It already holds the credential and the client identity
         // Google insists on, and answers with the same figure Antigravity's own
@@ -137,8 +168,18 @@ actor AntigravityProvider: UsageProvider {
                                         weeklyID: chosen.weeklyID)
             }
 
-            if localQuotaOverride != nil && everBridged {
+            if localQuotaOverride != nil && usageCLI == nil && everBridged {
                 throw UsageProviderError.credentialExpired
+            }
+
+            // When the loopback bridge cannot answer (for example `agy` 1.5+
+            // `--hub`, which rejects tokenless RPCs with 401), ask `agy --print
+            // /usage` before touching the keychain or falling back to counts.
+            if let cliWindows = await cliQuota(reusableFor: cliAllowance), !cliWindows.isEmpty {
+                everBridged = true
+                UserDefaults.standard.set(true, forKey: "AntigravityEverBridged")
+                let windows = await completedWindows(cliWindows) ?? cliWindows
+                return officialSnapshot(windows)
             }
         }
 
@@ -388,6 +429,55 @@ actor AntigravityProvider: UsageProvider {
         let reported = windows.contains { $0.id.hasPrefix(preferred.rawValue) }
         let shown = reported ? windows : windows + [Self.unavailableWindow(for: preferred)]
         return (shown, resolveHeadlineID(for: shown), resolveWeeklyID(for: shown))
+    }
+
+    /// What `agy --print /usage` last said, or nil to fall through to the
+    /// remaining sources. Throttled like `ClaudeOAuthProvider.cliWindows` so
+    /// busy ticks do not spawn a subprocess every minute.
+    private func cliQuota(reusableFor reuseInterval: TimeInterval) async -> [LimitWindow]? {
+        guard let usageCLI else { return nil }
+        let now = Date()
+
+        if let last = lastCLIWindows,
+           now.timeIntervalSince(last.at) < reuseInterval,
+           !Self.hasExpiredWindow(last.windows, at: now) {
+            return last.windows
+        }
+        if reuseInterval > 0,
+           let lastCLIFailure,
+           now.timeIntervalSince(lastCLIFailure) < cliRefreshInterval {
+            return nil
+        }
+
+        do {
+            let windows = try await usageCLI.read()
+            lastCLIWindows = (windows, now)
+            lastCLIFailure = nil
+            consecutiveCLIFailures = 0
+            Log.usage.debug("\(self.id, privacy: .public): read \(windows.count) windows from agy /usage")
+            return windows
+        } catch {
+            Log.usage.debug("\(self.id, privacy: .public): agy /usage did not answer: \(String(describing: error), privacy: .public)")
+            consecutiveCLIFailures += 1
+            if case UsageProviderError.needsAuth = error {
+                lastCLIFailure = now
+            } else if consecutiveCLIFailures >= 2 {
+                lastCLIFailure = now
+            }
+            if reuseInterval == 0,
+               let last = lastCLIWindows,
+               !Self.hasExpiredWindow(last.windows, at: now) {
+                return last.windows
+            }
+            return nil
+        }
+    }
+
+    private static func hasExpiredWindow(_ windows: [LimitWindow], at now: Date) -> Bool {
+        windows.contains { window in
+            guard let resetsAt = window.resetsAt else { return false }
+            return resetsAt <= now
+        }
     }
 
     /// Ask Antigravity's language server, if it is running.
