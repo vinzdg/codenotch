@@ -22,9 +22,15 @@ extension CostStore {
         }
         guard !days.isEmpty else { return nil }
 
-        // Streaks over calendar days with any usage.
+        // Streaks over calendar days with any usage. SQLite wrote the keys as
+        // Gregorian dates, so read them back in Gregorian: on a Buddhist or
+        // Japanese system calendar "2026" would otherwise parse as another
+        // century and today would never match the newest day.
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
         let formatter = DateFormatter()
-        formatter.calendar = calendar
+        formatter.calendar = gregorian
+        formatter.timeZone = calendar.timeZone
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
         let dates = days.compactMap { formatter.date(from: $0.key) }.map { calendar.startOfDay(for: $0) }

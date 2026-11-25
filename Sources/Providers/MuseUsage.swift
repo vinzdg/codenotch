@@ -90,9 +90,7 @@ enum MuseUsage {
     /// The `yyyy-MM-dd` key the daily buckets file under — the same key
     /// `CodexTokenUsage.last30Days` reads back, so the chart fills its gaps.
     static func dayKey(for date: Date, calendar: Calendar) -> String {
-        let components = calendar.dateComponents([.year, .month, .day], from: date)
-        return String(format: "%04d-%02d-%02d",
-                      components.year ?? 0, components.month ?? 0, components.day ?? 0)
+        CodexTokenUsage.dayKey(for: date, calendar: calendar)
     }
 
     private struct DayTotals {

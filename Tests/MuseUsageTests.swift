@@ -195,6 +195,18 @@ final class MuseAggregationTests: XCTestCase {
             for: calendar.date(byAdding: .day, value: -1, to: today)!, calendar: calendar)], 170)
     }
 
+    /// The chart reads Gregorian keys (CodexTokenUsage.last30Days), so Muse
+    /// files its buckets that way too, even on a Buddhist system calendar.
+    func testDailyBucketsUseGregorianKeysOnABuddhistCalendar() {
+        var buddhist = Calendar(identifier: .buddhist)
+        buddhist.timeZone = calendar.timeZone
+        let buckets = MuseUsage.dailyBuckets(from: [sample(daysAgo: 0, input: 200)],
+                                             now: today, calendar: buddhist)
+        XCTAssertEqual(buckets.map(\.startDate), ["2027-01-15"])
+        let usage = CodexTokenUsage(dailyUsageBuckets: buckets)
+        XCTAssertEqual(usage.usageToday(now: today, calendar: buddhist), 210)
+    }
+
     func testTodayBucketIsPresentEvenWhenIdle() {
         // Local logs are complete: a missing today is a real zero, not pending.
         let buckets = MuseUsage.dailyBuckets(from: [sample(daysAgo: 3, input: 100)],

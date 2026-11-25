@@ -377,6 +377,31 @@ final class CodexUsageTests: XCTestCase {
                        "a missing current-day bucket should be shown as Pending")
     }
 
+    /// Bucket keys are Gregorian dates whatever calendar the Mac is set to:
+    /// the Codex server, the Claude cost store and custom endpoints all write
+    /// them that way. A Thai (Buddhist) or Japanese (era year) system calendar
+    /// must still find them, or the chart reads empty and Today stays Pending.
+    func testThirtyDaySeriesFindsGregorianKeysOnANonGregorianSystemCalendar() {
+        let usage = CodexTokenUsage(dailyUsageBuckets: [
+            .init(startDate: "2026-08-12", tokens: 100),
+            .init(startDate: "2026-09-08", tokens: 300),
+            .init(startDate: "2026-09-09", tokens: 50),
+        ])
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = gregorian.date(from: DateComponents(year: 2026, month: 9, day: 9, hour: 12))!
+
+        for identifier in [Calendar.Identifier.buddhist, .japanese] {
+            var calendar = Calendar(identifier: identifier)
+            calendar.timeZone = gregorian.timeZone
+            let series = usage.last30Days(now: now, calendar: calendar)
+            XCTAssertEqual(series.first?.startDate, "2026-08-11", "\(identifier)")
+            XCTAssertEqual(series.last?.startDate, "2026-09-09", "\(identifier)")
+            XCTAssertEqual(usage.usageInLast30Days(now: now, calendar: calendar), 450, "\(identifier)")
+            XCTAssertEqual(usage.usageToday(now: now, calendar: calendar), 50, "\(identifier)")
+        }
+    }
+
     /// `/wham/rate-limit-reset-credits` reports how many unused resets remain
     /// and when the next one expires. The count is its own field because the
     /// credits array can be truncated.
