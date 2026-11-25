@@ -11,26 +11,28 @@ on:
   # main first — this is the button to press when you just want to try it.
   workflow_dispatch:
 
-# One run at a time per ref. On main every run rewrites the one `preview`
-# release — moves its tag, deletes its assets, uploads a new dmg — so two
-# overlapping runs interleave those steps and whichever finishes last wins,
-# even when it built the older commit. Queued rather than cancelled so a push
-# is never left without its build; a newer push still replaces one waiting.
+# One run at a time per ref, because every run writes the same `build/ci`
+# directory and two overlapping runs interleave those steps. Queued rather than
+# cancelled so a push is never left without its build; a newer push still
+# replaces one waiting.
 concurrency:
   group: package-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   package:
-    if: github.repository == 'vinzdg/codenotch'
     name: Unsigned app bundle
-    # Only the preview release step writes anything; the token is read-only by
-    # default on this repository, and `gh release create` fails without this.
+    # Read-only: this fork publishes the archive as a workflow artifact and
+    # never writes a release. Upstream's own copy keeps its preview release;
+    # that step is deliberately absent here, so a force-pushed `main` cannot
+    # replace anything a friend might already have downloaded from it.
     permissions:
-      contents: write
-    # Same reason as the test job: an older image ships an Xcode that cannot
-    # read the project at all — `objectVersion 77` is a format it does not
-    # know — whatever the deployment target happens to be.
+      contents: read
+    # The macOS 26 SDK is the only toolchain that compiles the native branches
+    # of the compatibility shims (`compiler(>=6.2)`), so this has to be the new
+    # image even though the app itself runs back to macOS 14.3. An older image
+    # also cannot read the project at all — `objectVersion 77` is a format it
+    # does not know.
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
@@ -41,12 +43,24 @@ jobs:
           xcrun --show-sdk-version
 
       - name: Install dependencies
-        run: brew install xcodegen create-dmg
+        run: brew install xcodegen
 
       # Ad-hoc signed and not notarized — see the `build-ci` comment in the
-      # Makefile for what that costs the person who runs it.
-      - name: Build the disk image
-        run: make dmg-ci
+      # Makefile for what that costs the person who runs it. `package-adhoc`
+      # builds arm64 and x86_64 in one pass and refuses to write an archive
+      # unless both slices are in the app and in the Sparkle framework.
+      - name: Build the universal archive
+        run: make package-adhoc
+
+      - name: Verify the archive is universal and signed
+        run: |
+          set -euo pipefail
+          APP=build/ci/DerivedData/Build/Products/Release/Codenotch.app
+          lipo -archs "$APP/Contents/MacOS/Codenotch"
+          lipo -archs "$APP/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dv "$APP" 2>&1 | grep -E 'Signature=adhoc|flags=' || true
+          test -z "$(codesign -d --entitlements - --xml "$APP" 2>/dev/null | grep get-task-allow || true)"
 
       # Read back rather than assumed: the version comes from project.yml and
       # is in the filename, so the artifact is identifiable months later when
@@ -61,7 +75,9 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: Codenotch-${{ steps.version.outputs.value }}-${{ github.sha }}
-          path: build/ci/*.dmg
+          path: |
+            build/ci/*.zip
+            build/ci/*.zip.sha256
           # Silence here would mean a green run with nothing to download, which
           # is the one failure this workflow exists to prevent.
           if-no-files-found: error
@@ -74,7 +90,8 @@ jobs:
           {
             echo "### Codenotch ${{ steps.version.outputs.value }} — unsigned build"
             echo
-            echo "Download the artifact below, unzip it, and open the \`.dmg\`."
+            echo "Download the artifact below and unzip it. The \`.zip\` holds the app; the"
+            echo "\`.sha256\` file is what to compare it against."
             echo
             echo "This build is ad-hoc signed rather than notarized, so macOS quarantines it."
             echo "After dragging the app to /Applications, clear the quarantine flag once:"
@@ -85,64 +102,6 @@ jobs:
             echo
             echo "If macOS says the app is *damaged*, that is the quarantine flag rather than a bad download — run the command above."
             echo
-            echo "Universal binary — Apple Silicon and Intel. Requires macOS 15 or later."
+            echo "Universal binary — Apple Silicon and Intel. Requires macOS 14.3 or later."
+            echo "This fork has no update feed: install a new build by downloading it the same way."
           } >> "$GITHUB_STEP_SUMMARY"
-
-      # --- Preview release ---------------------------------------------------
-      # An artifact is only reachable by someone signed in to GitHub, from a
-      # run page, for 90 days. A release is a plain URL that anyone can click
-      # and that the repository's own sidebar advertises, which is what the
-      # README can honestly point at.
-      #
-      # A single rolling `preview` tag, never `v*`: those belong to `make
-      # publish` and carry the notarized dmg. An unsigned file sitting on the
-      # same release as a signed one is how somebody ends up running the wrong
-      # download and clearing quarantine flags they never needed to.
-      #
-      # Marked a prerelease so GitHub keeps the "Latest" badge on the real
-      # release, and refreshed in place rather than deleted and recreated, so
-      # watchers are notified once rather than on every merge.
-      - name: Publish the preview release
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.value }}
-        run: |
-          set -euo pipefail
-          TAG=preview
-          DMG=$(ls build/ci/*.dmg)
-
-          cat > notes.md <<EOF
-          Built from \`main\` at ${GITHUB_SHA}.
-
-          A build of unreleased \`main\`, so the app can be tried without
-          installing Xcode and compiling it. It is ad-hoc signed rather than
-          notarized, so macOS quarantines the download. After dragging it to
-          Applications, clear the flag once:
-
-              xattr -dr com.apple.quarantine /Applications/Codenotch.app
-
-          If macOS says the app is *damaged*, that is the quarantine flag rather than a bad download — run the command above.
-
-          For a signed and notarized build, take the latest release instead.
-
-          Universal binary. Requires macOS 15 or later.
-          EOF
-
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            # The tag has to follow, or the release keeps advertising the
-            # commit it was first cut from while serving a newer build.
-            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" \
-              -f sha="${GITHUB_SHA}" -F force=true >/dev/null
-            # By name, not --clobber: the filename carries the version, so the
-            # release would otherwise accumulate one stale dmg per release.
-            gh release view "$TAG" --json assets -q '.assets[].name' \
-              | while read -r asset; do gh release delete-asset "$TAG" "$asset" --yes; done
-            gh release edit "$TAG" --prerelease \
-              --title "Preview — ${VERSION} (${GITHUB_SHA:0:7})" --notes-file notes.md >/dev/null
-            gh release upload "$TAG" "$DMG"
-          else
-            gh release create "$TAG" "$DMG" --prerelease --target "${GITHUB_SHA}" \
-              --title "Preview — ${VERSION} (${GITHUB_SHA:0:7})" --notes-file notes.md
-          fi
-          rm -f notes.md

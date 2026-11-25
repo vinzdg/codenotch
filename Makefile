@@ -54,10 +54,28 @@ DEV_TEAM := $(if $(DEV_IDENTITY),$(shell security find-certificate -c "$(DEV_IDE
 ifeq (,$(HAS_DEVELOPER_ID))
 ifeq (,$(DEV_TEAM))
 DEV_SIGN := CODE_SIGN_IDENTITY="-" DEVELOPMENT_TEAM="" CODE_SIGN_STYLE=Automatic
+# Xcode re-signs the prebuilt Sparkle framework with its own ad-hoc stamp, and
+# dyld rejects the mix at launch ("code signature in ... not valid for use in
+# process"): re-sign framework and app in one pass after every build. Empty
+# whenever a real identity signs, where Xcode's own re-signing is already
+# consistent.
+# Takes the configuration whose product to re-sign as $(1): `install` builds
+# Release, and the Debug path this used to hardcode would name a bundle that
+# build never wrote.
+define DEV_RESIGN
+	@APP=$$(xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination '$(DEST)' \
+		-configuration $(1) -showBuildSettings 2>/dev/null \
+		| awk -F' = ' '/ BUILT_PRODUCTS_DIR/ {print $$2; exit}')/$(APP_NAME).app; \
+	codesign --force --sign - $$APP/Contents/Frameworks/Sparkle.framework; \
+	codesign --force --sign - $$APP
+endef
 else
 DEV_SIGN := CODE_SIGN_IDENTITY="Apple Development" CODE_SIGN_STYLE=Manual \
 	DEVELOPMENT_TEAM="$(DEV_TEAM)" PROVISIONING_PROFILE_SPECIFIER=""
+DEV_RESIGN := @true
 endif
+else
+DEV_RESIGN := @true
 endif
 
 .PHONY: gen build test test-ci verify-deps run install clean
@@ -70,10 +88,18 @@ gen:
 build: gen
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination '$(DEST)' \
 		-configuration Debug $(DEV_SIGN) build
+	$(call DEV_RESIGN,Debug)
 
 test: gen
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination '$(DEST)' \
-		-configuration Debug $(DEV_SIGN) test
+		-configuration Debug $(DEV_SIGN) build-for-testing
+	$(call DEV_RESIGN,Debug)
+	# The test host launches the app, so the re-sign has to land before the
+	# tests run — test-without-building against the bundle just signed above.
+	# build-for-testing (not build) is what compiles the test bundle the
+	# second invocation injects into that host.
+	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination '$(DEST)' \
+		-configuration Debug $(DEV_SIGN) test-without-building
 
 # Continuous integration: no Developer ID identity exists on a CI runner, and
 # unit tests need none — override the manual signing with plain unsigned
@@ -107,9 +133,16 @@ run: build
 # signed. The app embeds Sparkle, and macOS rejects a bundle whose framework
 # and binary carry different Team IDs, so the whole bundle is signed with one
 # identity rather than left unsigned.
+#
+# "One identity" includes ad-hoc: dyld refuses the ad-hoc app and the
+# ad-hoc Sparkle beside it for the same reason it refuses two different Team
+# IDs, so the pair is re-signed in one pass afterwards — what `build` already
+# does for Debug. Without it the copy here builds fine, verifies fine, and
+# dies at launch with "Library not loaded: @rpath/Sparkle.framework".
 install: gen
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination '$(DEST)' \
 		-configuration Release $(DEV_SIGN) build
+	$(call DEV_RESIGN,Release)
 	@APP=$$(xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination '$(DEST)' \
 		-configuration Release -showBuildSettings 2>/dev/null \
 		| awk -F' = ' '/ BUILT_PRODUCTS_DIR/ {print $$2; exit}')/Codenotch.app; \
@@ -292,11 +325,19 @@ CI_DIR     := build/ci
 CI_DERIVED := $(CI_DIR)/DerivedData
 CI_APP     := $(CI_DERIVED)/Build/Products/Release/$(APP_NAME).app
 CI_DMG     := $(CI_DIR)/$(APP_NAME)-$(VERSION)-unsigned.dmg
+# One build, two slices. `ARCHS` on the build settings is what produces a fat
+# Mach-O; changing `-destination` alone only picks which slice gets compiled
+# for the active configuration, and a second pass would delete the first: every
+# CI target starts with `rm -rf $(CI_DIR)`.
+CI_ARCHS   := arm64 x86_64
+CI_MAIN    := $(CI_APP)/Contents/MacOS/$(APP_NAME)
+CI_SPARKLE := $(CI_APP)/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle
+CI_ZIP     := $(CI_DIR)/$(APP_NAME)-$(VERSION)-adhoc-universal.zip
 # Absolute: xcodebuild resolves CODE_SIGN_ENTITLEMENTS against the project
 # directory, not the working directory.
 CI_ENTITLEMENTS := $(CURDIR)/$(CI_DIR)/adhoc.entitlements
 
-.PHONY: build-ci dmg-ci
+.PHONY: build-ci dmg-ci package-adhoc
 
 # `build`, not `archive` + `-exportArchive`: exporting reads ExportOptions.plist
 # and re-signs for distribution, which needs the Developer ID identity that is
@@ -331,7 +372,9 @@ build-ci: gen
 		'<plist version="1.0"><dict>' \
 		'<key>com.apple.security.cs.disable-library-validation</key><true/>' \
 		'</dict></plist>' > $(CI_ENTITLEMENTS)
-	xcodebuild -project $(PROJECT) -scheme $(SCHEME) -destination '$(DEST)' \
+	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
+		-destination 'generic/platform=macOS' \
+		ARCHS="$(CI_ARCHS)" ONLY_ACTIVE_ARCH=NO \
 		-configuration Release -derivedDataPath $(CI_DERIVED) \
 		CODE_SIGN_IDENTITY="-" CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM="" \
 		CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES \
@@ -382,3 +425,40 @@ dmg-ci: build-ci
 	done
 	rm -rf $(CI_DIR)/stage
 	@echo "Unsigned disk image: $(CI_DMG)"
+
+# A universal ad-hoc zip, for handing the app to someone else. A zip made with
+# `ditto` preserves the bundle as a bundle — resource forks, symlinks and the
+# executable bit included — which `zip -r` does not, and which GitHub's own
+# artifact packing also gets wrong in either direction.
+#
+# Both slices are checked on the Mach-O files themselves before anything is
+# written, and the whole target runs as one shell under a trap that deletes the
+# archive and its checksum on any failure. An archive that exists is an archive
+# someone will send to a friend, so a half-written zip or a zip beside a stale
+# checksum must not survive a failed run. `build-ci` clearing `build/ci` is not
+# enough: these steps happen after it.
+NEEDS_ZIP_NAME := $(notdir $(CI_ZIP))
+
+package-adhoc: build-ci
+	@set -eu; \
+	trap 'rm -f "$(CI_ZIP)" "$(CI_ZIP).sha256"' EXIT INT TERM; \
+	for binary in "$(CI_MAIN)" "$(CI_SPARKLE)"; do \
+		if [ ! -f "$$binary" ]; then \
+			echo "error: missing $$binary"; exit 1; \
+		fi; \
+		archs=$$(lipo -archs "$$binary" 2>/dev/null || true); \
+		for arch in $(CI_ARCHS); do \
+			case " $$archs " in \
+				*" $$arch "*) ;; \
+				*) echo "error: $$binary is not universal (has '$$archs', needs $$arch)"; exit 1 ;; \
+			esac; \
+		done; \
+		echo "universal: $$binary ($$archs)"; \
+	done; \
+	codesign --verify --deep --strict --verbose=2 $(CI_APP); \
+	rm -f "$(CI_ZIP)" "$(CI_ZIP).sha256"; \
+	ditto -c -k --sequesterRsrc --keepParent "$(CI_APP)" "$(CI_ZIP)"; \
+	( cd "$(CI_DIR)" && shasum -a 256 "$(NEEDS_ZIP_NAME)" > "$(NEEDS_ZIP_NAME).sha256" ); \
+	trap - EXIT INT TERM; \
+	echo "Universal ad-hoc archive: $(CI_ZIP)"; \
+	echo "Checksum: $(CI_ZIP).sha256"

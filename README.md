@@ -3,7 +3,7 @@
 ![Codenotch](docs/design/codenotch-banner.png)
 
 [![CI](https://github.com/vinzdg/codenotch/actions/workflows/ci.yml/badge.svg)](https://github.com/vinzdg/codenotch/actions/workflows/ci.yml)
-![Platform](https://img.shields.io/badge/platform-macOS%2026%2B-black)
+![Platform](https://img.shields.io/badge/platform-macOS%2014.3%2B-black)
 ![Swift](https://img.shields.io/badge/swift-5-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -21,21 +21,16 @@ two never disagree.
 
 ## Download
 
-[![Download for macOS](docs/design/download-macos.svg)](../../releases/latest/download/Codenotch.dmg)
+This is a personal fork of Codenotch, and it does not publish releases. A
+build is produced by the [Package workflow](../../actions/workflows/package.yml):
+open its latest run on the branch you want and download the
+`Codenotch-<version>-<commit>` artifact. It holds one
+`Codenotch-<version>-adhoc-universal.zip` and its `.sha256`; compare the two
+before opening anything.
 
-That button is the disk image itself, not the page it sits on — the asset is
-named `Codenotch.dmg` in every release, so `releases/latest/download/` always
-resolves to the newest one and the link never needs updating. Signed,
-notarized, and updating itself from then on. Take this one unless you have a
-reason not to; the [release page](../../releases/latest) has the notes.
-
-To try unreleased `main` without an Xcode install, the [preview
-build](../../releases/tag/preview) is rebuilt from every commit, and the
-Package workflow keeps a per-commit disk image on each of its
-[runs](../../actions/workflows/package.yml). Neither is notarized — they are
-ad-hoc signed, because the Developer ID certificate exists on one machine — so
-macOS quarantines the download. Clear the flag once, after dragging the app to
-Applications:
+The build is ad-hoc signed rather than notarized, because there is no
+Developer ID certificate behind this fork, so macOS quarantines the download.
+Unzip it, drag the app to Applications, and clear the flag once:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/Codenotch.app
@@ -43,8 +38,10 @@ xattr -dr com.apple.quarantine /Applications/Codenotch.app
 
 If macOS says the app is *damaged*, that is the quarantine flag rather than a bad download — run the command above.
 
-Universal binary. macOS 15 or later. To build and install a copy from source
-instead, see [Building](#building).
+Universal binary. macOS 14.3 or later; on macOS 15 and 26 it uses the same
+native materials and Liquid Glass upstream does, and older systems fall back to
+a plain material. To build and install a copy from source instead, see
+[Building](#building).
 
 ## Windows
 
@@ -95,6 +92,7 @@ wire-level details.
 | **GLM** | official | Z.ai's Coding Plan monitor endpoint, with a key borrowed from whichever coding tool already holds one — Claude Code's `settings.json`, ZCode, or OpenCode. |
 | **MiniMax** | official where a Coding Plan key is used, derived from official Platform responses for the in-app sign-in | A Coding Plan key pasted in Settings, or explicit sign-in in Codenotch's own WKWebView. |
 | **QianwenAI** | derived from official console responses | Explicit sign-in in Codenotch's own WKWebView, then the console's own Token Plan gateway. Shows the plan's credits window for whichever period the console reports — weekly or monthly. |
+| **XyToken** | derived from the relay station's own responses | Explicit sign-in in Codenotch's own WKWebView, then the station's wallet call: `POST /api/user/auth/refresh` against the HttpOnly cookie, then `GET /api/subscription/self` with the short-lived bearer token it returns. Shows the daily window and the weekly arc, with reset times and usage pace. Administrator accounts that require a second factor are treated as waiting for the code, not signed out. |
 | **Ollama (Local)** | local runtime | Automatically detected local models, RAM/VRAM, unload time and context. Optional response capture adds thinking and generation speed. |
 | **LM Studio** | local runtime | Loaded models from LM Studio's own listing, what each one is doing (prompt, generating, queue) from its SDK socket, and speed, context use and tokens per day from its server log. No relay needed. |
 | **oMLX** | local runtime | Loaded models from oMLX's own status listing, what each one is doing (prompt, generating, queue) from its admin activity endpoint, and speed and tokens from `~/.omlx/logs/server.log`. |
@@ -115,7 +113,10 @@ cookies or credentials, and only makes requests after you choose **Sign in to
 DeepSeek** from Codenotch. MiniMax is the same kind of exception — a key you
 paste in Settings, or an explicit WKWebView sign-in. QianwenAI is a third: it
 publishes no usage API and has no key to paste, so that WKWebView session is the
-only way in. None of them opens a browser's cookie store.
+only way in. XyToken is a fourth, and the one this fork adds: its refresh cookie
+is HttpOnly and rotates on every call, so the refresh-and-read sequence has to
+run in that same WebView, with the bearer token it returns kept only for its own
+fifteen minutes. None of them opens a browser's cookie store.
 
 Ollama Cloud accepts an API key in Settings. Apify borrows the `apify login`
 session when there is one and otherwise takes a token pasted in Settings or
@@ -320,10 +321,16 @@ the icon comes back. Its menu has the full readings either way.
 
 ## Updates
 
-Codenotch updates itself. [Sparkle](https://sparkle-project.org) checks daily
-and installs in the background without prompting; Settings says so and can
-switch it off. Every update is EdDSA-signed, so nothing installs that wasn't
-built and signed by the maintainer.
+There is none. This fork ships with an empty update feed and automatic checks
+off, so no copy of it can be replaced by upstream's appcast — or by anything
+else. To move to a newer build, download the next artifact the same way and
+drag it over the old copy in Applications; the quarantine flag needs clearing
+again.
+
+Upstream's own builds do update themselves through
+[Sparkle](https://sparkle-project.org), which is what the `Updater`, the update
+card in the notch, and the `SU*` keys in `project.yml` are for. In this fork
+those paths stay in the source and never run.
 
 ## Building
 
@@ -335,8 +342,11 @@ make test               # unit tests
 
 No signing identity is required for either. `make release` — which archives,
 notarizes, and produces a signed auto-update feed — needs a Developer ID
-certificate and an App Store Connect notary profile, and is only ever run by
-the maintainer to cut an official release. See
+certificate and an App Store Connect notary profile. This fork has neither, so
+it ships through `make package-adhoc` instead: one universal Release build,
+ad-hoc signed, zipped with its checksum. `make package-adhoc` needs the macOS 26
+SDK (Xcode 26), because only that toolchain compiles the native Liquid Glass
+branches; the Package workflow is where the published artifact is built. See
 [CONTRIBUTING.md](CONTRIBUTING.md). CI runs the same unit tests unsigned via
 `make test-ci`.
 
@@ -467,6 +477,73 @@ unified log.
 ```sh
 /usr/bin/log stream --predicate 'subsystem == "com.vinz.codenotch"' --level debug
 ```
+
+That stream is also where a **refusal** is recorded. When a browser-session
+provider — XyToken, DeepSeek, QianwenAI, Qoder, MiniMax, Perplexity — asks you
+to sign in again, the app is acting on a response the site returned, and the
+line says which one:
+
+```sh
+/usr/bin/log show --last 1h --style compact \
+  --predicate 'subsystem == "com.vinz.codenotch"' | grep -E 'needsAuth|needsMfa'
+```
+
+It carries the provider id, the HTTP status, and the site's own error body
+where that is safe to record:
+
+```
+xytoken needsAuth: HTTP 401 request=XY20261022023237926895330150e9dd6YmQk4ZHz {"success":false,"message":"Unauthorized","code":"AUTH_SESSION_REVOKED"}
+```
+`request=` is the station's own `X-Request-Id` for the response that refused the
+app. It is the handle its server log can be searched by, and it is the first
+thing to quote when a session ends for a reason this side cannot see. The
+`session ->` line below carries the same id for the last refresh that succeeded,
+so a working session and a dying one can both be found on the station's side.
+
+Those codes are the difference between an account problem and an app problem:
+
+| Code | What it means |
+|---|---|
+| `AUTH_UNAUTHORIZED` | The session is gone or has expired — signing in again is the whole fix. |
+| `AUTH_SESSION_REVOKED` | The session was ended from somewhere else: **Sign out other sessions** on another device, a per-session revoke on the station's Login sessions page, or the station's own defence against a refresh token being replayed. Compare the log's timestamp against that page before assuming the app did it. |
+| `AUTH_ORIGIN_FORBIDDEN`, `AUTH_SESSION_MISMATCH` | The request is the problem, not the account — worth reporting with the log line. |
+| `AUTH_REFRESH_RACE` | Two clients rotated the same cookie at once. The app retries once, so a line here means the retry lost as well. |
+
+A refusal that asks for a **second factor** is written as `needsMfa:` instead,
+and it is not a lost login:
+
+```
+xytoken needsMfa: ADMIN_MFA_REQUIRED HTTP 403 request=XY20261029053233… {"success":false,"message":"需要完成多因素认证","data":{"methods":["2fa"],"need_setup":false,"require_admin_mfa":true},"code":"ADMIN_MFA_REQUIRED"}
+```
+
+XyToken moved administrator MFA to a per-role requirement, and a session that
+has not verified yet is still a live session — the station's own Login sessions
+page keeps listing it, last active, which is exactly what makes this look like a
+random logout. Nothing on this side can answer it: open **Sign in**, complete the
+code in the window that opens, and the app commits the sign-in as usual. The app
+does the same thing it does for any refusal — the panel says sign in again and
+Sign in opens the sheet — so this line is the only place that distinguishes the
+two, and it is the one to read before assuming the session was revoked.
+
+A request that fails for any other reason is written the same way, as
+`request failed: HTTP <status> …`, and a fetch the WebView could not complete at
+all arrives as `HTTP 0` carrying the script's own error text. That used to be an
+anonymous "JavaScript exception" — a rejected `fetch`, which is what a suspended
+WebView looks like after a wake, said nothing about which part had failed.
+
+When a site's script refreshes the session, one more line records what the
+station says its lifetime is:
+
+```
+xytoken session -> created=1789… last_active=1792… expires=1792… request=XY20261022023237…
+```
+
+`last_active` moving is the session being kept alive; `expires` is the station's
+own answer to "how long is this good for", which is worth reading before
+believing any assumption about it.
+
+DeepSeek and QianwenAI return account detail alongside the numbers, so their
+bodies are never written to the log; for those the line stops at the status.
 
 ## Contributing
 
