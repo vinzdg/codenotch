@@ -1,3 +1,4 @@
+import WebKit
 import XCTest
 @testable import Codenotch
 
@@ -12,7 +13,10 @@ import XCTest
 final class WebSessionSignInTests: XCTestCase {
     /// These run inside the app, so the flags are the installed app's own
     /// preferences — saved and put back rather than left clobbered.
-    private let keys = ["perplexity.signedIn", "deepseek.signedIn"]
+    private let keys = [
+        "perplexity.signedIn", "deepseek.signedIn",
+        "WebSessionSignInTests.old.signedIn", "WebSessionSignInTests.replacement.signedIn"
+    ]
     private var saved: [String: Any] = [:]
 
     override func setUp() {
@@ -65,7 +69,7 @@ final class WebSessionSignInTests: XCTestCase {
     }
 
     func testASheetKeepsItsPageAndAClosedSheetReleasesIt() {
-        let provider = WebSessionProvider(site: Sites.perplexity)
+        let provider = WebSessionProvider(site: fetchSite("old"))
         provider.presentSignIn()
         XCTAssertTrue(provider.holdsPageForTesting, "the sheet is showing a page")
 
@@ -79,10 +83,10 @@ final class WebSessionSignInTests: XCTestCase {
 
     /// A read that was superseded while suspended — a region change ran
     /// `apply(site:)`, and a newer read loaded its own page — must not tear
-    /// the newer page down as it leaves. The pages are the sign-in sheet's,
-    /// because that is the one way to make a real page with no network.
+    /// the newer page down as it leaves. Real pages here come from opening
+    /// the sign-in sheet on a local page.
     func testAStaleReleaseTakesOnlyItsOwnPage() {
-        let provider = WebSessionProvider(site: Sites.perplexity)
+        let provider = WebSessionProvider(site: fetchSite("old"))
 
         provider.presentSignIn()
         let oldPage = try! XCTUnwrap(provider.pageForTesting)
@@ -107,6 +111,166 @@ final class WebSessionSignInTests: XCTestCase {
 
         provider.releasePage(keeping: newPage)
         XCTAssertFalse(provider.holdsPageForTesting, "the newer read's own exit takes its page")
+    }
+
+    func testCancelledInitialLoadLeavesReplacementPageAlone() async throws {
+        try await assertReplacementSurvivesInitialLoad(cancelled: true)
+    }
+
+    func testFailedInitialLoadLeavesReplacementPageAlone() async throws {
+        try await assertReplacementSurvivesInitialLoad(cancelled: false)
+    }
+
+    private func assertReplacementSurvivesInitialLoad(cancelled: Bool) async throws {
+        let oldSite = fetchSite("old")
+        let replacementSite = fetchSite("replacement")
+        let oldLoad = PendingPageLoad(started: expectation(description: "original page loading"))
+        let replacementLoad = PendingPageLoad(started: expectation(description: "replacement page loading"))
+        let provider = WebSessionProvider(site: oldSite) { page, request in
+            let load = request.url == oldSite.origin ? oldLoad : replacementLoad
+            try await load.wait(on: page)
+        }
+        UserDefaults.standard.set(true, forKey: WebSessionProvider.sessionKey(for: oldSite))
+        UserDefaults.standard.set(true, forKey: WebSessionProvider.sessionKey(for: replacementSite))
+
+        let oldFetch = Task { try await provider.fetchSnapshot() }
+        defer {
+            oldFetch.cancel()
+            oldLoad.finish(.failure(CancellationError()))
+        }
+        await fulfillment(of: [oldLoad.started], timeout: 5)
+        let oldPage = try XCTUnwrap(oldLoad.page)
+        XCTAssertIdentical(provider.pageForTesting, oldPage)
+
+        if cancelled { oldFetch.cancel() }
+        provider.apply(site: replacementSite)
+        let replacementFetch = Task { try await provider.fetchSnapshot() }
+        defer {
+            replacementFetch.cancel()
+            replacementLoad.finish(.failure(CancellationError()))
+        }
+        await fulfillment(of: [replacementLoad.started], timeout: 5)
+        let replacementPage = try XCTUnwrap(replacementLoad.page)
+        XCTAssertNotIdentical(replacementPage, oldPage)
+        XCTAssertIdentical(provider.pageForTesting, replacementPage)
+
+        if cancelled { oldLoad.finish(.success(())) }
+        else { oldLoad.finish(.failure(LoadFailure())) }
+        do {
+            _ = try await oldFetch.value
+            XCTFail("the original fetch should exit from its initial load")
+        } catch {
+            if cancelled { XCTAssertTrue(error is CancellationError, "\(error)") }
+            else { XCTAssertTrue(error is LoadFailure, "\(error)") }
+        }
+
+        XCTAssertIdentical(provider.pageForTesting, replacementPage,
+                           "the original fetch must leave the replacement page in place")
+        XCTAssertTrue(replacementLoad.isPending, "the replacement fetch is still loading")
+        replacementLoad.finish(.failure(LoadFailure()))
+        _ = await replacementFetch.result
+    }
+
+    func testFailedInitialLoadWithoutReplacementReleasesItsPage() async throws {
+        let site = fetchSite("old")
+        let load = PendingPageLoad(started: expectation(description: "page loading"))
+        let provider = WebSessionProvider(site: site) { page, _ in try await load.wait(on: page) }
+        let key = WebSessionProvider.sessionKey(for: site)
+        UserDefaults.standard.set(true, forKey: key)
+
+        let fetch = Task { try await provider.fetchSnapshot() }
+        defer {
+            fetch.cancel()
+            load.finish(.failure(CancellationError()))
+        }
+        await fulfillment(of: [load.started], timeout: 5)
+        let page = try XCTUnwrap(load.page)
+        XCTAssertIdentical(provider.pageForTesting, page)
+
+        load.finish(.failure(LoadFailure()))
+        do {
+            _ = try await fetch.value
+            XCTFail("the fetch should report the initial load failure")
+        } catch {
+            XCTAssertTrue(error is LoadFailure, "\(error)")
+        }
+        XCTAssertNil(provider.pageForTesting)
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: key))
+    }
+
+    func testFailedAuthReloadKeepsReplacementSignIn() async throws {
+        let oldSite = fetchSite("old", reloadsSessionOnAuthFailure: true)
+        let replacementSite = fetchSite("replacement")
+        let reload = PendingPageLoad(started: expectation(description: "auth reload started"))
+        var initialPage: WKWebView?
+        let provider = WebSessionProvider(site: oldSite) { page, _ in
+            if let initialPage {
+                XCTAssertIdentical(page, initialPage, "the auth reload uses the original page")
+                try await reload.wait(on: page)
+            } else {
+                initialPage = page
+            }
+        }
+        UserDefaults.standard.set(true, forKey: WebSessionProvider.sessionKey(for: oldSite))
+        let replacementKey = WebSessionProvider.sessionKey(for: replacementSite)
+        UserDefaults.standard.set(true, forKey: replacementKey)
+
+        let fetch = Task { try await provider.fetchSnapshot() }
+        defer {
+            fetch.cancel()
+            reload.finish(.failure(CancellationError()))
+        }
+        await fulfillment(of: [reload.started], timeout: 5)
+        XCTAssertIdentical(provider.pageForTesting, try XCTUnwrap(reload.page))
+
+        provider.apply(site: replacementSite)
+        reload.finish(.failure(LoadFailure()))
+        do {
+            _ = try await fetch.value
+            XCTFail("the fetch should be retired after the region change")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "\(error)")
+        }
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: replacementKey))
+    }
+
+    private func fetchSite(_ region: String, reloadsSessionOnAuthFailure: Bool = false) -> WebSessionProvider.Site {
+        WebSessionProvider.Site(
+            id: "WebSessionSignInTests", displayName: "Test site", glyph: Sites.perplexity.glyph,
+            origin: URL(string: "about:blank#\(region)")!,
+            script: #"return JSON.stringify({ status: 401, body: "" });"#,
+            sessionKey: "WebSessionSignInTests.\(region).signedIn",
+            reloadsSessionOnAuthFailure: reloadsSessionOnAuthFailure
+        ) { _ in [] }
+    }
+
+    private struct LoadFailure: Error {}
+
+    @MainActor
+    private final class PendingPageLoad {
+        let started: XCTestExpectation
+        private(set) var page: WKWebView?
+        private var continuation: CheckedContinuation<Void, Error>?
+        var isPending: Bool { continuation != nil }
+
+        init(started: XCTestExpectation) {
+            self.started = started
+        }
+
+        func wait(on page: WKWebView) async throws {
+            try Task.checkCancellation()
+            try await withCheckedThrowingContinuation { continuation in
+                self.page = page
+                self.continuation = continuation
+                started.fulfill()
+            }
+            try Task.checkCancellation()
+        }
+
+        func finish(_ result: Result<Void, Error>) {
+            continuation?.resume(with: result)
+            continuation = nil
+        }
     }
 
     func testDeepSeekOriginValidationRejectsContainingHostnames() {
