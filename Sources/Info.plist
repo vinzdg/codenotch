@@ -55,9 +55,9 @@
 	<key>SUAutomaticallyUpdate</key>
 	<false/>
 	<key>SUEnableAutomaticChecks</key>
-	<true/>
+	<false/>
 	<key>SUFeedURL</key>
-	<string>https://hivinz.com/appcast.xml</string>
+	<string></string>
 	<key>SUPublicEDKey</key>
 	<string>rmUfT5r49nR+3HdkbR5/YYLghfnAi6L49eOk3sIegSk=</string>
 	<key>SUScheduledCheckInterval</key>
