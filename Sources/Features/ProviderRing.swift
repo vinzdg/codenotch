@@ -675,12 +675,33 @@ struct ProviderReading: View {
 
     @Environment(\.typographyScale) private var typographyScale
 
-    /// How wide it is drawn across the Mac's notch, in design points — what
-    /// the side carrying it is sized to.
-    var acrossWidth: CGFloat {
-        let size = (isPair ? Typography.percentPairAcrossSize : Typography.percentAcrossSize) * typographyScale
+    /// How wide it is drawn across the Mac's notch at the font size setting
+    /// `scale`, in design points — what the side carrying it is sized to.
+    ///
+    /// The setting is passed in, not read from the environment: the model
+    /// asks this outside any view, where the environment has nothing to give.
+    /// SwiftUI answered with the standard size and logged a fault, once per
+    /// layout pass, which is to say on every pointer event.
+    func acrossWidth(scale: CGFloat) -> CGFloat {
+        Self.acrossWidth(of: text, size: isPair ? Typography.percentPairAcrossSize(scale: scale)
+                                                : Typography.percentAcrossSize(scale: scale))
+    }
+
+    /// Widths already measured, by size and text. The layout asks for the
+    /// width on every pass and the number changes a few times an hour;
+    /// making the font and laying the string out each time was most of what
+    /// a pointer event cost. A few sizes times a hundred-odd readings, and
+    /// emptied should anything run away with it.
+    private static var acrossWidths: [String: CGFloat] = [:]
+
+    private static func acrossWidth(of text: String, size: CGFloat) -> CGFloat {
+        let key = "\(size) \(text)"
+        if let known = acrossWidths[key] { return known }
         let font = NSFont.monospacedDigitSystemFont(ofSize: size, weight: .semibold)
-        return ceil((text as NSString).size(withAttributes: [.font: font]).width)
+        let width = ceil((text as NSString).size(withAttributes: [.font: font]).width)
+        if acrossWidths.count >= 512 { acrossWidths.removeAll(keepingCapacity: true) }
+        acrossWidths[key] = width
+        return width
     }
 
     var body: some View {

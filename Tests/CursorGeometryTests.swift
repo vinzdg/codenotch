@@ -408,5 +408,64 @@ final class CursorGeometryTests: XCTestCase {
         XCTAssertLessThan(reusedWings, legacyWings)
         XCTAssertLessThan(reusedCards, legacyCards)
     }
+
+    // The evaluation was thrown away and rebuilt whenever the notch had been
+    // folded, so a pointer passing near a notch that stayed folded measured
+    // it twice per event. Only opening calls onLook; staying folded changes
+    // nothing the first evaluation read.
+    func testPointerNearTheFoldedNotchMeasuresItOnce() throws {
+        let (controller, g) = try foldedController()
+        defer { controller.stop() }
+        let frame = try XCTUnwrap(controller.panelFrameForTesting)
+        // Inside the panel, in its far corner: clear of everything that wakes it.
+        let near = CGPoint(x: frame.width - 2, y: frame.height - 2)
+        XCTAssertFalse(g.pillRect.contains(near))
+        controller.cursorMoved(at: near)
+        let before = controller.model.wingEvaluationCount
+        controller.cursorMoved(at: near)
+        XCTAssertFalse(controller.model.isExpanded)
+        XCTAssertEqual(controller.model.wingEvaluationCount - before, 1)
+    }
+
+    // Out past the panel the pointer cannot reach anything the folded notch
+    // wakes on, so there is nothing to measure — and with a notch on every
+    // display, every mouse event is out past all of them but one.
+    func testPointerAwayFromTheFoldedNotchDoesNotMeasureIt() throws {
+        let (controller, _) = try foldedController()
+        defer { controller.stop() }
+        let frame = try XCTUnwrap(controller.panelFrameForTesting)
+        controller.cursorMoved(at: CGPoint(x: frame.width + 300, y: frame.height + 300))
+        let before = controller.model.wingEvaluationCount
+        controller.cursorMoved(at: CGPoint(x: frame.width + 400, y: frame.height + 400))
+        controller.cursorMoved(at: CGPoint(x: -400, y: -400))
+        XCTAssertFalse(controller.model.isExpanded)
+        XCTAssertEqual(controller.model.wingEvaluationCount - before, 0)
+    }
     #endif
+
+    // What lets an event out past the panel skip measuring a folded notch:
+    // nothing the folded notch wakes on or takes clicks on reaches past it.
+    func testFoldedHitRegionsStayInsideThePanel() {
+        let cutouts: [CutoutProximity?] = [nil,
+                                           CutoutProximity(depth: 38, overlap: 12, width: 220),
+                                           CutoutProximity(depth: 38, overlap: 20, atTrailingEnd: true, width: 220),
+                                           CutoutProximity(depth: 38, overlap: -5, width: 220, joined: false)]
+        for edge in NotchEdge.allCases {
+            for style in [NotchSurfaceStyle.solid, .dock] {
+                for scale in [CGFloat(0.6), 1, 1.4] {
+                    for cutout in cutouts where cutout == nil || edge == .top {
+                        let m = model(edge: edge, expanded: false)
+                        m.surfaceStyle = style
+                        m.requestedScale = scale
+                        m.cutout = cutout
+                        let g = geometry(m)
+                        let panel = CGRect(origin: .zero, size: m.panelSize)
+                        let label = "\(edge) \(style) \(scale) \(String(describing: cutout))"
+                        XCTAssertTrue(panel.contains(g.pillRect), label)
+                        XCTAssertTrue(panel.contains(g.restingRect), label)
+                    }
+                }
+            }
+        }
+    }
 }
