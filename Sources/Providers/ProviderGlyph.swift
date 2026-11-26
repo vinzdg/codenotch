@@ -55,6 +55,10 @@ enum ProviderGlyph: String, Codable, Equatable {
     /// `glyph-mimo` asset (the way `.minimax` carries its own emblem). The
     /// `.outline` is only a fallback; the asset wins at draw time.
     case mimo
+    /// Qwen.ai's console mark — the real Qwen emblem from the official SVG,
+    /// carried by `glyph-qwenai`. It is a different account from both the local
+    /// Qwen model brand (`.qwen`) and the QianwenAI platform (`.qianwenAI`).
+    case qwenAI = "qwenai"
     /// The Manual provider's tally: a count kept by hand, drawn here rather
     /// than borrowed. It used to wear `.third`, which is Perplexity's mark —
     /// read in Settings as Perplexity, a provider Manual has nothing to do with.
@@ -113,6 +117,9 @@ enum ProviderGlyph: String, Codable, Equatable {
         // The "M" fills its box the way Kimi's "K" does, so it takes the same
         // evening-out.
         case .mimo: return 0.95
+        // The asset's viewBox is cropped to the mark, so it takes the same
+        // evening-out as the other asset-backed glyphs.
+        case .qwenAI: return 0.97
         case .devin, .qwen, .gemma, .meta, .deepseek, .mistral, .manual: return 1.0
         }
     }
@@ -130,7 +137,7 @@ enum ProviderGlyph: String, Codable, Equatable {
         case .openai: return Color(hex: 0x10A37F)
         case .third: return Color(hex: 0x20808D)
         case .antigravity, .geminiSpark, .gemma: return Color(hex: 0x4285F4)
-        case .qwen, .qianwenAI: return Color(hex: 0x615CED)
+        case .qwen, .qianwenAI, .qwenAI: return Color(hex: 0x615CED)
         case .meta: return Color(hex: 0x0866FF)
         case .deepseek: return Color(hex: 0x4D6BFE)
         case .mistral: return Color(hex: 0xFF7000)
@@ -156,7 +163,8 @@ enum ProviderGlyph: String, Codable, Equatable {
         // glyph-kimi in the asset catalogue are drawn instead.
         case .glm:    return GlyphOutline.glm
         case .devin, .qwen, .gemma, .meta, .deepseek, .mistral, .lmstudio,
-             .omlx, .qianwenAI, .qoder, .amp, .apify, .llamaCpp, .grokbot, .higgsfield, .krea: return []
+             .omlx, .qianwenAI, .qwenAI, .qoder, .amp, .apify, .llamaCpp, .grokbot,
+             .higgsfield, .krea: return []
         case .grok:   return GlyphOutline.grok
         case .opencode: return GlyphOutline.opencode
         case .commandcode: return GlyphOutline.commandcode
