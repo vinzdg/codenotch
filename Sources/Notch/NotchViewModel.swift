@@ -1048,12 +1048,14 @@ final class NotchViewModel: ObservableObject {
         return from...max(from, min(from + readingAcrossTextWidth, room))
     }
 
-    /// The width of the percentage across the Mac's notch, in design points.
+    /// The width of the percentage across the Mac's notch, in design points,
+    /// at the font size it is drawn at.
     var readingAcrossTextWidth: CGFloat {
         guard let snapshot = snapshots.first else { return 0 }
         return ProviderReading(snapshot: snapshot, weeklyRing: weeklyRing,
                                showsWeeklyReading: weeklyReading,
-                               showsRemaining: showsRemainingInNotch).acrossWidth
+                               showsRemaining: showsRemainingInNotch)
+            .acrossWidth(scale: typographyScale)
     }
 
     /// **How long the side carrying it needs to be**, in design points: out of

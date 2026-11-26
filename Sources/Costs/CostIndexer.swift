@@ -28,16 +28,29 @@ final class CostIndexer {
     private let queue = DispatchQueue(label: "com.vinz.codenotch.costs.indexer", qos: .utility)
     private var stream: FSEventStreamRef?
     private var gitRootCache: [String: String] = [:]
-    private var scanScheduled = false
+    /// What the next coalesced pass will read; nil while none is waiting.
+    private var pendingPass: Pass?
 
     /// Called on the indexer queue after a pass that changed something.
     var onChange: (() -> Void)?
+
+    /// The root as FSEvents names the paths under it: every symlink resolved,
+    /// so /private/var rather than /var, and wherever a symlinked config
+    /// folder really is. `resolvingSymlinksInPath()` is not that — it turns
+    /// /private/var back into /var.
+    private let resolvedRoot: String
 
     init?(store: CostStore, root: URL, format: Format = .claude) {
         self.store = store
         self.root = root
         self.format = format
         guard FileManager.default.fileExists(atPath: root.path) else { return nil }
+        if let real = realpath(root.path, nil) {
+            resolvedRoot = String(cString: real)
+            free(real)
+        } else {
+            resolvedRoot = root.path
+        }
     }
 
     deinit { stopWatching() }
@@ -49,8 +62,76 @@ final class CostIndexer {
         startWatching()
     }
 
-    func scan() {
-        queue.async { [weak self] in self?.performScan() }
+    /// What a pass reads: every transcript under the root, or only the ones
+    /// FSEvents reported written to.
+    ///
+    /// Reading everything is what launch does, and what a pass falls back to
+    /// whenever FSEvents loses track. It used to be what every write did as
+    /// well: with a session running, the whole history — thousands of files
+    /// listed, stat()ed and looked up — every few seconds, for the one or two
+    /// files that can have anything new.
+    enum Pass: Equatable {
+        case everything
+        case files(Set<String>)
+
+        /// Two batches waiting for the same pass.
+        func merged(with other: Pass) -> Pass {
+            guard case .files(let mine) = self, case .files(let theirs) = other else { return .everything }
+            return .files(mine.union(theirs))
+        }
+    }
+
+    /// The pass one batch of file-level FSEvents asks for.
+    ///
+    /// The transcripts written to, created or renamed into place, under the
+    /// rules a full pass enumerates by: `.jsonl`, and nothing hidden. A batch
+    /// that has lost track of files asks for everything: events dropped, or
+    /// coalesced into "look under here yourself", or a folder moved in whole,
+    /// which brings its transcripts with no event of their own. A folder
+    /// merely created needs nothing — the files written into it report
+    /// themselves.
+    static func pass(forEventPaths paths: [String], flags: [FSEventStreamEventFlags], root: String) -> Pass {
+        let lostTrack = FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs
+            | kFSEventStreamEventFlagUserDropped | kFSEventStreamEventFlagKernelDropped
+            | kFSEventStreamEventFlagRootChanged
+            | kFSEventStreamEventFlagMount | kFSEventStreamEventFlagUnmount)
+        let isDir = FSEventStreamEventFlags(kFSEventStreamEventFlagItemIsDir)
+        let renamed = FSEventStreamEventFlags(kFSEventStreamEventFlagItemRenamed)
+        let prefix = root.hasSuffix("/") ? root : root + "/"
+        var files: Set<String> = []
+        for (path, flag) in zip(paths, flags) {
+            if flag & lostTrack != 0 { return .everything }
+            if flag & isDir != 0 {
+                if flag & renamed != 0 { return .everything }
+                continue
+            }
+            guard path.hasSuffix(".jsonl") else { continue }
+            // Hidden as `skipsHiddenFiles` means it: a dot file, or anything
+            // inside a dot folder, below the root. Never the folders above
+            // it — `~/.claude` is one, and a symlinked config folder can
+            // really be under another — so a path that does not start with
+            // the root is not judged at all.
+            if path.hasPrefix(prefix),
+               path.dropFirst(prefix.count).split(separator: "/").contains(where: { $0.hasPrefix(".") }) {
+                continue
+            }
+            files.insert(path)
+        }
+        // More paths than flags would be a malformed batch: trust none of it.
+        return paths.count == flags.count ? .files(files) : .everything
+    }
+
+    func scan(_ pass: Pass = .everything) {
+        queue.async { [weak self] in self?.performScan(pass) }
+    }
+
+    private func performScan(_ pass: Pass) {
+        guard case .files(let paths) = pass else { return performScan() }
+        var changed = false
+        for path in paths where indexFile(URL(fileURLWithPath: path), cursor: store.fileCursor(path)) {
+            changed = true
+        }
+        if changed { onChange?() }
     }
 
     private func performScan() {
@@ -65,17 +146,21 @@ final class CostIndexer {
         // Newest first: the current period becomes correct before the backfill finishes.
         files.sort { $0.mtime > $1.mtime }
 
+        // Each file is visited once, so cursors read up front are still
+        // current when their file's turn comes.
+        let cursors = store.fileCursors()
         var changed = false
-        for f in files where indexFile(f.url) { changed = true }
+        for f in files where indexFile(f.url, cursor: cursors[f.url.path]) { changed = true }
         if changed { onChange?() }
     }
 
-    /// Returns true when new rows were written.
+    /// Returns true when new rows were written. `cursor` is the file's stored
+    /// one, nil for a file never read.
     @discardableResult
-    private func indexFile(_ url: URL) -> Bool {
+    private func indexFile(_ url: URL, cursor: CostStore.FileCursor?) -> Bool {
         let path = url.path
-        // Every scan visits every transcript, so this runs thousands of times per
-        // pass on a large history. stat() returns the same size/inode/mtime that
+        // A full pass visits every transcript, so this runs thousands of times
+        // on a large history. stat() returns the same size/inode/mtime that
         // attributesOfItem did, without also reading every extended attribute and
         // the catalog info, which was most of the idle CPU (#500).
         var st = stat()
@@ -85,7 +170,7 @@ final class CostIndexer {
         let mtime = Double(st.st_mtimespec.tv_sec) + Double(st.st_mtimespec.tv_nsec) / 1e9
 
         var offset = 0
-        if let cursor = store.fileCursor(path) {
+        if let cursor {
             if cursor.inode != inode || size < cursor.offset {
                 offset = 0                          // rotated or truncated: re-read
             } else if size == cursor.offset {
@@ -349,15 +434,30 @@ final class CostIndexer {
         var context = FSEventStreamContext(version: 0,
                                            info: Unmanaged.passUnretained(self).toOpaque(),
                                            retain: nil, release: nil, copyDescription: nil)
-        let callback: FSEventStreamCallback = { _, info, _, _, _, _ in
+        // File-level events, so a batch names the transcripts written to
+        // rather than only the folders they are in. Paths come back with
+        // symlinks resolved — /private/var, not /var — which is also how the
+        // enumerator of a full pass reports them, so both key the same cursor.
+        let callback: FSEventStreamCallback = { _, info, count, paths, flags, _ in
             guard let info else { return }
-            Unmanaged<CostIndexer>.fromOpaque(info).takeUnretainedValue().coalescedScan()
+            let indexer = Unmanaged<CostIndexer>.fromOpaque(info).takeUnretainedValue()
+            let pass: Pass
+            if let reported = unsafeBitCast(paths, to: NSArray.self) as? [String] {
+                pass = CostIndexer.pass(forEventPaths: Array(reported.prefix(count)),
+                                        flags: Array(UnsafeBufferPointer(start: flags, count: count)),
+                                        root: indexer.resolvedRoot)
+            } else {
+                pass = .everything
+            }
+            if pass != .files([]) { indexer.coalescedScan(pass) }
         }
+        let flags = kFSEventStreamCreateFlagNoDefer | kFSEventStreamCreateFlagFileEvents
+            | kFSEventStreamCreateFlagUseCFTypes
         guard let s = FSEventStreamCreate(nil, callback, &context,
                                           [root.path] as CFArray,
                                           FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
                                           2.0,   // latency doubles as debounce
-                                          FSEventStreamCreateFlags(kFSEventStreamCreateFlagNoDefer)) else { return }
+                                          FSEventStreamCreateFlags(flags)) else { return }
         FSEventStreamSetDispatchQueue(s, queue)
         FSEventStreamStart(s)
         stream = s
@@ -372,15 +472,19 @@ final class CostIndexer {
     }
 
     /// FSEvents can fire repeatedly while a session is being written; collapse
-    /// bursts into one pass.
-    private func coalescedScan() {
+    /// bursts into one pass over everything they named.
+    private func coalescedScan(_ pass: Pass) {
         queue.async { [weak self] in
-            guard let self, !self.scanScheduled else { return }
-            self.scanScheduled = true
+            guard let self else { return }
+            if let waiting = self.pendingPass {
+                self.pendingPass = waiting.merged(with: pass)
+                return
+            }
+            self.pendingPass = pass
             self.queue.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-                guard let self else { return }
-                self.scanScheduled = false
-                self.performScan()
+                guard let self, let pass = self.pendingPass else { return }
+                self.pendingPass = nil
+                self.performScan(pass)
             }
         }
     }

@@ -232,6 +232,23 @@ final class CostStore {
         }
     }
 
+    /// Every file's cursor, read at once: a full pass needs one per transcript,
+    /// and asking for them one at a time compiled and ran a statement for each.
+    func fileCursors() -> [String: FileCursor] {
+        queue.sync {
+            var cursors: [String: FileCursor] = [:]
+            guard let st = prepare("SELECT path, inode, size, offset FROM file_cursor") else { return cursors }
+            defer { sqlite3_finalize(st) }
+            while sqlite3_step(st) == SQLITE_ROW {
+                guard let path = text(st, 0) else { continue }
+                cursors[path] = FileCursor(inode: Int(sqlite3_column_int64(st, 1)),
+                                           size: Int(sqlite3_column_int64(st, 2)),
+                                           offset: Int(sqlite3_column_int64(st, 3)))
+            }
+            return cursors
+        }
+    }
+
     /// Writes the events of one file and advances its cursor in a single transaction,
     /// so an interrupted run never leaves the cursor ahead of the stored rows.
     func commit(events: [UsageEvent], path: String, inode: Int, size: Int, offset: Int, mtime: Double) {

@@ -1464,7 +1464,8 @@ final class NotchWindowController {
     /// Panel-local input also lets tests exercise the real callback without
     /// moving the system pointer or posting mouse events.
     func cursorMoved(at local: CGPoint) {
-        guard panel != nil, !isOptionDragging else { return }
+        guard let panel, !isOptionDragging else { return }
+        if pointerIsAway(from: panel, at: local) { return }
         var geometry = cursorGeometry
         let wasExpanded = model.isExpanded
         let overTooltip = model.hoveredIndex
@@ -1483,7 +1484,10 @@ final class NotchWindowController {
                     ignoreAlwaysOn: shouldFoldForActiveAppOrWindow)
         // Opening calls onLook, which may change content, scale or placement
         // synchronously. Never carry the folded evaluation across that call.
-        if !wasExpanded { geometry = cursorGeometry }
+        // Staying folded calls nothing and changes nothing the evaluation
+        // read, so it is kept: rebuilt on every event, a pointer passing a
+        // folded notch measured it twice.
+        if !wasExpanded && model.isExpanded { geometry = cursorGeometry }
 
         var target: Int?
         if model.isExpanded, let cell = geometry.cellIndex(at: local) {
@@ -1542,6 +1546,34 @@ final class NotchWindowController {
         }
 
         updateInteractiveRects(using: geometry)
+    }
+
+    /// **A pointer out past the panel of a folded notch with nothing of a
+    /// visit left to undo**, where the evaluation in `cursorMoved(at:)` could
+    /// only conclude what is already so — and so is not run.
+    ///
+    /// Everything the folded notch wakes on or takes clicks on lies inside
+    /// the panel (see `CursorGeometryTests.testFoldedHitRegionsStayInsideThePanel`),
+    /// so out past it the evaluation finds the pointer in none of them, and
+    /// each thing it would then do is checked here as done already: the band
+    /// reset, no hover, no handle, no cursor of ours, the panel letting events
+    /// through. Folded, there is no fold to schedule. Measuring the notch is
+    /// the dear part of a mouse event, and with a notch on every display,
+    /// nearly every event lands out past all of them but one.
+    private func pointerIsAway(from panel: NotchPanel, at local: CGPoint) -> Bool {
+        guard !model.isExpanded,
+              model.hoveredIndex == nil,
+              !model.isHoveringSettings, !model.isHoveringMove,
+              bandEnteredAt == nil, !bandClaimedByClick, bandCheck == nil,
+              restingOnGrip == nil,
+              shownCursor == nil,
+              panel.ignoresMouseEvents
+        else { return false }
+        // A point of slack, so a region a hair past the panel's edge in
+        // floating point is never skipped.
+        return !CGRect(origin: .zero, size: panel.frame.size)
+            .insetBy(dx: -1, dy: -1)
+            .contains(local)
     }
 
     /// Opens on contact, folds shut after a pause — unless it has been pinned
