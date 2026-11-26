@@ -38,10 +38,11 @@ xattr -dr com.apple.quarantine /Applications/Codenotch.app
 
 If macOS says the app is *damaged*, that is the quarantine flag rather than a bad download — run the command above.
 
-Universal binary. macOS 14.3 or later; on macOS 15 and 26 it uses the same
-native materials and Liquid Glass upstream does, and older systems fall back to
-a plain material. To build and install a copy from source instead, see
-[Building](#building).
+Universal binary. macOS 14.3 or later. On macOS 26 it draws upstream's own
+Liquid Glass; on macOS 15 it keeps the rest of upstream's native behaviour but
+falls back to a material where the glass would be, because Liquid Glass starts
+at 26; below that the same material fills in. To build and install a copy from
+source instead, see [Building](#building).
 
 ## Windows
 
@@ -344,9 +345,12 @@ No signing identity is required for either. `make release` — which archives,
 notarizes, and produces a signed auto-update feed — needs a Developer ID
 certificate and an App Store Connect notary profile. This fork has neither, so
 it ships through `make package-adhoc` instead: one universal Release build,
-ad-hoc signed, zipped with its checksum. `make package-adhoc` needs the macOS 26
-SDK (Xcode 26), because only that toolchain compiles the native Liquid Glass
-branches; the Package workflow is where the published artifact is built. See
+ad-hoc signed, zipped with its checksum. Xcode 15.4 can run it too, which is how
+the compatibility path gets checked, but the artifact handed to anyone else has
+to come from the macOS 26 SDK (Xcode 26): only that toolchain compiles the
+native Liquid Glass branches, so an older build would look right and still fall
+back on a new Mac. The Package workflow is where the published artifact is
+built. See
 [CONTRIBUTING.md](CONTRIBUTING.md). CI runs the same unit tests unsigned via
 `make test-ci`.
 

@@ -30,9 +30,10 @@ jobs:
       contents: read
     # The macOS 26 SDK is the only toolchain that compiles the native branches
     # of the compatibility shims (`compiler(>=6.2)`), so this has to be the new
-    # image even though the app itself runs back to macOS 14.3. An older image
-    # also cannot read the project at all — `objectVersion 77` is a format it
-    # does not know.
+    # image even though the app itself runs back to macOS 14.3. A build made on
+    # an older image packages fine and then draws the fallback appearance on a
+    # new Mac, which is the one failure an artifact cannot be checked for by
+    # looking at it.
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v7

@@ -11,9 +11,9 @@ jobs:
     # macOS 26, because this fork still supports it natively. The app's own
     # floor is macOS 14.3 (see project.yml), and the compatibility shims keep
     # that buildable on Xcode 15.4, but only this runner has the macOS 26 SDK
-    # the `compiler(>=6.2)` branches need to be compiled and exercised at all.
-    # An older image ships an Xcode that cannot even read the project —
-    # `objectVersion 77` is a format it does not know.
+    # the `compiler(>=6.2)` branches need to be compiled and exercised at all:
+    # on an older image those branches are skipped, so a green run there would
+    # say nothing about them.
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
