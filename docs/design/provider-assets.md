@@ -33,6 +33,16 @@ was centred in a 512 px transparent square and stored as a template PNG
 (no vector tracer was available). The earlier favicon-derived SVG it
 replaces is in the git history.
 
+## Qwen.ai
+
+`Sources/Assets.xcassets/glyph-qwenai.imageset/qwenai.svg` is Qwen's new
+geometric mark — three linked shapes in a 600×600 viewBox — supplied by the
+user on 2026-11-26. It replaced the older Qwen "Q" copied in as a placeholder
+when the provider was first added. The asset catalog preserves its vector
+representation and marks it as a template, so `ProviderGlyphView` tints the
+mark with the app's foreground colour; its original `#082DFF` is also the
+provider's `brandColor` for the busy wave behind the ring.
+
 ## MiniMax
 
 `Sources/Assets.xcassets/glyph-minimax.imageset/minimax.svg` is Lobe Icons'

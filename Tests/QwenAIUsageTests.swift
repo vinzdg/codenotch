@@ -162,7 +162,7 @@ final class QwenAIUsageTests: XCTestCase {
         XCTAssertEqual(ProviderGlyph.qwenAI.rawValue, "qwenai")
         XCTAssertEqual(ProviderGlyph.qwenAI.assetName, "glyph-qwenai")
         XCTAssertEqual(ProviderGlyph.qwenAI.outline, [])
-        XCTAssertEqual(ProviderGlyph.qwenAI.brandColor, Color(hex: 0x615CED))
+        XCTAssertEqual(ProviderGlyph.qwenAI.brandColor, Color(hex: 0x082DFF))
         let asset = try XCTUnwrap(NSImage(named: ProviderGlyph.qwenAI.assetName))
         XCTAssertGreaterThan(asset.size.width, 0)
 

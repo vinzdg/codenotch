@@ -55,9 +55,10 @@ enum ProviderGlyph: String, Codable, Equatable {
     /// `glyph-mimo` asset (the way `.minimax` carries its own emblem). The
     /// `.outline` is only a fallback; the asset wins at draw time.
     case mimo
-    /// Qwen.ai's console mark — the real Qwen emblem from the official SVG,
-    /// carried by `glyph-qwenai`. It is a different account from both the local
-    /// Qwen model brand (`.qwen`) and the QianwenAI platform (`.qianwenAI`).
+    /// Qwen.ai's current mark — the blue geometric emblem carried by
+    /// `glyph-qwenai`, supplied by the user on 2026-11-26. It is a different
+    /// account from both the local Qwen model brand (`.qwen`) and the
+    /// QianwenAI platform (`.qianwenAI`).
     case qwenAI = "qwenai"
     /// The Manual provider's tally: a count kept by hand, drawn here rather
     /// than borrowed. It used to wear `.third`, which is Perplexity's mark —
@@ -137,7 +138,9 @@ enum ProviderGlyph: String, Codable, Equatable {
         case .openai: return Color(hex: 0x10A37F)
         case .third: return Color(hex: 0x20808D)
         case .antigravity, .geminiSpark, .gemma: return Color(hex: 0x4285F4)
-        case .qwen, .qianwenAI, .qwenAI: return Color(hex: 0x615CED)
+        case .qwen, .qianwenAI: return Color(hex: 0x615CED)
+        // The blue of Qwen.ai's current mark (#082DFF).
+        case .qwenAI: return Color(hex: 0x082DFF)
         case .meta: return Color(hex: 0x0866FF)
         case .deepseek: return Color(hex: 0x4D6BFE)
         case .mistral: return Color(hex: 0xFF7000)
