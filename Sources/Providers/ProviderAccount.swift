@@ -61,7 +61,7 @@ enum SignInRoute: Equatable {
         case .modal(let name):      return L10n.t("Sign in to \(name) to read this account.")
         case .openApp(_, let name): 
             if name == "Antigravity" {
-                return L10n.t("Ensure Antigravity IDE is running to read this account.")
+                return L10n.t("Sign in with agy CLI, Google OAuth, or Antigravity to read this account.")
             }
             return L10n.t("Sign in with \(name) to read this account.")
         case .guidance(let text):   return text

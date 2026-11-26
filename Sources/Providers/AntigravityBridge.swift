@@ -68,6 +68,18 @@ enum AntigravityBridge {
         return nil
     }
 
+    /// Discovers only a running `agy` CLI process on loopback, ignoring the IDE.
+    static func discoverCLI(processTable: String? = nil, listeningPorts: ((Int) -> [Int])? = nil)
+        -> Endpoint? {
+        let table = processTable ?? run("/bin/ps", ["-Ao", "pid,command"])
+        let lines = table.split(separator: "\n")
+        if let line = lines.first(where: isCLI),
+           let endpoint = endpoint(for: line, token: nil, ports: listeningPorts) {
+            return endpoint
+        }
+        return nil
+    }
+
     /// The CLI runs as plain `agy`, so match the executable's name rather than
     /// looking for it anywhere in the line — "agy" is three letters and turns
     /// up inside real words and real paths.

@@ -51,22 +51,47 @@ actor AntigravityProvider: UsageProvider {
     /// nothing a test can arrange, and the ordering this fixes is exactly what
     /// would otherwise go uncovered.
     private let localQuotaOverride: (@Sendable () async -> [LimitWindow]?)?
+    private let usageCLI: AntigravityUsageCLI?
+    nonisolated private let source: @Sendable () -> AntigravitySource
+    private let oauthCredentialsOverride: (@Sendable () -> AntigravityCredentials?)?
+
+    /// Cached `agy --print /usage` result so background ticks do not spawn a
+    /// subprocess every minute. Bypassed on `.live` and `.fromSource`, and
+    /// cleared whenever the user changes the Antigravity source setting.
+    private var cachedCLIWindows: [LimitWindow]?
+    private var lastCLIFetch: Date = .distantPast
+    private var lastSource: AntigravitySource?
+    static let cliRefreshInterval: TimeInterval = 5 * 60
 
     init(profile: AntigravityProfile = .default(),
          session: URLSession = .shared,
-         localQuota: (@Sendable () async -> [LimitWindow]?)? = nil) {
+         localQuota: (@Sendable () async -> [LimitWindow]?)? = nil,
+         usageCLI: AntigravityUsageCLI? = AntigravityUsageCLI.locate(),
+         source: @escaping @Sendable () -> AntigravitySource = { Preferences.storedAntigravitySource() },
+         oauthCredentials: (@Sendable () -> AntigravityCredentials?)? = nil) {
         self.profile = profile
         self.id = profile.id
         self.displayName = profile.displayName
         self.session = session
         self.localQuotaOverride = localQuota
+        self.usageCLI = usageCLI
+        self.source = source
+        self.oauthCredentialsOverride = oauthCredentials
         self.localSession = URLSession(configuration: .ephemeral,
                                        delegate: LocalhostTrust(),
                                        delegateQueue: nil)
     }
 
     nonisolated var signInRoute: SignInRoute {
-        profile.signInRoute
+        guard profile.slug == nil else { return profile.signInRoute }
+        switch source() {
+        case .cli:
+            return .command("agy", name: "Antigravity CLI", install: URL(string: "https://antigravity.google"))
+        case .oauth:
+            return .guidance(L10n.t("Sign in with Google OAuth (agy or ~/.gemini/oauth_creds.json) to read your usage."))
+        case .automatic, .ide:
+            return profile.signInRoute
+        }
     }
 
     /// Reached only from "Allow access…", so it may let the next read prompt.
@@ -88,6 +113,15 @@ actor AntigravityProvider: UsageProvider {
             )
         }
 
+        if profile.slug == nil && UserDefaults.standard.bool(forKey: "AntigravityEverReadCLI") {
+            return ProviderAccount(
+                label: L10n.t("Local CLI"),
+                plan: L10n.t("Active"),
+                source: "Antigravity CLI",
+                manageURL: URL(string: "https://antigravity.google")
+            )
+        }
+
         if profile.slug == nil && UserDefaults.standard.bool(forKey: "AntigravityEverBridged") {
             return ProviderAccount(
                 label: L10n.t("Local Session"),
@@ -101,63 +135,90 @@ actor AntigravityProvider: UsageProvider {
     }
 
     func fetchSnapshot() async throws -> ProviderSnapshot {
-        // Antigravity's own language server first, before anything is asked of
-        // the keychain. It already holds the credential and the client identity
-        // Google insists on, and answers with the same figure Antigravity's own
-        // panel shows — so where it is running, the token is not needed at all.
-        //
-        // It used to be asked third, after a keychain read and a round trip to
-        // `:loadCodeAssist`. That made the reading depend on a dialogue it did
-        // not need: someone who dismissed the keychain prompt got `accessDenied`
-        // and an empty ring, while the server that would have answered sat
-        // running on the same machine, never asked.
-        if profile.slug == nil {
+        try await fetchSnapshot(freshness: .standard)
+    }
+
+    func fetchSnapshot(freshness: UsageFreshness) async throws -> ProviderSnapshot {
+        // Test seam: when a test injects `localQuota`, keep the bridge-first
+        // path it is exercising.
+        if profile.slug == nil, localQuotaOverride != nil {
             if let bridged = await localQuota(), !bridged.isEmpty {
                 everBridged = true
                 UserDefaults.standard.set(true, forKey: "AntigravityEverBridged")
-
-                // The language server's quota summary covers the groups it
-                // serves, which is not the whole account. Measured against one
-                // account: the server answered with the third-party group only,
-                // while Cloud Code PA answered with the Gemini group as well —
-                // and the Gemini group was where the usage actually was. Taking
-                // the server's answer as the account's would report a different
-                // allowance than the one asked for.
-                //
-                // So ask Cloud Code PA as well, but only when the answer so far
-                // cannot serve the family that was chosen. Where the server
-                // does report that family, nothing changes and the keychain is
-                // still never read.
                 let windows = await completedWindows(bridged) ?? bridged
-
-                let chosen = selection(for: windows)
-                return ProviderSnapshot(id: id, displayName: displayName, glyph: glyph,
-                                        fidelity: .official, status: .ok, windows: chosen.windows,
-                                        headlineID: chosen.headlineID,
-                                        weeklyID: chosen.weeklyID)
+                return officialSnapshot(windows)
             }
-
-            if localQuotaOverride != nil && everBridged {
+            if everBridged {
                 throw UsageProviderError.credentialExpired
             }
         }
 
         if profile.slug != nil {
-            var credentials = try? AntigravityCredentials.load(for: profile)
-            if let creds = credentials, (creds.isExpired || creds.accessToken.isEmpty), creds.refreshToken != nil {
-                if let refreshed = try? await AntigravityCredentials.refresh(credentials: creds, session: session) {
-                    credentials = refreshed
-                    AntigravityCredentials.updateHeld(refreshed, for: profile)
-                }
-            }
-            if let credentials,
-               let windows = try? await quota(token: credentials.accessToken,
-                                              project: credentials.projectId,
-                                              isACP: false),
-               !windows.isEmpty {
+            if let windows = await fetchOAuthQuota(), !windows.isEmpty {
                 return officialSnapshot(windows)
             }
-        } else {
+            return fallbackActivitySnapshot()
+        }
+
+        let mode = source()
+        if lastSource != nil, lastSource != mode {
+            cachedCLIWindows = nil
+            lastCLIFetch = .distantPast
+            bridge = nil
+            everBridged = false
+        }
+        lastSource = mode
+
+        switch mode {
+        case .cli:
+            if let windows = await fetchCLIQuota(freshness: freshness), !windows.isEmpty {
+                return officialSnapshot(windows)
+            }
+            if let endpoint = AntigravityBridge.discoverCLI(),
+               let windows = try? await AntigravityBridge.quota(from: endpoint, session: localSession),
+               !windows.isEmpty {
+                UserDefaults.standard.set(true, forKey: "AntigravityEverReadCLI")
+                return officialSnapshot(windows)
+            }
+            throw UsageProviderError.needsAuth
+
+        case .oauth:
+            if let windows = await fetchOAuthQuota(), !windows.isEmpty {
+                return officialSnapshot(windows)
+            }
+            throw UsageProviderError.needsAuth
+
+        case .automatic:
+            // Prefer `agy` CLI and direct Google OAuth without spawning
+            // Antigravity IDE's language server. If neither answers, still read
+            // from an already-running bridge so existing IDE users do not regress.
+            if let windows = await fetchCLIQuota(freshness: freshness), !windows.isEmpty {
+                return officialSnapshot(windows)
+            }
+            if let windows = await fetchOAuthQuota(), !windows.isEmpty {
+                return officialSnapshot(windows)
+            }
+            if let endpoint = AntigravityBridge.discoverCLI(),
+               let windows = try? await AntigravityBridge.quota(from: endpoint, session: localSession),
+               !windows.isEmpty {
+                UserDefaults.standard.set(true, forKey: "AntigravityEverReadCLI")
+                return officialSnapshot(windows)
+            }
+            if let bridged = await localQuota(allowSpawnIDE: false), !bridged.isEmpty {
+                everBridged = true
+                UserDefaults.standard.set(true, forKey: "AntigravityEverBridged")
+                let windows = await completedWindows(bridged) ?? bridged
+                return officialSnapshot(windows)
+            }
+
+        case .ide:
+            if let bridged = await localQuota(), !bridged.isEmpty {
+                everBridged = true
+                UserDefaults.standard.set(true, forKey: "AntigravityEverBridged")
+                let windows = await completedWindows(bridged) ?? bridged
+                return officialSnapshot(windows)
+            }
+
             let processTable = AntigravityBridge.run("/bin/ps", ["-Ao", "pid,command"])
             let runningFlavors = AntigravityFlavor.runningFlavors(processTable: processTable)
 
@@ -193,24 +254,67 @@ actor AntigravityProvider: UsageProvider {
         }
 
         // 4. Fallback to OMP SQLite store if offline or direct call fails
-        if profile.slug == nil {
-            let omp = Self.ompUsage(forEmail: AntigravityCredentials.held(for: profile)?.email)
-            if !omp.windows.isEmpty {
-                let chosen = selection(for: omp.windows)
-                var status = ProviderStatus.ok
-                if let recordedAt = omp.recordedAt, Date().timeIntervalSince(recordedAt) > Self.ompFreshness {
-                    status = .stale(since: recordedAt)
-                }
-                return ProviderSnapshot(id: id, displayName: displayName, glyph: glyph,
-                                        fidelity: .official, status: status, windows: chosen.windows,
-                                        headlineID: chosen.headlineID,
-                                        weeklyID: chosen.weeklyID)
+        let omp = Self.ompUsage(forEmail: AntigravityCredentials.held(for: profile)?.email)
+        if !omp.windows.isEmpty {
+            let chosen = selection(for: omp.windows)
+            var status = ProviderStatus.ok
+            if let recordedAt = omp.recordedAt, Date().timeIntervalSince(recordedAt) > Self.ompFreshness {
+                status = .stale(since: recordedAt)
             }
+            return ProviderSnapshot(id: id, displayName: displayName, glyph: glyph,
+                                    fidelity: .official, status: status, windows: chosen.windows,
+                                    headlineID: chosen.headlineID,
+                                    weeklyID: chosen.weeklyID)
         }
 
         if everBridged { throw UsageProviderError.credentialExpired }
 
         // 5. Final fallback: request count activity from transcripts
+        return fallbackActivitySnapshot()
+    }
+
+    private func fetchCLIQuota(freshness: UsageFreshness) async -> [LimitWindow]? {
+        guard let usageCLI else { return nil }
+        let now = Date()
+        if freshness == .standard,
+           let cached = cachedCLIWindows,
+           now.timeIntervalSince(lastCLIFetch) < Self.cliRefreshInterval {
+            return cached
+        }
+        guard let windows = try? await usageCLI.read(), !windows.isEmpty else {
+            return nil
+        }
+        cachedCLIWindows = windows
+        lastCLIFetch = now
+        UserDefaults.standard.set(true, forKey: "AntigravityEverReadCLI")
+        return windows
+    }
+
+    private func fetchOAuthQuota() async -> [LimitWindow]? {
+        guard var activeCreds = oauthCredentialsOverride?()
+            ?? AntigravityCredentials.readOAuthCredentials(for: profile) else {
+            return nil
+        }
+        if (activeCreds.isExpired || activeCreds.accessToken.isEmpty), activeCreds.refreshToken != nil {
+            if let refreshed = try? await AntigravityCredentials.refresh(credentials: activeCreds, session: session) {
+                activeCreds = refreshed
+                AntigravityCredentials.updateHeld(refreshed, for: profile)
+            }
+        }
+        guard !activeCreds.isExpired, !activeCreds.accessToken.isEmpty else { return nil }
+        let isACP = activeCreds.sourceName?.contains("ACP") ?? false
+        guard let windows = try? await quota(
+            token: activeCreds.accessToken,
+            project: activeCreds.projectId,
+            isACP: isACP
+        ), !windows.isEmpty else {
+            return nil
+        }
+        AntigravityCredentials.updateHeld(activeCreds, for: profile)
+        return windows
+    }
+
+    private func fallbackActivitySnapshot() -> ProviderSnapshot {
         let roots = profile.slug == nil ? AntigravityActivity.transcriptRoots : [profile.brainDirectory]
         let activity = AntigravityActivity.read(roots: roots)
         return ProviderSnapshot(
@@ -395,7 +499,7 @@ actor AntigravityProvider: UsageProvider {
     /// Returns nil rather than throwing when it is not: Antigravity being
     /// closed is the ordinary case, not a fault, and the caller has an honest
     /// answer to fall back to.
-    private func localQuota(processTable: String? = nil) async -> [LimitWindow]? {
+    private func localQuota(processTable: String? = nil, allowSpawnIDE: Bool = true) async -> [LimitWindow]? {
         if let localQuotaOverride { return await localQuotaOverride() }
         if let bridge {
             do {
@@ -406,7 +510,7 @@ actor AntigravityProvider: UsageProvider {
                 self.bridge = nil
             }
         }
-        guard let fresh = await resolveEndpoint(processTable: processTable) else {
+        guard let fresh = await resolveEndpoint(processTable: processTable, allowSpawnIDE: allowSpawnIDE) else {
             Log.usage.debug("Antigravity localQuota discover failed to find process")
             return nil
         }
@@ -419,9 +523,11 @@ actor AntigravityProvider: UsageProvider {
         }
     }
 
-    /// Where to ask: the IDE's own server while it runs, otherwise one we start.
-    private func resolveEndpoint(processTable: String? = nil) async -> AntigravityBridge.Endpoint? {
+    /// Where to ask: the IDE's own server while it runs, otherwise one we start
+    /// when `allowSpawnIDE` is true.
+    private func resolveEndpoint(processTable: String? = nil, allowSpawnIDE: Bool = true) async -> AntigravityBridge.Endpoint? {
         if let running = AntigravityBridge.discover(processTable: processTable) { return running }
+        guard allowSpawnIDE else { return nil }
 
         guard let binary = AntigravityBridge.serverBinaryURL(),
               AntigravityBridge.owned.endpointOrStart(binary: binary) != nil,
