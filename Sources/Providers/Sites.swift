@@ -395,7 +395,14 @@ enum Sites {
         const readToken = () => {
             try {
                 const state = JSON.parse(localStorage.getItem('qwen_access_token_state') || 'null');
-                if (state && typeof state.token === 'string' && state.token) return state.token;
+                let token = (state && typeof state.token === 'string') ? state.token : '';
+                const expiresAt = Number(state && state.expiresAt);
+                if (token && Number.isFinite(expiresAt) && expiresAt > 0) {
+                    // The console stores milliseconds; older entries are seconds.
+                    const deadline = expiresAt > 100000000000 ? expiresAt : expiresAt * 1000;
+                    if (deadline <= Date.now()) token = '';
+                }
+                if (token) return token;
             } catch (_) {}
             return localStorage.getItem('token') || '';
         };
@@ -460,15 +467,22 @@ enum Sites {
         fidelity: .derived,
         authProbeScript: #"""
         try {
-            const readToken = () => {
-                try {
-                    const state = JSON.parse(localStorage.getItem('qwen_access_token_state') || 'null');
-                    if (state && typeof state.token === 'string' && state.token) return state.token;
-                } catch (_) {}
-                return localStorage.getItem('token') || '';
-            };
-            let token = readToken();
+            // The console's own session state is the liveness signal. The
+            // entitlement credit-status endpoint this probed first is feature-flagged:
+            // on an account without that flag it answers success:false even
+            // with a valid web session, so a finished login was never committed
+            // and the ring stayed dark until the button was pressed twice.
+            const state = JSON.parse(localStorage.getItem('qwen_access_token_state') || 'null');
+            let token = (state && typeof state.token === 'string') ? state.token : '';
+            const expiresAt = Number(state && state.expiresAt);
+            if (token && Number.isFinite(expiresAt) && expiresAt > 0) {
+                const deadline = expiresAt > 100000000000 ? expiresAt : expiresAt * 1000;
+                if (deadline <= Date.now()) token = '';
+            }
+            if (!token) token = localStorage.getItem('token') || '';
             if (!token) {
+                // A live web cookie can mint a fresh bearer, as it does on a
+                // normal console reload.
                 const refresh = await fetch('/auths/refresh', {
                     credentials: 'include', headers: { 'Accept': 'application/json' }
                 });
@@ -478,17 +492,6 @@ enum Sites {
                 }
             }
             if (!token) return JSON.stringify({ authenticated: false });
-            const response = await fetch(
-                'https://sg-entitlement.qwen.com/api/entitlement/credits/query'
-                + '?biz_id=ai_qwen&chat_client=h5&device=pc&fr=pc&pr=qwen-i18n&wv=0.3.52',
-                { credentials: 'include', headers: {
-                    'Accept': 'application/json', 'Authorization': 'Bearer ' + token,
-                    'Version': '0.3.52', 'source': 'h5'
-                } });
-            const body = JSON.parse(await response.text());
-            if (!body || body.success === false || Number(body.httpCode) === 401) {
-                return JSON.stringify({ authenticated: false });
-            }
             // The digest, not the token: the account identity a switch has to
             // see change, while the bearer stays in the page's own storage.
             const bytes = new TextEncoder().encode(token);
@@ -504,15 +507,20 @@ enum Sites {
         // the web login) with it, or the next sign-in walks straight back in
         // as the previous account.
         associatedHosts: ["sg-entitlement.qwen.com", "sg-member.qwen.com", "auth.qwen.ai"],
-        // The sign-in is a redirect through the web login and back; confirm
-        // once on close rather than polling a token that does not exist until
-        // the redirect has completed.
-        pollsDuringSignIn: false,
+        // The login lands back on this origin and the token appears in its
+        // page storage, so watch the sheet and commit a finished login as it
+        // happens. The probe is local and cheap — it never asks a throttled
+        // endpoint — and the close path still confirms a login completed in a
+        // popup that leaves this page's URL unchanged.
+        pollsDuringSignIn: true,
         // An expired web bearer is best recovered by refreshing the page: the
         // console mints a fresh one from its own cookie, the way it does on a
         // normal visit. Only a second refusal declares the session dead.
         reloadsSessionOnAuthFailure: true,
+        // Open the Usage & Billing page itself, not the chat home: that is
+        // where the login prompt and, afterwards, the allowance are shown.
         managePath: "settings/usage-billing",
+        initialPath: "settings/usage-billing",
         // One weekly allowance: the console's `remainingPercent` and its reset
         // moment describe the coding credits, not a balance or a spend.
         headlineID: "week",

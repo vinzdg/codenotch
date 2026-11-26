@@ -119,12 +119,13 @@ final class QwenAIUsageTests: XCTestCase {
         XCTAssertEqual(site.displayName, "Qwen.ai")
         XCTAssertEqual(site.origin.host, "chat.qwen.ai")
         XCTAssertEqual(site.managePath, "settings/usage-billing")
+        XCTAssertEqual(site.initialPath, "settings/usage-billing")
         XCTAssertEqual(site.headlineID, "week")
         XCTAssertEqual(site.weeklyID, "week")
         XCTAssertEqual(site.glyph, .qwenAI)
         XCTAssertFalse(site.logsResponseBody, "the envelope carries account details")
         XCTAssertTrue(site.associatedHosts.contains("sg-entitlement.qwen.com"))
-        XCTAssertFalse(site.pollsDuringSignIn)
+        XCTAssertTrue(site.pollsDuringSignIn, "a finished login must commit without a second click")
         XCTAssertTrue(site.reloadsSessionOnAuthFailure)
         XCTAssertTrue(WebSessionProvider.matchesOrigin(
             URL(string: "https://chat.qwen.ai/settings/usage-billing"), expected: site.origin))
@@ -143,6 +144,11 @@ final class QwenAIUsageTests: XCTestCase {
         XCTAssertFalse(site.script.contains("subscription_credentials.json"))
         let probe = try? XCTUnwrap(site.authProbeScript)
         XCTAssertTrue(probe?.contains("qwen_access_token_state") == true)
+        XCTAssertTrue(probe?.contains("expiresAt") == true)
+        XCTAssertTrue(probe?.contains("/auths/refresh") == true)
+        XCTAssertTrue(probe?.contains("SHA-256") == true)
+        XCTAssertFalse(probe?.contains("credits/query") == true,
+                       "the probe must not depend on a feature-flagged endpoint")
     }
 
     func testTheSiteParserIsWiredToQwenAIUsage() throws {
