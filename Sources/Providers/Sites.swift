@@ -517,10 +517,15 @@ enum Sites {
         // console mints a fresh one from its own cookie, the way it does on a
         // normal visit. Only a second refusal declares the session dead.
         reloadsSessionOnAuthFailure: true,
-        // Open the Usage & Billing page itself, not the chat home: that is
-        // where the login prompt and, afterwards, the allowance are shown.
+        // The manage link opens Usage & Billing, but the sign-in window must
+        // open the console's own `/auth` page: its guard bounces protected
+        // routes (including `/settings/usage-billing`) to the chat home while
+        // signed out, which is why the first popup appeared to lose the page
+        // it was opening. `/auth` is the route the console itself presents for
+        // logging in, and a completed login redirects back to this origin —
+        // a URL change the sign-in poll can see and commit.
         managePath: "settings/usage-billing",
-        initialPath: "settings/usage-billing",
+        initialPath: "auth",
         // One weekly allowance: the console's `remainingPercent` and its reset
         // moment describe the coding credits, not a balance or a spend.
         headlineID: "week",

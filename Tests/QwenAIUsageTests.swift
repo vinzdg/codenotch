@@ -119,7 +119,9 @@ final class QwenAIUsageTests: XCTestCase {
         XCTAssertEqual(site.displayName, "Qwen.ai")
         XCTAssertEqual(site.origin.host, "chat.qwen.ai")
         XCTAssertEqual(site.managePath, "settings/usage-billing")
-        XCTAssertEqual(site.initialPath, "settings/usage-billing")
+        // The signed-out console redirects its protected settings routes to
+        // the chat home, so sign-in opens its own `/auth` page instead.
+        XCTAssertEqual(site.initialPath, "auth")
         XCTAssertEqual(site.headlineID, "week")
         XCTAssertEqual(site.weeklyID, "week")
         XCTAssertEqual(site.glyph, .qwenAI)
