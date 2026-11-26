@@ -78,7 +78,7 @@ pub fn start(app: AppHandle, port: u16) {
                 // from unauthorized local callers.
                 let state = app.state::<AppState>();
                 let require_auth = {
-                    let config = state.cfg.lock().unwrap();
+                    let config = crate::lock_or_recover(&state.cfg);
                     config.require_event_token
                 };
                 if require_auth && !is_authorized(&req, &auth_token) {
@@ -93,7 +93,7 @@ pub fn start(app: AppHandle, port: u16) {
 
                 let ev = parse(&url, &body);
                 let changed = {
-                    let mut store = state.store.lock().unwrap();
+                    let mut store = crate::lock_or_recover(&state.store);
                     store.apply(ev)
                 };
                 if changed {
