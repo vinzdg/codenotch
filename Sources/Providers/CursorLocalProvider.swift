@@ -15,7 +15,10 @@ actor CursorLocalProvider: UsageProvider {
     nonisolated let displayName = "Cursor"
     nonisolated let glyph = ProviderGlyph.cursor
 
-    private let endpoint = URL(string: "https://cursor.com/api/usage-summary")!
+    private let summaryEndpoint = URL(string: "https://cursor.com/api/usage-summary")!
+    private let currentPeriodEndpoint = URL(
+        string: "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage"
+    )!
     private let session: URLSession
 
     init(session: URLSession = .shared) {
@@ -41,30 +44,46 @@ actor CursorLocalProvider: UsageProvider {
         // would mean signing ourselves out for no reason. The agent token is
         // cached inside `CursorAgentKeychain` so the keychain is not.
         let credentials = try CursorCredentials.load()
+        do {
+            return try await fetchSnapshot(using: credentials)
+        } catch UsageProviderError.needsAuth {
+            // A rejected CLI session must be read again on the next fetch.
+            CursorCredentials.forgetCachedAgent()
+            throw UsageProviderError.needsAuth
+        }
+    }
 
-        var request = URLRequest(url: endpoint)
+    private func fetchSnapshot(using credentials: CursorCredentials) async throws -> ProviderSnapshot {
+        let cachedPlan = account()?.plan?.nonEmptyPlan
+        // The editor reports the allowance's actual cycle. Some plan names,
+        // including Ultra, are shared by monthly and weekly subscriptions.
+        let weekly: LimitWindow?
+        if CursorUsage.requiresWeeklyAllowance(cachedPlan) {
+            weekly = try await fetchWeeklyWindow(using: credentials)
+            guard weekly != nil else { throw weeklyUnavailable() }
+        } else {
+            weekly = try? await fetchWeeklyWindow(using: credentials)
+            try Task.checkCancellation()
+        }
+        if let weekly {
+            return ProviderSnapshot(
+                id: id, displayName: displayName, glyph: glyph, fidelity: .official,
+                status: .ok, windows: [weekly], headlineID: weekly.id, weeklyID: weekly.id,
+                plan: cachedPlan
+            )
+        }
+
+        var request = URLRequest(url: summaryEndpoint)
         request.setValue(credentials.sessionCookie, forHTTPHeaderField: "Cookie")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = 15
 
-        let (data, response) = try await session.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-
-        if status == 401 || status == 403 {
-            // A rejected token is the one signal the copy in hand is wrong
-            // despite not having expired — signing into a different CLI
-            // account replaces the keychain item. Drop it so the next read
-            // asks macOS again.
-            CursorCredentials.forgetCachedAgent()
-            throw UsageProviderError.needsAuth
-        }
-        guard (200..<300).contains(status) else {
-            throw UsageProviderError.badResponse(status: status)
-        }
-
+        let data = try await fetchData(request)
         let body = String(data: data, encoding: .utf8) ?? ""
         Log.usage.debug("cursor usage -> \(body.prefix(900), privacy: .public)")
 
+        let plan = CursorUsage.plan(fromJSON: body) ?? cachedPlan
+        guard !CursorUsage.requiresWeeklyAllowance(plan) else { throw weeklyUnavailable() }
         let windows = try CursorUsage.windows(fromJSON: body)
         return ProviderSnapshot(
             id: id,
@@ -74,7 +93,31 @@ actor CursorLocalProvider: UsageProvider {
             status: .ok,
             windows: windows,
             headlineID: CursorUsage.headlineID(in: windows),
-            plan: CursorUsage.plan(fromJSON: body) ?? account()?.plan?.nonEmptyPlan
+            plan: plan
         )
+    }
+
+    private func fetchWeeklyWindow(using credentials: CursorCredentials) async throws -> LimitWindow? {
+        var request = URLRequest(url: currentPeriodEndpoint)
+        request.httpMethod = "POST"
+        request.httpBody = Data("{}".utf8)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
+        request.setValue("Bearer \(credentials.accessToken)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 15
+        let data = try await fetchData(request)
+        return try CursorUsage.weeklyWindow(from: data)
+    }
+
+    private func fetchData(_ request: URLRequest) async throws -> Data {
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if status == 401 || status == 403 { throw UsageProviderError.needsAuth }
+        guard (200..<300).contains(status) else { throw UsageProviderError.badResponse(status: status) }
+        return data
+    }
+
+    private func weeklyUnavailable() -> UsageProviderError {
+        .apiError(L10n.t("Cursor weekly usage is unavailable."))
     }
 }

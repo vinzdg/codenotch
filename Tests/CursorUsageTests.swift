@@ -24,6 +24,45 @@ final class CursorUsageTests: XCTestCase {
         try CursorUsage.windows(fromJSON: json)
     }
 
+    func testSharedWeeklyAllowanceUsesTheCurrentPeriodTotal() throws {
+        let json = """
+        {"billingCycleStart":"1794399884850", "billingCycleEnd":1795004684850,
+         "planUsage":{"autoPercentUsed":0, "totalPercentUsed":11.3}}
+        """
+        let data = Data(json.utf8)
+        let window = try XCTUnwrap(CursorUsage.weeklyWindow(from: data))
+        XCTAssertEqual(window.id, "weekly")
+        XCTAssertEqual(try XCTUnwrap(window.usedFraction), 0.113, accuracy: 0.0001)
+        XCTAssertEqual(window.duration, 7 * 86_400)
+        XCTAssertEqual(window.resetsAt, Date(timeIntervalSince1970: 1_795_004_684.850))
+    }
+
+    func testZeroIsValidForAnUnusedWeeklyAllowance() throws {
+        let json = """
+        {"billingCycleStart":1794399884850, "billingCycleEnd":1795004684850,
+         "planUsage":{"totalPercentUsed":0}}
+        """
+        let window = try XCTUnwrap(CursorUsage.weeklyWindow(from: Data(json.utf8)))
+        XCTAssertEqual(window.usedFraction, 0)
+    }
+
+    func testMonthlyDashboardDoesNotReplaceTheLegacyAutoBar() throws {
+        let json = """
+        {"billingCycleStart":1794399884850, "billingCycleEnd":1796991884850,
+         "planUsage":{"totalPercentUsed":11}}
+        """
+        XCTAssertNil(try CursorUsage.weeklyWindow(from: Data(json.utf8)))
+        XCTAssertEqual(try windows(recorded).first?.id, "auto")
+    }
+
+    func testMissingWeeklyPercentageIsAReadFailure() {
+        let json = """
+        {"billingCycleStart":1794399884850, "billingCycleEnd":1795004684850,
+         "planUsage":{"autoPercentUsed":0}}
+        """
+        XCTAssertThrowsError(try CursorUsage.weeklyWindow(from: Data(json.utf8)))
+    }
+
     func testReadsTheAutoBar() throws {
         let w = try windows(recorded)
         XCTAssertEqual(w[0].id, "auto")

@@ -1,6 +1,7 @@
+import CoreFoundation
 import Foundation
 
-/// Parses Cursor's `GET /api/usage-summary`, recorded from a live free account:
+/// Cursor's legacy `GET /api/usage-summary`, recorded from a live free account:
 ///
 /// ```json
 /// { "billingCycleStart": "2026-08-24T03:32:15.933Z",
@@ -25,8 +26,7 @@ import Foundation
 ///     "onDemand": { "enabled": true, "used": 0, "limit": 1000000 } } }
 /// ```
 ///
-/// Cursor meters an **allowance, not a request count**. Plan & Usage has two
-/// bars. The ring follows **Auto** (`autoPercentUsed`) — Cursor Models,
+/// Legacy Plan & Usage has two bars. The ring follows **Auto** (`autoPercentUsed`) — Cursor Models,
 /// Grok, Composer. API (`apiPercentUsed`) is a separate bucket.
 /// `totalPercentUsed` is a blend of the two and is not a row here.
 ///
@@ -38,6 +38,40 @@ import Foundation
 /// `used`/`limit` on `overall` is the reading.
 enum CursorUsage {
     static var modelsLabel: String { L10n.t("Auto usage") }
+
+    /// These plan IDs are unique to the shared subscription. Ultra and team
+    /// plans can also be legacy plans, so their reported cycle decides.
+    static func requiresWeeklyAllowance(_ plan: String?) -> Bool {
+        ["plus", "premium", "super"].contains(plan?.lowercased() ?? "")
+    }
+
+    /// The editor's current-period response uses epoch milliseconds. Only a
+    /// weekly cycle uses this total as its headline; legacy plans show Auto
+    /// and API usage separately.
+    static func weeklyWindow(from data: Data) throws -> LimitWindow? {
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { throw UsageProviderError.badResponse(status: 200) }
+        guard let start = timestamp(root["billingCycleStart"]),
+              let end = timestamp(root["billingCycleEnd"])
+        else { return nil }
+
+        let duration = end.timeIntervalSince(start)
+        guard abs(duration - 7 * 86_400) < 60 else { return nil }
+        guard let usage = root["planUsage"] as? [String: Any],
+              let used = usage["totalPercentUsed"] as? NSNumber,
+              CFGetTypeID(used) != CFBooleanGetTypeID(),
+              used.doubleValue.isFinite, used.doubleValue >= 0
+        else { throw UsageProviderError.badResponse(status: 200) }
+
+        return LimitWindow(id: "weekly", label: L10n.t("Included usage"),
+                           usedFraction: used.doubleValue / 100, resetsAt: end, duration: duration)
+    }
+
+    private static func timestamp(_ value: Any?) -> Date? {
+        let ms = (value as? String).flatMap(Double.init) ?? (value as? NSNumber)?.doubleValue
+        guard let ms, ms.isFinite, ms > 0 else { return nil }
+        return Date(timeIntervalSince1970: ms / 1000)
+    }
 
     /// The window the ring should mean. Cursor Models when that field exists,
     /// never the blended total, never API — and on an enterprise/team plan,
