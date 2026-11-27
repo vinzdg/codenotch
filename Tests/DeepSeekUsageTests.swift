@@ -525,6 +525,69 @@ final class DeepSeekDisplayModeTests: XCTestCase {
         XCTAssertEqual(otherReading.balanceLeftText, "GBP 25.50 left")
     }
 
+    /// The ring prints the symbol and the whole units; the card keeps the exact
+    /// figure. "¥51.83 left" under a ring was cut off at both ends of the notch.
+    func testTheRingPrintsTheWholeBalanceAndTheCardTheExactOne() {
+        let reading = DeepSeekUsage.Reading(currency: "CNY", spent: 0, balance: 51.83, availableTokens: nil)
+        XCTAssertEqual(reading.wholeBalanceText, "¥51")
+        XCTAssertEqual(reading.balanceLeftText, "¥51.83 left")
+
+        let balanceWindow = DeepSeekUsage.windows(from: reading, displayMode: .balance)[0]
+        XCTAssertEqual(balanceWindow.usedText, "¥51")
+        XCTAssertEqual(balanceWindow.detail, "¥51.83 left")
+    }
+
+    func testWholeMoneyTruncatesRatherThanPromisingWhatTheWalletLacks() {
+        XCTAssertEqual(DeepSeekUsage.wholeMoney(51.99, currency: "CNY"), "¥51")
+        XCTAssertEqual(DeepSeekUsage.wholeMoney(52, currency: "CNY"), "¥52")
+        XCTAssertEqual(DeepSeekUsage.wholeMoney(100, currency: "CNY"), "¥100")
+        XCTAssertEqual(DeepSeekUsage.wholeMoney(9_999.99, currency: "CNY"), "¥9999")
+        XCTAssertEqual(DeepSeekUsage.wholeMoney(12_345.67, currency: "CNY"), "¥12k")
+        XCTAssertEqual(DeepSeekUsage.wholeMoney(14.28, currency: "USD"), "$14")
+        XCTAssertEqual(DeepSeekUsage.wholeMoney(5, currency: "EUR"), "€5")
+        XCTAssertEqual(DeepSeekUsage.wholeMoney(25.5, currency: "GBP"), "GBP 25")
+    }
+
+    /// Under one unit the ring is still green, so the figure must not say "¥0".
+    func testWholeMoneySaysLessThanOneRatherThanZeroWhileAnythingIsLeft() {
+        XCTAssertEqual(DeepSeekUsage.wholeMoney(0.83, currency: "CNY"), "<¥1")
+        XCTAssertEqual(DeepSeekUsage.wholeMoney(0.004, currency: "CNY"), "<¥1")
+        XCTAssertEqual(DeepSeekUsage.wholeMoney(0, currency: "CNY"), "¥0")
+    }
+
+    /// The balance is parsed out of the site's own text, so it can be any value
+    /// `Double` reads. The exact formatting of nonsense is `formatMoney`'s; what
+    /// matters is that none of it traps.
+    func testWholeMoneySurvivesABalanceThatIsNotAnAmount() {
+        XCTAssertEqual(DeepSeekUsage.wholeMoney(.infinity, currency: "CNY"),
+                       DeepSeekUsage.formatMoney(.infinity, currency: "CNY"))
+        XCTAssertEqual(DeepSeekUsage.wholeMoney(.nan, currency: "CNY"),
+                       DeepSeekUsage.formatMoney(.nan, currency: "CNY"))
+        XCTAssertEqual(DeepSeekUsage.wholeMoney(1e300, currency: "CNY"),
+                       DeepSeekUsage.formatMoney(1e300, currency: "CNY"))
+        XCTAssertEqual(DeepSeekUsage.wholeMoney(-0.5, currency: "CNY"), "¥0")
+        XCTAssertEqual(DeepSeekUsage.wholeMoney(-1e300, currency: "CNY"), "¥0")
+        // Past `Int.max` the exact formatting is `formatMoney`'s, but the
+        // answer is still an amount rather than a trap.
+        XCTAssertEqual(DeepSeekUsage.wholeMoney(-Double(Int.max), currency: "CNY"), "¥0")
+    }
+
+    /// The label that was cut off, and the compact one beside it, measured at
+    /// the ring's own size: the balance has to sit inside the widest percentage
+    /// the notch already draws.
+    func testTheBalanceUnderTheRingIsNoWiderThanAPercentage() {
+        let font = NSFont.systemFont(ofSize: Typography.fontSize(capPixels: 27), weight: .semibold)
+        func width(_ text: String) -> CGFloat {
+            (text as NSString).size(withAttributes: [.font: font]).width
+        }
+        let widestPercentage = width(">99.9%")
+
+        for text in ["¥0", "<¥1", "¥51", "¥100", "¥9999", "¥12k", "GBP 25"] {
+            XCTAssertLessThanOrEqual(width(text), widestPercentage, text)
+        }
+        XCTAssertGreaterThan(width("¥51.83 left"), width("100%"), "the label that was cut off")
+    }
+
     func testBalanceDisplayModeBuildsBalanceAndHistoricalSpendWindows() {
         let reading = DeepSeekUsage.Reading(currency: "CNY", spent: 900, balance: 100, availableTokens: 3_300_000)
         let windows = DeepSeekUsage.windows(from: reading, displayMode: .balance)
@@ -536,7 +599,7 @@ final class DeepSeekDisplayModeTests: XCTestCase {
         XCTAssertEqual(balanceWindow.id, "balance")
         XCTAssertEqual(balanceWindow.label, "Credit balance")
         XCTAssertNil(balanceWindow.usedFraction)
-        XCTAssertEqual(balanceWindow.usedText, "¥100.00 left")
+        XCTAssertEqual(balanceWindow.usedText, "¥100")
         XCTAssertEqual(balanceWindow.detail, "¥100.00 left")
         XCTAssertEqual(balanceWindow.bandOverride, .ample)
         XCTAssertTrue(balanceWindow.prefersUsedText)
@@ -562,7 +625,8 @@ final class DeepSeekDisplayModeTests: XCTestCase {
         let windows = DeepSeekUsage.windows(from: reading, displayMode: .balance)
 
         XCTAssertEqual(windows[0].bandOverride, .exhausted)
-        XCTAssertEqual(windows[0].usedText, "¥0.00 left")
+        XCTAssertEqual(windows[0].usedText, "¥0")
+        XCTAssertEqual(windows[0].detail, "¥0.00 left")
     }
 
     func testLifetimeSpendDisplayModeBuildsOnlySpendWindow() {
@@ -580,7 +644,7 @@ final class DeepSeekDisplayModeTests: XCTestCase {
         XCTAssertEqual(windows[1].id, "available-tokens")
     }
 
-    func testSnapshotHeadlineTextInBalanceModeShowsBalanceLeft() {
+    func testSnapshotHeadlineTextInBalanceModeIsTheWholeBalance() {
         let reading = DeepSeekUsage.Reading(currency: "CNY", spent: 900, balance: 100, availableTokens: nil)
         let windows = DeepSeekUsage.windows(from: reading, displayMode: .balance)
         let snapshot = ProviderSnapshot(
@@ -592,15 +656,15 @@ final class DeepSeekDisplayModeTests: XCTestCase {
             windows: windows
         )
 
-        XCTAssertEqual(snapshot.headlineText, "¥100.00 left")
-        XCTAssertEqual(snapshot.headlineText(showingRemaining: true), "¥100.00 left")
+        XCTAssertEqual(snapshot.headlineText, "¥100")
+        XCTAssertEqual(snapshot.headlineText(showingRemaining: true), "¥100")
         XCTAssertNil(snapshot.usedFraction)
         XCTAssertNil(snapshot.ringFraction)
         XCTAssertFalse(snapshot.isDepleted)
         XCTAssertEqual(snapshot.bandOverride, .ample)
 
         let title = StatusItemController.headerTitle(for: snapshot, now: Date())
-        XCTAssertEqual(title, "DeepSeek — ¥100.00 left")
+        XCTAssertEqual(title, "DeepSeek — ¥100")
     }
 
     func testCardRendersWithBalanceDisplayMode() throws {
