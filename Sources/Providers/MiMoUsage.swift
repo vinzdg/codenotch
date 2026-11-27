@@ -229,4 +229,169 @@ enum MiMoUsage {
               value < Double(Int.max) else { return nil }
         return Int(value)
     }
+
+    // MARK: - Open Platform Balance
+
+    /// Parses Xiaomi MiMo Open Platform balance responses (`/v1/platform/balance`).
+    ///
+    /// The balance payload (recorded from the platform's API):
+    ///
+    /// ```json
+    /// {
+    ///   "object": "balance",
+    ///   "is_available": true,
+    ///   "balance_infos": [
+    ///     {
+    ///       "currency": "CNY",
+    ///       "cash_balance": "100.50",
+    ///       "gift_balance": "20.00",
+    ///       "frozen_balance": "0.00",
+    ///       "credit_limit": "500.00",
+    ///       "credit_available": "380.00",
+    ///       "total_available": "500.50"
+    ///     }
+    ///   ]
+    /// }
+    /// ```
+    static func balanceWindows(from data: Data) throws -> [LimitWindow] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) else {
+            throw UsageProviderError.badResponse(status: 0)
+        }
+        if let dict = json as? [String: Any] {
+            return try balanceWindows(from: dict)
+        } else if let array = json as? [[String: Any]], let first = array.first {
+            return try balanceWindows(from: first)
+        }
+        throw UsageProviderError.badResponse(status: 0)
+    }
+
+    static func balanceWindows(fromJSON json: String) throws -> [LimitWindow] {
+        guard let data = json.data(using: .utf8) else {
+            throw UsageProviderError.badResponse(status: 0)
+        }
+        return try balanceWindows(from: data)
+    }
+
+    private static func balanceWindows(from dict: [String: Any]) throws -> [LimitWindow] {
+        // 1. Official Platform Balance response: { "balance_infos": [ ... ] }
+        if let balanceInfos = dict["balance_infos"] as? [[String: Any]], let primary = balanceInfos.first {
+            return try parseBalanceInfo(primary, parent: dict)
+        }
+
+        // 2. Direct balance dictionary: contains total_available or cash_balance
+        if dict["total_available"] != nil || dict["cash_balance"] != nil || dict["balance"] != nil {
+            return try parseBalanceInfo(dict, parent: dict)
+        }
+
+        // 3. Nested under "data" or "result"
+        if let nested = dict["data"] as? [String: Any] {
+            return try balanceWindows(from: nested)
+        }
+        if let nested = dict["result"] as? [String: Any] {
+            return try balanceWindows(from: nested)
+        }
+
+        throw UsageProviderError.badResponse(status: 0)
+    }
+
+    private static func parseBalanceInfo(_ info: [String: Any], parent: [String: Any]) throws -> [LimitWindow] {
+        let isAvailable = (parent["is_available"] as? Bool) ?? (info["is_available"] as? Bool) ?? true
+        let currency = (info["currency"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "CNY"
+        let cash = doubleValue(in: info, keys: ["cash_balance", "cash"]) ?? 0
+        let gift = doubleValue(in: info, keys: ["gift_balance", "gift", "bonus_balance", "bonus"]) ?? 0
+        let creditLimit = doubleValue(in: info, keys: ["credit_limit", "creditLimit"]) ?? 0
+        let creditAvailable = doubleValue(in: info, keys: ["credit_available", "creditAvailable"]) ?? 0
+
+        var totalAvailable = doubleValue(in: info, keys: ["total_available", "totalAvailable", "balance", "available_balance"])
+        if totalAvailable == nil {
+            let sum = cash + gift + creditAvailable
+            if sum > 0 || (cash == 0 && gift == 0 && creditAvailable == 0 && (info["cash_balance"] != nil || info["total_available"] != nil)) {
+                totalAvailable = sum
+            }
+        }
+
+        guard let remaining = totalAvailable else {
+            throw UsageProviderError.badResponse(status: 0)
+        }
+
+        let creditSpent = max(0, creditLimit - creditAvailable)
+        let spent = creditSpent
+        let funded = remaining + spent
+
+        let usedFraction: Double
+        if funded > 0 {
+            usedFraction = min(max(spent / funded, 0), 1)
+        } else if !isAvailable || remaining <= 0 {
+            usedFraction = 1
+        } else {
+            usedFraction = 0
+        }
+
+        let breakdown = UsageMoneyBreakdown(
+            currency: currency,
+            spent: spent,
+            remaining: remaining
+        )
+
+        var windows: [LimitWindow] = [
+            LimitWindow(
+                id: "balance",
+                label: L10n.t("Balance"),
+                usedFraction: usedFraction,
+                money: breakdown
+            )
+        ]
+
+        let symbol = currencySymbol(for: currency)
+        if creditLimit > 0 {
+            windows.append(LimitWindow(
+                id: "credit",
+                label: L10n.t("Credit limit"),
+                detail: "\(symbol)\(formatMoney(creditAvailable)) / \(symbol)\(formatMoney(creditLimit))"
+            ))
+        }
+
+        if gift > 0 {
+            windows.append(LimitWindow(
+                id: "bonus",
+                label: L10n.t("Bonus balance"),
+                detail: "\(symbol)\(formatMoney(gift))"
+            ))
+        }
+
+        return windows
+    }
+
+    private static func doubleValue(in dict: [String: Any], keys: [String]) -> Double? {
+        for key in keys {
+            if let val = dict[key] {
+                if let num = val as? NSNumber {
+                    return num.doubleValue
+                }
+                if let str = val as? String {
+                    let cleaned = str.trimmingCharacters(in: .whitespacesAndNewlines)
+                        .replacingOccurrences(of: ",", with: "")
+                    if let d = Double(cleaned) {
+                        return d
+                    }
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func currencySymbol(for currency: String) -> String {
+        switch currency.uppercased() {
+        case "CNY", "RMB": return "¥"
+        case "USD": return "$"
+        case "EUR": return "€"
+        case "GBP": return "£"
+        case "JPY": return "¥"
+        default: return "\(currency) "
+        }
+    }
+
+    private static func formatMoney(_ amount: Double) -> String {
+        String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), amount)
+    }
 }
