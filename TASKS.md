@@ -1113,6 +1113,10 @@ it and then notice when the answer changes.
       fields; Electron storage is empty. The model call is
       `streamGenerateContent`, and whatever usage it returns dies with the
       stream. Claude, Cursor and Codex each publish a figure. Google does not.
+      That held for the signed-in store examined then. Antigravity CLI running
+      on a `GEMINI_API_KEY` writes both: token keys on its `PLANNER_RESPONSE`
+      transcript records and the same counters in `gen_metadata`. Those calls
+      are counted by the Gemini API provider (see below), not by this one.
 - [x] `AntigravityActivity` counts what is left: model-answered steps in
       Antigravity's own transcripts, per local day. Only `source == "MODEL"`
       counts — user input and system checkpoints share the file and would
@@ -1137,7 +1141,7 @@ it and then notice when the answer changes.
       reading it would be a prompt and a liability bought for nothing. The only
       credential-shaped thing touched is `~/.gemini/settings.json`, and only for
       `security.auth.selectedType`, which names *how* the calls were paid for.
-- [x] Three sources, each with a **single definition of "tokens"** chosen from
+- [x] Four sources, each with a **single definition of "tokens"** chosen from
       that tool's own source so nothing is counted twice:
       * **Gemini CLI** — `tokens.total` in
         `~/.gemini/tmp/<project>/chats/session-*.jsonl`. It is already
@@ -1153,6 +1157,26 @@ it and then notice when the answer changes.
         `CanonicalUsage.total_tokens` counts reasoning inside `output_tokens`,
         so adding `reasoning_tokens` would bill those tokens twice, whereas
         OpenCode's `reasoning` is a separate quantity.
+      * **Antigravity CLI** — `input_tokens + cache_read_tokens +
+        output_tokens` from `PLANNER_RESPONSE` records in
+        `brain/<id>/.system_generated/logs/transcript.jsonl`. `input_tokens`
+        excludes the cache and `output_tokens` already holds thinking, so the
+        three add up without a double count: a real row reads 150150 = 3617 +
+        145480 + 1053.
+- [x] **Antigravity CLI has two stores**, `~/.gemini/antigravity-cli` (`agy`)
+      and `~/.gemini/antigravity-acp` (`agy acp`), read in that order. The
+      store's own `settings.json` marks API-key use: `modelProvider: "gemini"`
+      for the CLI, `auth.type: "gemini-api-key"` for ACP. Neither file holds the
+      key. That marker decides for the store's whole history, so calls made
+      before a switch between Google sign-in and an API key are attributed by
+      today's mode. The upgrade, if switching modes ever matters, is the
+      per-call `api_provider` in `conversations/<id>.db` `gen_metadata`
+      (24 = `API_PROVIDER_GOOGLE_GEMINI`).
+- [x] **The transcript is read, not `gen_metadata`.** The transcript is plain
+      JSON the codebase already parses; the database is protobuf. The two
+      agreed call for call on 50 real calls over 7 conversations, and no
+      `step_index` repeats. Verified against `agy` 1.5.15. A call cut off before
+      the answer has no token keys and adds nothing.
 - [x] **The CLI's JSONL appends the same call twice.** Verified against Gemini
       CLI 0.58.0's bundled `ChatRecordingService`: a `gemini` record is written
       as soon as the answer starts, and written *again* with the same `id` once
@@ -1165,8 +1189,8 @@ it and then notice when the answer changes.
       billed. Honouring the rewind would make the notch quietly under-report
       exactly when someone is iterating hardest.
 - [x] Buckets are **local month and local day**, not UTC. Every timestamp on
-      disk is UTC, but the bill and the user's "today" are local, and the three
-      rows in the tooltip have to agree on where the boundary is — so all three
+      disk is UTC, but the bill and the user's "today" are local, and the rows
+      in the tooltip have to agree on where the boundary is — so all four
       readers feed one routine, `GeminiTokenUsage.bucket`. Reading a UTC
       timestamp as local time here would repeat the bug `procStart` and
       `AntigravityActivity` each hit once already — the same mistake a third
@@ -1187,28 +1211,49 @@ it and then notice when the answer changes.
       prices change under an app that ships every few weeks, so a currency
       figure would go stale silently. Either way the tooltip keeps its `~` — the
       number is assembled here, not quoted from Google.
-- [x] Counts are compacted for the ring (`651k`, `1.1M`). A 44 pt ring cannot
-      hold seven digits, and below 10 000 the digits are printed verbatim so no
-      existing request or credit count changes.
+- [x] Every token figure on this card, the ring's included, is printed by
+      `UsageFormat.tokens`, the formatter behind the Claude Code and Codex
+      token section (`651K`, `80.0M`, `35.60B`), so the cards read alike. The
+      figures travel as `usedText`, which is why the ring follows. With a
+      budget the line under the bar reads month-to-date over the ceiling
+      (`651K / 2.0M tokens`) and the budget is no longer in the label.
+      `LimitWindow.compact` is unchanged and still serves the other providers.
 - [x] Busy detection watches **Gemini CLI**, by modification date: the session
       file holds no pid, so `ProcessLiveness` has nothing to verify, but the CLI
       patches `lastUpdated` on every message — the same mtime substitute
-      Antigravity and Cursor use. The ring now merges three readers under
-      `gemini-api`, in tooltip order (Gemini CLI, OpenCode, Hermes), because
-      OpenCode's and Hermes's databases do carry a per-call marker that is
-      unambiguously a Gemini call, even though their mtimes alone would report
-      work that is not this provider's. OpenCode's marker is the newest
-      assistant message in a recently updated session with `providerID =
+      Antigravity and Cursor use. The ring now merges four readers under
+      `gemini-api`, in tooltip order (Gemini CLI, OpenCode, Hermes, Antigravity
+      CLI), because OpenCode's and Hermes's databases do carry a per-call
+      marker that is unambiguously a Gemini call, even though their mtimes alone
+      would report work that is not this provider's. OpenCode's marker is the
+      newest assistant message in a recently updated session with `providerID =
       google` and no `time.completed`; sub-agent sessions fold into their
       parent via `parent_id`, and the query is restricted to
       `session.time_updated` within 45 s because `message` has no time index.
       Hermes's marker is an open (`ended_at IS NULL`) session with
       `billing_provider = gemini` whose `last_activity_at` is within 45 s, or an
-      unexpired row in `session_turn_leases`. None of the three tools persists
-      a "waiting for the user" state on disk — OpenCode exposes one only on its
-      password-protected local server's SSE stream — so the provider reports
-      busy or nothing, like Cursor and Antigravity, not Claude's busy/waiting/
-      idle.
+      unexpired row in `session_turn_leases`. Antigravity CLI is reported
+      through Antigravity's own transcript reader: an `agy` turn in an API-key
+      store spins this ring and is dropped from the Antigravity ring, so one
+      turn does not spin two. That also makes it the one source here that can
+      report waiting, because its transcript can say waiting or complete. The
+      other three tools do not persist a "waiting for the user" state on disk —
+      OpenCode exposes one only on its password-protected local server's SSE
+      stream — so for them the provider reports busy or nothing, like Cursor
+      and Antigravity, not Claude's busy/waiting/idle.
+- [x] **Antigravity CLI is read from its step status, not from how recently it
+      wrote.** The transcript only gains a step once it is finished, so a long
+      model answer or a long command is silence, and a command moved to the
+      background leaves a transcript that reads as a finished turn.
+      `conversations/<id>.db` `steps.status` says what is in flight: 3 done,
+      7 error, 6 cancelled, 2 a tool running, 8 the model generating, 9 a tool
+      waiting for the user's approval. Observed on `agy` 1.5.18 by sampling
+      five probe sessions; the earlier check read 2 as "waiting for permission"
+      and was wrong. A live step is believed for ten minutes of silence because
+      a hard-killed `agy` leaves its row behind. A conversation other than the
+      newest counts only when its database shows a live step, so parallel
+      sessions do not hide each other. `finish` is how a sub-agent ends its
+      turn.
 - [x] **Two departures from the provider template**, both deliberate. The
       protocol extension's default `signInRoute` offers to sign in, and here
       there is nothing to sign into, so this provider overrides it with a
