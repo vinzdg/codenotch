@@ -26,8 +26,6 @@ final class NotchWindowController {
     /// **Refresh now** and always fetches; this one may decide it has fetched
     /// recently enough. See `UsageStore.refreshBecauseSomeoneIsLooking`.
     var onLook: (() -> Void)?
-    /// One "Sign in to …" item per provider that needs a browser session.
-    var signInItems: [(title: String, action: () -> Void)] = []
     /// Driven by the notch's own chrome.
 
     /// Refetch a single provider, asked for by clicking its ring.
@@ -2130,7 +2128,7 @@ final class NotchWindowController {
         hoveredIndex != nil
     }
 
-    private func contextMenu() -> NSMenu {
+    func contextMenu() -> NSMenu {
         Log.usage.debug("context menu opened")
         let menu = NSMenu()
         // AppKit otherwise decides enablement itself and overrules the line
@@ -2156,18 +2154,6 @@ final class NotchWindowController {
         refresh.isEnabled = true
         menu.addItem(refresh)
 
-        for (index, entry) in signInItems.enumerated() {
-            let item = NSMenuItem(
-                title: entry.title,
-                action: #selector(MenuActions.signIn(_:)),
-                keyEquivalent: ""
-            )
-            item.target = menuActions
-            item.tag = index
-            item.isEnabled = true
-            menu.addItem(item)
-        }
-
         // The dock style draws no settings button, so this is the way to
         // Settings from the notch itself there.
         let settings = NSMenuItem(
@@ -2189,7 +2175,6 @@ final class NotchWindowController {
 
     private lazy var menuActions = MenuActions(
         refresh: { [weak self] in self?.onRefresh?() },
-        signIn: { [weak self] index in self?.signInItems[safe: index]?.action() },
         togglePinned: { [weak self] in self?.togglePinned() },
         openSettings: { [weak self] in self?.onOpenSettings?() }
     )
@@ -2200,18 +2185,15 @@ final class NotchWindowController {
 /// with closures cannot be directly.
 final class MenuActions: NSObject {
     private let refresh: () -> Void
-    private let signIn: (Int) -> Void
     private let pin: () -> Void
     private let settings: () -> Void
 
     init(
         refresh: @escaping () -> Void,
-        signIn: @escaping (Int) -> Void,
         togglePinned: @escaping () -> Void,
         openSettings: @escaping () -> Void
     ) {
         self.refresh = refresh
-        self.signIn = signIn
         self.pin = togglePinned
         self.settings = openSettings
     }
@@ -2219,11 +2201,6 @@ final class MenuActions: NSObject {
     @objc func refreshNow(_ sender: Any?) { refresh() }
     @objc func togglePinned(_ sender: Any?) { pin() }
     @objc func openSettings(_ sender: Any?) { settings() }
-
-    @objc func signIn(_ sender: Any?) {
-        guard let item = sender as? NSMenuItem else { return }
-        signIn(item.tag)
-    }
 }
 
 extension Array {

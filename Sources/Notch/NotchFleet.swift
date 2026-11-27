@@ -123,7 +123,6 @@ final class NotchFleet {
     var onFocusSession: ((pid_t) -> Void)? {
         didSet { menuModel.onFocusSession = onFocusSession }
     }
-    var signInItems: [(title: String, action: () -> Void)] = []
     /// An ⌥-drag on any one panel settled at a new offset. Persisting it is
     /// Preferences' job, same division `apply(edge:)` already keeps.
     var onReposition: ((CGFloat) -> Void)?
@@ -606,7 +605,6 @@ final class NotchFleet {
         controller.model.updatePending = updatePending
         controller.onReposition = onReposition
         controller.onMoveToEdge = onMoveToEdge
-        controller.signInItems = signInItems
         controller.model.updateSnapshots(snapshots)
         controller.model.thinkingModels = thinkingModels
         controller.model.localActivities = mergedLocalActivities
