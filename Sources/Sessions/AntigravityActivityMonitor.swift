@@ -173,8 +173,12 @@ final class AntigravityActivityMonitor: AgentActivityMonitor {
             
             if let db = SQLiteStore.open(dbURL) {
                 defer { sqlite3_close(db) }
+                // `status` is Antigravity's CortexStepStatus: 9 is WAITING,
+                // the step held for the person's approval. 2 is RUNNING, the
+                // newest step of every tool call in flight, and reading that
+                // as a wait peeked the notch once per tool in a busy turn.
                 let rows = SQLiteStore.rows(in: db, sql: "SELECT status FROM steps ORDER BY idx DESC LIMIT 1")
-                if let first = rows.first, first.first == "2" {
+                if rows.first == "9" {
                     state = .waiting
                     waitingFor = L10n.t("Permission")
                 }

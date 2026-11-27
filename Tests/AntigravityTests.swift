@@ -1206,6 +1206,46 @@ final class AntigravityActivityMonitorTests: XCTestCase {
         XCTAssertEqual(sessions.first?.detail, "Question")
     }
 
+    // MARK: - The conversation's own step status
+
+    /// A turn mid tool call, laid out the way Antigravity keeps it: the
+    /// transcript under `brain/<id>`, and beside `brain` the conversation's
+    /// database, whose newest step carries a CortexStepStatus.
+    private func turnInFlight(newestStepStatus: Int) throws -> URL {
+        let brain = root.appendingPathComponent("brain")
+        let logs = brain.appendingPathComponent("c1/.system_generated/logs")
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        try """
+        {"type": "USER_INPUT"}
+        {"type": "PLANNER_RESPONSE", "tool_calls": [{"name": "run_command"}]}
+        """.write(to: logs.appendingPathComponent("transcript.jsonl"), atomically: true, encoding: .utf8)
+
+        let conversations = root.appendingPathComponent("conversations")
+        try FileManager.default.createDirectory(at: conversations, withIntermediateDirectories: true)
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(conversations.appendingPathComponent("c1.db").path, &db), SQLITE_OK)
+        sqlite3_exec(db, "CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER, status INTEGER);", nil, nil, nil)
+        sqlite3_exec(db, "INSERT INTO steps VALUES (0, 14, 3), (1, 15, 3), (2, 21, \(newestStepStatus));", nil, nil, nil)
+        sqlite3_close(db)
+        return brain
+    }
+
+    /// 2 is CORTEX_STEP_STATUS_RUNNING: every tool call in flight. Read as a
+    /// wait, each one flipped busy to waiting and peeked the notch (#584).
+    func testARunningStepIsWorkNotAWait() throws {
+        let sessions = AntigravityActivityMonitor.read(root: try turnInFlight(newestStepStatus: 2), staleAfter: 45)
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertEqual(sessions.first?.state, .busy)
+    }
+
+    /// 9 is CORTEX_STEP_STATUS_WAITING, the step held for the person's approval.
+    func testAWaitingStepAsksForPermission() throws {
+        let sessions = AntigravityActivityMonitor.read(root: try turnInFlight(newestStepStatus: 9), staleAfter: 45)
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertEqual(sessions.first?.state, .waiting)
+        XCTAssertEqual(sessions.first?.detail, "Permission")
+    }
+
     func testNoTranscriptsIsQuietRatherThanAnError() {
         let absent = root.appendingPathComponent("nowhere")
         XCTAssertTrue(AntigravityActivityMonitor.read(root: absent, staleAfter: 45).isEmpty)
