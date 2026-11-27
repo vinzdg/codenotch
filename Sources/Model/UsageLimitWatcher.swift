@@ -69,11 +69,19 @@ final class UsageLimitWatcher {
             // the session's: counting it here would fire a session card
             // claiming the session itself spent while it still shows room.
             let blockedBeyondWeekly = snapshot.block.map { !$0.isWeeklyExhaustion } ?? false
-            let isExhausted = fraction >= 1.0 || blockedBeyondWeekly
+            // A headline with a band override has already said whether it
+            // is spent, and its fraction is not a share used: a custom
+            // endpoint showing what is left stores the remaining share there.
+            // Read as a share used, a refilled budget announced "limit
+            // reached" and a budget spent to nothing never did. The re-arm
+            // follows the same rule, or a spent budget (fraction 0) would be
+            // announced again on every refresh.
+            let isExhausted = snapshot.headlineIsSpent || blockedBeyondWeekly
+            let hasRoomAgain = headline.bandOverride.map { $0 != .exhausted } ?? (fraction < 0.95)
 
             let dateRolledOver = rolledOver(from: state.session.resetsAt, to: headline.resetsAt)
 
-            if dateRolledOver || fraction < 0.95 {
+            if dateRolledOver || hasRoomAgain {
                 state.session.isExhausted = false
             }
 
