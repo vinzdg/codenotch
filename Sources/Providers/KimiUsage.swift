@@ -11,15 +11,20 @@ import Foundation
 ///           "resetTime":"2026-09-15T19:39:34.389610Z"},
 ///  "limits":[{"window":{"duration":300,"timeUnit":"TIME_UNIT_MINUTE"},
 ///             "detail":{"limit":"100","used":"8","remaining":"92",
+///                       "resetTime":"2026-09-11T16:39:34.389610Z"}},
+///            {"model":"kimi-k",
+///             "window":{"duration":300,"timeUnit":"TIME_UNIT_MINUTE"},
+///             "detail":{"limit":"50","used":"5","remaining":"45",
 ///                       "resetTime":"2026-09-11T16:39:34.389610Z"}}]}
 /// ```
 ///
 /// Two shapes of the same row: `usage` is the account summary (the weekly
 /// window — the CLI assumes a week when no window is stated), each `limits[]`
-/// entry names its own window. Counts arrive as decimal *strings*, and a
-/// 300-minute window is the 5-hour one — minute durations divisible by 60 are
-/// normalised to hours, as the CLI does. The Extra Usage wallet
-/// (`boosterWallet`) is money, not a window, and is left out here.
+/// entry names its own window. When an entry is dedicated to a model (e.g.
+/// Kimi K), the `model` attribute identifies the quota family. Counts arrive
+/// as decimal *strings*, and a 300-minute window is the 5-hour one — minute
+/// durations divisible by 60 are normalised to hours, as the CLI does. The Extra
+/// Usage wallet (`boosterWallet`) is money, not a window, and is left out here.
 ///
 /// The current `usages` object reports `used_ratio` and `reset_time` for
 /// five-hour, weekly and monthly quotas. It does not report monthly cycle lengths.
@@ -46,9 +51,12 @@ enum KimiUsage {
         }
         for entry in root["limits"] as? [[String: Any]] ?? [] {
             guard let detail = entry["detail"] as? [String: Any],
-                  let (id, label, duration) = windowKind(from: entry["window"])
+                  let (baseId, label, duration) = windowKind(from: entry["window"])
             else { continue }
-            if let window = row(id: id, label: label, from: detail, duration: duration) {
+            let rawModel = (entry["model"] as? String) ?? (detail["model"] as? String)
+            let group = rawModel.map(formatModelGroup)
+            let id = rawModel != nil ? "\(modelSlug(rawModel!))-\(baseId)" : baseId
+            if let window = row(id: id, group: group, label: label, from: detail, duration: duration) {
                 windows.append(window)
             }
         }
@@ -73,6 +81,7 @@ enum KimiUsage {
                 }
             }
         }
+
         guard !windows.isEmpty else {
             throw UsageProviderError.nothingMetered(L10n.t("No Kimi Code usage limits on this account"))
         }
@@ -97,10 +106,32 @@ enum KimiUsage {
                            resetsAt: resetsAt, duration: duration)
     }
 
+    static func formatModelGroup(_ model: String) -> String {
+        let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        if lower == "kimi-k" {
+            return "Kimi K"
+        }
+        if lower.hasPrefix("kimi-k") {
+            let suffix = trimmed.dropFirst("kimi-k".count).trimmingCharacters(in: CharacterSet(charactersIn: "-_ "))
+            return suffix.isEmpty ? "Kimi K" : "Kimi K \(suffix.uppercased())"
+        }
+        if lower.hasPrefix("k3") {
+            return "Kimi \(trimmed.uppercased())"
+        }
+        return trimmed
+    }
+
+    static func modelSlug(_ model: String) -> String {
+        model.lowercased()
+            .replacingOccurrences(of: " ", with: "-")
+            .replacingOccurrences(of: "_", with: "-")
+    }
+
     /// One metered row. Counts are decimal strings in the wire format, but
     /// numbers are accepted too. When Kimi omits `used`, a valid limit and
     /// remaining pair still identifies the quota exactly.
-    private static func row(id: String, label: String,
+    private static func row(id: String, group: String? = nil, label: String,
                             from detail: [String: Any], duration: TimeInterval) -> LimitWindow? {
         let limit = count(detail["limit"])
         let used: Int
@@ -114,10 +145,10 @@ enum KimiUsage {
         }
         let resetsAt = (detail["resetTime"] as? String).flatMap(date(from:))
         guard let limit, limit > 0 else {
-            return LimitWindow(id: id, label: label, used: used,
+            return LimitWindow(id: id, group: group, label: label, used: used,
                                resetsAt: resetsAt, duration: duration)
         }
-        return LimitWindow(id: id, label: label,
+        return LimitWindow(id: id, group: group, label: label,
                            usedFraction: Double(used) / Double(limit),
                            resetsAt: resetsAt, duration: duration)
     }

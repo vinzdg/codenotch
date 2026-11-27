@@ -40,10 +40,11 @@ final class PiResponseMonitorTests: XCTestCase {
 
     func testCompletedCodexAndGrokResponsesMapToTheirUsageProviders() throws {
         try append(message(id: "codex", provider: "openai-codex") + "\n"
-            + message(id: "grok", provider: "xai") + "\n")
+            + message(id: "grok", provider: "xai") + "\n"
+            + message(id: "kimi", provider: "kimi-coding") + "\n")
 
         let result = PiSessionTailReader(startedAt: .distantPast).consume(session)
-        XCTAssertEqual(result.completedUsageProviderIDs, Set(["codex", "grok"]))
+        XCTAssertEqual(result.completedUsageProviderIDs, Set(["codex", "grok", "kimi"]))
     }
 
     func testSeveralCompletedResponsesForOneProviderCoalesce() throws {
@@ -164,6 +165,8 @@ final class PiResponseMonitorTests: XCTestCase {
             ("radius", "gpt-5.6-sol", "codex"),
             ("xai", "grok-4.7", "grok"),
             ("radius", "kimi-k3", "kimi"),
+            ("radius", "kimi-k", "kimi"),
+            ("radius", "k3.1-pro", "kimi"),
             ("minimax", "MiniMax-M2", "minimax"),
             ("ollama", "qwen3", "ollama-local"),
             ("github-copilot", "gpt-5", "copilot"),

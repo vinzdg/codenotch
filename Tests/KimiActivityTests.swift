@@ -76,6 +76,31 @@ final class KimiTurnTests: XCTestCase {
         guard case .finished = turn else { return XCTFail("expected finished, got \(String(describing: turn))") }
     }
 
+    func testAKimiKAgentRecordIsTracked() {
+        let turn = KimiActivity.turn(inTail: tail([
+            #"{"type":"turn.ended","agentId":"main","time":1789140953000}"#,
+            #"{"type":"turn.prompt","agentId":"kimi-k","time":1789140954000}"#,
+        ]))
+        guard case .busy = turn else { return XCTFail("expected busy for Kimi K agent, got \(String(describing: turn))") }
+    }
+
+    func testModelIsExtractedFromWire() {
+        let model1 = KimiActivity.model(inTail: tail([
+            #"{"type":"turn.prompt","agentId":"main","model":"kimi-k3"}"#
+        ]))
+        XCTAssertEqual(model1, "Kimi K3")
+
+        let model2 = KimiActivity.model(inTail: tail([
+            #"{"type":"context.append_loop_event","agentId":"main","event":{"type":"llm.request","model":"kimi-k3.1-pro"}}"#
+        ]))
+        XCTAssertEqual(model2, "Kimi K3.1 Pro")
+
+        let model3 = KimiActivity.model(inTail: tail([
+            #"{"type":"turn.prompt","agentId":"kimi-k"}"#
+        ]))
+        XCTAssertEqual(model3, "Kimi K")
+    }
+
     func testUnrelatedRecordsAndBrokenLinesAreSkipped() {
         let turn = KimiActivity.turn(inTail: tail([
             #"{"type":"turn.prompt","agentId":"main","time":1789140953000}"#,
@@ -132,6 +157,16 @@ final class KimiActivitySessionTests: XCTestCase {
         XCTAssertEqual(session.detail,
                        SessionFocus.owningApp(of: getpid())?.localizedName ?? "Terminal")
         XCTAssertEqual(session.processID, getpid())
+    }
+
+    func testSessionDetailIncludesModelWhenPresent() throws {
+        let now = Date()
+        _ = try wire([
+            #"{"type":"turn.prompt","agentId":"main","model":"kimi-k3","time":\#(Int(now.timeIntervalSince1970 * 1000))}"#
+        ], modified: now)
+        let session = try XCTUnwrap(session(now: now))
+        let surface = SessionFocus.owningApp(of: getpid())?.localizedName ?? "Terminal"
+        XCTAssertEqual(session.detail, "\(surface) · Kimi K3")
     }
 
     /// A turn whose wire has not moved in longer than the stale window is a
