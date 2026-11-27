@@ -1,6 +1,7 @@
 import AppKit
 import CoreTransferable
 import SwiftUI
+import ApplicationServices
 import Combine
 
 /// A Liquid Glass background that falls back to a regular material on macOS
@@ -26,7 +27,7 @@ extension View {
 /// crossing-and-notification machinery it switches is Notifications' to
 /// explain.
 private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
-    case accounts, phone, deepseek, ollama, lmstudio, omlx, customEndpoints, remoteHosts, appearance, notifications, costs, general
+    case accounts, phone, deepseek, ollama, lmstudio, omlx, customEndpoints, remoteHosts, appearance, codedock, notifications, costs, general
 
     /// The sections the sidebar lists; Phone only once pairing is offered.
     static var visible: [SettingsSection] {
@@ -38,9 +39,12 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     /// Appearance and General, where they read as app-wide settings.
     static let providerPanes: [SettingsSection] = [.deepseek, .ollama, .lmstudio, .omlx, .customEndpoints, .remoteHosts]
 
+    /// Folded under Appearance: features with a look of their own.
+    static let appearancePanes: [SettingsSection] = [.codedock]
+
     /// The sidebar's own rows: everything visible that is not nested.
     static var topLevel: [SettingsSection] {
-        visible.filter { !providerPanes.contains($0) }
+        visible.filter { !providerPanes.contains($0) && !appearancePanes.contains($0) }
     }
 
     var id: String { rawValue }
@@ -56,11 +60,15 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .customEndpoints: return L10n.t("Custom Endpoints")
         case .remoteHosts:    return L10n.t("Remote Hosts")
         case .appearance:    return L10n.t("Appearance")
+        case .codedock:      return "Codedock"
         case .notifications: return L10n.t("Notifications")
         case .costs:         return L10n.t("Costs")
         case .general:       return L10n.t("General")
         }
     }
+
+    /// Marked "New" in the sidebar: a feature that has just arrived.
+    var isNew: Bool { self == .codedock }
 
     /// The provider's own logo, for the sections that are one provider's
     /// settings; nil for the app's own sections, which use a symbol.
@@ -86,6 +94,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .customEndpoints: return L10n.t("OpenAI-compatible APIs, local runtimes and custom proxies.")
         case .remoteHosts:    return L10n.t("Claude and Codex accounts on servers you reach over SSH.")
         case .appearance:    return L10n.t("How the notch looks and where it sits.")
+        case .codedock:      return L10n.t("A pill beside the Dock that talks to your Claude Code sessions.")
         case .notifications: return L10n.t("What Codenotch tells you, and when.")
         case .costs:         return L10n.t("What each project spent of each login's allowance.")
         case .general:       return L10n.t("Startup, updates and everything else.")
@@ -103,6 +112,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .customEndpoints: return "network"
         case .remoteHosts:    return "server.rack"
         case .appearance:    return "paintbrush.fill"
+        case .codedock:      return "dock.rectangle"
         case .notifications: return "bell.badge.fill"
         case .costs:         return "banknote.fill"
         case .general:       return "gearshape.fill"
@@ -123,6 +133,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .customEndpoints: return .indigo
         case .remoteHosts:    return .orange
         case .appearance:    return .indigo
+        case .codedock:      return .orange
         case .notifications: return .red
         case .costs:         return .mint
         case .general:       return .gray
@@ -214,6 +225,15 @@ private struct SettingsSidebarRow: View {
                     .font(.system(size: 13, weight: isSelected ? .medium : .regular))
                     .foregroundStyle(.white.opacity(isSelected ? 0.95 : isHovered ? 0.92 : 0.78))
                     .lineLimit(1)
+                if section.isNew {
+                    Text(L10n.t("New"))
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1.5)
+                        .background(Capsule().fill(section.tint.opacity(0.9)))
+                        .fixedSize()
+                }
                 Spacer(minLength: 4)
                 // A newer version waiting — see `Updater.pending`.
                 if badge {
@@ -420,6 +440,7 @@ struct SettingsView: View {
     /// Whether Accounts shows its provider panes. Remembered, so someone who
     /// folds the group away finds it folded next time.
     @AppStorage("settingsAccountsExpanded") private var accountsExpanded = true
+    @AppStorage("settingsAppearanceExpanded") private var appearanceExpanded = true
     @Namespace private var selectionSpace
     /// The provider being dragged right now.
     ///
@@ -617,9 +638,19 @@ struct SettingsView: View {
                             selectionSpace: selectionSpace,
                             count: section == .accounts ? connectedCount : nil,
                             badge: section == .general && updater.pending != nil,
-                            disclosure: section == .accounts ? $accountsExpanded : nil,
+                            disclosure: section == .accounts ? $accountsExpanded
+                                : section == .appearance ? $appearanceExpanded : nil,
                             select: { selectSection(section) }
                         )
+                        if section == .appearance, appearanceExpanded {
+                            ForEach(SettingsSection.appearancePanes) { child in
+                                SettingsSidebarRow(section: child,
+                                                   isSelected: selection == child,
+                                                   selectionSpace: selectionSpace,
+                                                   indent: true,
+                                                   select: { selectSection(child) })
+                            }
+                        }
                         if section == .accounts, accountsExpanded {
                             ForEach(SettingsSection.providerPanes) { child in
                                 SettingsSidebarRow(section: child,
@@ -665,6 +696,7 @@ struct SettingsView: View {
         .onChange(of: selection) { section in
             if section == .accounts { accounts = providers() }
             if SettingsSection.providerPanes.contains(section) { accountsExpanded = true }
+            if SettingsSection.appearancePanes.contains(section) { appearanceExpanded = true }
         }
         .frame(width: SettingsView.sidebarWidth)
         .frame(maxHeight: .infinity)
@@ -754,6 +786,7 @@ struct SettingsView: View {
         case .remoteHosts:
             RemoteHostsSettingsView(preferences: preferences)
         case .appearance:    appearancePane
+        case .codedock:      codedockPane
         case .notifications: notificationsPane
         case .general:       generalPane
         }
@@ -855,6 +888,62 @@ struct SettingsView: View {
     // where it turns up. Split across several it read as unrelated settings,
     // and "Where Codenotch appears" was a header long enough to look like a
     // warning.
+    /// Codedock: the pill beside the Dock. Its switch, and the two things it
+    /// needs from macOS and the editor to do its job, said plainly.
+    private var codedockPane: some View {
+        Form {
+            Section {
+                Toggle(L10n.t("Show Codedock beside the Dock"), isOn: $preferences.codedockEnabled)
+                Text(L10n.t("A pill next to the Dock with the ring of the Claude session you are talking to, what it is doing, and a line to send it a message. Click its repository to step to the next session; the arrow lists them all."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if preferences.codedockEnabled {
+                Section(L10n.t("Colour")) {
+                    Picker(L10n.t("Look"), selection: $preferences.codedockLook) {
+                        ForEach(DockTheme.allCases) { Text($0.title).tag($0.rawValue) }
+                    }
+                    .pickerStyle(.segmented)
+                    Text(L10n.t("Match the Dock uses the Dock's own frosted glass. Flat White and Flat Black are solid, with text to match."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Section(L10n.t("Position")) {
+                    Picker(L10n.t("Beside the Dock"), selection: $preferences.codedockOnLeft) {
+                        Text(L10n.t("Left")).tag(true)
+                        Text(L10n.t("Right")).tag(false)
+                    }
+                    .pickerStyle(.segmented)
+                    Text(L10n.t("It moves to the other side when there is no room."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Section(L10n.t("What it needs")) {
+                    LabeledContent(L10n.t("Accessibility")) {
+                        if AXIsProcessTrusted() {
+                            Text(L10n.t("Allowed")).foregroundStyle(.secondary)
+                        } else {
+                            Button(L10n.t("Allow…")) {
+                                let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+                                _ = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
+                            }
+                        }
+                    }
+                    Text(L10n.t("To sit level with the Dock's icons, and to type into terminals other than Terminal and iTerm2."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(L10n.t("Sessions in VS Code, Cursor or Windsurf are reached through a small extension Codenotch installs there the first time you send to one. Reload the editor's window once after that."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
     private var appearancePane: some View {
         Form {
             Section(L10n.t("Notch")) {

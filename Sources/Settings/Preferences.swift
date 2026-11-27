@@ -7,6 +7,14 @@ import os
 @MainActor
 final class Preferences: ObservableObject {
     static let showUsagePaceKey = "showUsagePace"
+    /// Codedock: the pill beside the Dock that types into a running Claude
+    /// Code session. Off unless chosen — it floats over the desktop and asks
+    /// for Accessibility, neither of which belongs to someone who has not.
+    static let codedockKey = "codedockEnabled"
+    /// Which side of the Dock Codedock sits on: "right" (the default) or "left".
+    static let codedockSideKey = "codedockSide"
+    /// Codedock's colour: "dark" (the default) or "dock", the Dock's glass.
+    static let codedockLookKey = "codedockLook"
     /// Beside `showUsagePaceKey` rather than inside `Keys`: the tooltip card
     /// reads it straight from the store, and `Keys` is private.
     static let showsRemainingInNotchKey = "showsRemainingInNotch"
@@ -247,6 +255,18 @@ final class Preferences: ObservableObject {
 
     @Published var showUsagePace: Bool {
         didSet { defaults.set(showUsagePace, forKey: Self.showUsagePaceKey) }
+    }
+
+    @Published var codedockEnabled: Bool {
+        didSet { defaults.set(codedockEnabled, forKey: Self.codedockKey) }
+    }
+
+    @Published var codedockLook: String {
+        didSet { defaults.set(codedockLook, forKey: Self.codedockLookKey) }
+    }
+
+    @Published var codedockOnLeft: Bool {
+        didSet { defaults.set(codedockOnLeft ? "left" : "right", forKey: Self.codedockSideKey) }
     }
 
     /// Whether pointing at a ring, or opening the menu bar's menu, refuses every
@@ -1264,6 +1284,9 @@ final class Preferences: ObservableObject {
         self.resetTimeFormat = defaults.string(forKey: Keys.resetTimeFormat)
             .flatMap(ResetTimeFormat.init(rawValue:)) ?? .automatic
         self.showUsagePace = defaults.bool(forKey: Self.showUsagePaceKey)
+        self.codedockEnabled = defaults.bool(forKey: Self.codedockKey)
+        self.codedockOnLeft = defaults.string(forKey: Self.codedockSideKey) == "left"
+        self.codedockLook = defaults.string(forKey: Self.codedockLookKey) ?? "dark"
         // Off by default: see the property. A request spent on every look is a
         // choice, and on a rate-limited provider it can cost freshness rather
         // than buy it.

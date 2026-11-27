@@ -48,6 +48,17 @@ final class ClaudeSessionRecordTests: XCTestCase {
         """)).state, .idle)
     }
 
+    /// "shell": done and waiting for you, with a background shell — a dev
+    /// server — still running. It says so itself, so the transcript, whose
+    /// last word is the prompt it answered, does not get to call it working.
+    func testAShellLeftRunningIsIdleAndSaysSo() throws {
+        let r = try XCTUnwrap(record("""
+        { "pid": 1, "cwd": "/tmp/x", "status": "shell", "sessionId": "s" }
+        """))
+        XCTAssertEqual(r.session.state, .idle)
+        XCTAssertTrue(r.reportsStatus)
+    }
+
     func testFallsBackToTheFolderWhenUnnamed() throws {
         XCTAssertEqual(try XCTUnwrap(session("""
         { "pid": 1, "cwd": "/Users/vinz/notch-app", "status": "idle" }

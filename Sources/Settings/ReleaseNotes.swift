@@ -32,6 +32,36 @@ enum ReleaseNotes {
     static var all: [ReleaseNote] {
         [
             ReleaseNote(
+                version: "1.27.0",
+                headline: L10n.t("Codedock: a pill beside the Dock to talk to your Claude Code sessions without leaving what you are doing."),
+                changes: [
+                    ReleaseNote.Change(
+                        title: L10n.t("Codedock"),
+                        detail: L10n.t("Turn it on in Settings → Appearance → Codedock. It shows the session's usage ring and what Claude is doing right now, and sends what you type straight into its terminal — VS Code, Cursor, Terminal, iTerm2 and more.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("Every session, one click away"),
+                        detail: L10n.t("Step through sessions by their repository, or open the list grouped by repository and branch.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("Slash commands, questions and the conversation"),
+                        detail: L10n.t("Type / for Claude Code's commands, /model and others with their options; answer Claude's questions; open the latest exchange; and stop a turn with Esc.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("Images inline"),
+                        detail: L10n.t("Paste or drop an image and it sits in the sentence as a small frame.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("Your look"),
+                        detail: L10n.t("Dark, Match the Dock, Flat Black or Flat White, on the left or the right of the Dock.")
+                    ),
+                    ReleaseNote.Change(
+                        title: L10n.t("More"),
+                        detail: L10n.t("A Claude session with a shell left running in the background now reads as ready, not working.")
+                    ),
+                ]
+            ),
+            ReleaseNote(
                 version: "1.26.0",
                 headline: L10n.t("The notch folds into the Mac's own cutout and joins it as one liquid shape, menu bar bars, a font size setting, and Korean, Ukrainian and Chinese brought up to date."),
                 changes: [

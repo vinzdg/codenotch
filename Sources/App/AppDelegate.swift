@@ -10,6 +10,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var phoneLinkPairing: PhoneLinkPairing?
     var phoneLinkRegistry: PhoneLinkRegistry?
     private var activityCoordinator: ActivityCoordinator?
+    /// Codedock: the pill beside the Dock that types into a running Claude
+    /// Code session. Only while the preference is on.
+    private var dockChat: DockChatController?
+    private var codedockMonitors: [(ClaudeProfile, ClaudeSessionMonitor)] = []
+
+    /// Shows or takes away Codedock to match the preference, following the
+    /// Claude sessions the monitors currently watch.
+    @MainActor private func applyCodedock() {
+        guard !isRunningTests, preferences?.codedockEnabled == true, let fleet = notchFleet else {
+            dockChat?.close()
+            dockChat = nil
+            return
+        }
+        // The menu's model is fed every reading the notch is, so the pill
+        // draws the very ring the notch does.
+        if dockChat == nil { dockChat = DockChatController(usage: fleet.menuModel) }
+        dockChat?.watch(codedockMonitors.map { (profile: $0.0, monitor: $0.1) })
+    }
     private var piResponseMonitor: PiResponseMonitor?
     private var openCodeActivityBridge: OpenCodeActivityBridge?
     private var ollamaRelay: OllamaActivityRelay?
@@ -121,6 +139,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // notch would already have flashed on the default edge.
         let fleet = NotchFleet(scope: preferences.notchScope, edge: preferences.notchEdge)
         self.notchFleet = fleet
+        preferences.$codedockEnabled
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.applyCodedock() }
+            .store(in: &cancellables)
 
         // `CODENOTCH_DEMO=1` puts the design frame's three providers and one
         // local model on screen with its numbers, for screenshots and for
@@ -1111,6 +1135,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             claudeMonitorsByProfile.append((profile, monitor))
             monitors[profile.id] = monitor
         }
+        codedockMonitors = claudeMonitorsByProfile
+        applyCodedock()
 
         // With one profile there is nothing to attribute: every session in the
         // directory is that account's, by definition. With two or more there

@@ -73,6 +73,12 @@ struct ClaudeSessionRecord {
         case ("blocked", _), (_, "waiting"): (state, reportsStatus) = (.waiting, true)
         case ("active", _), (_, "busy"):     (state, reportsStatus) = (.busy, true)
         case ("idle", _), (_, "idle"):       (state, reportsStatus) = (.idle, true)
+        // Claude is done and waiting for you, with a shell it started — a dev
+        // server, say — still running in the background. Left to the
+        // transcript, whose last word was the prompt it answered, a session
+        // like that read as working for as long as the server ran, and its
+        // Stop had nothing to stop.
+        case (_, "shell"):                   (state, reportsStatus) = (.idle, true)
         default:                             (state, reportsStatus) = (.idle, false)
         }
 
