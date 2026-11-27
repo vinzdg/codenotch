@@ -103,20 +103,50 @@ fn resolved_lang(raw: &str) -> String {
     }
 }
 
+/// Recovers the inner value from a poisoned mutex rather than cascading a panic across every
+/// background thread that touches shared state (#316).
+pub(crate) fn lock_or_recover<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+pub(crate) fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    let raw = if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "non-string panic payload".to_string()
+    };
+    raw.chars().take(300).collect()
+}
+
+/// Release builds run with `windows_subsystem = "windows"` and have no stderr, so an unhandled
+/// panic on a background thread would otherwise vanish without leaving a trace in run.log (#316).
+fn install_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current().name().unwrap_or("unnamed").to_string();
+        let where_at = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "unknown location".into());
+        let msg = panic_message(info.payload());
+        applog(&format!("PANIC on thread {thread} at {where_at}: {msg}"));
+        default_hook(info);
+    }));
+}
+
 /// The notch size chosen in Settings: Small, Medium or Large, as a multiple of the designed size.
 pub fn ui_scale(app: &AppHandle) -> f64 {
     let st = app.state::<AppState>();
-    let c = st.cfg.lock().unwrap();
+    let c = lock_or_recover(&st.cfg);
     config::snap_scale(c.scale)
 }
 
 pub fn broadcast(app: &AppHandle) {
     let st = app.state::<AppState>();
-    let snap = {
-        let store = st.store.lock().unwrap();
-        let cfg = st.cfg.lock().unwrap();
-        store.snapshot(&cfg.lang, &resolved_lang(&cfg.lang), i18n::clock_24h(), false)
-    };
+    let lang = lock_or_recover(&st.cfg).lang.clone();
+    let snap = lock_or_recover(&st.store).snapshot(&lang, &resolved_lang(&lang), i18n::clock_24h(), false);
     let _ = app.emit("state", &snap);
 }
 
@@ -585,14 +615,13 @@ pub fn apply_lang(app: &AppHandle, lang: &str) {
 
 #[tauri::command]
 fn get_state(state: tauri::State<AppState>) -> state::Snapshot {
-    let store = state.store.lock().unwrap();
-    let cfg = state.cfg.lock().unwrap();
-    store.snapshot(&cfg.lang, &resolved_lang(&cfg.lang), i18n::clock_24h(), false)
+    let lang = lock_or_recover(&state.cfg).lang.clone();
+    lock_or_recover(&state.store).snapshot(&lang, &resolved_lang(&lang), i18n::clock_24h(), false)
 }
 
 #[tauri::command]
 fn get_usage(state: tauri::State<AppState>) -> usage::UsageSnapshot {
-    state.usage.lock().unwrap().clone()
+    lock_or_recover(&state.usage).clone()
 }
 
 #[tauri::command]
@@ -1020,7 +1049,7 @@ fn log_js(msg: String) {
 fn focus_session(app: AppHandle, id: String) -> bool {
     let ppid = {
         let st = app.state::<AppState>();
-        let store = st.store.lock().unwrap();
+        let store = lock_or_recover(&st.store);
         store.ppid_of(&id)
     };
     match ppid {
@@ -1033,7 +1062,7 @@ fn focus_session(app: AppHandle, id: String) -> bool {
 fn dismiss_session(app: AppHandle, id: String) {
     {
         let st = app.state::<AppState>();
-        let mut store = st.store.lock().unwrap();
+        let mut store = lock_or_recover(&st.store);
         store.dismiss(&id);
     }
     broadcast(&app);
@@ -1371,18 +1400,18 @@ fn lane_is(w: &usage::LimitWindow, limit: &str) -> bool {
 pub(crate) fn snapshot_of(app: &AppHandle, id: &str) -> usage::UsageSnapshot {
     let st = app.state::<AppState>();
     match id {
-        "codex" => st.codex.lock().unwrap().clone(),
-        "cursor" => st.cursor.lock().unwrap().clone(),
-        "grok" => st.grok.lock().unwrap().clone(),
-        "copilot" => st.copilot.lock().unwrap().clone(),
-        "gemini" => st.antigravity.lock().unwrap().clone(),
-        "glm" => st.glm.lock().unwrap().clone(),
-        "deepseek" => st.deepseek.lock().unwrap().clone(),
-        "opencode" => st.opencode.lock().unwrap().clone(),
-        "commandcode" => st.commandcode.lock().unwrap().clone(),
-        "qoder" => st.qoder.lock().unwrap().clone(),
-        "mistral" => st.mistral.lock().unwrap().clone(),
-        _ => st.usage.lock().unwrap().clone(),
+        "codex" => lock_or_recover(&st.codex).clone(),
+        "cursor" => lock_or_recover(&st.cursor).clone(),
+        "grok" => lock_or_recover(&st.grok).clone(),
+        "copilot" => lock_or_recover(&st.copilot).clone(),
+        "gemini" => lock_or_recover(&st.antigravity).clone(),
+        "glm" => lock_or_recover(&st.glm).clone(),
+        "deepseek" => lock_or_recover(&st.deepseek).clone(),
+        "opencode" => lock_or_recover(&st.opencode).clone(),
+        "commandcode" => lock_or_recover(&st.commandcode).clone(),
+        "qoder" => lock_or_recover(&st.qoder).clone(),
+        "mistral" => lock_or_recover(&st.mistral).clone(),
+        _ => lock_or_recover(&st.usage).clone(),
     }
 }
 
@@ -2078,7 +2107,7 @@ fn start_menu_updater(app: AppHandle) {
 fn ack_scan(app: &AppHandle) -> bool {
     let need = {
         let st = app.state::<AppState>();
-        let store = st.store.lock().unwrap();
+        let store = lock_or_recover(&st.store);
         store.has_done()
     };
     if !need {
@@ -2092,7 +2121,7 @@ fn ack_scan(app: &AppHandle) -> bool {
     let fg_name = maps.name.get(&fg).cloned().unwrap_or_default();
     let fg_is_claude_desktop = fg_name.contains("claude") && !fg_name.contains("codenotch");
     let st = app.state::<AppState>();
-    let mut store = st.store.lock().unwrap();
+    let mut store = lock_or_recover(&st.store);
     store.ack_done(|s| {
         if s.ppid == 0 {
             fg_is_claude_desktop
@@ -2194,6 +2223,7 @@ fn adopt_system_proxy() {
 }
 
 fn main() {
+    install_panic_hook();
     #[cfg(windows)]
     adopt_system_proxy();
     let args: Vec<String> = std::env::args().collect();
@@ -2449,7 +2479,7 @@ fn main() {
                 std::thread::sleep(std::time::Duration::from_secs(30));
                 let changed = {
                     let st = sweeper.state::<AppState>();
-                    let mut s = st.store.lock().unwrap();
+                    let mut s = lock_or_recover(&st.store);
                     s.sweep()
                 };
                 if changed {
@@ -2459,7 +2489,7 @@ fn main() {
             // Persist the config (codenotch-hook reads the port from it)
             {
                 let st = handle.state::<AppState>();
-                let c = st.cfg.lock().unwrap();
+                let c = lock_or_recover(&st.cfg);
                 config::save(&c);
             }
             Ok(())

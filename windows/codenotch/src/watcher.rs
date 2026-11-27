@@ -493,7 +493,7 @@ fn push(app: &AppHandle, e: &str, t: &Trk) {
     };
     let changed = {
         let st = app.state::<AppState>();
-        let mut store = st.store.lock().unwrap();
+        let mut store = crate::lock_or_recover(&st.store);
         store.apply(ev)
     };
     if changed {
