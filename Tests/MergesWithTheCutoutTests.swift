@@ -1267,6 +1267,38 @@ final class MergesWithTheCutoutTests: XCTestCase {
         XCTAssertTrue(held.showsCellReading)
     }
 
+    // The number across the cutout is drawn at the font size setting, so the
+    // side carrying it has to be sized at that setting too. Measured at the
+    // standard size, a larger setting left the number squeezed to fit.
+    func testTheSideAcrossTheCutoutFollowsTheFontSize() {
+        let m = oneRing(Notched(), offset: 0, readings: true)
+        XCTAssertTrue(m.readsAcrossTheCutout)
+        let standard = m.readingAcrossTextWidth
+        m.typographyScale = 1.5
+        let larger = m.readingAcrossTextWidth
+        XCTAssertGreaterThan(larger, standard * 1.3, "the side ignored the font size")
+        XCTAssertLessThan(larger, standard * 1.7)
+    }
+
+    // The width is worked out once per number and kept, since the layout asks
+    // for it on every pointer event; it must still be the number on screen.
+    func testTheSideAcrossTheCutoutFollowsTheNumber() {
+        let m = oneRing(Notched(), offset: 0, readings: true)
+        func reading(_ used: Double) -> [ProviderSnapshot] {
+            [ProviderSnapshot(
+                id: "p", displayName: "P", glyph: .claude, fidelity: .official, status: .ok,
+                windows: [LimitWindow(id: "w", label: "Session", usedFraction: used)],
+                headlineID: "w")]
+        }
+        m.snapshots = reading(0.09)
+        let short = m.readingAcrossTextWidth
+        m.snapshots = reading(1)
+        let long = m.readingAcrossTextWidth
+        XCTAssertGreaterThan(long, short, "\"100%\" measured no wider than \"9%\"")
+        m.snapshots = reading(0.09)
+        XCTAssertEqual(m.readingAcrossTextWidth, short)
+    }
+
     private func oneRing(_ screen: ScreenDescribing, offset: CGFloat,
                          readings: Bool) -> NotchViewModel {
         let m = NotchViewModel()
