@@ -35,22 +35,34 @@ final class NotchWindowController {
     /// Open the settings window, asked for by clicking the handle.
     var onOpenSettings: (() -> Void)?
     /// An ⌥-drag on the pill settled at a new `model.alongOffset`. The
-    /// controller only holds the live value; persisting it per edge is
+    /// controller only holds the live value; persisting it per edge and screen is
     /// Preferences' job, the same division `apply(edge:)` already keeps.
-    var onReposition: ((CGFloat) -> Void)?
+    var onReposition: ((CGFloat, NSScreen?) -> Void)?
     /// A move settled on a new edge — and, carried there by an ⌥-drag, where
     /// along it it was let go, as that edge's offset; nil keeps the offset the
     /// edge remembers. The fleet owns writing that to preferences, for the
     /// same reason it owns `onReposition`.
-    var onMoveToEdge: ((NotchEdge, CGFloat?) -> Void)?
+    var onMoveToEdge: ((NotchEdge, CGFloat?, NSScreen?) -> Void)?
 
     private var panel: NotchPanel?
     private var hostingView: NotchHostingView<NotchRootView>?
+
+    /// The scope of this notch (main display only or all displays).
+    var scope: NotchScreenScope = .mainDisplay
 
     /// The display this notch belongs to. Nil follows the menu-bar screen,
     /// which is what a single-controller setup did before the fleet existed —
     /// so leaving it unset changes nothing.
     var assignedScreen: NSScreen?
+
+    /// Provider for mouse location, customizable in unit tests.
+    var mouseLocationProvider: () -> CGPoint = { NSEvent.mouseLocation }
+
+    /// Provider for available screens, customizable in unit tests.
+    var screensProvider: () -> [NSScreen] = { NSScreen.screens }
+
+    /// Provider for display links, customizable in unit tests to avoid hardware CADisplayLink calls.
+    var displayLinkProvider: ((NSScreen, Any, Selector) -> CADisplayLink?)?
     private var cancellables = Set<AnyCancellable>()
     private var mouseMonitors: [Any] = []
     private var clearHoverWork: DispatchWorkItem?
@@ -430,13 +442,19 @@ final class NotchWindowController {
     /// been assigned, which is the single-controller case `.mainDisplay`
     /// scope leaves it in.
     func currentScreen() -> NSScreen? {
-        currentScreen(in: NSScreen.screens)
+        currentScreen(in: screensProvider())
     }
 
     func currentScreen(in screens: [NSScreen]) -> NSScreen? {
-        if let assigned = assignedScreen,
-           screens.contains(where: { $0 === assigned }) {
-            return assigned
+        if let assigned = assignedScreen {
+            if let matched = screens.first(where: {
+                $0 === assigned ||
+                ($0.displayIdentifier != nil && $0.displayIdentifier == assigned.displayIdentifier) ||
+                NotchFleet.key(for: $0) == NotchFleet.key(for: assigned)
+            }) {
+                assignedScreen = matched
+                return matched
+            }
         }
         return NotchGeometry.preferredScreen(from: screens, preference: displayPreference)
     }
@@ -538,18 +556,36 @@ final class NotchWindowController {
     /// subtracting more moves the pill down) and adds it to a horizontal
     /// edge's x — so no sign flip belongs here; adding one would make the
     /// pill run away from the cursor instead of following it.
-    private func dragged(dx: CGFloat, dy: CGFloat) {
+    func dragged(dx: CGFloat, dy: CGFloat) {
         // Again on every step: whatever is under the pointer would otherwise
         // put its own cursor back.
         NSCursor.closedHand.set()
         guard let screen = currentScreen() else { return }
+        if scope == .mainDisplay {
+            let mouse = mouseLocationProvider()
+            if let targetScreen = screensProvider().first(where: { NSMouseInRect(mouse, $0.frame, false) }),
+               targetScreen !== screen,
+               NotchFleet.key(for: targetScreen) != NotchFleet.key(for: screen) {
+                // Drag crossed display boundary onto another screen
+                passage?.hide()
+                assignedScreen = targetScreen
+                model.adopt(screen: targetScreen)
+                let overlay = CornerPassageOverlay(screen: targetScreen)
+                overlay.prepare()
+                passage = overlay
+                travelSizes = Dictionary(uniqueKeysWithValues:
+                    NotchEdge.allCases.map { ($0, model.travelSize(on: $0)) })
+                travel(on: targetScreen)
+                return
+            }
+        }
         travel(on: screen)
     }
 
     /// Where the pointer has taken a held notch, before the hole's pull.
     private var heldPointer: CGFloat = 0
 
-    private func beginOptionDrag() {
+    func beginOptionDrag() {
         guard !isOptionDragging, !settling else { return }
         isOptionDragging = true
         dragStartEdge = model.edge
@@ -586,7 +622,7 @@ final class NotchWindowController {
         updateInteractiveRects()
     }
 
-    private func endOptionDrag() {
+    func endOptionDrag() {
         guard isOptionDragging, !settling else { return }
         model.carry?.releasedAt = Date()
         // **Let go round a corner, it flows off it.** On along the border, on
@@ -660,7 +696,7 @@ final class NotchWindowController {
         // button, as it was taken — and held so while the pointer rests where
         // it let go, whether or not the landing left it over them.
         if model.carry?.fromHover == true {
-            restingOnGrip = NSEvent.mouseLocation
+            restingOnGrip = mouseLocationProvider()
             model.isHoveringMove = true
         }
         let landing = stopTravelling()
@@ -673,7 +709,7 @@ final class NotchWindowController {
         // Gone round onto another edge: that is the edge now, and where along
         // it is saved by the landing below, against it.
         if let start = dragStartEdge, model.edge != start {
-            onMoveToEdge?(model.edge, model.holdsOffTheCutout ? nil : model.alongOffset)
+            onMoveToEdge?(model.edge, model.holdsOffTheCutout ? nil : model.alongOffset, assignedScreen ?? currentScreen())
         }
         dragStartEdge = nil
         passage?.hide()
@@ -711,12 +747,13 @@ final class NotchWindowController {
     private func travel(on screen: NSScreen) {
         let frame = screen.frame
         let track = BorderTrack(width: frame.width, height: frame.height)
-        let local = CGPoint(x: NSEvent.mouseLocation.x - frame.minX,
-                            y: frame.maxY - NSEvent.mouseLocation.y)
+        let mouse = mouseLocationProvider()
+        let local = CGPoint(x: mouse.x - frame.minX,
+                            y: frame.maxY - mouse.y)
         // The pointer's place on the border — from the edge it is nearest, or
         // near a corner from both edges at once — and when the reading changes,
         // the grip taken up so the notch does not jump.
-        let appKit = NSEvent.mouseLocation
+        let appKit = mouse
         let edge = Self.stickyEdge(current: pointerEdge, pointer: appKit, frame: frame)
         let reading = Self.reading(of: local, on: track, nearest: edge)
         if reading != pointerReading {
@@ -870,7 +907,13 @@ final class NotchWindowController {
         let tick = DisplayTick { [weak self] link in
             MainActor.assumeIsolated { self?.follow(link) }
         }
-        let link = screen.displayLink(target: tick, selector: #selector(DisplayTick.tick(_:)))
+        let link: CADisplayLink?
+        if let displayLinkProvider {
+            link = displayLinkProvider(screen, tick, #selector(DisplayTick.tick(_:)))
+        } else {
+            link = screen.displayLink(target: tick, selector: #selector(DisplayTick.tick(_:)))
+        }
+        guard let link else { return }
         // Common modes: the drag holds the run loop in event tracking.
         link.add(to: .main, forMode: .common)
         follower = link
@@ -966,8 +1009,9 @@ final class NotchWindowController {
         let frame = screen.frame
         let track = BorderTrack(width: frame.width, height: frame.height)
         pointerEdge = model.edge
-        let local = CGPoint(x: NSEvent.mouseLocation.x - frame.minX,
-                            y: frame.maxY - NSEvent.mouseLocation.y)
+        let mouse = mouseLocationProvider()
+        let local = CGPoint(x: mouse.x - frame.minX,
+                            y: frame.maxY - mouse.y)
         pointerReading = Self.reading(of: local, on: track, nearest: model.edge)
         guard let panel else { grip = 0; return }
         let wing = model.cellWing
@@ -1234,8 +1278,9 @@ final class NotchWindowController {
     ///
     /// Put down out of reach, it stays exactly where it was put.
     private func putDown() {
+        let activeScreen = assignedScreen ?? currentScreen()
         guard let cutout = heldCutout, model.holdsOffTheCutout else {
-            onReposition?(model.alongOffset)
+            onReposition?(model.alongOffset, activeScreen)
             return
         }
         let bar = model.plainBarLength
@@ -1248,7 +1293,7 @@ final class NotchWindowController {
                                                              width: cutout.width, bar: bar)
             relocate()
             updateInteractiveRects()
-            onReposition?(model.alongOffset)
+            onReposition?(model.alongOffset, activeScreen)
             return
         }
 
@@ -1267,7 +1312,7 @@ final class NotchWindowController {
             relocate()
         }
         updateInteractiveRects()
-        onReposition?(model.alongOffset)
+        onReposition?(model.alongOffset, activeScreen)
     }
 
     // MARK: - Hit regions
@@ -1450,7 +1495,7 @@ final class NotchWindowController {
     }
 
     private func localCursor(in frame: CGRect) -> CGPoint {
-        let mouse = NSEvent.mouseLocation
+        let mouse = mouseLocationProvider()
         return CGPoint(x: mouse.x - frame.minX, y: frame.maxY - mouse.y)
     }
 
@@ -1501,7 +1546,7 @@ final class NotchWindowController {
         // Just set down by its dots: on them until the pointer moves — see
         // `finishDrag`.
         if let rest = restingOnGrip {
-            if NSEvent.mouseLocation == rest {
+            if mouseLocationProvider() == rest {
                 overHandle = false
                 overMove = true
             } else {

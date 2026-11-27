@@ -74,12 +74,14 @@ protocol ScreenDescribing {
     var visibleFrameValue: CGRect { get }
     var hardwareNotch: HardwareNotch? { get }
     var displayIdentifier: String? { get }
+    var persistentScreenKey: String { get }
 }
 
 extension ScreenDescribing {
     /// Most displays have none, and most tests do not care.
     var hardwareNotch: HardwareNotch? { nil }
     var displayIdentifier: String? { nil }
+    var persistentScreenKey: String { displayIdentifier ?? "display-default" }
 }
 
 extension NSScreen: ScreenDescribing {
@@ -97,11 +99,17 @@ extension NSScreen: ScreenDescribing {
         return CFUUIDCreateString(nil, uuid) as String
     }
 
+    var persistentScreenKey: String {
+        displayIdentifier ?? "display-\(NotchFleet.key(for: self))"
+    }
+
     /// Measured from the two menu-bar strips *either side* of the notch, which
     /// is the only thing AppKit describes directly. A display without a notch
     /// reports no auxiliary areas.
     var hardwareNotch: HardwareNotch? {
-        guard let left = auxiliaryTopLeftArea, let right = auxiliaryTopRightArea else {
+        guard safeAreaInsets.top > 0,
+              let left = auxiliaryTopLeftArea,
+              let right = auxiliaryTopRightArea else {
             return nil
         }
         let width = frame.width - left.width - right.width
@@ -452,11 +460,19 @@ enum NotchGeometry {
         preference: DisplayPreference,
         activeScreen: Screen?
     ) -> Screen? {
+        guard !screens.isEmpty else { return nil }
         if case .display(let id) = preference,
            let selected = screens.first(where: { $0.displayIdentifier == id }) {
             return selected
         }
-        return activeScreen ?? screens.first
+        if let active = activeScreen,
+           let match = screens.first(where: {
+               ($0.displayIdentifier != nil && $0.displayIdentifier == active.displayIdentifier)
+               || $0.persistentScreenKey == active.persistentScreenKey
+           }) {
+            return match
+        }
+        return screens.first
     }
 
     /// Keeps a dragged offset from pushing the visible pill off the screen it
