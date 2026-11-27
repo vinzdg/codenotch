@@ -247,8 +247,74 @@ fn capture(x: i32, y: i32, w: i32, h: i32) -> Option<Vec<u8>> {
 }
 
 #[cfg(not(windows))]
-fn capture(_x: i32, _y: i32, _w: i32, _h: i32) -> Option<Vec<u8>> {
-    None
+fn capture(x: i32, y: i32, w: i32, h: i32) -> Option<Vec<u8>> {
+    capture_gnome(x, y, w, h).or_else(|| crate::x11_util::capture_root(x, y, w, h))
+}
+
+#[cfg(not(windows))]
+fn capture_gnome(x: i32, y: i32, w: i32, h: i32) -> Option<Vec<u8>> {
+    if w <= 0 || h <= 0 {
+        return None;
+    }
+    let path = dirs::cache_dir()?.join("codenotch").join("backdrop.png");
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).ok()?;
+    }
+    let file = path.to_string_lossy().to_string();
+    let status = std::process::Command::new("gdbus")
+        .args([
+            "call",
+            "--session",
+            "--dest",
+            "org.gnome.Shell.Screenshot",
+            "--object-path",
+            "/org/gnome/Shell/Screenshot",
+            "--method",
+            "org.gnome.Shell.Screenshot.ScreenshotArea",
+            &x.to_string(),
+            &y.to_string(),
+            &w.to_string(),
+            &h.to_string(),
+            "false",
+            &file,
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .ok()?;
+    if !status.success() {
+        return None;
+    }
+    png_bgra(&path)
+}
+
+#[cfg(not(windows))]
+fn png_bgra(path: &std::path::Path) -> Option<Vec<u8>> {
+    let file = std::fs::File::open(path).ok()?;
+    let decoder = png::Decoder::new(file);
+    let mut reader = decoder.read_info().ok()?;
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).ok()?;
+    if info.bit_depth != png::BitDepth::Eight {
+        return None;
+    }
+    let bytes = &buf[..info.buffer_size()];
+    let mut out = Vec::with_capacity(bytes.len());
+    match info.color_type {
+        png::ColorType::Rgba => {
+            for px in bytes.chunks_exact(4) {
+                out.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
+            }
+        }
+        png::ColorType::Rgb => {
+            for px in bytes.chunks_exact(3) {
+                out.extend_from_slice(&[px[2], px[1], px[0], 255]);
+            }
+        }
+        _ => return None,
+    }
+    (!out.is_empty()).then_some(out)
 }
 
 #[cfg(test)]

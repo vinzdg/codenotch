@@ -46,6 +46,22 @@ If macOS says the app is *damaged*, that is the quarantine flag rather than a ba
 Universal binary. macOS 15 or later. To build and install a copy from source
 instead, see [Building](#building).
 
+## Linux
+
+The same Rust/Tauri port as Windows ([`windows/`](windows/README.md)) ships for Linux as
+`.deb`, `.rpm`, and AppImage. Fixed release names:
+
+- [`Codenotch_amd64.deb`](../../releases/latest/download/Codenotch_amd64.deb) — Debian/Ubuntu
+- [`Codenotch.x86_64.rpm`](../../releases/latest/download/Codenotch.x86_64.rpm) — Fedora/RHEL
+- [`Codenotch.AppImage`](../../releases/latest/download/Codenotch.AppImage) — portable
+
+On GNOME, install the **AppIndicator Support** extension so the tray icon appears. Under
+Wayland the packaged desktop entry sets `GDK_BACKEND=x11` so the notch can sit on a screen
+edge (XWayland). Data lives under `~/.config/codenotch`; providers read the same Linux paths
+as in [`windows/README.md`](windows/README.md#linux).
+
+CI builds are on the [Linux Package workflow](../../actions/workflows/linux-package.yml).
+
 ## Windows
 
 [![Download for Windows](docs/design/download-windows.svg)](../../releases/latest/download/Codenotch-Setup.exe)
