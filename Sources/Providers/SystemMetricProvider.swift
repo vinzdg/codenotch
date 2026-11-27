@@ -1,6 +1,22 @@
 import Foundation
 import Darwin
 import IOKit.ps
+import Network
+
+/// A flag that answers `true` once. A path monitor can fire its handler more
+/// than once before `cancel()` lands, and a continuation may resume only once.
+private final class OnceFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var taken = false
+
+    func take() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if taken { return false }
+        taken = true
+        return true
+    }
+}
 
 /// What this Mac reports about itself, shown in the notch beside the providers.
 ///
@@ -14,36 +30,45 @@ enum SystemMetric: String, CaseIterable, Sendable {
     case network
     case battery
     case thermal
+    case swap
+    case connectivity
+    case batteryTime
 
     var providerID: String { "system-\(rawValue)" }
 
     var displayName: String {
         switch self {
-        case .cpu:     return L10n.t("CPU")
-        case .memory:  return L10n.t("Memory")
-        case .storage: return L10n.t("Storage")
-        case .network: return L10n.t("Network")
-        case .battery: return L10n.t("Battery")
-        case .thermal: return L10n.t("Thermal")
+        case .cpu:          return L10n.t("CPU")
+        case .memory:       return L10n.t("Memory")
+        case .storage:      return L10n.t("Storage")
+        case .network:      return L10n.t("Network")
+        case .battery:      return L10n.t("Battery")
+        case .thermal:      return L10n.t("Thermal")
+        case .swap:         return L10n.t("Swap")
+        case .connectivity: return L10n.t("Connectivity")
+        case .batteryTime:  return L10n.t("Time left")
         }
     }
 
     var glyph: ProviderGlyph {
         switch self {
-        case .cpu:     return .systemCPU
-        case .memory:  return .systemMemory
-        case .storage: return .systemStorage
-        case .network: return .systemNetwork
-        case .battery: return .systemBattery
-        case .thermal: return .systemThermal
+        case .cpu:          return .systemCPU
+        case .memory:       return .systemMemory
+        case .storage:      return .systemStorage
+        case .network:      return .systemNetwork
+        case .battery:      return .systemBattery
+        case .thermal:      return .systemThermal
+        case .swap:         return .systemSwap
+        case .connectivity: return .systemConnectivity
+        case .batteryTime:  return .systemBatteryTime
         }
     }
 
     /// Only offered where the Mac has the thing measured: a desktop has no battery.
     var isAvailable: Bool {
         switch self {
-        case .battery: return SystemSampler.batteryCharge() != nil
-        default:       return true
+        case .battery, .batteryTime: return SystemSampler.batteryCharge() != nil
+        default:                     return true
         }
     }
 }
@@ -97,6 +122,29 @@ enum SystemMetricMath {
         return min(1, Double(used) / Double(total))
     }
 
+    /// "2 h 15 min", or "45 min" under an hour.
+    static func duration(minutes: Int) -> String {
+        let hours = minutes / 60
+        let rest = minutes % 60
+        return hours > 0 ? "\(hours) h \(rest) min" : "\(rest) min"
+    }
+
+    /// The connection in one word: "Offline", or "Online · Wi-Fi" and so on.
+    static func connectionWord(online: Bool, wifi: Bool, wired: Bool, cellular: Bool) -> String {
+        guard online else { return L10n.t("Offline") }
+        let link: String
+        if wifi { link = L10n.t("Wi-Fi") }
+        else if wired { link = L10n.t("Ethernet") }
+        else if cellular { link = L10n.t("Cellular") }
+        else { link = L10n.t("Other") }
+        return L10n.t("Online") + " · " + link
+    }
+
+    /// "1.2 GB / 4 GB", the swap in use against what is reserved.
+    static func bytes(_ count: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(count), countStyle: .memory)
+    }
+
     /// Charge left in the battery, 0...1, from the power source's own counts.
     static func batteryCharge(current: Int, full: Int) -> Double? {
         guard full > 0 else { return nil }
@@ -133,21 +181,61 @@ enum SystemSampler {
         return SystemMetricMath.memoryUsedFraction(used: used, total: ProcessInfo.processInfo.physicalMemory)
     }
 
-    /// The internal battery's charge, 0...1, or nil on a Mac without one.
-    static func batteryCharge() -> Double? {
+    /// The internal battery's description from the power-source API, or nil
+    /// on a Mac without one.
+    static func internalBattery() -> [String: Any]? {
         guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef]
         else { return nil }
         for source in list {
             guard let description = IOPSGetPowerSourceDescription(info, source)?
                     .takeUnretainedValue() as? [String: Any],
-                  description[kIOPSTypeKey] as? String == kIOPSInternalBatteryType,
-                  let current = description[kIOPSCurrentCapacityKey] as? Int,
-                  let full = description[kIOPSMaxCapacityKey] as? Int
+                  description[kIOPSTypeKey] as? String == kIOPSInternalBatteryType
             else { continue }
-            return SystemMetricMath.batteryCharge(current: current, full: full)
+            return description
         }
         return nil
+    }
+
+    /// The internal battery's charge, 0...1, or nil on a Mac without one.
+    static func batteryCharge() -> Double? {
+        guard let battery = internalBattery(),
+              let current = battery[kIOPSCurrentCapacityKey] as? Int,
+              let full = battery[kIOPSMaxCapacityKey] as? Int
+        else { return nil }
+        return SystemMetricMath.batteryCharge(current: current, full: full)
+    }
+
+    /// Minutes until empty, or until full while charging. Nil while macOS is
+    /// still estimating, which it reports as a negative figure.
+    static func batteryMinutesLeft() -> (minutes: Int, charging: Bool)? {
+        guard let battery = internalBattery() else { return nil }
+        let charging = battery[kIOPSIsChargingKey] as? Bool ?? false
+        let key = charging ? kIOPSTimeToFullChargeKey : kIOPSTimeToEmptyKey
+        guard let minutes = battery[key] as? Int, minutes >= 0 else { return nil }
+        return (minutes, charging)
+    }
+
+    /// Swap in use and reserved, in bytes. Total is 0 when the Mac has no swap.
+    static func swapUsage() -> (used: UInt64, total: UInt64)? {
+        var usage = xsw_usage()
+        var size = MemoryLayout<xsw_usage>.size
+        guard sysctlbyname("vm.swapusage", &usage, &size, nil, 0) == 0 else { return nil }
+        return (usage.xsu_used, usage.xsu_total)
+    }
+
+    /// The current network path, waiting for the first answer from the system.
+    static func currentPath() async -> NWPath {
+        await withCheckedContinuation { continuation in
+            let monitor = NWPathMonitor()
+            let once = OnceFlag()
+            monitor.pathUpdateHandler = { path in
+                guard once.take() else { return }
+                monitor.cancel()
+                continuation.resume(returning: path)
+            }
+            monitor.start(queue: DispatchQueue(label: "codenotch.system.path"))
+        }
     }
 
     static func cpuTicks() -> [UInt32]? {
@@ -244,6 +332,27 @@ actor SystemMetricProvider: UsageProvider {
             let state = ProcessInfo.processInfo.thermalState
             fraction = SystemMetricMath.thermalLevel(state)
             text = Self.thermalWord(state)
+        case .swap:
+            if let swap = SystemSampler.swapUsage() {
+                fraction = SystemMetricMath.memoryUsedFraction(used: swap.used, total: swap.total)
+                text = swap.total == 0
+                    ? L10n.t("No swap")
+                    : "\(SystemMetricMath.bytes(swap.used)) / \(SystemMetricMath.bytes(swap.total))"
+            }
+        case .connectivity:
+            let path = await SystemSampler.currentPath()
+            text = SystemMetricMath.connectionWord(
+                online: path.status == .satisfied,
+                wifi: path.usesInterfaceType(.wifi),
+                wired: path.usesInterfaceType(.wiredEthernet),
+                cellular: path.usesInterfaceType(.cellular))
+        case .batteryTime:
+            if let left = SystemSampler.batteryMinutesLeft() {
+                let span = SystemMetricMath.duration(minutes: left.minutes)
+                text = left.charging ? L10n.t("\(span) to full") : L10n.t("\(span) left")
+            } else {
+                text = L10n.t("Calculating")
+            }
         case .network:
             let before = SystemSampler.interfaceCounters()
             try await Task.sleep(nanoseconds: UInt64(Self.sampleSpan * 1_000_000_000))
@@ -259,7 +368,7 @@ actor SystemMetricProvider: UsageProvider {
             label: metric.displayName,
             usedFraction: fraction,
             usedText: text,
-            prefersUsedText: metric == .network
+            prefersUsedText: [.network, .connectivity, .batteryTime].contains(metric)
         )
         var snapshot = ProviderSnapshot(
             id: id,

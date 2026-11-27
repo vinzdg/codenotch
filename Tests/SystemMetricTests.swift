@@ -60,6 +60,27 @@ final class SystemMetricTests: XCTestCase {
         XCTAssertEqual(levels.last, 1)
     }
 
+    func testDurationReadsHoursAndMinutes() {
+        XCTAssertEqual(SystemMetricMath.duration(minutes: 135), "2 h 15 min")
+        XCTAssertEqual(SystemMetricMath.duration(minutes: 45), "45 min")
+        XCTAssertEqual(SystemMetricMath.duration(minutes: 0), "0 min")
+    }
+
+    func testOfflineIsOfflineWhateverTheLink() {
+        XCTAssertEqual(SystemMetricMath.connectionWord(online: false, wifi: true, wired: false, cellular: false),
+                       L10n.t("Offline"))
+    }
+
+    func testOnlineNamesTheLink() {
+        let word = SystemMetricMath.connectionWord(online: true, wifi: true, wired: false, cellular: false)
+        XCTAssertTrue(word.hasSuffix(L10n.t("Wi-Fi")), word)
+    }
+
+    func testSwapFractionIsNilWithoutSwap() {
+        XCTAssertNil(SystemMetricMath.memoryUsedFraction(used: 0, total: 0))
+        XCTAssertEqual(SystemMetricMath.memoryUsedFraction(used: 1, total: 4) ?? -1, 0.25, accuracy: 1e-9)
+    }
+
     func testEveryMetricHasItsOwnProviderID() {
         let ids = SystemMetric.allCases.map(\.providerID)
         XCTAssertEqual(Set(ids).count, SystemMetric.allCases.count)

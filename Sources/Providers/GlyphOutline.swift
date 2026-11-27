@@ -1601,6 +1601,48 @@ enum GlyphOutline {
         return [rect(x: 0.42, y: 0.08, w: 0.16, h: 0.48), bulb]
     }()
 
+    /// A gauge half full: a frame with a bar inside it.
+    static let systemSwap: [[CGPoint]] = [
+        rect(x: 0.10, y: 0.22, w: 0.80, h: 0.56),
+        rect(x: 0.17, y: 0.29, w: 0.66, h: 0.42),
+        rect(x: 0.22, y: 0.35, w: 0.36, h: 0.30),
+    ]
+
+    /// Three Wi-Fi arcs over a dot.
+    static let systemConnectivity: [[CGPoint]] = [
+        arc(cx: 0.5, cy: 0.8, radius: 0.62, thickness: 0.12),
+        arc(cx: 0.5, cy: 0.8, radius: 0.42, thickness: 0.12),
+        arc(cx: 0.5, cy: 0.8, radius: 0.22, thickness: 0.12),
+        circle(cx: 0.5, cy: 0.8, radius: 0.08),
+    ]
+
+    /// A clock face with its hands.
+    static let systemBatteryTime: [[CGPoint]] = [
+        circle(cx: 0.5, cy: 0.5, radius: 0.36),
+        circle(cx: 0.5, cy: 0.5, radius: 0.28),
+        rect(x: 0.47, y: 0.25, w: 0.06, h: 0.28),
+        rect(x: 0.5, y: 0.47, w: 0.2, h: 0.06),
+    ]
+
+    /// An arc band from 45° to 135° (upwards), filled as one loop.
+    private static func arc(cx: CGFloat, cy: CGFloat, radius: CGFloat, thickness: CGFloat,
+                            steps: Int = 16) -> [CGPoint] {
+        func point(_ r: CGFloat, _ i: Int) -> CGPoint {
+            let angle = CGFloat.pi / 4 + CGFloat.pi / 2 * CGFloat(i) / CGFloat(steps)
+            return CGPoint(x: cx + r * cos(angle), y: cy - r * sin(angle))
+        }
+        let outer = (0...steps).map { point(radius, $0) }
+        let inner = (0...steps).reversed().map { point(radius - thickness, $0) }
+        return outer + inner
+    }
+
+    private static func circle(cx: CGFloat, cy: CGFloat, radius: CGFloat, steps: Int = 24) -> [CGPoint] {
+        (0..<steps).map { i in
+            let angle = CGFloat(i) / CGFloat(steps) * 2 * .pi
+            return CGPoint(x: cx + radius * cos(angle), y: cy + radius * sin(angle))
+        }
+    }
+
     private static func rect(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) -> [CGPoint] {
         [CGPoint(x: x, y: y), CGPoint(x: x + w, y: y),
          CGPoint(x: x + w, y: y + h), CGPoint(x: x, y: y + h)]
