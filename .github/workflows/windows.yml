@@ -54,6 +54,9 @@ jobs:
       - name: Test Spanish card localization
         run: node --test scripts/test-es-i18n.cjs
 
+      - name: Test a missing card string falls back to English
+        run: node --test scripts/test-ui-fallback.cjs
+
       - name: Test notch percentage text
         run: node scripts/test-notch-pct.cjs
 

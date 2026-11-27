@@ -1430,7 +1430,7 @@ const UI={
   'pt-BR':{locale:'pt-BR',title:n=>'Uso do '+n,resetting:'Renovando…',resetsIn:m=>`Renova em ${m} min`,
       resetsAt:t=>`Renova às ${t}`,resetsOn:(d,t)=>`Renova ${d} às ${t}`,resetsDate:d=>`Renova ${d}`,
       ago:m=>m<60?`há ${m} min`:`há ${Math.round(m/60)} h`,
-      usedLeft:(used,left)=>`${used}% usado · ${left}% restante`,leftUsed:(left,used)=>`${left}% restante · ${used}% usado`,deficit:v=>`${v}% de déficit`,andMore:n=>`e mais ${n}`},
+      usedLeft:(used,left)=>`${used}% usado · ${left}% restante`,leftUsed:(left,used)=>`${left}% restante · ${used}% usado`,deficit:v=>`${v}% de déficit`,andMore:n=>`e mais ${n}`,updated:a=>`Atualizado ${a}`},
   en:{locale:'en-US',title:n=>n+' Usage',resetting:'Resetting…',resetsIn:m=>`Resets in ${m} min`,
       resetsAt:t=>`Resets at ${t}`,resetsOn:(d,t)=>`Resets ${d} ${t}`,resetsDate:d=>`Resets ${d}`,
       ago:m=>m<60?`${m}m ago`:`${Math.round(m/60)}h ago`,
@@ -1457,7 +1457,12 @@ const UI={
       usedLeft:(used,left)=>`已用 ${used}% · 剩餘 ${left}%`,leftUsed:(left,used)=>`剩餘 ${left}% · 已用 ${used}%`,deficit:v=>`${v}% 透支`,andMore:n=>`另有 ${n} 個`,updated:a=>`更新於 ${a}`},
 };
 UI.ja={...UI.en,usedLeft:UI.en.usedLeft,deficit:v=>`${v}% 超過`};
-function ui(){return UI[uiLang]||UI.en;}
+// A key a language has not got yet falls back to English rather than throwing: renderCard runs the
+// whole card in one go, so one missing string (pt-BR had no `updated`) left every stale card unopened.
+function ui(){
+  const own=UI[uiLang];
+  return !own||own===UI.en?UI.en:{...UI.en,...own};
+}
 function textCopy(value){
   if(!value) return '';
   const table=TEXT[uiLang];

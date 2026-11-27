@@ -131,9 +131,14 @@ fn parse_quota(text: &str) -> Result<Vec<LimitWindow>, String> {
             return Err("Quota percentage is out of range".into());
         }
         let reset = parse_reset_time(reset)?;
-        if reset <= 0 {
-            return Err("Invalid quota reset time".into());
-        }
+        // agy 1.5.16 prints an untouched lane (100% left, no window started) with the Unix epoch,
+        // `1970-01-01T00:00:00Z`, as its reset. That lane has no reset yet, not a bad one; failing
+        // here threw away the whole reading, the lanes that are in use included.
+        let resets_at = match reset {
+            0 if remaining == 100.0 => None,
+            r if r > 0 => Some(r as u64),
+            _ => return Err("Invalid quota reset time".into()),
+        };
         let label = label.split_whitespace().collect::<Vec<_>>().join(" ");
         if label.to_lowercase().contains("argon") {
             out.push(LimitWindow {
@@ -142,7 +147,7 @@ fn parse_quota(text: &str) -> Result<Vec<LimitWindow>, String> {
                 duration_ms: crate::antigravity::lane_duration_ms(&label).or(Some(crate::usage::SEVEN_DAYS_MS)),
                 id: "Claude and GPT models Argon Weekly Limit".into(),
                 used: ((100.0 - remaining) / 100.0).clamp(0.0, 1.0),
-                resets_at: Some(reset as u64),
+                resets_at,
                 ..Default::default()
             });
             continue;
@@ -169,7 +174,7 @@ fn parse_quota(text: &str) -> Result<Vec<LimitWindow>, String> {
             duration_ms: crate::antigravity::lane_duration_ms(&label),
             id: label,
             used: ((100.0 - remaining) / 100.0).clamp(0.0, 1.0),
-            resets_at: Some(reset as u64),
+            resets_at,
             ..Default::default()
         });
     }
@@ -681,6 +686,26 @@ mod tests {
         ] {
             assert!(parse_quota(bad).is_err());
         }
+    }
+
+    #[test]
+    fn test_parse_quota_cli_1_5_16_untouched_lanes_reset_at_epoch() {
+        // agy 1.5.16, verbatim: lanes never used print the Unix epoch as their reset
+        let text = "Gemini Models\tWeekly Limit Remaining\t97%\t2026-12-01T05:21:05Z\nGemini Models\tFive Hour Limit Remaining\t94%\t2026-11-24T19:31:45Z\nClaude and GPT models\tWeekly Limit Remaining\t100%\t1970-01-01T00:00:00Z\nClaude and GPT models\tFive Hour Limit Remaining\t100%\t1970-01-01T00:00:00Z\n";
+        let windows = parse_quota(text).expect("an untouched lane must not void the reading");
+        assert_eq!(windows.len(), 4);
+        assert_eq!(windows[0].id, "Gemini Models Five Hour Limit");
+        assert!((windows[0].used - 0.06).abs() < 1e-5);
+        assert!(windows[0].resets_at.is_some());
+        assert!((windows[1].used - 0.03).abs() < 1e-5);
+        assert!(windows[1].resets_at.is_some());
+        assert_eq!(windows[2].resets_at, None);
+        assert_eq!(windows[3].resets_at, None);
+        assert_eq!(windows[3].used, 0.0);
+
+        // The epoch is only "not started" on a full lane; on one in use it is still a bad reading
+        let used = text.replacen("Claude and GPT models\tWeekly Limit Remaining\t100%", "Claude and GPT models\tWeekly Limit Remaining\t80%", 1);
+        assert_eq!(parse_quota(&used).unwrap_err(), "Invalid quota reset time");
     }
 
     #[test]
