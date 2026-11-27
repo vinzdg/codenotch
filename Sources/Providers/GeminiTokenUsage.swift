@@ -4,12 +4,12 @@ import Foundation
 /// tools keep for themselves.
 ///
 /// Google publishes no usage endpoint for an API key, so the only number that
-/// exists is the one each tool wrote down after its own call. Three tools keep
-/// such a log — Gemini CLI, OpenCode and Hermes — and each of them stamps its
-/// records in UTC. The bill and the user's day are local, though, so every
-/// reader hands its entries to `bucket` rather than doing the arithmetic
-/// itself: one routine is the only way the three rows in the tooltip can agree
-/// on where "today" and "this month" start.
+/// exists is the one each tool wrote down after its own call. Four tools keep
+/// such a log — Gemini CLI, OpenCode, Hermes and Antigravity CLI — and each
+/// of them stamps its records in UTC. The bill and the user's day are local,
+/// though, so every reader hands its entries to `bucket` rather than doing the
+/// arithmetic itself: one routine is the only way the rows in the tooltip can
+/// agree on where "today" and "this month" start.
 struct GeminiTokenUsage: Equatable {
     var tokensThisMonth = 0
     var tokensToday = 0

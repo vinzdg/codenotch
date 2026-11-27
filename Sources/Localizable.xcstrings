@@ -19442,168 +19442,168 @@
         }
       }
     },
-    "There is nothing to sign in to: the count is added up from what Gemini CLI, OpenCode and Hermes recorded about their own calls. Your API key is never read.": {
+    "There is nothing to sign in to: the count is added up from what Gemini CLI, OpenCode, Hermes and Antigravity CLI recorded about their own calls. Your API key is never read.": {
       "extractionState": "manual",
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il n'y a rien à quoi se connecter : le total est additionné à partir de ce que Gemini CLI, OpenCode et Hermes ont enregistré sur leurs propres appels. Votre clé API n'est jamais lue."
+            "value": "Il n'y a rien à quoi se connecter : le total est additionné à partir de ce que Gemini CLI, OpenCode, Hermes et Antigravity CLI ont enregistré sur leurs propres appels. Votre clé API n'est jamais lue."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サインインする先はありません。この件数は、Gemini CLI、OpenCode、Hermes が自分の呼び出しについて記録した内容を合算したものです。API キーが読み取られることはありません。"
+            "value": "サインインする先はありません。この件数は、Gemini CLI、OpenCode、Hermes、Antigravity CLI が自分の呼び出しについて記録した内容を合算したものです。API キーが読み取られることはありません。"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não há onde entrar: a contagem é somada a partir do que a CLI do Gemini, o OpenCode e o Hermes registraram sobre as próprias chamadas. Sua chave de API nunca é lida."
+            "value": "Não há onde entrar: a contagem é somada a partir do que a CLI do Gemini, o OpenCode, o Hermes e o Antigravity CLI registraram sobre as próprias chamadas. Sua chave de API nunca é lida."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "没有需要登录的地方：次数是从 Gemini CLI、OpenCode 和 Hermes 自己记录的调用加总的。不会读取你的 API 密钥。"
+            "value": "没有需要登录的地方：次数是从 Gemini CLI、OpenCode、Hermes 和 Antigravity CLI 自己记录的调用加总的。不会读取你的 API 密钥。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "沒有需要登入的地方：次數是從 Gemini CLI、OpenCode 和 Hermes 自己記錄的呼叫加總的。不會讀取你的 API 金鑰。"
+            "value": "沒有需要登入的地方：次數是從 Gemini CLI、OpenCode、Hermes 和 Antigravity CLI 自己記錄的呼叫加總的。不會讀取你的 API 金鑰。"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вход не требуется: показатель складывается из данных о собственных вызовах Gemini CLI, OpenCode и Hermes. Ваш API-ключ никогда не читается."
+            "value": "Вход не требуется: показатель складывается из данных о собственных вызовах Gemini CLI, OpenCode, Hermes и Antigravity CLI. Ваш API-ключ никогда не читается."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Es gibt nichts, wo man sich anmelden müsste: Die Zahl wird aus dem zusammengerechnet, was Gemini CLI, OpenCode und Hermes über ihre eigenen Aufrufe aufgezeichnet haben. Dein API-Schlüssel wird nie gelesen."
+            "value": "Es gibt nichts, wo man sich anmelden müsste: Die Zahl wird aus dem zusammengerechnet, was Gemini CLI, OpenCode, Hermes und Antigravity CLI über ihre eigenen Aufrufe aufgezeichnet haben. Dein API-Schlüssel wird nie gelesen."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Входити нікуди: лічильник складається з того, що Gemini CLI, OpenCode і Hermes записали про власні виклики. Ваш API-ключ ніколи не читається."
+            "value": "Входити нікуди: лічильник складається з того, що Gemini CLI, OpenCode, Hermes і Antigravity CLI записали про власні виклики. Ваш API-ключ ніколи не читається."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "별도로 로그인할 필요가 없어요. Gemini CLI, OpenCode, Hermes가 자체 호출에 대해 기록한 횟수를 합산해요. API 키는 읽지 않아요."
+            "value": "별도로 로그인할 필요가 없어요. Gemini CLI, OpenCode, Hermes, Antigravity CLI가 자체 호출에 대해 기록한 횟수를 합산해요. API 키는 읽지 않아요."
           }
         },
         "uz": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kiriladigan joy yoʻq: hisob Gemini CLI, OpenCode va Hermes oʻz chaqiruvlari haqida qayd etgan maʼlumotlardan yigʻiladi. API kalitingiz hech qachon oʻqilmaydi."
+            "value": "Kiriladigan joy yoʻq: hisob Gemini CLI, OpenCode, Hermes va Antigravity CLI oʻz chaqiruvlari haqida qayd etgan maʼlumotlardan yigʻiladi. API kalitingiz hech qachon oʻqilmaydi."
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tidak ada yang perlu dimasuki: hitungan diakumulasikan dari riwayat panggilan Gemini CLI, OpenCode, dan Hermes. Kunci API Anda tidak pernah dibaca."
+            "value": "Tidak ada yang perlu dimasuki: hitungan diakumulasikan dari riwayat panggilan Gemini CLI, OpenCode, Hermes, dan Antigravity CLI. Kunci API Anda tidak pernah dibaca."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Giriş yapılacak bir şey yok: sayı, Gemini CLI, OpenCode ve Hermes'in kendi çağrıları hakkında kaydettiklerinden toplanır. API anahtarınız asla okunmaz."
+            "value": "Giriş yapılacak bir şey yok: sayı, Gemini CLI, OpenCode, Hermes ve Antigravity CLI araçlarının kendi çağrıları hakkında kaydettiklerinden toplanır. API anahtarınız asla okunmaz."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hay nada en lo que iniciar sesión: el recuento se suma a partir de lo que Gemini CLI, OpenCode y Hermes registraron sobre sus propias llamadas. Tu clave de API nunca se lee."
+            "value": "No hay nada en lo que iniciar sesión: el recuento se suma a partir de lo que Gemini CLI, OpenCode, Hermes y Antigravity CLI registraron sobre sus propias llamadas. Tu clave de API nunca se lee."
           }
         }
       }
     },
-    "No Gemini CLI, OpenCode or Hermes sessions found": {
+    "No Gemini CLI, OpenCode, Hermes or Antigravity CLI sessions found": {
       "extractionState": "manual",
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucune session Gemini CLI, OpenCode ou Hermes trouvée"
+            "value": "Aucune session Gemini CLI, OpenCode, Hermes ou Antigravity CLI trouvée"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gemini CLI、OpenCode、Hermes のセッションが見つかりません"
+            "value": "Gemini CLI、OpenCode、Hermes、Antigravity CLI のセッションが見つかりません"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nenhuma sessão da CLI do Gemini, do OpenCode ou do Hermes encontrada"
+            "value": "Nenhuma sessão da CLI do Gemini, do OpenCode, do Hermes ou do Antigravity CLI encontrada"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "没有找到 Gemini CLI、OpenCode 或 Hermes 会话"
+            "value": "没有找到 Gemini CLI、OpenCode、Hermes 或 Antigravity CLI 会话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "沒有找到 Gemini CLI、OpenCode 或 Hermes 工作階段"
+            "value": "沒有找到 Gemini CLI、OpenCode、Hermes 或 Antigravity CLI 工作階段"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сеансы Gemini CLI, OpenCode или Hermes не найдены"
+            "value": "Сеансы Gemini CLI, OpenCode, Hermes или Antigravity CLI не найдены"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keine Gemini-CLI-, OpenCode- oder Hermes-Sitzungen gefunden"
+            "value": "Keine Gemini-CLI-, OpenCode-, Hermes- oder Antigravity-CLI-Sitzungen gefunden"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сесій Gemini CLI, OpenCode чи Hermes не знайдено"
+            "value": "Сесій Gemini CLI, OpenCode, Hermes чи Antigravity CLI не знайдено"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gemini CLI, OpenCode 또는 Hermes 세션을 찾을 수 없어요"
+            "value": "Gemini CLI, OpenCode, Hermes 또는 Antigravity CLI 세션을 찾을 수 없어요"
           }
         },
         "uz": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gemini CLI, OpenCode yoki Hermes sessiyalari topilmadi"
+            "value": "Gemini CLI, OpenCode, Hermes yoki Antigravity CLI sessiyalari topilmadi"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tidak ditemukan sesi Gemini CLI, OpenCode, atau Hermes"
+            "value": "Tidak ditemukan sesi Gemini CLI, OpenCode, Hermes, atau Antigravity CLI"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gemini CLI, OpenCode veya Hermes oturumu bulunamadı"
+            "value": "Gemini CLI, OpenCode, Hermes veya Antigravity CLI oturumu bulunamadı"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se encontraron sesiones de Gemini CLI, OpenCode ni Hermes"
+            "value": "No se encontraron sesiones de Gemini CLI, OpenCode, Hermes ni Antigravity CLI"
           }
         }
       }
@@ -77885,19 +77885,19 @@
         }
       }
     },
-    "Codenotch reads usage from tools already signed in on this Mac — it never asks for your password. Install and sign in to any of Claude Code (the terminal tool, not the Claude app), Cursor (the editor or cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, the Kilo CLI, Muse, Higgsfield, Krea or a Gemini API key (via Gemini CLI, OpenCode or Hermes), and its ring appears in the notch.": {
+    "Codenotch reads usage from tools already signed in on this Mac — it never asks for your password. Install and sign in to any of Claude Code (the terminal tool, not the Claude app), Cursor (the editor or cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, the Kilo CLI, Muse, Higgsfield, Krea or a Gemini API key (via Gemini CLI, OpenCode, Hermes or Antigravity CLI), and its ring appears in the notch.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codenotch 读取这台 Mac 上已登录工具的用量 — 从不询问你的密码。安装并登录以下任一工具：Claude Code（终端工具，不是 Claude 应用）、Cursor（编辑器或 cursor-agent）、Codex、Antigravity、GLM、Grok、OpenCode、Command Code、GitHub Copilot、Kimi Code、Kiro、Amp、Apify、Kilo CLI、Muse、Higgsfield、Krea，或 Gemini API 密钥（通过 Gemini CLI、OpenCode 或 Hermes），它的圆环就会出现在刘海里。"
+            "value": "Codenotch 读取这台 Mac 上已登录工具的用量 — 从不询问你的密码。安装并登录以下任一工具：Claude Code（终端工具，不是 Claude 应用）、Cursor（编辑器或 cursor-agent）、Codex、Antigravity、GLM、Grok、OpenCode、Command Code、GitHub Copilot、Kimi Code、Kiro、Amp、Apify、Kilo CLI、Muse、Higgsfield、Krea，或 Gemini API 密钥（通过 Gemini CLI、OpenCode、Hermes 或 Antigravity CLI），它的圆环就会出现在刘海里。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않아요. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, Kilo CLI, Muse, Higgsfield, Krea 중 하나를 설치해 로그인하거나 Gemini API 키(Gemini CLI, OpenCode, Hermes 경유)를 사용하세요. 그러면 노치에 링이 나타나요."
+            "value": "Codenotch는 이 Mac에서 이미 로그인된 도구의 사용량을 읽으며 비밀번호를 요구하지 않아요. Claude Code(Claude 앱이 아닌 터미널 도구), Cursor(편집기 또는 cursor-agent), Codex, Antigravity, GLM, Grok, OpenCode, Command Code, GitHub Copilot, Kimi Code, Kiro, Amp, Apify, Kilo CLI, Muse, Higgsfield, Krea 중 하나를 설치해 로그인하거나 Gemini API 키(Gemini CLI, OpenCode, Hermes, Antigravity CLI 경유)를 사용하세요. 그러면 노치에 링이 나타나요."
           }
         }
       }

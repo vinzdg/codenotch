@@ -188,6 +188,149 @@ final class GeminiCLIUsageTests: XCTestCase {
     }
 }
 
+/// Fixtures follow the real `agy` store: a `settings.json` that names the auth
+/// mode and one transcript per conversation under `brain/`.
+final class AntigravityCLIGeminiUsageTests: XCTestCase {
+    private var store: URL!
+    private let now = localDate(2026, 9, 15)
+    private let apiKey = #"{"modelProvider":"gemini"}"#
+
+    override func setUpWithError() throws {
+        store = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("antigravity-cli-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: store, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: store)
+    }
+
+    private func settings(_ json: String) throws {
+        try json.write(
+            to: store.appendingPathComponent("settings.json"), atomically: true, encoding: .utf8)
+    }
+
+    /// The modification date is set explicitly because the reader skips
+    /// transcripts older than the month under test.
+    private func transcript(
+        _ lines: [String], conversation: String = "c1", modified: Date? = nil
+    ) throws {
+        let logs = store.appendingPathComponent("brain/\(conversation)/.system_generated/logs")
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        let file = logs.appendingPathComponent("transcript.jsonl")
+        try lines.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.modificationDate: modified ?? now], ofItemAtPath: file.path)
+    }
+
+    private func stamp(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = TimeZone(identifier: "UTC")!
+        return formatter.string(from: date)
+    }
+
+    private func call(
+        step: Int, at: Date, input: Int = 3617, cache: Int = 145480, output: Int = 1053
+    ) -> String {
+        #"{"step_index":\#(step),"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","#
+            + #""created_at":"\#(stamp(at))","model":"gemini-4-carbon-high","#
+            + #""input_tokens":\#(input),"cache_read_tokens":\#(cache),"output_tokens":\#(output)}"#
+    }
+
+    private func read() -> GeminiTokenUsage? {
+        AntigravityCLIGeminiUsage.read(stores: [store], now: now)
+    }
+
+    /// The real record: 3617 + 145480 + 1053.
+    func testARealCallCountsItsCacheAndOutputToo() throws {
+        try settings(apiKey)
+        try transcript([call(step: 56, at: now)])
+        XCTAssertEqual(read(), GeminiTokenUsage(
+            tokensThisMonth: 150150, tokensToday: 150150, callsThisMonth: 1))
+    }
+
+    func testItSeparatesTodayFromTheRestOfTheMonthAndDropsLastMonth() throws {
+        try settings(apiKey)
+        try transcript([
+            call(step: 1, at: now, input: 100, cache: 0, output: 0),
+            call(step: 2, at: localDate(2026, 9, 3), input: 200, cache: 0, output: 0),
+            call(step: 3, at: localDate(2026, 8, 28), input: 400, cache: 0, output: 0)
+        ])
+        XCTAssertEqual(read(), GeminiTokenUsage(
+            tokensThisMonth: 300, tokensToday: 100, callsThisMonth: 2))
+    }
+
+    func testRecordsWithoutTokenKeysAndUnparsableLinesAreIgnored() throws {
+        try settings(apiKey)
+        try transcript([
+            #"{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","#
+                + #""created_at":"\#(stamp(now))"}"#,
+            #"{"step_index":1,"source":"SYSTEM","type":"SYSTEM_MESSAGE","status":"DONE","#
+                + #""created_at":"\#(stamp(now))"}"#,
+            "not json at all",
+            call(step: 2, at: now, input: 500, cache: 0, output: 0)
+        ])
+        XCTAssertEqual(read(), GeminiTokenUsage(
+            tokensThisMonth: 500, tokensToday: 500, callsThisMonth: 1))
+    }
+
+    func testTheSameStepWrittenTwiceCountsOnceAndTheLaterLineWins() throws {
+        try settings(apiKey)
+        try transcript([
+            call(step: 5, at: now, input: 100, cache: 0, output: 0),
+            call(step: 5, at: now, input: 700, cache: 0, output: 0)
+        ])
+        XCTAssertEqual(read(), GeminiTokenUsage(
+            tokensThisMonth: 700, tokensToday: 700, callsThisMonth: 1))
+    }
+
+    func testAStoreWithoutAPIKeySettingsReadsAsNil() throws {
+        try transcript([call(step: 56, at: now)])
+        XCTAssertNil(read())
+
+        try settings(#"{"modelProvider":"google"}"#)
+        XCTAssertNil(read())
+    }
+
+    /// `agy acp` keeps the mode under `auth.type`.
+    func testTheACPShapeIsAccepted() throws {
+        try settings(#"{"auth":{"type":"gemini-api-key"}}"#)
+        try transcript([call(step: 56, at: now)])
+        XCTAssertEqual(read(), GeminiTokenUsage(
+            tokensThisMonth: 150150, tokensToday: 150150, callsThisMonth: 1))
+    }
+
+    func testALaterLineWithAnUnreadableDateDoesNotDisplaceTheCall() throws {
+        try settings(apiKey)
+        try transcript([
+            call(step: 5, at: now, input: 100, cache: 0, output: 0),
+            #"{"step_index":5,"created_at":"not a date","input_tokens":700,"#
+                + #""cache_read_tokens":0,"output_tokens":0}"#
+        ])
+        XCTAssertEqual(read(), GeminiTokenUsage(
+            tokensThisMonth: 100, tokensToday: 100, callsThisMonth: 1))
+    }
+
+    func testATranscriptLastWrittenBeforeThisMonthIsNotEvenOpened() throws {
+        try settings(apiKey)
+        // The record would count if the file were opened, so zero proves the
+        // modification date alone skipped it.
+        try transcript([call(step: 56, at: now)], modified: localDate(2026, 8, 20))
+        XCTAssertEqual(read(), GeminiTokenUsage.zero)
+    }
+
+    func testMissingStoresReadAsNilAndAnEmptyBrainAsZero() throws {
+        let missing = store.appendingPathComponent("nowhere")
+        XCTAssertNil(AntigravityCLIGeminiUsage.read(stores: [missing], now: now))
+
+        try settings(apiKey)
+        try FileManager.default.createDirectory(
+            at: store.appendingPathComponent("brain"), withIntermediateDirectories: true)
+        XCTAssertEqual(read(), GeminiTokenUsage.zero)
+    }
+}
+
 /// Fixtures carry OpenCode's real `message` shape, because the reader asks
 /// SQLite to reach into the JSON and a wrong nesting would silently read zero.
 /// OpenCode 2.x's own store, exercised end to end through the reader.
@@ -653,6 +796,9 @@ final class GeminiAPISnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.windows[2].label, "Gemini CLI · this month")
         XCTAssertEqual(snapshot.windows[2].used, 400_000)
         XCTAssertEqual(snapshot.windows[3].used, 251_061)
+        XCTAssertEqual(snapshot.windows[1].usedText, "15K")
+        XCTAssertEqual(snapshot.windows[2].usedText, "400K")
+        XCTAssertEqual(snapshot.windows[3].usedText, "251K")
     }
 
     /// Without a budget there is no denominator to draw a ring against, and
@@ -663,7 +809,9 @@ final class GeminiAPISnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.fidelity, .derived)
         XCTAssertNil(snapshot.headline?.usedFraction)
         XCTAssertTrue(snapshot.windows[0].label.contains("no limit"))
-        XCTAssertEqual(snapshot.headlineText, "651k")
+        XCTAssertEqual(snapshot.headlineText, "651K")
+        XCTAssertEqual(snapshot.windows[0].usedText, "651K")
+        XCTAssertNil(snapshot.windows[0].detail)
     }
 
     /// The ceiling is the user's, not Google's, which is what `.manual` says.
@@ -676,8 +824,25 @@ final class GeminiAPISnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.fidelity, .manual)
         XCTAssertEqual(try XCTUnwrap(snapshot.headline?.usedFraction), 0.3255, accuracy: 0.0001)
         XCTAssertEqual(snapshot.headline?.duration, 30 * 86400)
-        XCTAssertTrue(snapshot.windows[0].label.contains("2.0M"),
-                      "budget label was \(snapshot.windows[0].label)")
+        XCTAssertEqual(snapshot.windows[0].label, "Tokens this month")
+        // `contains`, not equality: the word "tokens" is localised.
+        let detail = try XCTUnwrap(snapshot.windows[0].detail)
+        XCTAssertTrue(detail.contains("651K") && detail.contains("2.0M"), "detail was \(detail)")
+    }
+
+    /// Billions are where a raw integer stops being readable, so the card has to
+    /// switch to the same suffixes the Claude Code token section uses.
+    func testLargeCountsReadLikeTheTokenCard() throws {
+        let snapshot = GeminiAPIProvider.snapshot(
+            sources: [source("cli", "Gemini CLI", month: 35_600_000_000, today: 80_000_000)],
+            budget: 50_000_000_000,
+            now: now
+        )
+        XCTAssertEqual(snapshot.windows[0].usedText, "35.60B")
+        XCTAssertEqual(snapshot.windows[1].usedText, "80.0M")
+        XCTAssertEqual(snapshot.windows[2].usedText, "35.60B")
+        let detail = try XCTUnwrap(snapshot.windows[0].detail)
+        XCTAssertTrue(detail.contains("35.60B") && detail.contains("50.00B"), "detail was \(detail)")
     }
 
     /// Zero is how the settings field reads "none", and dividing by it would
@@ -743,13 +908,14 @@ final class GeminiAPISnapshotTests: XCTestCase {
             .appendingPathComponent("\(name)-\(UUID().uuidString)")
     }
 
-    /// None of the three tools installed is not an error and not a missing
+    /// None of the four tools installed is not an error and not a missing
     /// sign-in — there is nothing being metered, and the row says so.
     func testNoToolAtAllIsReportedAsNothingMetered() async {
         let provider = GeminiAPIProvider(
             cliRoot: missingPath("gemini-cli"),
             openCodeDatabase: missingPath("opencode.db"),
             hermesDatabase: missingPath("hermes.db"),
+            antigravityStores: [missingPath("antigravity")],
             settingsFile: missingPath("settings.json"),
             budget: { nil }
         )
@@ -785,6 +951,7 @@ final class GeminiAPISnapshotTests: XCTestCase {
             cliRoot: root,
             openCodeDatabase: missingPath("opencode.db"),
             hermesDatabase: missingPath("hermes.db"),
+            antigravityStores: [missingPath("antigravity")],
             settingsFile: missingPath("settings.json"),
             budget: { nil }
         )
@@ -795,6 +962,29 @@ final class GeminiAPISnapshotTests: XCTestCase {
         // Set only once a fetch has found something, so the settings row can
         // name the tools rather than an account nobody signed in to.
         XCTAssertEqual(provider.account()?.source, "Gemini CLI")
+    }
+
+    /// An API-key store with no calls yet still has a row, and it comes after
+    /// the other tools so the tooltip order does not shuffle.
+    func testAntigravityCLIGetsItsOwnRowAfterTheOthers() async throws {
+        let store = missingPath("antigravity")
+        try FileManager.default.createDirectory(
+            at: store.appendingPathComponent("brain"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: store) }
+        try #"{"modelProvider":"gemini"}"#.write(
+            to: store.appendingPathComponent("settings.json"), atomically: true, encoding: .utf8)
+
+        let provider = GeminiAPIProvider(
+            cliRoot: missingPath("gemini-cli"),
+            openCodeDatabase: missingPath("opencode.db"),
+            hermesDatabase: missingPath("hermes.db"),
+            antigravityStores: [store],
+            settingsFile: missingPath("settings.json"),
+            budget: { nil }
+        )
+        let snapshot = try await provider.fetchSnapshot()
+        XCTAssertEqual(snapshot.windows.map(\.id), ["month", "today", "antigravity-cli"])
+        XCTAssertEqual(provider.account()?.source, "Antigravity CLI")
     }
 }
 
@@ -1307,30 +1497,58 @@ final class GeminiAPIActivityMonitorTests: XCTestCase {
         return url
     }
 
-    func testTheThreeSourcesAreReportedInTooltipOrder() throws {
+    /// One store whose newest transcript holds a lone `USER_INPUT`, i.e. a turn
+    /// that has started and not answered, written just now.
+    private func makeAntigravityStore(settings: String = #"{"modelProvider":"gemini"}"#) throws -> URL {
+        let store = temporary("antigravity-cli")
+        let logs = store.appendingPathComponent("brain/c1/.system_generated/logs")
+        try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        try settings.write(to: store.appendingPathComponent("settings.json"),
+                           atomically: true, encoding: .utf8)
+        let transcript = logs.appendingPathComponent("transcript.jsonl")
+        try #"{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-11-23T22:05:25Z"}"#
+            .write(to: transcript, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: now],
+                                              ofItemAtPath: transcript.path)
+        return store
+    }
+
+    func testTheFourSourcesAreReportedInTooltipOrder() throws {
         let sessions = GeminiAPIActivityMonitor.read(
             geminiRoot: try makeGeminiRoot(),
             opencodeDatabase: try makeOpenCodeDatabase(),
             hermesDatabase: try makeHermesDatabase(),
+            antigravityStores: [try makeAntigravityStore()],
             staleAfter: 45,
             now: now
         )
-        XCTAssertEqual(sessions.map(\.name), ["Gemini CLI", "OpenCode", "Hermes"])
+        XCTAssertEqual(sessions.map(\.name), ["Gemini CLI", "OpenCode", "Hermes", "Antigravity CLI"])
         XCTAssertEqual(sessions.map(\.id), [
             "gemini-api.session-a",
             "gemini-api.opencode.s1",
-            "gemini-api.hermes.h1"
+            "gemini-api.hermes.h1",
+            "gemini-api.antigravity.c1"
         ])
         XCTAssertTrue(sessions.allSatisfy { $0.state == .busy })
     }
 
-    /// A machine with none of the three tools installed must read as quiet, not
+    /// A machine with none of the four tools installed must read as quiet, not
     /// as an error the ring cannot show.
     func testNoSourceAtAllReadsAsNoSessions() {
         XCTAssertTrue(GeminiAPIActivityMonitor.read(
             geminiRoot: temporary("gemini"),
             opencodeDatabase: temporary("opencode.db"),
             hermesDatabase: temporary("hermes.db"),
+            antigravityStores: [temporary("antigravity-cli")],
+            staleAfter: 45,
+            now: now
+        ).isEmpty)
+    }
+
+    /// A turn paid for by a Google sign-in belongs to the Antigravity ring.
+    func testAnAntigravityStoreWithoutAnAPIKeyIsNotThisRings() throws {
+        XCTAssertTrue(AntigravityCLIGeminiActivity.read(
+            stores: [try makeAntigravityStore(settings: "{}")],
             staleAfter: 45,
             now: now
         ).isEmpty)

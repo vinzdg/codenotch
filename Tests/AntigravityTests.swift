@@ -1206,9 +1206,184 @@ final class AntigravityActivityMonitorTests: XCTestCase {
         XCTAssertEqual(sessions.first?.detail, "Question")
     }
 
+    private static func lines(_ records: [String]) -> Data {
+        Data(records.joined(separator: "\n").utf8)
+    }
+
+    /// A sub-agent hands back with a `finish` tool call, which used to read as work in progress.
+    func testFinishEndsTheTurn() {
+        let tail = Self.lines([
+            "{\"type\": \"USER_INPUT\"}",
+            "{\"type\": \"PLANNER_RESPONSE\", \"tool_calls\": [{\"name\": \"finish\"}]}",
+            "{\"type\": \"GENERIC\"}",
+        ])
+        XCTAssertEqual(AntigravityActivityMonitor.parseState(inTail: tail).state, .idle)
+    }
+
+    /// A tool result after an ordinary tool call means the model has yet to answer.
+    func testAToolResultAfterAToolCallIsStillWorking() {
+        let tail = Self.lines([
+            "{\"type\": \"USER_INPUT\"}",
+            "{\"type\": \"PLANNER_RESPONSE\", \"tool_calls\": [{\"name\": \"run_command\"}]}",
+            "{\"type\": \"GENERIC\"}",
+        ])
+        XCTAssertEqual(AntigravityActivityMonitor.parseState(inTail: tail).state, .busy)
+    }
+
+    /// A background task reported back, so the model answers next.
+    func testASystemMessageAfterAnAnswerIsStillWorking() {
+        let tail = Self.lines([
+            "{\"type\": \"USER_INPUT\"}",
+            "{\"type\": \"PLANNER_RESPONSE\"}",
+            "{\"type\": \"SYSTEM_MESSAGE\"}",
+        ])
+        XCTAssertEqual(AntigravityActivityMonitor.parseState(inTail: tail).state, .busy)
+    }
+
+    /// Once the question has a record after it, it was answered and the turn goes on.
+    func testAnAnsweredQuestionIsWorkingAgain() {
+        let tail = Self.lines([
+            "{\"type\": \"USER_INPUT\"}",
+            "{\"type\": \"PLANNER_RESPONSE\", \"tool_calls\": [{\"name\": \"ask_question\"}]}",
+            "{\"type\": \"GENERIC\"}",
+        ])
+        XCTAssertEqual(AntigravityActivityMonitor.parseState(inTail: tail).state, .busy)
+    }
+
+    /// A finished sub-agent turn must not linger as busy within the stale window.
+    func testAFinishedTranscriptDoesNotOutliveTheSuccessFlash() throws {
+        let content = [
+            "{\"type\": \"USER_INPUT\"}",
+            "{\"type\": \"PLANNER_RESPONSE\", \"tool_calls\": [{\"name\": \"finish\"}]}",
+            "{\"type\": \"GENERIC\"}",
+        ].joined(separator: "\n")
+        try transcript("done", modified: Date().addingTimeInterval(-20), content: content)
+        XCTAssertTrue(AntigravityActivityMonitor.read(root: root, staleAfter: 45).isEmpty)
+    }
+
     func testNoTranscriptsIsQuietRatherThanAnError() {
         let absent = root.appendingPathComponent("nowhere")
         XCTAssertTrue(AntigravityActivityMonitor.read(root: absent, staleAfter: 45).isEmpty)
+    }
+
+    func testAnAPIKeyStoreIsLeftToTheGeminiAPIRing() throws {
+        let brain = root.appendingPathComponent("store/brain")
+        let dir = brain.appendingPathComponent("c1/.system_generated/logs")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try "{\"type\": \"USER_INPUT\"}".write(to: dir.appendingPathComponent("transcript.jsonl"),
+                                               atomically: true, encoding: .utf8)
+        let settings = root.appendingPathComponent("store/settings.json")
+        try "{\"modelProvider\":\"gemini\"}".write(to: settings, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(AntigravityActivityMonitor.read(roots: [brain], staleAfter: 45).isEmpty)
+
+        try FileManager.default.removeItem(at: settings)
+        let sessions = AntigravityActivityMonitor.read(roots: [brain], staleAfter: 45)
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertEqual(sessions.first?.state, .busy)
+    }
+
+    // MARK: Live steps from the CLI's conversation database
+
+    private static let userInput = "{\"type\": \"USER_INPUT\"}"
+    private static let answer = "{\"type\": \"PLANNER_RESPONSE\"}"
+    private static let runCommand = "{\"type\": \"PLANNER_RESPONSE\", \"tool_calls\": [{\"name\": \"run_command\"}]}"
+
+    private var brain: URL { root.appendingPathComponent("store/brain") }
+
+    /// A CLI conversation laid out as `agy` writes it: the transcript under
+    /// `store/brain/<id>` and, when `steps` is given, `store/conversations/<id>.db`.
+    /// Closed before the reader opens it, as a quit `agy` leaves it.
+    private func conversation(_ id: String, modified: Date, records: [String], steps: [Int]?) throws {
+        let dir = brain.appendingPathComponent("\(id)/.system_generated/logs")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("transcript.jsonl")
+        try records.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: file.path)
+
+        guard let steps else { return }
+        let conversations = root.appendingPathComponent("store/conversations")
+        try FileManager.default.createDirectory(at: conversations, withIntermediateDirectories: true)
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(conversations.appendingPathComponent("\(id).db").path, &db), SQLITE_OK)
+        sqlite3_exec(db, "PRAGMA journal_mode=WAL;", nil, nil, nil)
+        sqlite3_exec(db, "CREATE TABLE steps (idx INTEGER, status INTEGER);", nil, nil, nil)
+        for (idx, status) in steps.enumerated() {
+            sqlite3_exec(db, "INSERT INTO steps VALUES (\(idx), \(status));", nil, nil, nil)
+        }
+        sqlite3_close(db)
+    }
+
+    /// A command moved to the background leaves a transcript that reads as finished.
+    func testARunningToolStepKeepsAFinishedTranscriptBusy() throws {
+        try conversation("c1", modified: Date().addingTimeInterval(-120),
+                         records: [Self.userInput, Self.answer], steps: [3, 2])
+        let sessions = AntigravityActivityMonitor.read(root: brain, staleAfter: 45)
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertEqual(sessions.first?.state, .busy)
+    }
+
+    /// A long model answer reaches the transcript only when complete, so it is silence there.
+    func testAGeneratingModelIsBusyThroughTranscriptSilence() throws {
+        try conversation("c1", modified: Date().addingTimeInterval(-120),
+                         records: [Self.userInput], steps: [3, 8])
+        XCTAssertEqual(AntigravityActivityMonitor.read(root: brain, staleAfter: 45).first?.state, .busy)
+    }
+
+    /// A step waiting for approval is not in the transcript at all.
+    func testAStepAwaitingApprovalIsWaitingForPermission() throws {
+        try conversation("c1", modified: Date().addingTimeInterval(-120),
+                         records: [Self.userInput, Self.runCommand], steps: [3, 3, 9])
+        let sessions = AntigravityActivityMonitor.read(root: brain, staleAfter: 45)
+        XCTAssertEqual(sessions.first?.state, .waiting)
+        XCTAssertEqual(sessions.first?.detail, "Permission")
+    }
+
+    /// Status 2 is a tool running, not a permission prompt as it was once read.
+    func testStatusTwoIsNotWaiting() throws {
+        try conversation("c1", modified: Date(), records: [Self.userInput], steps: [3, 2])
+        XCTAssertEqual(AntigravityActivityMonitor.read(root: brain, staleAfter: 45).first?.state, .busy)
+    }
+
+    /// With nothing in flight, a quiet transcript expires as it always did.
+    func testOnlyFinishedStepsLetAQuietTranscriptExpire() throws {
+        try conversation("c1", modified: Date().addingTimeInterval(-120),
+                         records: [Self.userInput], steps: [3, 3])
+        XCTAssertTrue(AntigravityActivityMonitor.read(root: brain, staleAfter: 45).isEmpty)
+    }
+
+    /// A hard-killed `agy` leaves its row at 2 for good; the live-step window is the crash guard.
+    func testALiveStepIsNotBelievedPastTheWindow() throws {
+        try conversation("c1", modified: Date().addingTimeInterval(-700),
+                         records: [Self.userInput], steps: [3, 2])
+        XCTAssertTrue(AntigravityActivityMonitor.read(root: brain, staleAfter: 45).isEmpty)
+    }
+
+    /// A parallel session still working must not hide behind a newer finished one.
+    func testAnOlderConversationWithALiveStepWins() throws {
+        try conversation("done", modified: Date().addingTimeInterval(-20),
+                         records: [Self.userInput, Self.answer], steps: [3, 3])
+        try conversation("running", modified: Date().addingTimeInterval(-90),
+                         records: [Self.userInput], steps: [3, 2])
+        let sessions = AntigravityActivityMonitor.read(root: brain, staleAfter: 45)
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertEqual(sessions.first?.state, .busy)
+        XCTAssertEqual(sessions.first?.id, "antigravity.running")
+    }
+
+    /// An older conversation's tail is not consulted, so recency alone does not revive it.
+    func testAnOlderConversationWithoutALiveStepIsIgnored() throws {
+        try conversation("done", modified: Date().addingTimeInterval(-20),
+                         records: [Self.userInput, Self.answer], steps: [3, 3])
+        try conversation("quiet", modified: Date().addingTimeInterval(-30),
+                         records: [Self.userInput], steps: [3, 3])
+        XCTAssertTrue(AntigravityActivityMonitor.read(root: brain, staleAfter: 45).isEmpty)
+    }
+
+    /// The editor writes no database, and its stores must keep working on the transcript alone.
+    func testATranscriptWithoutADatabaseStillReadsAsWorking() throws {
+        try conversation("c1", modified: Date(), records: [Self.userInput], steps: nil)
+        XCTAssertEqual(AntigravityActivityMonitor.read(root: brain, staleAfter: 45).first?.state, .busy)
     }
 }
 
