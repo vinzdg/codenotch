@@ -220,6 +220,8 @@ pub fn label(name: &str, lang: &str) -> String {
         ("pt-BR", "Premium requests") => "Solicitações premium",
         ("pt-BR", "Chat requests") => "Solicitações de chat",
         ("pt-BR", "Completions") => "Conclusões de código",
+        ("pt-BR", "Gemini Models") => "Modelos Gemini",
+        ("pt-BR", "Claude and GPT models") => "Modelos Claude e GPT",
         ("es", "Current session") => "Sesión actual",
         ("es", "Weekly (all models)") => "Semanal (todos los modelos)",
         ("es", "Weekly (Opus)") => "Semanal (Opus)",
@@ -357,7 +359,19 @@ pub fn provider_lines(snap: &UsageSnapshot, now: u64, lang: &str) -> Vec<String>
             false => vec![snap.note.clone()],
         };
     }
-    snap.windows.iter().map(|w| window_line(w, now, lang)).collect()
+    // Windows in more than one group (Antigravity's model families, or several Claude accounts) carry
+    // the same names in each — the card puts them under a heading, and a flat menu has none, so it
+    // listed "5-hour Limit" twice with nothing to tell the two apart. One group needs no prefix.
+    let mut groups = snap.windows.iter().map(|w| w.group.as_deref());
+    let first = groups.next().flatten();
+    let several = groups.any(|g| g != first);
+    snap.windows
+        .iter()
+        .map(|w| match w.group.as_deref().filter(|_| several) {
+            Some(group) => format!("{} · {}", label(group, lang), window_line(w, now, lang)),
+            None => window_line(w, now, lang),
+        })
+        .collect()
 }
 
 /// When the reading is old enough to say so: the page draws the same cell dimmed on the same rule.
@@ -423,6 +437,23 @@ mod tests {
     }
 
     const MIN: u64 = 60 * 1000;
+
+    #[test]
+    fn windows_in_several_groups_say_which_group_they_belong_to() {
+        let grouped = |group: &str, label: &str| LimitWindow { group: Some(group.into()), ..window(label, 0.0, None) };
+        let ag = UsageSnapshot {
+            status: "ok".into(),
+            windows: vec![grouped("Gemini Models", "5-hour Limit"), grouped("Claude and GPT models", "5-hour Limit")],
+            ..Default::default()
+        };
+        assert_eq!(provider_lines(&ag, 0, "pt-BR"), [
+            "Modelos Gemini · Limite de 5 horas: 0% usado · 100% restante",
+            "Modelos Claude e GPT · Limite de 5 horas: 0% usado · 100% restante",
+        ]);
+        // A single group, or none, is the provider's own and needs no prefix
+        let one = UsageSnapshot { windows: vec![grouped("Gemini Models", "5-hour Limit")], ..ag.clone() };
+        assert_eq!(provider_lines(&one, 0, "en"), ["5-hour Limit: 0% Used · 100% left"]);
+    }
 
     fn paced(used: f64, remaining: u64, duration: u64) -> LimitWindow {
         let mut w = window("Current session", used, Some(MIN + remaining));

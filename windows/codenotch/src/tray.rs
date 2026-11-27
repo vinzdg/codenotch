@@ -30,11 +30,8 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
 fn menu_lines(app: &AppHandle, lang: &str) -> Vec<(String, String, bool)> {
     let now = crate::now_ms();
     let mut lines = Vec::new();
-    for id in crate::TRAY_PROVIDER_IDS {
+    for id in shown(app) {
         let snap = crate::snapshot_of(app, id);
-        if snap.status == "absent" {
-            continue;
-        }
         let head = traymenu::header(
             crate::provider_label(id),
             crate::ring_fraction(app, id),
@@ -50,6 +47,20 @@ fn menu_lines(app: &AppHandle, lang: &str) -> Vec<(String, String, bool)> {
         }
     }
     lines
+}
+
+/// The providers the menu, its tooltip and the reset alerts cover: those with something to report,
+/// narrowed to the ones switched on in Settings, as the notch narrows its rings. Listing every
+/// provider that had a snapshot put z.ai, OpenCode and Cursor in the menu of someone who had turned
+/// them off.
+pub(crate) fn shown(app: &AppHandle) -> Vec<&'static str> {
+    let present: Vec<&'static str> = crate::TRAY_PROVIDER_IDS
+        .into_iter()
+        .filter(|id| crate::snapshot_of(app, id).status != "absent")
+        .collect();
+    let st = app.state::<crate::AppState>();
+    let slots = st.cfg.lock().unwrap().notch_slots.clone();
+    crate::config::shown_providers(&present, &slots)
 }
 
 pub fn build_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
@@ -100,10 +111,7 @@ pub(crate) fn language(app: &AppHandle) -> String {
 /// The hover text: the same figures the menu opens with, for when the menu is not open.
 fn tooltip(app: &AppHandle) -> String {
     let mut parts: Vec<String> = Vec::new();
-    for id in crate::TRAY_PROVIDER_IDS {
-        if crate::snapshot_of(app, id).status == "absent" {
-            continue;
-        }
+    for id in shown(app) {
         let value = crate::ring_fraction(app, id)
             .map(|f| format!("{}%", traymenu::pct(f)))
             .unwrap_or_else(|| "—".into());
