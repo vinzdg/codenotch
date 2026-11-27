@@ -257,6 +257,13 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(showUsagePace, forKey: Self.showUsagePaceKey) }
     }
 
+    /// The runner in the menu bar, a second item beside Codenotch's own. Off
+    /// unless chosen: it is one more thing on the bar.
+    static let showsRunnerKey = "showsRunner"
+    @Published var showsRunner: Bool {
+        didSet { defaults.set(showsRunner, forKey: Self.showsRunnerKey) }
+    }
+
     @Published var codedockEnabled: Bool {
         didSet { defaults.set(codedockEnabled, forKey: Self.codedockKey) }
     }
@@ -1284,6 +1291,7 @@ final class Preferences: ObservableObject {
         self.resetTimeFormat = defaults.string(forKey: Keys.resetTimeFormat)
             .flatMap(ResetTimeFormat.init(rawValue:)) ?? .automatic
         self.showUsagePace = defaults.bool(forKey: Self.showUsagePaceKey)
+        self.showsRunner = defaults.bool(forKey: Self.showsRunnerKey)
         self.codedockEnabled = defaults.bool(forKey: Self.codedockKey)
         self.codedockOnLeft = defaults.string(forKey: Self.codedockSideKey) == "left"
         self.codedockLook = defaults.string(forKey: Self.codedockLookKey) ?? "dark"

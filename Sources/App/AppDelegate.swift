@@ -39,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Held for the life of the app: releasing it stops the scheduled checks.
     private var updater: Updater?
     private var thresholdNotifier: ThresholdNotifier?
+    private let runner = RunnerStatusItem()
     private var resetWatcher: UsageResetWatcher?
     private var limitWatcher: UsageLimitWatcher?
     private var statusItem: StatusItemController?
@@ -144,6 +145,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.applyCodedock() }
+            .store(in: &cancellables)
+
+        // Starts the runner at launch when it was left on, and follows the switch.
+        let runner = self.runner
+        preferences.$showsRunner
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { on in on ? runner.start() : runner.stop() }
             .store(in: &cancellables)
 
         // `CODENOTCH_DEMO=1` puts the design frame's three providers and one
