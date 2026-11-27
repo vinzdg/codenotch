@@ -106,4 +106,37 @@ final class CostSampleTests: XCTestCase {
         XCTAssertEqual(try rows(.session), [[0, 10], [30, 10]])
         XCTAssertEqual(try rows(.weekly), [[0, 50], [30, 50]])
     }
+
+    // MARK: Token usage streaks
+
+    /// Turns at local noon on the last three days. SQLite files them under
+    /// Gregorian `localtime` dates, so the streak must read them back that way
+    /// whatever calendar the Mac is set to.
+    private func indexThreeDaysOfTurns(calendar: Calendar) -> Date {
+        let now = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: Date())!
+        let events = (0..<3).map { daysAgo in
+            UsageEvent(ts: Int(calendar.date(byAdding: .day, value: -daysAgo, to: now)!.timeIntervalSince1970),
+                       sessionId: "s", dedupeKey: "r:\(daysAgo)", project: "/p", cwd: "/p", branch: nil,
+                       model: "claude-sonnet", input: 10, output: 5, cacheRead: 0, cacheWrite: 0, ccVersion: nil)
+        }
+        store.commit(events: events, path: "/p/s.jsonl", inode: 1, size: 1, offset: 1, mtime: 0)
+        return now
+    }
+
+    func testTokenStreaksCountConsecutiveLocalDays() throws {
+        let calendar = Calendar(identifier: .gregorian)
+        let now = indexThreeDaysOfTurns(calendar: calendar)
+        let summary = try XCTUnwrap(store.tokenUsage(now: now, calendar: calendar)?.summary)
+        XCTAssertEqual(summary.currentStreakDays, 3)
+        XCTAssertEqual(summary.longestStreakDays, 3)
+    }
+
+    func testTokenStreaksSurviveANonGregorianSystemCalendar() throws {
+        let now = indexThreeDaysOfTurns(calendar: Calendar(identifier: .gregorian))
+        for identifier in [Calendar.Identifier.buddhist, .japanese] {
+            let summary = try XCTUnwrap(store.tokenUsage(now: now, calendar: Calendar(identifier: identifier))?.summary)
+            XCTAssertEqual(summary.currentStreakDays, 3, "\(identifier)")
+            XCTAssertEqual(summary.longestStreakDays, 3, "\(identifier)")
+        }
+    }
 }

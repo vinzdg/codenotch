@@ -77,8 +77,14 @@ struct CodexTokenUsage: Codable, Equatable, Sendable {
         summary?.peakDailyTokens ?? dailyUsageBuckets.map(\.tokens).max()
     }
 
-    private static func dayKey(for date: Date, calendar: Calendar) -> String {
-        let components = calendar.dateComponents([.year, .month, .day], from: date)
+    /// The bucket key for the local day holding `date`. Keys are Gregorian
+    /// whatever the system calendar is (Buddhist years run 543 ahead, Japanese
+    /// years count from the era), because every writer files them that way:
+    /// the Codex server, SQLite's `date()` in the cost store, custom endpoints.
+    static func dayKey(for date: Date, calendar: Calendar) -> String {
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        let components = gregorian.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d",
                       components.year ?? 0, components.month ?? 0, components.day ?? 0)
     }
