@@ -800,20 +800,80 @@ extension CostStore {
     func weeklyPeriods() -> [WeeklyPeriod] { periods(window: .weekly) }
 
     func periods(window: CostWindow) -> [WeeklyPeriod] {
-        var out: [WeeklyPeriod] = []
+        var groups: [ResetGroup] = []
         queue.sync {
             guard let st = prepare("SELECT resets_at, MAX(pct), MIN(ts) FROM quota_sample WHERE window=?1 AND resets_at IS NOT NULL GROUP BY resets_at ORDER BY resets_at") else { return }
             defer { sqlite3_finalize(st) }
             bind(st, 1, window.rawValue)
             while sqlite3_step(st) == SQLITE_ROW {
-                let end = Int(sqlite3_column_int64(st, 0))
-                let firstSeen = Int(sqlite3_column_int64(st, 2))
-                // Credit cycles have no fixed length: start where the previous one ended, else at the first sample.
-                let start = window == .credits ? (out.last?.end ?? firstSeen) : end - Int(window.duration)
-                out.append(WeeklyPeriod(start: start, end: end, usedPct: sqlite3_column_double(st, 1)))
+                let next = ResetGroup(end: Int(sqlite3_column_int64(st, 0)),
+                                      usedPct: sqlite3_column_double(st, 1),
+                                      firstSeen: Int(sqlite3_column_int64(st, 2)))
+                if let last = groups.last, let joined = Self.join(last, next, window: window) {
+                    groups[groups.count - 1] = joined
+                } else {
+                    groups.append(next)
+                }
             }
         }
+        var out: [WeeklyPeriod] = []
+        var lastUsedEnd: Int?
+        for g in groups {
+            var start: Int
+            if window == .credits {
+                // Credit cycles have no fixed length: start where the previous one ended, else at the first sample.
+                start = out.last?.end ?? g.firstSeen
+            } else {
+                // One window before the earliest reset time, so a week whose reset time varies keeps its first
+                // minutes. What that adds stops where the last used period ends, even with 0% periods between:
+                // a session there is priced in that one. A period's own window is left as it was.
+                start = g.firstEnd - Int(window.duration)
+                if let used = lastUsedEnd { start = max(start, min(used, g.end - Int(window.duration))) }
+                // An unused period holds no cost. It ends where this one starts, so it can't take this one's
+                // sessions. While a session or weekly window sits at 0%, the reset time Codenotch has read for
+                // Codex is "now plus the window" and moves with every reading, so an unused stretch leaves such
+                // a period for every run of readings that jitter doesn't join. This one always starts later.
+                if let prev = out.last, prev.usedPct == 0, prev.end > start { out[out.count - 1].end = start }
+            }
+            out.append(WeeklyPeriod(start: start, end: g.end, usedPct: g.usedPct))
+            if g.usedPct > 0 { lastUsedEnd = g.end }
+        }
         return out
+    }
+
+    /// The reset times that end one period, with the period's peak and first sample.
+    private struct ResetGroup {
+        var firstEnd: Int       // earliest reset time
+        var end: Int            // latest reset time
+        var jitterBase: Int     // what the next reset time's jitter is measured from
+        var usedPct: Double
+        var firstSeen: Int
+
+        init(end: Int, usedPct: Double, firstSeen: Int) {
+            firstEnd = end; self.end = end; jitterBase = end
+            self.usedPct = usedPct; self.firstSeen = firstSeen
+        }
+    }
+
+    /// Reset times at most this far after a period's first used reset time are that
+    /// period's. A provider can report the same reset a few seconds, or a minute, apart
+    /// from one reading to the next.
+    static let resetJitter = 300
+
+    /// `a` and `b`, the next reset time in order, as one period, or nil when they're two.
+    ///
+    /// `b` joins when it's within `resetJitter` of `a`'s `jitterBase`: the first used
+    /// reset time, so used reset times can't chain past `resetJitter`. A 0% reset time
+    /// in a session or weekly window can be a moving "now plus the window", not the
+    /// period's, so it moves the base along. Credit cycles' reset times don't move.
+    private static func join(_ a: ResetGroup, _ b: ResetGroup, window: CostWindow) -> ResetGroup? {
+        guard b.end - a.jitterBase <= resetJitter else { return nil }
+        var joined = a
+        joined.end = b.end
+        joined.jitterBase = a.usedPct == 0 && window != .credits ? b.end : a.jitterBase
+        joined.usedPct = max(a.usedPct, b.usedPct)
+        joined.firstSeen = min(a.firstSeen, b.firstSeen)
+        return joined
     }
 
     /// Total weight of all turns in [from, to] (for subscription shares).
