@@ -59,6 +59,13 @@ enum ProviderGlyph: String, Codable, Equatable {
     /// than borrowed. It used to wear `.third`, which is Perplexity's mark —
     /// read in Settings as Perplexity, a provider Manual has nothing to do with.
     case manual
+    /// This Mac's own readings. No brand to borrow, so these are drawn here.
+    case systemCPU = "system-cpu"
+    case systemStorage = "system-storage"
+    case systemNetwork = "system-network"
+    case systemMemory = "system-memory"
+    case systemBattery = "system-battery"
+    case systemThermal = "system-thermal"
 
     /// If an asset with this name is in the bundle it wins over the traced
     /// outline — drop a PDF/SVG export from Figma in and it is picked up.
@@ -114,6 +121,7 @@ enum ProviderGlyph: String, Codable, Equatable {
         // evening-out.
         case .mimo: return 0.95
         case .devin, .qwen, .gemma, .meta, .deepseek, .mistral, .manual: return 1.0
+        case .systemCPU, .systemStorage, .systemNetwork, .systemMemory, .systemBattery, .systemThermal: return 1.0
         }
     }
 
@@ -168,6 +176,12 @@ enum ProviderGlyph: String, Codable, Equatable {
         // Fallback only: glyph-manual adds the stroke through the four bars,
         // which an even-odd outline would punch holes in where they cross.
         case .manual: return GlyphOutline.manual
+        case .systemCPU: return GlyphOutline.systemCPU
+        case .systemStorage: return GlyphOutline.systemStorage
+        case .systemNetwork: return GlyphOutline.systemNetwork
+        case .systemMemory: return GlyphOutline.systemMemory
+        case .systemBattery: return GlyphOutline.systemBattery
+        case .systemThermal: return GlyphOutline.systemThermal
         case .kilo:   return GlyphOutline.kilo
         case .kiro:   return GlyphOutline.kiro
         // A fallback only: glyph-minimax in the asset catalogue is drawn instead.

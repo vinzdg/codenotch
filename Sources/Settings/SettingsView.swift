@@ -1763,7 +1763,8 @@ struct SettingsView: View {
     /// connection row and must remain enabled for its models to appear.
     private var ringAccounts: [ProviderSummary] {
         accounts.filter {
-            $0.kind == .usage || ($0.localModel != nil && preferences.isConnected($0.sourceProviderID ?? $0.id))
+            $0.kind == .usage || $0.kind == .system
+                || ($0.localModel != nil && preferences.isConnected($0.sourceProviderID ?? $0.id))
         }
     }
 

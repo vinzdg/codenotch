@@ -514,7 +514,8 @@ struct ProviderSnapshot: Identifiable, Equatable {
     /// Stale readings never count — an old number is not proof the account
     /// is empty now; it may hold tokens the last fetch has not seen yet.
     var isDepleted: Bool {
-        guard !status.isStale else { return false }
+        // A reading of this Mac is never a quota: 100% CPU is busy, not spent.
+        guard !status.isStale, kind != .system else { return false }
         return headlineIsSpent
             || (weeklyLimitWindow?.usedFraction ?? 0) >= 1
             || spentLongWindow != nil

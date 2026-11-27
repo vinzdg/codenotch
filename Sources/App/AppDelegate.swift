@@ -226,6 +226,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let remoteProviders: [UsageProvider] = preferences.remoteHosts
                 .filter { $0.isEnabled && $0.isConfigured }
                 .map { $0.makeProvider() }
+            // Off until someone switches one on in Settings → Accounts, like any
+            // provider that is not Claude or Codex.
+            let systemProviders: [UsageProvider] = SystemMetric.allCases.filter(\.isAvailable).map {
+                SystemMetricProvider(metric: $0) as UsageProvider
+            }
             let allProviders: [UsageProvider] = claudeProviders
                 + [CursorLocalProvider()]
                 + codexProfiles.map { CodexLocalProvider(profile: $0) }
@@ -255,6 +260,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     return [manual as UsageProvider]
                 }()
                 + [DeepSeekProvider(web: deepSeek)]
+                + systemProviders
                 + webProviders
                 + customProviders
                 + remoteProviders
@@ -1072,9 +1078,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak statusItem, weak preferences] snapshots, paced in
                     let snapshots = DailyPace.apply(to: snapshots, enabled: paced)
                     statusItem?.snapshots = snapshots
-                    notifier.observe(snapshots)
-                    resetWatcher.observe(snapshots)
-                    limitWatcher.observe(snapshots)
+                    // A reading of this Mac is no quota, so it never alerts.
+                    let quotas = snapshots.filter { $0.kind != .system }
+                    notifier.observe(quotas)
+                    resetWatcher.observe(quotas)
+                    limitWatcher.observe(quotas)
                     for snapshot in snapshots {
                         if let used = snapshot.headline?.used, used > 0 {
                             preferences?.recordPeakUsage(providerID: snapshot.id, used: used)

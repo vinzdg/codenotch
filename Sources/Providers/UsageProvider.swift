@@ -3,6 +3,9 @@ import Foundation
 enum ProviderKind: Equatable {
     case usage
     case localRuntime
+    /// A reading of this Mac itself (CPU, storage, network). Shown like a
+    /// provider, but never a quota: no threshold alerts, never depleted.
+    case system
 }
 
 /// How recent a reading has to be to answer a fetch.

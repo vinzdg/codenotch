@@ -333,6 +333,39 @@ make run                # generate, build, launch a Debug build
 make test               # unit tests
 ```
 
+### Running from a Mac with Xcode
+
+Xcode from the App Store is required; the Command Line Tools alone are not
+enough, because `xcodebuild` and the Swift packages need the full toolchain.
+
+```sh
+# 1. Point the command line at Xcode, once (the Makefile also does this when
+#    /Applications/Xcode.app exists):
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+# 2. Tools, once:
+brew install xcodegen create-dmg
+
+# 3. Get the code and the branch to test:
+git clone <url-of-your-fork> codenotch
+cd codenotch
+git switch feature/system-metrics   # or the branch you want to try
+
+# 4. Build, run unit tests, launch the app:
+make test   # first run downloads the Swift packages (Sparkle, SwiftNIO): needs network
+make run    # Debug build, ad-hoc signed, no Apple account needed
+```
+
+On the first launch macOS may ask for Gatekeeper approval (right-click →
+Open) and for keychain access to read a provider's token.
+
+To try the system readings (CPU, memory, storage, network, battery, thermal):
+open **Settings → Accounts**, find the entries named after them and switch
+them on. They are off by default. Battery only appears on a Mac with one.
+
+If a build fails after pulling, regenerate the project and try again:
+`rm -rf Codenotch.xcodeproj && make build`.
+
 No signing identity is required for either. `make release` — which archives,
 notarizes, and produces a signed auto-update feed — needs a Developer ID
 certificate and an App Store Connect notary profile, and is only ever run by

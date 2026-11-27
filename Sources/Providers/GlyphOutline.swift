@@ -1551,4 +1551,58 @@ enum GlyphOutline {
         return [CGPoint(x: x, y: top), CGPoint(x: x + width, y: top),
                 CGPoint(x: x + width, y: bottom), CGPoint(x: x, y: bottom)]
     }
+
+    /// A chip: a square with a hole (even-odd) and three pins a side.
+    static let systemCPU: [[CGPoint]] = {
+        var loops = [rect(x: 0.2, y: 0.2, w: 0.6, h: 0.6), rect(x: 0.36, y: 0.36, w: 0.28, h: 0.28)]
+        for x in [0.3, 0.46, 0.62] {
+            loops.append(rect(x: x, y: 0.05, w: 0.07, h: 0.15))
+            loops.append(rect(x: x, y: 0.80, w: 0.07, h: 0.15))
+        }
+        return loops
+    }()
+
+    /// A drive: three stacked bars.
+    static let systemStorage: [[CGPoint]] = [
+        rect(x: 0.12, y: 0.16, w: 0.76, h: 0.18),
+        rect(x: 0.12, y: 0.41, w: 0.76, h: 0.18),
+        rect(x: 0.12, y: 0.66, w: 0.76, h: 0.18),
+    ]
+
+    /// Signal strength: four bars climbing left to right.
+    static let systemNetwork: [[CGPoint]] = [
+        rect(x: 0.10, y: 0.66, w: 0.16, h: 0.22),
+        rect(x: 0.36, y: 0.50, w: 0.16, h: 0.38),
+        rect(x: 0.62, y: 0.34, w: 0.16, h: 0.54),
+        rect(x: 0.78, y: 0.18, w: 0.16, h: 0.70),
+    ]
+
+    /// Four memory chips in a grid.
+    static let systemMemory: [[CGPoint]] = [
+        rect(x: 0.12, y: 0.12, w: 0.34, h: 0.34),
+        rect(x: 0.54, y: 0.12, w: 0.34, h: 0.34),
+        rect(x: 0.12, y: 0.54, w: 0.34, h: 0.34),
+        rect(x: 0.54, y: 0.54, w: 0.34, h: 0.34),
+    ]
+
+    /// A battery: a frame (square with a hole, even-odd) and its nub.
+    static let systemBattery: [[CGPoint]] = [
+        rect(x: 0.08, y: 0.28, w: 0.76, h: 0.44),
+        rect(x: 0.14, y: 0.34, w: 0.64, h: 0.32),
+        rect(x: 0.84, y: 0.42, w: 0.08, h: 0.16),
+    ]
+
+    /// A thermometer: a stem and a bulb, drawn as separate loops.
+    static let systemThermal: [[CGPoint]] = {
+        let bulb = (0..<16).map { i -> CGPoint in
+            let angle = CGFloat(i) / 16 * 2 * .pi
+            return CGPoint(x: 0.5 + 0.2 * cos(angle), y: 0.76 + 0.2 * sin(angle))
+        }
+        return [rect(x: 0.42, y: 0.08, w: 0.16, h: 0.48), bulb]
+    }()
+
+    private static func rect(x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) -> [CGPoint] {
+        [CGPoint(x: x, y: y), CGPoint(x: x + w, y: y),
+         CGPoint(x: x + w, y: y + h), CGPoint(x: x, y: y + h)]
+    }
 }
