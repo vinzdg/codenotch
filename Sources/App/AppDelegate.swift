@@ -775,6 +775,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 .store(in: &cancellables)
 
+            preferences.$antigravitySource
+                .dropFirst()
+                .removeDuplicates()
+                .receive(on: RunLoop.main)
+                .sink { [weak store] _ in
+                    store?.providerContextChanged(providerID: AntigravityProfile.defaultID) {}
+                }
+                .store(in: &cancellables)
+
             preferences.$minimaxRegion
                 .dropFirst()
                 .removeDuplicates()

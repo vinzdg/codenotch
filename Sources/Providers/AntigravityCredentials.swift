@@ -247,6 +247,13 @@ struct AntigravityCredentials: Equatable {
         updateHeld(credentials, for: profile)
     }
 
+    private static var extraOAuthPaths: [String] {
+        [
+            ("~/.config/gemini/oauth_creds.json" as NSString).expandingTildeInPath,
+            ("~/.config/antigravity/oauth_creds.json" as NSString).expandingTildeInPath,
+        ]
+    }
+
     /// Whether Antigravity has filed a credential at all, judged from the
     /// item's attributes rather than its contents — those are not behind the
     /// access prompt the secret is, so this can be asked freely.
@@ -255,8 +262,11 @@ struct AntigravityCredentials: Equatable {
         if KeychainItem.modifiedAt(service: service, account: acpAccount) != nil { return true }
         let acpTokenPath = ("~/.gemini/antigravity-acp/acp_token.json" as NSString).expandingTildeInPath
         if FileManager.default.fileExists(atPath: acpTokenPath) { return true }
+        let cliPath = ("~/.gemini/antigravity-cli/oauth_creds.json" as NSString).expandingTildeInPath
+        if FileManager.default.fileExists(atPath: cliPath) { return true }
         let jsonPath = ("~/.gemini/oauth_creds.json" as NSString).expandingTildeInPath
         if FileManager.default.fileExists(atPath: jsonPath) { return true }
+        if extraOAuthPaths.contains(where: { FileManager.default.fileExists(atPath: $0) }) { return true }
         let ompDBPath = ("~/.omp/agent/agent.db" as NSString).expandingTildeInPath
         if FileManager.default.fileExists(atPath: ompDBPath) { return true }
         return false
@@ -344,10 +354,10 @@ struct AntigravityCredentials: Equatable {
             let cliPath = ("~/.gemini/antigravity-cli/oauth_creds.json" as NSString).expandingTildeInPath
             let jsonPath = ("~/.gemini/oauth_creds.json" as NSString).expandingTildeInPath
             let ompPath = ("~/.omp/agent/agent.db" as NSString).expandingTildeInPath
-            let cliMod = (try? FileManager.default.attributesOfItem(atPath: cliPath))?[.modificationDate] as? Date
-            let jsonMod = (try? FileManager.default.attributesOfItem(atPath: jsonPath))?[.modificationDate] as? Date
-            let ompMod = (try? FileManager.default.attributesOfItem(atPath: ompPath))?[.modificationDate] as? Date
-            return [cliMod, jsonMod, ompMod].compactMap { $0 }.max()
+            let paths = [cliPath, jsonPath, ompPath] + extraOAuthPaths
+            return paths.compactMap {
+                (try? FileManager.default.attributesOfItem(atPath: $0))?[.modificationDate] as? Date
+            }.max()
         case .acp:
             let keychainMod = KeychainItem.modifiedAt(service: service, account: acpAccount)
             let acpTokenPath = ("~/.gemini/antigravity-acp/acp_token.json" as NSString).expandingTildeInPath
@@ -506,8 +516,25 @@ struct AntigravityCredentials: Equatable {
                 clientID: creds.clientID,
                 clientSecret: creds.clientSecret,
                 tokenURI: creds.tokenURI,
-                sourceName: "Antigravity CLI"
+                sourceName: "Google OAuth"
             )
+        }
+
+        for extraPath in extraOAuthPaths {
+            if let creds = readJSONCredentials(at: extraPath) {
+                return AntigravityCredentials(
+                    accessToken: creds.accessToken,
+                    expiresAt: creds.expiresAt,
+                    authMethod: creds.authMethod,
+                    projectId: creds.projectId,
+                    email: creds.email,
+                    refreshToken: creds.refreshToken,
+                    clientID: creds.clientID,
+                    clientSecret: creds.clientSecret,
+                    tokenURI: creds.tokenURI,
+                    sourceName: "Google OAuth"
+                )
+            }
         }
 
         if let omp = readOMPCredentials() {
@@ -522,6 +549,31 @@ struct AntigravityCredentials: Equatable {
                 clientSecret: omp.clientSecret,
                 tokenURI: omp.tokenURI,
                 sourceName: "Antigravity CLI"
+            )
+        }
+        return nil
+    }
+
+    /// Reads Google OAuth credentials from CLI, OAuth JSON files, ACP token file,
+    /// or OMP SQLite without touching Antigravity IDE's keychain item.
+    static func readOAuthCredentials(for profile: AntigravityProfile = .default()) -> AntigravityCredentials? {
+        if let cli = readCLICredentials(for: profile) {
+            return cli
+        }
+        guard profile.slug == nil else { return nil }
+        let acpTokenPath = ("~/.gemini/antigravity-acp/acp_token.json" as NSString).expandingTildeInPath
+        if let fileCreds = readJSONCredentials(at: acpTokenPath) {
+            return AntigravityCredentials(
+                accessToken: fileCreds.accessToken,
+                expiresAt: fileCreds.expiresAt,
+                authMethod: fileCreds.authMethod,
+                projectId: fileCreds.projectId,
+                email: fileCreds.email,
+                refreshToken: fileCreds.refreshToken,
+                clientID: fileCreds.clientID,
+                clientSecret: fileCreds.clientSecret,
+                tokenURI: fileCreds.tokenURI,
+                sourceName: "Google OAuth"
             )
         }
         return nil
@@ -714,6 +766,7 @@ struct AntigravityCredentials: Equatable {
             let projectId: String?
             let email: String?
             let expiry_date: Double?
+            let expiry: String?
         }
 
         guard let payload = try? JSONDecoder().decode(ACPPayload.self, from: data) else {
@@ -725,8 +778,15 @@ struct AntigravityCredentials: Equatable {
 
         guard isACP || !token.isEmpty else { return nil }
 
-        let expiry = payload.expiry_date.map { Date(timeIntervalSince1970: $0 / 1000.0) }
-            ?? (token.isEmpty ? Date.distantPast : Date.distantFuture)
+        let expiry: Date
+        if let rawExpiryDate = payload.expiry_date {
+            let seconds = rawExpiryDate < 1e11 ? rawExpiryDate : rawExpiryDate / 1000.0
+            expiry = Date(timeIntervalSince1970: seconds)
+        } else if let expiryString = payload.expiry, let parsed = parse(expiryString) {
+            expiry = parsed
+        } else {
+            expiry = token.isEmpty ? Date.distantPast : Date.distantFuture
+        }
 
         return AntigravityCredentials(
             accessToken: token,

@@ -234,6 +234,11 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(antigravityHeadlineModel.rawValue, forKey: Keys.antigravityHeadlineModel) }
     }
 
+    /// Where Antigravity reads its usage from (automatic CLI/OAuth, agy CLI, Google OAuth, or IDE).
+    @Published var antigravitySource: AntigravitySource {
+        didSet { defaults.set(antigravitySource.rawValue, forKey: Keys.antigravitySource) }
+    }
+
     /// Where along that edge the notch sits, nudged from the centred default
     /// by ⌥-dragging the pill. One value per edge — moving it on the right
     /// should not silently relocate it on the top too — so this is read and
@@ -874,6 +879,7 @@ final class Preferences: ObservableObject {
         static let qoderRegion = "qoderRegion"
         static let antigravityHeadlineLimit = "antigravityHeadlineLimit"
         static let antigravityHeadlineModel = "antigravityHeadlineModel"
+        static let antigravitySource = "antigravitySource"
         static let deepSeekPricingEnabled = "deepSeekPricingEnabled"
         static let deepSeekPricingSchedule = "deepSeekPricingSchedule"
         static let deepSeekSource = "deepSeekSource"
@@ -991,6 +997,15 @@ final class Preferences: ObservableObject {
               let model = AntigravityHeadlineModel(rawValue: value)
         else { return .gemini }
         return model
+    }
+
+    nonisolated static func storedAntigravitySource(
+        defaults: UserDefaults = .standard
+    ) -> AntigravitySource {
+        guard let value = defaults.string(forKey: Keys.antigravitySource),
+              let source = AntigravitySource(rawValue: value)
+        else { return .automatic }
+        return source
     }
 
     /// Whether extra Codex windows (Spark, code review) are shown, read off
@@ -1314,6 +1329,7 @@ final class Preferences: ObservableObject {
             .flatMap(AntigravityHeadlineLimit.init(rawValue:)) ?? .automatic
         self.antigravityHeadlineModel = defaults.string(forKey: Keys.antigravityHeadlineModel)
             .flatMap(AntigravityHeadlineModel.init(rawValue:)) ?? .gemini
+        self.antigravitySource = Self.storedAntigravitySource(defaults: defaults)
         // Follow the Mac unless the user explicitly chooses a Codenotch colour.
         // Off by default: an extra arc in a 44pt circle is a change to how
         // every reading looks, and nobody asked for it on their behalf.

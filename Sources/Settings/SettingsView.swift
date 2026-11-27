@@ -2309,6 +2309,19 @@ private struct AccountRow: View {
             if isConnected, provider.id == AntigravityProfile.defaultID {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) {
+                        Text(L10n.t("Read from"))
+                            .foregroundStyle(.secondary)
+                        Picker(L10n.t("Read from"), selection: $preferences.antigravitySource) {
+                            ForEach(AntigravitySource.allCases) { source in
+                                Text(source.title).tag(source)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(width: 180)
+                    }
+
+                    HStack(spacing: 8) {
                         Text(L10n.t("Notch reads"))
                             .foregroundStyle(.secondary)
                         Picker(L10n.t("Notch reads"), selection: $preferences.antigravityHeadlineLimit) {
@@ -2335,7 +2348,7 @@ private struct AccountRow: View {
                     }
                 }
                 .padding(.top, 2)
-                .help(L10n.t("Choose which limit appears in the main notch for Antigravity."))
+                .help(L10n.t("Choose how Antigravity usage is read and which limit appears in the main notch."))
                 .onChange(of: preferences.antigravityHeadlineLimit) { _ in
                     refresh(provider.id)
                 }
