@@ -41,14 +41,15 @@ actor CursorLocalProvider: UsageProvider {
         // would mean signing ourselves out for no reason. The agent token is
         // cached inside `CursorAgentKeychain` so the keychain is not.
         let credentials = try CursorCredentials.load()
+        var (data, status) = try await request(with: credentials)
 
-        var request = URLRequest(url: endpoint)
-        request.setValue(credentials.sessionCookie, forHTTPHeaderField: "Cookie")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 15
-
-        let (data, response) = try await session.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        // The editor's stored token can be rejected even when well-formed;
+        // the `cursor-agent` login is the second chance before giving up.
+        if status == 401 || status == 403,
+           let agent = try? CursorCredentials.loadAgent(),
+           agent.accessToken != credentials.accessToken {
+            (data, status) = try await request(with: agent)
+        }
 
         if status == 401 || status == 403 {
             // A rejected token is the one signal the copy in hand is wrong
@@ -76,5 +77,14 @@ actor CursorLocalProvider: UsageProvider {
             headlineID: CursorUsage.headlineID(in: windows),
             plan: CursorUsage.plan(fromJSON: body) ?? account()?.plan?.nonEmptyPlan
         )
+    }
+
+    private func request(with credentials: CursorCredentials) async throws -> (Data, Int) {
+        var request = URLRequest(url: endpoint)
+        request.setValue(credentials.sessionCookie, forHTTPHeaderField: "Cookie")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 15
+        let (data, response) = try await session.data(for: request)
+        return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
     }
 }
