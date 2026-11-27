@@ -24,11 +24,20 @@ enum TooltipGlassContrast {
             ? Palette.liquidGlassTooltipDim : nil
     }
 
+    /// Every card that is dark glass rather than opaque black takes the
+    /// lighter secondary ink: its card is never as dark as the black the
+    /// frame's #808080 was sampled on. Reduce transparency paints these
+    /// surfaces solid, so it keeps the frame's ink.
     static func secondaryInk(surfaceStyle: NotchSurfaceStyle, colorScheme: ColorScheme,
                              reduceTransparency: Bool = false) -> Color {
-        needsReadableDim(surfaceStyle: surfaceStyle, colorScheme: colorScheme,
-                         reduceTransparency: reduceTransparency)
-            ? Palette.readableTooltipTextSecondary : Palette.textSecondary
+        guard !reduceTransparency else { return Palette.textSecondary }
+        switch surfaceStyle.effective {
+        case .darkGlass, .dock:
+            return Palette.readableTooltipTextSecondary
+        case .glass, .solid:
+            return needsReadableDim(surfaceStyle: surfaceStyle, colorScheme: colorScheme)
+                ? Palette.readableTooltipTextSecondary : Palette.textSecondary
+        }
     }
 }
 
