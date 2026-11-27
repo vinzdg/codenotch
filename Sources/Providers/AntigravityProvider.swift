@@ -26,9 +26,6 @@ actor AntigravityProvider: UsageProvider {
     /// which answers 403 to this token — so it is not a fallback, it is a
     /// different audience.
     private let endpoint = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")!
-    /// The real usage figure — served by Cloud Code PA.
-    private let quotaEndpoint = URL(string: "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!
-    private let prodQuotaEndpoint = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!
     private let session: URLSession
     /// A second session, trusting loopback only, for the local language server.
     private let localSession: URLSession
@@ -76,7 +73,9 @@ actor AntigravityProvider: UsageProvider {
     }
 
     nonisolated func account() -> ProviderAccount? {
-        if AntigravityCredentials.isSignedIn(for: profile), let held = AntigravityCredentials.held(for: profile) {
+        if AntigravityCredentials.isSignedIn(for: profile),
+           let held = AntigravityCredentials.held(for: profile)
+            ?? AntigravityCredentials.readFileBacked(for: profile) {
             let email = held.email
             let plan = held.authMethod == "consumer" ? L10n.t("Personal") : held.authMethod
             let source = held.sourceName ?? profile.sourceName
@@ -502,10 +501,18 @@ actor AntigravityProvider: UsageProvider {
         return merged
     }
 
+    /// `antigravity acp` defaults `--cloud_code_endpoint` to `daily-cloudcode-pa`,
+    /// where Antigravity usage is actually metered. Asking `cloudcode-pa` first
+    /// gets HTTP 200 with an untouched 100%-remaining bucket (`5h 0m` / `7d 0h`)
+    /// and hides real usage whenever the local ACP process is not running.
+    nonisolated static let quotaEndpoints: [URL] = [
+        URL(string: "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!,
+        URL(string: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!,
+    ]
+
     /// Ask for the account's quota, returning nil when it is not allowed to.
     private func quota(token: String, project: String? = nil, isACP: Bool = false) async throws -> [LimitWindow]? {
-        let candidateEndpoints = isACP ? [prodQuotaEndpoint, quotaEndpoint] : [quotaEndpoint, prodQuotaEndpoint]
-        for url in candidateEndpoints {
+        for url in Self.quotaEndpoints {
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

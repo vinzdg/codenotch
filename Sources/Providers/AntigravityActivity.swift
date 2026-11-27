@@ -34,11 +34,12 @@ struct AntigravityActivity: Equatable {
     static func transcriptRoots(home: URL) -> [URL] {
         let gemini = home.appendingPathComponent(".gemini")
         let names = (try? FileManager.default.contentsOfDirectory(atPath: gemini.path)) ?? []
-        return names
+        let standard = names
             .filter { $0.hasPrefix("antigravity") }
             .sorted()
             .map { gemini.appendingPathComponent($0).appendingPathComponent("brain") }
             .filter { FileManager.default.fileExists(atPath: $0.path) }
+        return standard + AntigravityFlavor.t3BrainDirectories(home: home)
     }
 
     /// Every install's activity, as one day's worth.
