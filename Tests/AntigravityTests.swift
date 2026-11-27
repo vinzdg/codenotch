@@ -2217,3 +2217,180 @@ final class AntigravityOmpUsageTests: XCTestCase {
         XCTAssertEqual(AntigravityBridge.orphanPIDs(in: table), [101])
     }
 }
+
+/// Official `agy --print /usage` fallback on macOS and bridge filtering for
+/// Antigravity IDE 2.x (`agy` 1.5+ `--hub`) alongside VS Code's Codeium server.
+final class AntigravityUsageCLITests: XCTestCase {
+    private let sample = """
+    Quota:
+    Gemini Models          Weekly Limit Remaining     74%   2026-12-01 10:55 EET
+    Gemini Models          Five Hour Limit Remaining  42%   2026-11-25 15:31 EET
+    Claude and GPT models  Weekly Limit Remaining     100%  2026-12-02 11:36 EET
+    Claude and GPT models  Five Hour Limit Remaining  100%  2026-11-25 16:36 EET
+    """
+
+    func testParsesOfficialAgyUsageIntoCanonicalWindows() throws {
+        let cairo = try XCTUnwrap(TimeZone(identifier: "Africa/Cairo"))
+        let windows = try AntigravityUsageCLI.parse(sample, timeZone: cairo)
+
+        XCTAssertEqual(windows.map(\.id), ["gemini-hourly", "gemini-weekly", "3p-hourly", "3p-weekly"])
+        XCTAssertEqual(windows[0].group, "Gemini Models")
+        XCTAssertEqual(windows[0].label, "5-hour Limit")
+        XCTAssertEqual(try XCTUnwrap(windows[0].usedFraction), 0.58, accuracy: 1e-6)
+        XCTAssertEqual(windows[0].duration, 5 * 3600)
+        XCTAssertEqual(windows[0].resetsAt, ISO8601DateFormatter().date(from: "2026-11-25T13:31:00Z"))
+
+        XCTAssertEqual(windows[1].group, "Gemini Models")
+        XCTAssertEqual(windows[1].label, "Weekly Limit")
+        XCTAssertEqual(try XCTUnwrap(windows[1].usedFraction), 0.26, accuracy: 1e-6)
+        XCTAssertEqual(windows[1].duration, 7 * 86400)
+        XCTAssertEqual(windows[1].resetsAt, ISO8601DateFormatter().date(from: "2026-12-01T08:55:00Z"))
+
+        XCTAssertEqual(windows[2].group, "Claude and GPT models")
+        XCTAssertEqual(windows[2].label, "5-hour Limit")
+        XCTAssertEqual(try XCTUnwrap(windows[2].usedFraction), 0.0, accuracy: 1e-6)
+        XCTAssertEqual(windows[2].duration, 5 * 3600)
+
+        XCTAssertEqual(windows[3].group, "Claude and GPT models")
+        XCTAssertEqual(windows[3].label, "Weekly Limit")
+        XCTAssertEqual(try XCTUnwrap(windows[3].usedFraction), 0.0, accuracy: 1e-6)
+        XCTAssertEqual(windows[3].duration, 7 * 86400)
+    }
+
+    func testParsesRFC3339NumericOffsetsAndStripsANSI() throws {
+        let ansi = "\u{1B}[32mQuota:\u{1B}[0m\r\n"
+            + "Gemini Models          Weekly Limit Remaining     51%   2026-10-08 07:23 +07\r\n"
+            + "Gemini Models          Five Hour Limit Remaining  79%   2026-10-07T05:49:00Z\r\n"
+            + "Claude and GPT models  Weekly Limit Remaining     98%   2026-10-11 06:00 +0530\r\n"
+            + "Claude and GPT models  Five Hour Limit Remaining  100%  2026-10-07 13:36 UTC\r\n"
+        let windows = try AntigravityUsageCLI.parse(ansi)
+        XCTAssertEqual(windows.count, 4)
+        XCTAssertEqual(windows[0].resetsAt, ISO8601DateFormatter().date(from: "2026-10-07T05:49:00Z"))
+        XCTAssertEqual(windows[1].resetsAt, ISO8601DateFormatter().date(from: "2026-10-08T00:23:00Z"))
+        XCTAssertEqual(windows[2].resetsAt, ISO8601DateFormatter().date(from: "2026-10-07T13:36:00Z"))
+        XCTAssertEqual(windows[3].resetsAt, ISO8601DateFormatter().date(from: "2026-10-11T00:30:00Z"))
+    }
+
+    /// `agy` 1.5.16 prints `1970-01-01T00:00:00Z` for an untouched lane; omit
+    /// `resetsAt` instead of discarding the entire quota report.
+    func testEpochResetLeavesWindowValidWithNilReset() throws {
+        let tsv = "Gemini Models\tFive Hour Limit Remaining\t94%\t2026-11-24T19:31:45Z\n"
+            + "Claude and GPT models\tWeekly Limit Remaining\t100%\t1970-01-01T00:00:00Z\n"
+        let windows = try AntigravityUsageCLI.parse(tsv)
+        XCTAssertEqual(windows.count, 2)
+        XCTAssertNotNil(windows[0].resetsAt)
+        XCTAssertNil(windows[1].resetsAt)
+        XCTAssertEqual(windows[1].usedFraction, 0)
+    }
+
+    func testArgonTSVRowDoesNotHijackGeminiOrThirdPartyPrefixes() throws {
+        let tsv = "Gemini Models\tFive Hour Limit Remaining\t90%\t2026-10-25T02:02:20Z\n"
+            + "Claude and GPT models\tWeekly Limit Remaining\t100%\t2026-10-31T22:31:55Z\n"
+            + "Gemini 4 Argon\tGemini 4 Argon Weekly Limit\t64%\t2026-10-31T20:59:36Z\n"
+        let windows = try AntigravityUsageCLI.parse(tsv)
+        XCTAssertEqual(windows.count, 3)
+        XCTAssertEqual(windows[2].id, "argon-weekly")
+        XCTAssertEqual(try XCTUnwrap(windows[2].usedFraction), 0.36, accuracy: 1e-6)
+        XCTAssertFalse(windows[2].id.hasPrefix("gemini"))
+        XCTAssertFalse(windows[2].id.hasPrefix("3p"))
+    }
+
+    func testRejectsMalformedQuotaOutput() {
+        for bad in [
+            "",
+            "authentication required",
+            "Quota:\nunknown",
+            sample.replacingOccurrences(of: "74%", with: "101%"),
+            sample.replacingOccurrences(of: "74%", with: "-5%"),
+            sample.replacingOccurrences(of: "74%", with: "NaN%"),
+            sample.replacingOccurrences(of: "2026-12-01 10:55 EET", with: "not-a-date"),
+            sample.replacingOccurrences(of: "2026-12-01 10:55 EET", with: "2026-12-01 9:55 EET"),
+            sample.replacingOccurrences(of: "2026-12-01 10:55 EET", with: "2026-12-01 10:55 +15"),
+            sample.replacingOccurrences(of: "2026-12-01 10:55 EET", with: "2026-02-30 10:55 UTC")
+        ] {
+            XCTAssertThrowsError(try AntigravityUsageCLI.parse(bad), "expected error for: \(bad)")
+        }
+    }
+
+    func testLocatesBundledAgyUnderGeminiBin() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agy-locate-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let sys = root.appendingPathComponent("sys", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sys, withIntermediateDirectories: true)
+
+        XCTAssertNil(AntigravityUsageCLI.locate(home: home, root: sys))
+
+        let bundled = home.appendingPathComponent(".gemini/bin/agy")
+        try FileManager.default.createDirectory(at: bundled.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("#!/bin/sh\n".utf8).write(to: bundled)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bundled.path)
+
+        let found = try XCTUnwrap(AntigravityUsageCLI.locate(home: home, root: sys))
+        XCTAssertEqual(found.binary.path, bundled.path)
+    }
+
+    func testProviderFallsBackToUsageCLIAndCachesWithinRefreshInterval() async throws {
+        final class Counter: @unchecked Sendable {
+            private let lock = NSLock()
+            var count = 0
+            func bump() -> Int { lock.lock(); defer { lock.unlock() }; count += 1; return count }
+        }
+        let counter = Counter()
+        let cliText = sample
+        let cli = AntigravityUsageCLI(binary: URL(fileURLWithPath: "/usr/local/bin/agy")) {
+            _ = counter.bump()
+            return cliText
+        }
+        let provider = AntigravityProvider(
+            session: GoogleStub.session(),
+            localQuota: { nil },
+            usageCLI: cli,
+            cliRefreshInterval: 300,
+            liveCLIRefreshInterval: 90
+        )
+
+        let first = try await provider.fetchSnapshot(freshness: .standard)
+        XCTAssertEqual(first.fidelity, .official)
+        XCTAssertEqual(first.windows.count, 4)
+        XCTAssertEqual(counter.count, 1)
+
+        // Second standard poll reuses the cached CLI reading without respawning.
+        let second = try await provider.fetchSnapshot(freshness: .standard)
+        XCTAssertEqual(second.windows.count, 4)
+        XCTAssertEqual(counter.count, 1)
+
+        // Explicit manual refresh (.fromSource) bypasses the cache.
+        let forced = try await provider.fetchSnapshot(freshness: .fromSource)
+        XCTAssertEqual(forced.windows.count, 4)
+        XCTAssertEqual(counter.count, 2)
+    }
+
+    func testBridgeIgnoresVSCodeCodeiumExtensionAndPrintProbes() throws {
+        let codeium = "29497 /Users/me/.vscode/extensions/codeium.codeium-1.48.2/dist/abc/language_server_macos_arm --api_server_url https://server.codeium.com --ide_name vscode --csrf_token codeium-tok"
+        let printProbe = "60401 /Users/me/.gemini/bin/agy --sandbox --print-timeout 30s --print /usage"
+        let hubWithToken = "28603 /Users/me/.gemini/bin/agy --hub --hub-port=58979 --csrf_token=hub-tok"
+
+        XCTAssertFalse(AntigravityBridge.isIDE(Substring(codeium)))
+        XCTAssertFalse(AntigravityBridge.isCLI(Substring(printProbe)))
+        XCTAssertNil(AntigravityBridge.discover(processTable: "\(codeium)\n\(printProbe)", listeningPorts: { _ in [58985] }))
+
+        let endpoint = try XCTUnwrap(
+            AntigravityBridge.discover(processTable: "\(codeium)\n\(printProbe)\n\(hubWithToken)", listeningPorts: { pid in
+                XCTAssertEqual(pid, 28603)
+                return [58985, 58979]
+            })
+        )
+        XCTAssertEqual(endpoint.csrfToken, "hub-tok")
+        XCTAssertEqual(endpoint.ports, [58985, 58979])
+    }
+
+    func testBridgeFlagValueReadsSpaceAndEqualsForms() {
+        XCTAssertEqual(AntigravityBridge.value(of: "--csrf_token", in: "x --csrf_token abc --y"), "abc")
+        XCTAssertEqual(AntigravityBridge.value(of: "--csrf_token", in: "x --csrf_token=abc --y"), "abc")
+        XCTAssertNil(AntigravityBridge.value(of: "--csrf_token", in: "x --csrf_token_file=abc"))
+        XCTAssertNil(AntigravityBridge.value(of: "--csrf_token", in: "x --csrf_token="))
+    }
+}

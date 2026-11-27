@@ -50,7 +50,7 @@ enum AntigravityBridge {
 
         // The IDE's language server, which is the one that carries a token.
         if let line = lines.first(where: {
-            $0.contains("language_server") && $0.contains("--csrf_token")
+            $0.contains("language_server") && $0.contains("--csrf_token") && !isThirdPartyCodeium($0)
         }),
            let token = value(of: "--csrf_token", in: String(line)),
            let endpoint = endpoint(for: line, token: token, ports: listeningPorts) {
@@ -60,21 +60,34 @@ enum AntigravityBridge {
         // Then the CLI, which serves the same RPC and is a whole install of its
         // own — somebody who uses `agy` and never installs the IDE has a real
         // quota to read and was getting the counted-requests fallback instead.
-        // It asks for no token: on loopback it answers anyone.
+        // Pass `--csrf_token` if the process carries one (e.g. `agy --hub`
+        // started by an IDE extension), otherwise nil for older tokenless builds.
         if let line = lines.first(where: isCLI),
-           let endpoint = endpoint(for: line, token: nil, ports: listeningPorts) {
+           let endpoint = endpoint(for: line,
+                                   token: value(of: "--csrf_token", in: String(line)),
+                                   ports: listeningPorts) {
             return endpoint
         }
         return nil
     }
 
+    /// VS Code's Windsurf/Codeium extension runs its own `language_server` with
+    /// `--csrf_token`, pointing at `codeium.com`. Excluding it keeps Codenotch
+    /// from mistaking that process for Antigravity IDE.
+    private static func isThirdPartyCodeium(_ line: Substring) -> Bool {
+        line.contains("codeium.com") || line.contains("codeium.codeium")
+    }
+
     /// The CLI runs as plain `agy`, so match the executable's name rather than
     /// looking for it anywhere in the line — "agy" is three letters and turns
-    /// up inside real words and real paths.
+    /// up inside real words and real paths. One-shot `--print` / `-p` probes
+    /// (including Codenotch's own `/usage` check) are not live servers.
     static func isCLI(_ line: Substring) -> Bool {
         let fields = line.trimmingCharacters(in: .whitespaces).split(separator: " ")
         guard fields.count >= 2 else { return false }
-        return URL(fileURLWithPath: String(fields[1])).lastPathComponent == "agy"
+        guard URL(fileURLWithPath: String(fields[1])).lastPathComponent == "agy" else { return false }
+        let args = fields.dropFirst(2)
+        return !args.contains("--print") && !args.contains("-p")
     }
 
     /// ACP runs as `agy_acp_server.par` or `localharness_external`.
@@ -88,10 +101,12 @@ enum AntigravityBridge {
         return table.split(separator: "\n").contains(where: isACP)
     }
 
-    /// IDE runs as language_server with --csrf_token or Antigravity.app.
+    /// IDE runs as Antigravity's language_server with --csrf_token or the
+    /// Antigravity app bundle.
     static func isIDE(_ line: Substring) -> Bool {
-        (line.contains("language_server") && line.contains("--csrf_token")) ||
-        line.contains("Antigravity.app")
+        (line.contains("language_server") && line.contains("--csrf_token") && !isThirdPartyCodeium(line)) ||
+        line.contains("Antigravity.app") ||
+        line.contains("Antigravity IDE.app")
     }
 
     /// Whether an Antigravity IDE process is currently running.
@@ -128,11 +143,22 @@ enum AntigravityBridge {
         return Endpoint(ports: ports, csrfToken: token)
     }
 
+    /// Reads `--flag value` or `--flag=value` from a `ps` command line without
+    /// matching prefix-sharing names such as `--csrf_token_file=...`.
     static func value(of flag: String, in line: String) -> String? {
         let parts = line.split(separator: " ")
-        guard let index = parts.firstIndex(of: Substring(flag)),
-              index + 1 < parts.count else { return nil }
-        return String(parts[index + 1])
+        let equalsPrefix = flag + "="
+        for (index, part) in parts.enumerated() {
+            if part == Substring(flag) {
+                guard index + 1 < parts.count else { return nil }
+                return String(parts[index + 1])
+            }
+            if part.hasPrefix(equalsPrefix) {
+                let value = String(part.dropFirst(equalsPrefix.count))
+                return value.isEmpty ? nil : value
+            }
+        }
+        return nil
     }
 
     /// Ports are found rather than assumed. The server opens two and only one
