@@ -210,14 +210,16 @@ final class WebSessionProvider: NSObject, UsageProvider {
     /// sitting unchanged on one page is not asked the same question every tick.
     private var lastProbedURL: URL?
     private var switchGate: WebSessionAuthenticationGate?
+    private let loadPageForTesting: (@MainActor (WKWebView, URLRequest) async throws -> Void)?
 
     var onAuthenticated: (() -> Void)?
 
-    init(site: Site) {
+    init(site: Site, loadPageForTesting: (@MainActor (WKWebView, URLRequest) async throws -> Void)? = nil) {
         self.site = site
         self.id = site.id
         self.displayName = site.displayName
         self.glyph = site.glyph
+        self.loadPageForTesting = loadPageForTesting
         super.init()
     }
 
@@ -252,6 +254,17 @@ final class WebSessionProvider: NSObject, UsageProvider {
     nonisolated static func sessionKey(for site: Site) -> String {
         site.sessionKey ?? "\(site.id).signedIn"
     }
+
+    /// Whether a console page is alive in the hidden view. Readable so the
+    /// test can prove a page does not outlive the read it was loaded for —
+    /// the six-day, 540 MB page was never visible from outside.
+    var holdsPageForTesting: Bool { webView != nil }
+    var pageForTesting: WKWebView? { webView }
+    var signInWindowForTesting: NSWindow? { signInWindow }
+    /// Forgets the sheet the way `windowWillClose` does, without its
+    /// close-time probe or its page release — so a test can isolate the
+    /// `keeping` guard from the window guard.
+    func clearSignInWindowForTesting() { signInWindow = nil }
 
     private var hasSignedIn: Bool {
         get { UserDefaults.standard.bool(forKey: Self.sessionKey(for: site)) }
@@ -314,17 +327,26 @@ final class WebSessionProvider: NSObject, UsageProvider {
             source: #"""
             window.__notchCalls = [];
             (function () {
+                // Capped: a console SPA makes hundreds of calls a day, and an
+                // unbounded array of URL strings is one more thing that grows
+                // for as long as the page lives. Discovery only needs the tail.
+                const record = (url) => {
+                    try {
+                        if (window.__notchCalls.length >= 2000) window.__notchCalls.shift();
+                        window.__notchCalls.push(String(url));
+                    } catch (e) {}
+                };
                 const fetchImpl = window.fetch;
                 window.fetch = function (...args) {
                     try {
                         const url = args[0] && args[0].url ? args[0].url : args[0];
-                        window.__notchCalls.push(String(url));
+                        record(url);
                     } catch (e) {}
                     return fetchImpl.apply(this, args);
                 };
                 const openImpl = XMLHttpRequest.prototype.open;
                 XMLHttpRequest.prototype.open = function (method, url) {
-                    try { window.__notchCalls.push(String(url)); } catch (e) {}
+                    try { record(url); } catch (e) {}
                     return openImpl.apply(this, arguments);
                 };
             })();
@@ -344,10 +366,30 @@ final class WebSessionProvider: NSObject, UsageProvider {
         return webView
     }
 
-    private func ensureLoaded() async throws {
-        let webView = makeWebViewIfNeeded()
-        if isLoaded, Self.matchesOrigin(webView.url, expected: site.origin) { return }
-        webView.load(URLRequest(url: site.initialPath.isEmpty ? site.origin : site.origin.appendingPathComponent(site.initialPath)))
+    private func checkFetchContext(for page: WKWebView, revision: UInt) throws {
+        try Task.checkCancellation()
+        guard revision == contextRevision, page === webView else { throw CancellationError() }
+    }
+
+    /// Settles the caller's page on the site's origin. A retired page cannot
+    /// update the loaded state of its replacement.
+    private func ensureLoaded(_ page: WKWebView, revision: UInt) async throws {
+        try checkFetchContext(for: page, revision: revision)
+        let origin = site.origin
+        if isLoaded, Self.matchesOrigin(page.url, expected: origin) { return }
+        let url = site.initialPath.isEmpty ? origin : origin.appendingPathComponent(site.initialPath)
+        let request = URLRequest(url: url)
+        if let loadPageForTesting {
+            try await loadPageForTesting(page, request)
+        } else {
+            page.load(request)
+            try await waitForPageToSettle(page, origin: origin, revision: revision)
+        }
+        try checkFetchContext(for: page, revision: revision)
+        isLoaded = true
+    }
+
+    private func waitForPageToSettle(_ page: WKWebView, origin: URL, revision: UInt) async throws {
         // Settled is a state the page has to *stay* in, not a moment it passes
         // through. These consoles commit their HTML and hand off to SSO a beat
         // later from script, so the first instant of "same origin, not
@@ -363,18 +405,50 @@ final class WebSessionProvider: NSObject, UsageProvider {
         var settledTicks = 0
         for _ in 0..<80 {
             try await Task.sleep(nanoseconds: 250_000_000)
-            if Self.matchesOrigin(webView.url, expected: site.origin), !webView.isLoading {
+            try checkFetchContext(for: page, revision: revision)
+            if Self.matchesOrigin(page.url, expected: origin), !page.isLoading {
                 settledTicks += 1
-                if settledTicks >= 4 {
-                    isLoaded = true
-                    return
-                }
+                if settledTicks >= 4 { return }
             } else {
                 settledTicks = 0
             }
         }
-        Log.usage.error("\(self.site.id, privacy: .public) page never reached a same-origin state")
+        Log.usage.error("\(self.id, privacy: .public) page never reached a same-origin state")
         throw UsageProviderError.badResponse(status: 0)
+    }
+
+    /// Lets the page go between reads, keeping only the cookie jar.
+    ///
+    /// A live console is the one thing in this app that grows without bound.
+    /// DeepSeek's platform SPA sat in a hidden view for the life of the process
+    /// — six days is one WebContent process at 540 MB, still running its own
+    /// timers — and on a machine already into the compressor that page cost the
+    /// UI process half a second per frame whenever a poll woke it. Every refresh
+    /// resumed it from process suspension and the stalls followed the resumes
+    /// exactly: 203 "main thread dispatch stuck" in seven minutes, all on that
+    /// page's drawing area, none on the 80 MB one beside it.
+    ///
+    /// The session lives in `WKWebsiteDataStore.default()` and survives the
+    /// view, so the next read loads the console again with the same cookies
+    /// and the same answer. What it does not carry over is the page's own heap,
+    /// its timers, and the `window.__notchCalls` array the discovery script
+    /// grows on every `fetch` the SPA makes. A reload per poll is the price —
+    /// a second or so, against a read that already takes one.
+    ///
+    /// Only while the page is not on screen and nobody is asking it a question:
+    /// a sign-in window showing this view is the person's to close, the sheet's
+    /// close-time probe (below) is mid-read on it, and `recordCalls` reads the
+    /// page it loaded.
+    ///
+    /// A refresh passes its concrete page so that finishing after a region
+    /// change leaves the replacement page alone. Lifecycle callers can omit
+    /// the page to release the current one.
+    func releasePage(keeping page: WKWebView? = nil) {
+        guard signInWindow == nil, signInProbeTask == nil,
+              page == nil || page === webView else { return }
+        webView?.stopLoading()
+        webView = nil
+        isLoaded = false
     }
 
     nonisolated static func responseFailure(status: Int, site: Site) -> UsageProviderError? {
@@ -387,20 +461,21 @@ final class WebSessionProvider: NSObject, UsageProvider {
     // MARK: - Fetching
 
     func fetchSnapshot() async throws -> ProviderSnapshot {
+        guard hasSignedIn else { throw UsageProviderError.needsAuth }
+        try Task.checkCancellation()
         let revision = contextRevision
-        // One silent reload per read at most, and only ever while the session
-        // flag still stands: a reload that cannot restore the session leads to
-        // the same `needsAuth` this provider has always reported.
-        var reloadedForSession = false
+        let page = makeWebViewIfNeeded()
+        // Loading may suspend before it can return. Cleanup already owns this
+        // page so a region change during loading cannot redirect that cleanup.
+        defer { releasePage(keeping: page) }
 
+        // One silent reload per read at most, while the session flag stands.
+        var reloadedForSession = false
         while true {
-            // Re-checked on every attempt, not once at the door: the reload
-            // below takes seconds, and a sign-out landing in them must not be
-            // followed by one more read through the session it just cleared.
+            // A sign-out during the reload must prevent another read.
             guard hasSignedIn else { throw UsageProviderError.needsAuth }
-            try await ensureLoaded()
-            guard revision == contextRevision else { throw CancellationError() }
-            guard let webView else { throw UsageProviderError.needsAuth }
+            try await ensureLoaded(page, revision: revision)
+            try checkFetchContext(for: page, revision: revision)
 
             // `callAsyncJavaScript`, not `evaluateJavaScript`. The latter returns
             // whatever the last expression evaluates to and never awaits it, so an
@@ -408,15 +483,16 @@ final class WebSessionProvider: NSObject, UsageProvider {
             // which surfaces as an opaque failure instead of the response.
             let result: Any?
             do {
-                result = try await webView.callAsyncJavaScript(
+                result = try await page.callAsyncJavaScript(
                     site.script, arguments: [:], in: nil, contentWorld: .page
                 )
             } catch {
+                try checkFetchContext(for: page, revision: revision)
                 Log.usage.error("\(self.site.id, privacy: .public) fetch script failed: \(error.localizedDescription, privacy: .public)")
                 throw UsageProviderError.badResponse(status: 0)
             }
 
-            guard revision == contextRevision else { throw CancellationError() }
+            try checkFetchContext(for: page, revision: revision)
             guard let text = result as? String,
                   let data = text.data(using: .utf8),
                   let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -435,10 +511,11 @@ final class WebSessionProvider: NSObject, UsageProvider {
                     // undifferentiated "needsAuth", with nothing in the log to
                     // tell them apart.
                     Log.usage.notice("\(self.site.id, privacy: .public) read refused: HTTP \(status, privacy: .public)")
-                    if !reloadedForSession, await reloadToReestablishSession() {
+                    if !reloadedForSession, try await reloadToReestablishSession(page, revision: revision) {
                         reloadedForSession = true
                         continue
                     }
+                    try checkFetchContext(for: page, revision: revision)
                     hasSignedIn = false
                 }
                 throw failure
@@ -465,10 +542,11 @@ final class WebSessionProvider: NSObject, UsageProvider {
             } catch UsageProviderError.needsAuth {
                 // HTTP 200 with a 1004 body that the page script missed: still a
                 // dead session, not a signed-in parse error.
-                if !reloadedForSession, await reloadToReestablishSession() {
+                if !reloadedForSession, try await reloadToReestablishSession(page, revision: revision) {
                     reloadedForSession = true
                     continue
                 }
+                try checkFetchContext(for: page, revision: revision)
                 hasSignedIn = false
                 throw UsageProviderError.needsAuth
             }
@@ -504,13 +582,15 @@ final class WebSessionProvider: NSObject, UsageProvider {
     /// off this function does nothing at all. One reload, one retry, then the
     /// silence a dead session has always had: an endpoint that has throttled
     /// this app is never asked twice on the way out.
-    private func reloadToReestablishSession() async -> Bool {
+    private func reloadToReestablishSession(_ page: WKWebView, revision: UInt) async throws -> Bool {
+        try checkFetchContext(for: page, revision: revision)
         guard site.reloadsSessionOnAuthFailure else { return false }
         isLoaded = false
         do {
-            try await ensureLoaded()
+            try await ensureLoaded(page, revision: revision)
             return true
         } catch {
+            try checkFetchContext(for: page, revision: revision)
             Log.usage.error("\(self.site.id, privacy: .public) session re-load never settled")
             return false
         }
@@ -556,7 +636,15 @@ final class WebSessionProvider: NSObject, UsageProvider {
         switchGate = nil
         lastAuthFingerprint = nil
         hasSignedIn = false
-        isLoaded = false
+        // Before the cookies go: a page still holding the old session must not
+        // answer the next read, and `releasePage` leaves a page alone while a
+        // sign-in window shows it — so the window goes first. Signing out from
+        // Settings while the sign-in sheet is open on the same account is
+        // already a contradiction; the sheet closing is what resolves it.
+        signInWindow?.delegate = nil
+        signInWindow?.close()
+        signInWindow = nil
+        releasePage()
 
         let hosts = Self.websiteDataHosts(for: site)
         guard !hosts.isEmpty else { return }
@@ -569,11 +657,6 @@ final class WebSessionProvider: NSObject, UsageProvider {
             }
         }
         await store.removeData(ofTypes: types, for: records)
-
-        // Drop the WebView too: it holds the loaded page in memory, and a
-        // cleared cookie jar behind a still-authenticated page would keep
-        // answering until something happened to reload it.
-        webView = nil
     }
 
     func presentSignIn() {
@@ -753,14 +836,31 @@ extension WebSessionProvider: NSWindowDelegate {
         // Closing before login is a cancellation. If the page is already
         // authenticated, however, the user may simply have closed it after
         // finishing the login before the polling task noticed. Confirm that
-        // final state and publish it so Settings does not need a relaunch.
+        // final state and publish it so Settings does not need to relaunch.
         guard let pendingGate,
               let probe = site.authProbeScript,
-              let pendingWebView else { return }
+              let pendingWebView
+        else {
+            // Nothing left to ask of the page — closed without a sign-in to
+            // confirm, or a site that cannot confirm one. The sheet was the
+            // only thing keeping it; let it go rather than leave a half-filled
+            // login form alive until the next poll.
+            releasePage()
+            return
+        }
         let expectedOrigin = site.origin
+        // Holds the page for exactly as long as it is asking it a question,
+        // then lets it go on every outcome — a committed sign-in, a refusal,
+        // a page still loading, a cancellation — so a refresh racing this
+        // probe cannot take the page from under it, and the probe cannot
+        // leave it alive for the next poll either.
         signInProbeTask = Task { [weak self, weak pendingWebView] in
             guard let self, let pendingWebView else { return }
-            guard !pendingWebView.isLoading,
+            defer {
+                self.signInProbeTask = nil
+                self.releasePage(keeping: pendingWebView)
+            }
+            guard !Task.isCancelled, !pendingWebView.isLoading,
                   Self.matchesOrigin(pendingWebView.url, expected: expectedOrigin),
                   let result = try? await pendingWebView.callAsyncJavaScript(
                       probe, arguments: [:], in: nil, contentWorld: .page
@@ -770,7 +870,8 @@ extension WebSessionProvider: NSWindowDelegate {
                       authenticated: state.authenticated,
                       fingerprint: state.fingerprint)
             else { return }
-            guard self.site.origin == expectedOrigin, self.webView === pendingWebView else { return }
+            guard !Task.isCancelled, self.site.origin == expectedOrigin,
+                  self.webView === pendingWebView else { return }
             self.lastAuthFingerprint = state.fingerprint
             self.authenticationDidComplete()
         }
