@@ -162,4 +162,99 @@ final class MiMoUsageTests: XCTestCase {
             XCTAssertFalse(Sites.minimax(region: region).reloadsSessionOnAuthFailure)
         }
     }
+
+    // MARK: - Open Platform Balance Tests
+
+    func testOfficialPlatformBalanceRecordedResponse() throws {
+        let json = """
+        {
+          "object": "balance",
+          "is_available": true,
+          "balance_infos": [
+            {
+              "currency": "CNY",
+              "cash_balance": "100.50",
+              "gift_balance": "20.00",
+              "frozen_balance": "0.00",
+              "credit_limit": "500.00",
+              "credit_available": "380.00",
+              "total_available": "500.50"
+            }
+          ]
+        }
+        """
+
+        let windows = try MiMoUsage.balanceWindows(fromJSON: json)
+        XCTAssertEqual(windows.map(\.id), ["balance", "credit", "bonus"])
+
+        let balance = try XCTUnwrap(windows.first { $0.id == "balance" })
+        XCTAssertEqual(balance.label, "Balance")
+        let money = try XCTUnwrap(balance.money)
+        XCTAssertEqual(money.currency, "CNY")
+        XCTAssertEqual(money.remaining, 500.50, accuracy: 0.001)
+        // credit_limit (500) - credit_available (380) = 120 spent
+        XCTAssertEqual(money.spent, 120.0, accuracy: 0.001)
+        // funded = 500.50 + 120 = 620.50. spentFraction = 120 / 620.50
+        XCTAssertEqual(money.spentFraction, 120.0 / 620.50, accuracy: 0.001)
+
+        let credit = try XCTUnwrap(windows.first { $0.id == "credit" })
+        XCTAssertEqual(credit.label, "Credit limit")
+        XCTAssertEqual(credit.detail, "¥380.00 / ¥500.00")
+
+        let bonus = try XCTUnwrap(windows.first { $0.id == "bonus" })
+        XCTAssertEqual(bonus.label, "Bonus balance")
+        XCTAssertEqual(bonus.detail, "¥20.00")
+    }
+
+    func testNumericBalanceDictionary() throws {
+        let json = """
+        {
+          "currency": "USD",
+          "cash_balance": 250.75,
+          "total_available": 250.75
+        }
+        """
+
+        let windows = try MiMoUsage.balanceWindows(fromJSON: json)
+        XCTAssertEqual(windows.count, 1)
+        let balance = try XCTUnwrap(windows.first)
+        XCTAssertEqual(balance.id, "balance")
+        let money = try XCTUnwrap(balance.money)
+        XCTAssertEqual(money.currency, "USD")
+        XCTAssertEqual(money.remaining, 250.75, accuracy: 0.001)
+        XCTAssertEqual(money.spent, 0, accuracy: 0.001)
+    }
+
+    func testDrainedBalanceFillsRing() throws {
+        let json = """
+        {
+          "is_available": false,
+          "balance_infos": [
+            {
+              "currency": "CNY",
+              "cash_balance": "0.00",
+              "total_available": "0.00"
+            }
+          ]
+        }
+        """
+
+        let windows = try MiMoUsage.balanceWindows(fromJSON: json)
+        let balance = try XCTUnwrap(windows.first)
+        XCTAssertEqual(balance.usedFraction, 1.0)
+    }
+
+    func testMalformedBalanceJSONThrowsBadResponse() {
+        XCTAssertThrowsError(try MiMoUsage.balanceWindows(fromJSON: "not json")) { error in
+            guard case UsageProviderError.badResponse = error else {
+                return XCTFail("Expected badResponse, got \(error)")
+            }
+        }
+
+        XCTAssertThrowsError(try MiMoUsage.balanceWindows(fromJSON: #"{"unrelated": 123}"#)) { error in
+            guard case UsageProviderError.badResponse = error else {
+                return XCTFail("Expected badResponse, got \(error)")
+            }
+        }
+    }
 }

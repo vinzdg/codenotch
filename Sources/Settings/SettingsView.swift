@@ -2457,6 +2457,9 @@ private struct AccountRow: View {
             if provider.id == "krea" {
                 kreaKeyEntry
             }
+            if provider.id == "mimo" {
+                mimoKeyEntry
+            }
         }
     }
 
@@ -2646,6 +2649,41 @@ private struct AccountRow: View {
                 }
             }
             Text(L10n.t("Paste an API token from Krea › Settings › API Tokens. Not needed after krea auth login, or with KREA_API_KEY exported. Stored in your login keychain."))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 2)
+    }
+
+    /// The API key input for MiMo Open Platform. Stored in the keychain on Save,
+    /// then a refresh is triggered so the ring picks up the new credential without a relaunch.
+    @State private var mimoKey = ""
+    @State private var mimoKeySaved = false
+
+    private var mimoKeyEntry: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(L10n.t("MiMo API key"))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                SecureField(L10n.t("Paste your key"), text: $mimoKey)
+                    .textContentType(.password)
+                    .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
+                    .frame(maxWidth: 260)
+                Button(L10n.t("Save")) {
+                    guard !mimoKey.isEmpty else { return }
+                    MiMoCredentials.storeAPIKey(mimoKey)
+                    mimoKey = ""
+                    mimoKeySaved = true
+                    _ = signIn(provider.id)
+                }
+                .disabled(mimoKey.isEmpty)
+                if mimoKeySaved {
+                    Text(L10n.t("Saved"))
+                        .foregroundStyle(.green)
+                }
+            }
+            Text(L10n.t("Paste an API key from Xiaomi MiMo Open Platform. Not needed after mimo auth login, or with MIMO_API_KEY exported. Stored in your login keychain."))
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
