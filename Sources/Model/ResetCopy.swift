@@ -179,6 +179,36 @@ enum ResetCopy {
         return resetsAt.addingTimeInterval(-(seconds / step).rounded(.down) * step)
     }
 
+    static func dateOnlyStamp(_ value: String, now: Date = Date(),
+                              timeZone: TimeZone = .autoupdatingCurrent,
+                              locale: Locale = .autoupdatingCurrent) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let parts = value.split(separator: "-")
+        guard parts.count == 3, parts.map(\.count) == [4, 2, 2],
+              let year = Int(parts[0]), let month = Int(parts[1]), let day = Int(parts[2]),
+              let date = calendar.date(from: DateComponents(year: year, month: month, day: day)),
+              calendar.dateComponents([.year, .month, .day], from: date)
+                == DateComponents(year: year, month: month, day: day) else { return value }
+
+        var localCalendar = calendar
+        localCalendar.timeZone = timeZone
+        let today = localCalendar.dateComponents([.year, .month, .day], from: now)
+        if let civilToday = calendar.date(from: today),
+           let days = calendar.dateComponents([.day], from: civilToday, to: date).day,
+           (0..<7).contains(days) {
+            let relative = RelativeDateTimeFormatter()
+            relative.locale = locale
+            relative.dateTimeStyle = .named
+            return relative.localizedString(from: DateComponents(day: days))
+        }
+        return formatter(template: "MMM d", calendar: calendar, locale: locale).string(from: date)
+    }
+
+    static func text(forDateOnly value: String, now: Date) -> String {
+        String(format: L10n.t("Resets %@"), dateOnlyStamp(value, now: now))
+    }
+
     /// A formatter that renders in the given calendar's own zone.
     ///
     /// Setting `calendar` does not carry its time zone across, and the formatter

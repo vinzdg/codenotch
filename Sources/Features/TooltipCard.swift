@@ -517,7 +517,7 @@ private struct LimitWindowRow: View {
         window.resetsAt.map {
             ResetCopy.text(for: $0, now: now, format: resetTimeFormat,
                            withAbsoluteStamp: showsResetStamp)
-        } ?? window.resetDateLabel.map { String(format: L10n.t("Resets %@"), $0) } ?? ""
+        } ?? window.resetDateLabel.map { ResetCopy.text(forDateOnly: $0, now: now) } ?? ""
     }
 
     /// A count-only row (no fraction, no reset) — like Ollama's per-model request

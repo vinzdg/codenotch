@@ -66,7 +66,7 @@ final class OpenAIAPICreditTests: XCTestCase {
         XCTAssertEqual(StatusItemController.headerTitle(for: snapshot, now: Date()), "ChatGPT API — 25%")
         XCTAssertEqual(windows.first?.resetDateLabel, "2026-07-01")
         XCTAssertTrue(StatusItemController.windowLine(for: try XCTUnwrap(windows.first), now: Date())
-            .contains("Resets 2026-07-01"))
+            .contains(ResetCopy.text(forDateOnly: "2026-07-01", now: Date())))
         XCTAssertEqual(windows.count, 1)
         XCTAssertNil(windows.first?.resetsAt)
     }
@@ -92,6 +92,23 @@ final class OpenAIAPICreditTests: XCTestCase {
         XCTAssertEqual(try render(api).size, try render(codex).size)
         XCTAssertEqual(api.glyph, .openaiAPI)
         XCTAssertNotEqual(api.glyph.outline, codex.glyph.outline)
+    }
+
+    func testDateOnlyResetUsesLocaleAndRelativeDaysWithoutATime() throws {
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-12-02T00:15:00Z"))
+        let zone = try XCTUnwrap(TimeZone(identifier: "America/New_York"))
+        let us = Locale(identifier: "en_US")
+        let gb = Locale(identifier: "en_GB")
+        func stamp(_ day: String, locale: Locale = Locale(identifier: "en_US")) -> String {
+            ResetCopy.dateOnlyStamp(day, now: now, timeZone: zone, locale: locale)
+        }
+        XCTAssertEqual(stamp("2026-12-12", locale: us), "Dec 12")
+        XCTAssertEqual(stamp("2026-12-12", locale: gb), "12 Dec")
+        XCTAssertEqual(stamp("2026-12-01"), "today")
+        XCTAssertEqual(stamp("2026-12-02"), "tomorrow")
+        XCTAssertEqual(stamp("2026-12-07"), "in 6 days")
+        XCTAssertEqual(stamp("2026-12-08"), "Dec 8")
+        XCTAssertEqual(stamp("2026-02-30"), "2026-02-30")
     }
 
     func testUsageDashboardMetricsAndChartDoNotDoubleCountCache() async throws {
