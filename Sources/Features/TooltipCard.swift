@@ -517,7 +517,7 @@ private struct LimitWindowRow: View {
         window.resetsAt.map {
             ResetCopy.text(for: $0, now: now, format: resetTimeFormat,
                            withAbsoluteStamp: showsResetStamp)
-        } ?? ""
+        } ?? window.resetDateLabel.map { String(format: L10n.t("Resets %@"), $0) } ?? ""
     }
 
     /// A count-only row (no fraction, no reset) — like Ollama's per-model request
@@ -1054,8 +1054,15 @@ private struct CodexUsageSection: View {
     let usage: CodexTokenUsage
     let now: Date
 
+    private var usageCalendar: Calendar {
+        guard usage.apiMetrics != nil else { return .current }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }
+
     private var buckets: [CodexTokenUsage.DailyBucket] {
-        usage.last30Days(now: now)
+        usage.last30Days(now: now, calendar: usageCalendar)
     }
 
     private var maximum: Int {
@@ -1063,10 +1070,20 @@ private struct CodexUsageSection: View {
     }
 
     private var todayText: String {
-        usage.usageToday(now: now).map { UsageFormat.tokens($0) } ?? L10n.t("Pending")
+        usage.usageToday(now: now, calendar: usageCalendar).map { UsageFormat.tokens($0) } ?? L10n.t("Pending")
     }
 
     private var metrics: [CodexMetric] {
+        if let api = usage.apiMetrics {
+            return [
+                CodexMetric(id: "requests", value: UsageFormat.tokens(api.requests), label: L10n.t("30-day model requests")),
+                CodexMetric(id: "input", value: UsageFormat.tokens(api.input), label: L10n.t("30-day input tokens")),
+                CodexMetric(id: "cached", value: UsageFormat.tokens(api.cachedInput), label: L10n.t("30-day cached input tokens")),
+                CodexMetric(id: "output", value: UsageFormat.tokens(api.output), label: L10n.t("30-day output tokens")),
+                CodexMetric(id: "peak", value: UsageFormat.tokens(usage.peakDailyTokens),
+                            label: L10n.t("Peak daily tokens"))
+            ]
+        }
         let summary = usage.summary
         return [
             CodexMetric(id: "lifetime", value: UsageFormat.tokens(summary?.lifetimeTokens),
@@ -1097,10 +1114,10 @@ private struct CodexUsageSection: View {
                 .fill(Palette.ringTrack)
                 .frame(height: NotchLayout.hairline)
 
-            SplitRow(leading: L10n.t("Today"), trailing: todayText)
+            SplitRow(leading: usage.apiMetrics == nil ? L10n.t("Today") : L10n.t("Today (UTC)"), trailing: todayText)
                 .padding(.top, NotchLayout.blockSpacing)
             SplitRow(leading: L10n.t("30-day tokens"),
-                     trailing: UsageFormat.tokens(usage.usageInLast30Days(now: now)))
+                     trailing: UsageFormat.tokens(usage.usageInLast30Days(now: now, calendar: usageCalendar)))
                 .padding(.top, NotchLayout.codexUsageRowGap)
             CodexDailyUsageChart(buckets: buckets, maximum: maximum)
                 .padding(.top, NotchLayout.codexChartTop)

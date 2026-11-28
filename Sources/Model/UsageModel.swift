@@ -164,6 +164,7 @@ struct LimitWindow: Identifiable, Codable, Equatable {
     let usedText: String?
     /// Nil when the provider does not say when the window rolls over.
     let resetsAt: Date?
+    let resetDateLabel: String?
 
     /// Exact cycle length when known; optional to keep older archives readable.
     let duration: TimeInterval?
@@ -172,7 +173,7 @@ struct LimitWindow: Identifiable, Codable, Equatable {
 
     init(id: String, group: String? = nil, label: String, usedFraction: Double? = nil,
          remaining: Int? = nil, used: Int? = nil, usedText: String? = nil, detail: String? = nil,
-         money: UsageMoneyBreakdown? = nil, resetsAt: Date? = nil,
+         money: UsageMoneyBreakdown? = nil, resetsAt: Date? = nil, resetDateLabel: String? = nil,
          duration: TimeInterval? = nil, bandOverride: UsageBand? = nil,
          prefersUsedText: Bool = false) {
         self.id = id
@@ -185,13 +186,14 @@ struct LimitWindow: Identifiable, Codable, Equatable {
         self.detail = detail
         self.money = money
         self.resetsAt = resetsAt
+        self.resetDateLabel = resetDateLabel
         self.duration = duration
         self.bandOverride = bandOverride
         self.prefersUsedText = prefersUsedText
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, group, label, usedFraction, remaining, used, detail, money, usedText, resetsAt, duration, bandOverride, prefersUsedText
+        case id, group, label, usedFraction, remaining, used, detail, money, usedText, resetsAt, resetDateLabel, duration, bandOverride, prefersUsedText
     }
 
     init(from decoder: Decoder) throws {
@@ -206,6 +208,7 @@ struct LimitWindow: Identifiable, Codable, Equatable {
         self.money = try container.decodeIfPresent(UsageMoneyBreakdown.self, forKey: .money)
         self.usedText = try container.decodeIfPresent(String.self, forKey: .usedText)
         self.resetsAt = try container.decodeIfPresent(Date.self, forKey: .resetsAt)
+        self.resetDateLabel = try container.decodeIfPresent(String.self, forKey: .resetDateLabel)
         self.duration = try container.decodeIfPresent(TimeInterval.self, forKey: .duration)
         self.bandOverride = try container.decodeIfPresent(UsageBand.self, forKey: .bandOverride)
         self.prefersUsedText = try container.decodeIfPresent(Bool.self, forKey: .prefersUsedText) ?? false
@@ -223,6 +226,7 @@ struct LimitWindow: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(money, forKey: .money)
         try container.encodeIfPresent(usedText, forKey: .usedText)
         try container.encodeIfPresent(resetsAt, forKey: .resetsAt)
+        try container.encodeIfPresent(resetDateLabel, forKey: .resetDateLabel)
         try container.encodeIfPresent(duration, forKey: .duration)
         try container.encodeIfPresent(bandOverride, forKey: .bandOverride)
         if prefersUsedText {

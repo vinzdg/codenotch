@@ -1015,6 +1015,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         var line = "\(window.label): \(window.summary)"
         if let resetsAt = window.resetsAt {
             line += " · \(ResetCopy.text(for: resetsAt, now: now, format: format))"
+        } else if let label = window.resetDateLabel {
+            line += " · " + String(format: L10n.t("Resets %@"), label)
         }
         return line
     }
