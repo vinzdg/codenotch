@@ -145,6 +145,17 @@ enum GlyphOutline {
          CGPoint(x: 0.4778, y: 0.3668)],
     ]
 
+    static let openaiAPI: [[CGPoint]] = openai.map { loop in
+        loop.map { CGPoint(x: 0.025 + $0.x * 0.69, y: 0.025 + $0.y * 0.69) }
+    } + [
+        [CGPoint(x: 0.58, y: 0.99), CGPoint(x: 0.735, y: 0.59),
+         CGPoint(x: 0.835, y: 0.59), CGPoint(x: 0.99, y: 0.99),
+         CGPoint(x: 0.885, y: 0.99), CGPoint(x: 0.855, y: 0.905),
+         CGPoint(x: 0.715, y: 0.905), CGPoint(x: 0.685, y: 0.99)],
+        [CGPoint(x: 0.743, y: 0.825), CGPoint(x: 0.827, y: 0.825),
+         CGPoint(x: 0.785, y: 0.707)]
+    ]
+
     static let third: [[CGPoint]] = [
         [CGPoint(x: 0.4886, y: -0.0164), CGPoint(x: 0.4730, y: -0.0098), CGPoint(x: 0.4662, y: 0.0078), 
          CGPoint(x: 0.4660, y: 0.2300), CGPoint(x: 0.4596, y: 0.2425), CGPoint(x: 0.4373, y: 0.2338), 

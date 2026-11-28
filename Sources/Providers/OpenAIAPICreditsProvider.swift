@@ -45,7 +45,7 @@ struct OpenAIAPICreditGrant: Codable, Equatable, Sendable {
         let used = granted - left
         let usd = { (value: Decimal) in NSDecimalNumber(decimal: value).doubleValue }
         return [
-            LimitWindow(id: "credit-grant", label: L10n.t("API Credit Grant (estimated)"),
+            LimitWindow(id: "credit-grant", label: L10n.t("Credit grant"),
                         usedFraction: usd(used / granted), resetDateLabel: expires)
         ]
     }
@@ -151,10 +151,9 @@ actor OpenAIAPICreditsProvider: UsageProvider {
     nonisolated static let grantsURL = URL(string: "https://platform.openai.com/settings/organization/billing/credit-grants")!
     nonisolated let id = OpenAIAPICreditsProvider.providerID
     nonisolated let displayName = "ChatGPT API"
-    nonisolated let glyph: ProviderGlyph = .openai
+    nonisolated let glyph: ProviderGlyph = .openaiAPI
 
-    private var cached: (grant: OpenAIAPICreditGrant, timestamp: Date,
-                         cost: Decimal, metrics: CodexTokenUsage?)?
+    private var lastMetrics: (grant: OpenAIAPICreditGrant, usage: CodexTokenUsage)?
     private var retryUntil: Date?
 
     nonisolated var signInRoute: SignInRoute {
@@ -195,9 +194,20 @@ actor OpenAIAPICreditsProvider: UsageProvider {
     }
 
     func fetchSnapshot() async throws -> ProviderSnapshot {
-        let now = Date()
-        guard let grant = Self.configuredGrant(),
-              let expiry = OpenAIAPICreditGrant.midnight(grant.expires, timeZone: .current),
+        guard let grant = Self.configuredGrant() else { throw UsageProviderError.needsAuth }
+        return try await fetchSnapshot(grant: grant, now: Date()) { start, end in
+            guard let key = KeychainItem.read(service: Self.keychainService, account: Self.keychainAccount) else {
+                throw UsageProviderError.needsAuth
+            }
+            let cost = try await OpenAIAPICosts.total(key: key, start: start, end: end)
+            let metrics = try? await OpenAIAPIUsage.metrics(key: key, now: end)
+            return (cost, metrics)
+        }
+    }
+
+    func fetchSnapshot(grant: OpenAIAPICreditGrant, now: Date,
+                       read: (Date, Date) async throws -> (Decimal, CodexTokenUsage?)) async throws -> ProviderSnapshot {
+        guard let expiry = OpenAIAPICreditGrant.midnight(grant.expires, timeZone: .current),
               let start = OpenAIAPICreditGrant.midnight(grant.issued, timeZone: TimeZone(secondsFromGMT: 0)!) else {
             throw UsageProviderError.needsAuth
         }
@@ -209,27 +219,18 @@ actor OpenAIAPICreditsProvider: UsageProvider {
         if let retryUntil, retryUntil > now {
             throw UsageProviderError.rateLimited(retryAfter: retryUntil.timeIntervalSince(now))
         }
-        let cost: Decimal
-        let metrics: CodexTokenUsage?
-        if let cached, cached.grant == grant, now.timeIntervalSince(cached.timestamp) < 900 {
-            cost = cached.cost
-            metrics = cached.metrics
-        } else {
-            guard let key = KeychainItem.read(service: Self.keychainService, account: Self.keychainAccount) else {
-                throw UsageProviderError.needsAuth
-            }
-            do {
-                cost = try await OpenAIAPICosts.total(key: key, start: start, end: now)
-            } catch let UsageProviderError.rateLimited(retryAfter) {
-                retryUntil = now.addingTimeInterval(max(60, retryAfter))
-                throw UsageProviderError.rateLimited(retryAfter: retryAfter)
-            }
-            metrics = try? await OpenAIAPIUsage.metrics(key: key, now: now)
-            cached = (grant, now, cost, metrics)
+
+        let (cost, metrics): (Decimal, CodexTokenUsage?)
+        do {
+            (cost, metrics) = try await read(start, now)
+        } catch let UsageProviderError.rateLimited(retryAfter) {
+            retryUntil = now.addingTimeInterval(max(60, retryAfter))
+            throw UsageProviderError.rateLimited(retryAfter: retryAfter)
         }
 
+        if let metrics { lastMetrics = (grant, metrics) }
         var result = snapshot(grant.windows(at: cost))
-        result.tokenUsage = metrics
+        result.tokenUsage = lastMetrics.flatMap { $0.grant == grant ? $0.usage : nil }
         return result
     }
 

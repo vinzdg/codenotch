@@ -5,6 +5,7 @@ enum ProviderGlyph: String, Codable, Equatable {
     case claude
     case devin
     case openai
+    case openaiAPI = "openai-api"
     case third
     case cursor
     /// The raw value stays `gemini`: it is the key archived readings were
@@ -79,7 +80,7 @@ enum ProviderGlyph: String, Codable, Equatable {
         switch self {
         case .claude: return 0.97
         case .cursor: return 0.97
-        case .openai: return 0.94
+        case .openai, .openaiAPI: return 0.94
         case .antigravity: return 1.0
         case .geminiSpark: return 1.0
         case .glm:    return 0.95
@@ -127,7 +128,7 @@ enum ProviderGlyph: String, Codable, Equatable {
     var brandColor: Color {
         switch self {
         case .claude: return Color(hex: 0xD97757)
-        case .openai: return Color(hex: 0x10A37F)
+        case .openai, .openaiAPI: return Color(hex: 0x10A37F)
         case .third: return Color(hex: 0x20808D)
         case .antigravity, .geminiSpark, .gemma: return Color(hex: 0x4285F4)
         case .qwen, .qianwenAI: return Color(hex: 0x615CED)
@@ -148,6 +149,7 @@ enum ProviderGlyph: String, Codable, Equatable {
         switch self {
         case .claude: return GlyphOutline.claude
         case .openai: return GlyphOutline.openai
+        case .openaiAPI: return GlyphOutline.openaiAPI
         case .third:  return GlyphOutline.third
         case .cursor: return GlyphOutline.cursor
         case .antigravity: return GlyphOutline.antigravity

@@ -1,7 +1,26 @@
+import SwiftUI
 import XCTest
 @testable import Codenotch
 
 final class OpenAIAPICreditTests: XCTestCase {
+    func testConsecutiveRefreshesReadBothMetricsRatherThanServingAnOldSnapshot() async throws {
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-06-10T18:00:00Z"))
+        let grant = OpenAIAPICreditGrant(issued: "2026-06-01", expires: "2026-07-01",
+                                        granted: 100, available: 75, costAtSnapshot: 3)
+        let provider = OpenAIAPICreditsProvider()
+        let old = CodexTokenUsage(dailyUsageBuckets: [.init(startDate: "2026-06-10", tokens: 25)])
+        let new = CodexTokenUsage(dailyUsageBuckets: [.init(startDate: "2026-06-10", tokens: 45)])
+        let first = try await provider.fetchSnapshot(grant: grant, now: now) { _, _ in (3, old) }
+        let next = try await provider.fetchSnapshot(grant: grant, now: now.addingTimeInterval(1)) { _, _ in (5, new) }
+        let partial = try await provider.fetchSnapshot(grant: grant, now: now.addingTimeInterval(2)) { _, _ in (7, nil) }
+
+        XCTAssertEqual(first.headlineText, "25%")
+        XCTAssertEqual(next.headlineText, "27%")
+        XCTAssertEqual(next.tokenUsage, new)
+        XCTAssertEqual(partial.headlineText, "29%")
+        XCTAssertEqual(partial.tokenUsage, new)
+    }
+
     func testEstimateStartsWithReportedBalance() throws {
         let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-06-10T18:00:00Z"))
         let grant = try XCTUnwrap(OpenAIAPICreditGrant.validated(
@@ -40,7 +59,7 @@ final class OpenAIAPICreditTests: XCTestCase {
                                         granted: 100, available: 75, costAtSnapshot: 3)
         let windows = grant.windows(at: 3)
         let snapshot = ProviderSnapshot(id: "openai-api-credits", displayName: "ChatGPT API",
-                                        glyph: .openai, fidelity: .derived, status: .ok,
+                                        glyph: .openaiAPI, fidelity: .derived, status: .ok,
                                         windows: windows, headlineID: windows.first?.id)
         XCTAssertEqual(snapshot.headlineText, "25%")
         XCTAssertEqual(StatusItemController.headline(for: snapshot), "25%")
@@ -51,6 +70,30 @@ final class OpenAIAPICreditTests: XCTestCase {
         XCTAssertEqual(windows.count, 1)
         XCTAssertNil(windows.first?.resetsAt)
     }
+    @MainActor
+    func testCreditCardUsesTheNativeCodexActivityLayout() throws {
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-06-10T18:00:00Z"))
+        let windows = [LimitWindow(id: "quota", label: "Plan", usedFraction: 0.25)]
+        let days = [CodexTokenUsage.DailyBucket(startDate: "2026-06-10", tokens: 25)]
+        let codex = ProviderSnapshot(id: "codex", displayName: "Codex", glyph: .openai,
+                                     fidelity: .derived, status: .ok, windows: windows,
+                                     tokenUsage: CodexTokenUsage(dailyUsageBuckets: days))
+        let api = ProviderSnapshot(id: OpenAIAPICreditsProvider.providerID, displayName: "ChatGPT API",
+                                   glyph: OpenAIAPICreditsProvider().glyph, fidelity: .derived,
+                                   status: .ok, windows: windows, tokenUsage: CodexTokenUsage(
+                                    dailyUsageBuckets: days, apiMetrics: .init(
+                                        requests: 2, input: 20, cachedInput: 10, output: 5)))
+
+        func render(_ snapshot: ProviderSnapshot) throws -> NSImage {
+            try XCTUnwrap(ImageRenderer(content: TooltipCard(snapshot: snapshot, now: now)
+                .environment(\.codenotchHeadlessGlass, true)).nsImage)
+        }
+
+        XCTAssertEqual(try render(api).size, try render(codex).size)
+        XCTAssertEqual(api.glyph, .openaiAPI)
+        XCTAssertNotEqual(api.glyph.outline, codex.glyph.outline)
+    }
+
     func testUsageDashboardMetricsAndChartDoNotDoubleCountCache() async throws {
         let json = #"{"data":[{"start_time":0,"end_time":86400,"results":[{"num_model_requests":2,"input_tokens":20,"input_cached_tokens":10,"output_tokens":5}]}],"has_more":false}"#
         let decoder = JSONDecoder()

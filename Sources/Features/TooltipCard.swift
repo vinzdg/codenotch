@@ -755,11 +755,17 @@ struct ProviderLimitsContent: View {
         return result
     }
 
+    private var title: String {
+        if snapshot.kind == .localRuntime {
+            return L10n.t("\(snapshot.localModel?.brand?.displayName ?? snapshot.displayName) · Local")
+        }
+        if snapshot.id == OpenAIAPICreditsProvider.providerID { return snapshot.displayName }
+        return L10n.t("\(snapshot.displayName) Usage")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            TooltipHeader(title: snapshot.kind == .localRuntime
-                          ? L10n.t("\(snapshot.localModel?.brand?.displayName ?? snapshot.displayName) · Local")
-                          : L10n.t("\(snapshot.displayName) Usage"),
+            TooltipHeader(title: title,
                           // A runtime with nothing loaded has no window to
                           // draw, so its own summary — "2 models loaded",
                           // "Server reachable · No models loaded" — stands in
@@ -1076,12 +1082,12 @@ private struct CodexUsageSection: View {
     private var metrics: [CodexMetric] {
         if let api = usage.apiMetrics {
             return [
-                CodexMetric(id: "requests", value: UsageFormat.tokens(api.requests), label: L10n.t("30-day model requests")),
-                CodexMetric(id: "input", value: UsageFormat.tokens(api.input), label: L10n.t("30-day input tokens")),
-                CodexMetric(id: "cached", value: UsageFormat.tokens(api.cachedInput), label: L10n.t("30-day cached input tokens")),
-                CodexMetric(id: "output", value: UsageFormat.tokens(api.output), label: L10n.t("30-day output tokens")),
                 CodexMetric(id: "peak", value: UsageFormat.tokens(usage.peakDailyTokens),
-                            label: L10n.t("Peak daily tokens"))
+                            label: L10n.t("Peak tokens")),
+                CodexMetric(id: "requests", value: UsageFormat.tokens(api.requests), label: L10n.t("Model requests")),
+                CodexMetric(id: "input", value: UsageFormat.tokens(api.input), label: L10n.t("Input tokens")),
+                CodexMetric(id: "cached", value: UsageFormat.tokens(api.cachedInput), label: L10n.t("Cached input tokens")),
+                CodexMetric(id: "output", value: UsageFormat.tokens(api.output), label: L10n.t("Output tokens"))
             ]
         }
         let summary = usage.summary
@@ -1107,6 +1113,7 @@ private struct CodexUsageSection: View {
                 .padding(.top, NotchLayout.codexUsageTop)
 
             CodexMetricList(metrics: metrics)
+                .help(usage.apiMetrics == nil ? "" : L10n.t("Metrics for the last 30 days (UTC)"))
                 .padding(.top, NotchLayout.codexMetricTop)
                 .padding(.bottom, NotchLayout.codexMetricBottom)
 
@@ -1114,7 +1121,7 @@ private struct CodexUsageSection: View {
                 .fill(Palette.ringTrack)
                 .frame(height: NotchLayout.hairline)
 
-            SplitRow(leading: usage.apiMetrics == nil ? L10n.t("Today") : L10n.t("Today (UTC)"), trailing: todayText)
+            SplitRow(leading: L10n.t("Today"), trailing: todayText)
                 .padding(.top, NotchLayout.blockSpacing)
             SplitRow(leading: L10n.t("30-day tokens"),
                      trailing: UsageFormat.tokens(usage.usageInLast30Days(now: now, calendar: usageCalendar)))
