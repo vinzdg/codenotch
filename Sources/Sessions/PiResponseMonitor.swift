@@ -23,16 +23,22 @@ final class PiResponseMonitor {
     private var debounce: DispatchWorkItem?
     private var active: [String: PiActiveTurn] = [:]
     private let livePiDirectories: () -> Set<String>
+    private let liveness: (String) -> PiSessionLiveness.State
     private var sweepTimer: Timer?
 
     init(directory: URL? = nil,
          startedAt: Date = Date(),
          livePiDirectories: @escaping () -> Set<String> = PiProcesses.workingDirectories,
+         liveness: ((String) -> PiSessionLiveness.State)? = nil,
          onResponse: @escaping (String) -> Void,
          onActivity: @escaping (String, [PiActivitySnapshot]) -> Void = { _, _ in }) {
-        self.directory = directory ?? Self.defaultSessionsDirectory
+        let directory = directory ?? Self.defaultSessionsDirectory
+        self.directory = directory
         self.reader = PiSessionTailReader(startedAt: startedAt)
         self.livePiDirectories = livePiDirectories
+        self.liveness = liveness ?? PiSessionLiveness(
+            registry: PiSessionLiveness.registry(forSessionsDirectory: directory)
+        ).state(sessionPath:)
         self.onResponse = onResponse
         self.onActivity = onActivity
     }
@@ -141,13 +147,26 @@ final class PiResponseMonitor {
     /// Pi writes nothing when it quits mid-turn, so the turn it left open
     /// would read as working forever. Drop every turn no running Pi can own:
     /// none in the session's directory, or none at all when that is unknown.
+    /// A session its agent registered is settled by that registration instead:
+    /// several agents can share one directory, and not every agent is `pi`.
     func sweep() {
         guard !active.isEmpty else { return }
-        let live = livePiDirectories()
+        var live: Set<String>?
         var affected: Set<String> = []
         for (path, turn) in active {
-            let owned = turn.cwd.map(live.contains) ?? !live.isEmpty
+            let owned: Bool
+            switch liveness(path) {
+            case .alive:
+                owned = true
+            case .ended:
+                owned = false
+            case .unknown:
+                let directories = live ?? livePiDirectories()
+                live = directories
+                owned = turn.cwd.map(directories.contains) ?? !directories.isEmpty
+            }
             guard !owned else { continue }
+            Log.sessions.notice("pi: dropped \(turn.model, privacy: .public) turn of \((path as NSString).lastPathComponent, privacy: .public): no running agent")
             active.removeValue(forKey: path)
             affected.insert(turn.providerID)
         }
