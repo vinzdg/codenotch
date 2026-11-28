@@ -79702,6 +79702,100 @@
           }
         }
       }
+    },
+    "Ring shows the fullest limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anel mostra o limite mais cheio"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El anillo muestra el límite más lleno"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кільце показує найповніший ліміт"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圆环显示用量最高的额度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圓環顯示用量最高的額度"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リングに最も使用率の高い上限を表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링에 가장 많이 찬 한도 표시"
+          }
+        }
+      }
+    },
+    "The main ring shows whichever of a provider's session, weekly and monthly limits is fullest, so a spent week or month reads 100% while the five-hour window is empty. The window it replaces stays on the card. Alerts and the menu bar are unchanged, and Claude's daily pace ring still leads where it is on.": {
+      "extractionState": "manual",
+      "localizations": {
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O anel principal mostra o limite mais cheio entre a sessão, a semana e o mês de cada provedor, então uma semana ou um mês esgotado aparece como 100% mesmo com a janela de cinco horas vazia. A janela substituída continua no cartão. Alertas e barra de menus não mudam, e o anel de ritmo diário do Claude ainda tem prioridade quando está ligado."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El anillo principal muestra el límite más lleno entre la sesión, la semana y el mes de cada proveedor, así una semana o un mes agotado marca 100 % aunque la ventana de cinco horas esté vacía. La ventana reemplazada sigue en la tarjeta. Las alertas y la barra de menús no cambian, y el anillo de ritmo diario de Claude sigue mandando cuando está activo."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Головне кільце показує найповніший ліміт провайдера серед сесії, тижня та місяця, тож вичерпаний тиждень або місяць показує 100 %, навіть коли п’ятигодинне вікно порожнє. Замінене вікно залишається на картці. Сповіщення та рядок меню не змінюються, а кільце денного темпу Claude, коли воно ввімкнене, і далі має пріоритет."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主圆环显示各服务商会话、每周和每月额度中用量最高的一个，因此即使 5 小时窗口为空，已用尽的周额度或月额度也会显示 100%。被替换的窗口仍保留在卡片上。提醒和菜单栏不变；开启 Claude 每日节奏圆环时，它仍优先。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主圓環顯示各服務商工作階段、每週和每月額度中用量最高的一個，因此即使 5 小時視窗為空，已用盡的週額度或月額度也會顯示 100%。被取代的視窗仍保留在卡片上。提醒和選單列不變；開啟 Claude 每日節奏圓環時，它仍優先。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メインリングには各プロバイダーのセッション・週・月のうち最も使用率の高い上限を表示します。5時間枠が空でも、使い切った週や月は100%と表示されます。置き換えられた枠はカードに残ります。通知とメニューバーは変わらず、Claudeの日次ペースリングはオンのとき引き続き優先されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메인 링에 각 제공업체의 세션·주간·월간 한도 중 가장 많이 찬 것을 표시합니다. 5시간 창이 비어 있어도 소진된 주간 또는 월간 한도는 100%로 표시됩니다. 대체된 창은 카드에 그대로 남습니다. 알림과 메뉴 막대는 그대로이며, Claude 일일 페이스 링은 켜져 있으면 계속 우선합니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

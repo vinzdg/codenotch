@@ -198,7 +198,7 @@ final class WeeklyHeadlineTests: XCTestCase {
     /// Where both are on, the daily pace — Claude's alone, and the more
     /// specific of the two — still leads.
     func testTheDailyPaceStillLeadsWhereItIsOn() {
-        let drawn = AppDelegate.drawn([claude], weekly: true, paced: true)
+        let drawn = AppDelegate.drawn([claude], weekly: true, paced: true, fullest: false)
         XCTAssertEqual(drawn.first?.headlineID, DailyPace.windowID)
         XCTAssertEqual(drawn.first?.weeklyID, "session")
     }

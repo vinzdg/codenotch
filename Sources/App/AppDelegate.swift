@@ -89,13 +89,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// The snapshots as the rings draw them: the vendor's own, with the weekly
-    /// window leading where that is switched on, and the daily pace laid over
-    /// that where it is. One place, so the notch and the phone agree on what a
+    /// window leading where that is switched on, the fullest limit over that
+    /// where it is, and the daily pace laid over both where it is. One place, so the notch and the phone agree on what a
     /// ring means. The menu bar and the alert watchers are deliberately fed the
     /// vendor's own order instead — see their sink.
-    static func drawn(_ snapshots: [ProviderSnapshot], weekly: Bool, paced: Bool)
+    static func drawn(_ snapshots: [ProviderSnapshot], weekly: Bool, paced: Bool,
+                      fullest: Bool)
     -> [ProviderSnapshot] {
-        DailyPace.apply(to: WeeklyHeadline.apply(to: snapshots, enabled: weekly), enabled: paced)
+        DailyPace.apply(
+            to: FullestHeadline.apply(
+                to: WeeklyHeadline.apply(to: snapshots, enabled: weekly),
+                enabled: fullest),
+            enabled: paced)
     }
 
     /// Every Claude Code configuration directory on this Mac — `~/.claude` and
@@ -467,7 +472,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         PhoneLinkSnapshotBuilder.build(
                             snapshots: Self.drawn(store.snapshots,
                                                   weekly: preferences.weeklyHeadline,
-                                                  paced: preferences.claudeDailyPaceRing),
+                                                  paced: preferences.claudeDailyPaceRing,
+                                                  fullest: preferences.fullestLimitHeadline),
                             sessions: Array(fleet.sessions.values.flatMap { $0 }),
                             disconnected: store.disconnected,
                             order: preferences.providerOrder,
@@ -493,7 +499,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         PhoneLinkSnapshotBuilder.build(
                             snapshots: Self.drawn(store.snapshots,
                                                   weekly: preferences.weeklyHeadline,
-                                                  paced: preferences.claudeDailyPaceRing),
+                                                  paced: preferences.claudeDailyPaceRing,
+                                                  fullest: preferences.fullestLimitHeadline),
                             sessions: Array(fleet.sessions.values.flatMap { $0 }),
                             disconnected: store.disconnected,
                             order: preferences.providerOrder,
@@ -1028,26 +1035,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // of a preference as much as of the account, and the store keeps
             // what the vendor said. Paired with the preference so flipping the
             // toggle redraws at once, without a fetch. The weekly-first ring
-            // is laid the same way, and for the same reasons — see `drawn`.
+            // and the fullest-limit ring are laid the same way, and for the
+            // same reasons — see `drawn`.
             // Auto-order rides along after the derivations, so "most left"
             // means the window actually leading each ring.
             // The preferences ride as one publisher: `combineLatest` takes four
-            // publishers at most, and the snapshots plus the four display
-            // choices are five.
+            // publishers at most, and the snapshots plus the five display
+            // choices are six, so the two ring-lead choices are nested.
             let displayOptions = preferences.$claudeDailyPaceRing.combineLatest(
-                preferences.$weeklyHeadline, preferences.$ringOrder,
-                preferences.$hideDepletedAccounts)
+                preferences.$weeklyHeadline.combineLatest(preferences.$fullestLimitHeadline),
+                preferences.$ringOrder, preferences.$hideDepletedAccounts)
             store.$notchSnapshots
                 .combineLatest(displayOptions)
                 .receive(on: RunLoop.main)
                 .sink { [weak fleet] snapshots, options in
-                    let (paced, weekly, order, hideDepleted) = options
+                    let (paced, (weekly, fullest), order, hideDepleted) = options
                     // Before the derivations: the daily pace ring is advisory,
                     // not a spending gate, and judging off it would hide an
                     // account that overspent today's share while the session
                     // still has room.
                     let usable = hideDepleted ? snapshots.filter { !$0.isDepleted } : snapshots
-                    var drawn = Self.drawn(usable, weekly: weekly, paced: paced)
+                    var drawn = Self.drawn(usable, weekly: weekly, paced: paced,
+                                           fullest: fullest)
                     switch order.canonical {
                     case .deficit:   drawn = ProviderOrder.byBurnDeficit(drawn, now: Date())
                     case .expiring:  drawn = ProviderOrder.byExpiringFirst(drawn, now: Date())

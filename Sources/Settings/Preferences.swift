@@ -296,6 +296,11 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(weeklyHeadline, forKey: Keys.weeklyHeadline) }
     }
 
+    /// The ring leads with the fullest limit a provider reports instead of the one it declares.
+    @Published var fullestLimitHeadline: Bool {
+        didSet { defaults.set(fullestLimitHeadline, forKey: Keys.fullestLimitHeadline) }
+    }
+
     /// Whether Spark and code-review Codex windows appear in the hover card.
     /// On by default so a first launch shows them; the ring still follows
     /// the main Codex window either way.
@@ -872,6 +877,7 @@ final class Preferences: ObservableObject {
         static let manualProviderSchedule = "manualProviderSchedule"
         static let minimaxRegion = "minimaxRegion"
         static let qoderRegion = "qoderRegion"
+        static let fullestLimitHeadline = "fullestLimitHeadline"
         static let antigravityHeadlineLimit = "antigravityHeadlineLimit"
         static let antigravityHeadlineModel = "antigravityHeadlineModel"
         static let deepSeekPricingEnabled = "deepSeekPricingEnabled"
@@ -1296,6 +1302,7 @@ final class Preferences: ObservableObject {
         self.claudeDailyPaceRing = defaults.bool(forKey: Keys.claudeDailyPaceRing)
         // Off by default for the same reason: it changes what every ring means.
         self.weeklyHeadline = defaults.bool(forKey: Keys.weeklyHeadline)
+        self.fullestLimitHeadline = defaults.bool(forKey: Keys.fullestLimitHeadline)
         self.showCodexExtraLimits = Self.storedShowCodexExtraLimits(defaults: defaults)
         self.deepSeekPricingEnabled = defaults.object(forKey: Keys.deepSeekPricingEnabled) as? Bool ?? true
         if let data = defaults.data(forKey: Keys.deepSeekPricingSchedule),

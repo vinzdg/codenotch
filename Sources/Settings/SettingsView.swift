@@ -1035,6 +1035,12 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
+                Toggle(L10n.t("Ring shows the fullest limit"), isOn: $preferences.fullestLimitHeadline)
+                Text(L10n.t("The main ring shows whichever of a provider's session, weekly and monthly limits is fullest, so a spent week or month reads 100% while the five-hour window is empty. The window it replaces stays on the card. Alerts and the menu bar are unchanged, and Claude's daily pace ring still leads where it is on."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 Toggle(L10n.t("Claude daily pace ring"), isOn: $preferences.claudeDailyPaceRing)
                 Text(L10n.t("Claude's main ring shows today's share of the weekly limit — a seventh a day, counted from the weekly reset — instead of the session. The session moves to the thin ring and the card; alerts follow the daily ring."))
                     .font(.caption)
