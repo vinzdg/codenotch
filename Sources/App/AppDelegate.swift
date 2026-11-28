@@ -173,6 +173,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // read off the platform console with the browser session, exactly
             // as QianwenAI's is — no usage API, a signed-in WebView.
             let mimo = WebSessionProvider(site: Sites.mimo)
+            // Qwen.ai's Plus/Pro credits live on the chat console's entitlement
+            // service, readable only with the web session — the same kind of
+            // signed-in WebView as QianwenAI and MiMo, never the CLI's token.
+            let qwenAI = WebSessionProvider(site: Sites.qwenAI)
             let qoder = WebSessionProvider(site: Sites.qoder(region: preferences.qoderRegion))
             // MiniMax's ring is MiniMaxProvider. The sheet is the same kind of
             // WebView DeepSeek uses, but it must not join `webProviders`:
@@ -184,8 +188,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.miniMaxWeb = miniMaxWeb
             // DeepSeek's ring is DeepSeekProvider, which reads either this
             // sign-in or an API key, so the WebView is not a ring of its own.
-            let webProviders: [WebSessionProvider] = [qianwen, mimo, qoder]
-            fleet.signInItems = [deepSeek, miniMaxWeb, qianwen, mimo, qoder].map { provider in
+            let webProviders: [WebSessionProvider] = [qianwen, mimo, qwenAI, qoder]
+            fleet.signInItems = [deepSeek, miniMaxWeb, qianwen, mimo, qwenAI, qoder].map { provider in
                 let name = provider.displayName
                 return (title: L10n.t("Sign in to \(name)…"),
                         action: { [weak provider] in provider?.presentSignIn() })

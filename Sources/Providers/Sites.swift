@@ -375,6 +375,190 @@ enum Sites {
         parse: { try MiMoUsage.windows(fromJSON: $0) }
     )
 
+    /// Qwen.ai's Plus/Pro allowance has no API in `qwen code`'s OAuth protocol:
+    /// that token is scoped to model calls and the CLI only learns it is out of
+    /// credits when a request comes back 402. The number behind the console's
+    /// Usage & Billing page lives on an entitlement service keyed by the *web*
+    /// session, so the user signs into `chat.qwen.ai` in Codenotch's own
+    /// WKWebView and the page script borrows its access token — the same shape
+    /// as QianwenAI's and MiMo's console reading, never the CLI's token file.
+    static let qwenAI = WebSessionProvider.Site(
+        id: "qwenai",
+        displayName: "Qwen.ai",
+        glyph: .qwenAI,
+        origin: URL(string: "https://chat.qwen.ai/")!,
+        script: #"""
+        // The console keeps its bearer in page storage, but renews it on the
+        // *auth* host (auth.qwen.ai/api/v2/auths/refresh), not on the chat page,
+        // and does so three minutes before expiry. A WebView open for days used
+        // to keep a token that had silently aged out: every read was refused,
+        // and only opening the sign-in popup reloaded the page and fixed it.
+        const refreshBearer = async () => {
+            try {
+                const response = await fetch(
+                    'https://auth.qwen.ai/api/v2/auths/refresh',
+                    { credentials: 'include', headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'Version': '0.3.52', 'source': 'h5',
+                        'x-request-origin': location.origin
+                    } });
+                if (!response.ok) return '';
+                const body = await response.json();
+                return (body && body.data && body.data.access_token)
+                    || (body && body.access_token) || '';
+            } catch (_) { return ''; }
+        };
+        const readToken = async () => {
+            let state = null;
+            try { state = JSON.parse(localStorage.getItem('qwen_access_token_state') || 'null'); }
+            catch (_) {}
+            let token = (state && typeof state.token === 'string') ? state.token : '';
+            let expiresAt = Number(state && state.expiresAt);
+            // The console stores milliseconds; older entries are seconds.
+            if (expiresAt > 0 && expiresAt < 100000000000) expiresAt *= 1000;
+            if (!token || (Number.isFinite(expiresAt) && expiresAt - Date.now() < 180000)) {
+                token = await refreshBearer() || token;
+            }
+            return token || localStorage.getItem('token') || '';
+        };
+        let token = await readToken();
+        if (!token) {
+            return JSON.stringify({ status: 401,
+                body: '{"errorCode":"NOT_LOGIN","httpCode":401,"success":false}' });
+        }
+        // The console's own default query fields. The entitlement host is on
+        // `qwen.com`, not `qwen.ai`, and answers CORS for this origin with
+        // credentials, so the same bearer works from the page.
+        const common = 'biz_id=ai_qwen&chat_client=h5&device=pc&fr=pc&pr=qwen-i18n&la='
+            + encodeURIComponent(navigator.language || 'en-US') + '&tz='
+            + encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')
+            + '&wv=0.3.52';
+        const entitlement = async (path) => {
+            const call = async (bearer) => {
+                try {
+                    const response = await fetch('https://sg-entitlement.qwen.com' + path, {
+                        credentials: 'include', headers: {
+                            'Accept': 'application/json',
+                            'Authorization': 'Bearer ' + bearer,
+                            'Version': '0.3.52', 'source': 'h5'
+                        }
+                    });
+                    const text = await response.text();
+                    let status = response.status;
+                    try {
+                        const body = JSON.parse(text);
+                        // Signed out is HTTP 200 with a body-level NOT_LOGIN on
+                        // this service; the transport status is not the answer.
+                        if (body && (body.success === false || body.errorCode === 'NOT_LOGIN'
+                            || Number(body.httpCode) === 401)) status = 401;
+                    } catch (_) {}
+                    return { status: status, text: text };
+                } catch (_) {
+                    return { status: 0, text: '' };
+                }
+            };
+            let result = await call(token);
+            if (result.status === 401) {
+                // A bearer can be retired before its stated expiry. One fresh
+                // token and one more read, the way the console's own request
+                // layer recovers, before handing a refusal to the provider.
+                const fresh = await refreshBearer();
+                if (fresh && fresh !== token) {
+                    token = fresh;
+                    result = await call(fresh);
+                }
+            }
+            return result;
+        };
+        // `agent/usage` owns the percentage and the reset; the credits history
+        // only supplies the "credits left" count for the tooltip.
+        const usage = await entitlement('/api/entitlement/agent/usage?' + common);
+        const credits = await entitlement(
+            '/api/entitlement/credits/credits/history?pageNum=1&pageSize=20&' + common);
+        return JSON.stringify({
+            status: usage.status,
+            body: JSON.stringify({ usage: usage.text, credits: credits.text })
+        });
+        """#,
+        fidelity: .derived,
+        authProbeScript: #"""
+        try {
+            // The console's own session state is the liveness signal. The
+            // entitlement credit-status endpoint this probed first is feature-flagged:
+            // on an account without that flag it answers success:false even
+            // with a valid web session, so a finished login was never committed
+            // and the ring stayed dark until the button was pressed twice.
+            const refreshBearer = async () => {
+                try {
+                    const response = await fetch(
+                        'https://auth.qwen.ai/api/v2/auths/refresh',
+                        { credentials: 'include', headers: {
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json',
+                            'Version': '0.3.52', 'source': 'h5',
+                            'x-request-origin': location.origin
+                        } });
+                    if (!response.ok) return '';
+                    const body = await response.json();
+                    return (body && body.data && body.data.access_token)
+                        || (body && body.access_token) || '';
+                } catch (_) { return ''; }
+            };
+            let state = null;
+            try { state = JSON.parse(localStorage.getItem('qwen_access_token_state') || 'null'); }
+            catch (_) {}
+            let token = (state && typeof state.token === 'string') ? state.token : '';
+            let expiresAt = Number(state && state.expiresAt);
+            if (expiresAt > 0 && expiresAt < 100000000000) expiresAt *= 1000;
+            // Refresh three minutes early, the console's own margin, so a
+            // valid session is never mistaken for a signed-out one.
+            if (!token || (Number.isFinite(expiresAt) && expiresAt - Date.now() < 180000)) {
+                token = await refreshBearer() || token;
+            }
+            if (!token) token = localStorage.getItem('token') || '';
+            if (!token) return JSON.stringify({ authenticated: false });
+            // The digest, not the token: the account identity a switch has to
+            // see change, while the bearer stays in the page's own storage.
+            const bytes = new TextEncoder().encode(token);
+            const digest = await crypto.subtle.digest('SHA-256', bytes);
+            const fingerprint = Array.from(new Uint8Array(digest))
+                .map(byte => byte.toString(16).padStart(2, '0')).join('');
+            return JSON.stringify({ authenticated: true, fingerprint });
+        } catch (_) { return JSON.stringify({ authenticated: false }); }
+        """#,
+        // The account details behind these bodies are not ours to record.
+        logsResponseBody: false,
+        // Sign-out has to take the entitlement host (and the SSO host behind
+        // the web login) with it, or the next sign-in walks straight back in
+        // as the previous account.
+        associatedHosts: ["sg-entitlement.qwen.com", "sg-member.qwen.com", "auth.qwen.ai"],
+        // The login lands back on this origin and the token appears in its
+        // page storage, so watch the sheet and commit a finished login as it
+        // happens. The probe is local and cheap — it never asks a throttled
+        // endpoint — and the close path still confirms a login completed in a
+        // popup that leaves this page's URL unchanged.
+        pollsDuringSignIn: true,
+        // The script renews a near-expired bearer itself and retries one
+        // refused read. A page reload is the last resort before declaring the
+        // web session genuinely dead.
+        reloadsSessionOnAuthFailure: true,
+        // The manage link opens Usage & Billing, but the sign-in window must
+        // open the console's own `/auth` page: its guard bounces protected
+        // routes (including `/settings/usage-billing`) to the chat home while
+        // signed out, which is why the first popup appeared to lose the page
+        // it was opening. `/auth` is the route the console itself presents for
+        // logging in, and a completed login redirects back to this origin —
+        // a URL change the sign-in poll can see and commit.
+        managePath: "settings/usage-billing",
+        initialPath: "auth",
+        // One weekly allowance: the console's `remainingPercent` and its reset
+        // moment describe the coding credits, not a balance or a spend.
+        headlineID: "week",
+        weeklyID: "week",
+        parse: { try QwenAIUsage.windows(fromJSON: $0) }
+    )
+
     /// MiniMax is signed into from Codenotch's own WKWebView, the same way
     /// DeepSeek is. Login lives on the regional platform origin; coding-plan
     /// remains is a www host, so the fetch is absolute and sign-out has to

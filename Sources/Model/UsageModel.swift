@@ -612,6 +612,7 @@ struct ProviderSnapshot: Identifiable, Equatable {
         case "deepseek":   return L10n.t("Sign in to DeepSeek Platform to read your usage", locale: locale)
         case "qoder": return L10n.t("Sign in to Qoder to read your credit usage", locale: locale)
         case "qianwenai":  return L10n.t("Sign in to QianwenAI to read your Token Plan usage", locale: locale)
+        case "qwenai":     return L10n.t("Sign in to Qwen.ai to read your subscription usage", locale: locale)
         case _ where RemoteHost.isRemoteCodex(providerID: id):
             let destination = RemoteHost.destination(forProviderID: id) ?? "that server"
             return L10n.t("Sign in to Codex on \(destination) to read this account's usage", locale: locale)
