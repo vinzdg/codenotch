@@ -155,6 +155,32 @@ final class PiResponseMonitorTests: XCTestCase {
         XCTAssertEqual(published["codex"], 0)
     }
 
+    /// A lane that exited mid-tool shares its directory with the lead still
+    /// running there, and neither is argv[0] `pi`.
+    @MainActor
+    func testRegisteredSessionIsSettledByItsAgentNotItsDirectory() throws {
+        try append(#"{"type":"session","id":"s","cwd":"/work/app"}"# + "\n"
+            + modelChange(provider: "anthropic", model: "claude-opus-5") + "\n" + user() + "\n"
+            + message(id: "tool", provider: "anthropic", model: "claude-opus-5", stop: "toolUse") + "\n")
+        var state = PiSessionLiveness.State.alive
+        var live: Set<String> = []
+        var published: [String: Int] = [:]
+        let monitor = PiResponseMonitor(directory: directory, startedAt: .distantPast,
+                                        livePiDirectories: { live },
+                                        liveness: { _ in state },
+                                        onResponse: { _ in },
+                                        onActivity: { published[$0] = $1.count })
+
+        monitor.consume([session.path])
+        monitor.sweep()
+        XCTAssertEqual(published["claude"], 1, "its agent runs, though no `pi` does")
+
+        state = .ended
+        live = ["/work/app"]
+        monitor.sweep()
+        XCTAssertEqual(published["claude"], 0, "the Pi in that directory is someone else")
+    }
+
     func testBuiltInModelFamiliesMapToTheirCards() {
         let mappings = [
             ("radius", "claude-opus-5", "claude"),
