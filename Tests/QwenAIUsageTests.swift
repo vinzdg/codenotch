@@ -138,16 +138,20 @@ final class QwenAIUsageTests: XCTestCase {
     func testTheScriptUsesTheWebBearerAndTheEntitlementHost() {
         let site = Sites.qwenAI
         XCTAssertTrue(site.script.contains("qwen_access_token_state"))
-        XCTAssertTrue(site.script.contains("/auths/refresh"))
+        XCTAssertTrue(site.script.contains("https://auth.qwen.ai/api/v2/auths/refresh"),
+                      "the console refreshes on its auth host, not on the chat page")
+        XCTAssertTrue(site.script.contains("180000"), "renew three minutes before expiry")
+        XCTAssertTrue(site.script.contains("'x-request-origin': location.origin"))
         XCTAssertTrue(site.script.contains("sg-entitlement.qwen.com"))
         XCTAssertTrue(site.script.contains("/api/entitlement/agent/usage"))
         XCTAssertTrue(site.script.contains("/api/entitlement/credits/credits/history"))
-        XCTAssertTrue(site.script.contains("'Authorization': 'Bearer ' + token"))
+        XCTAssertTrue(site.script.contains("'Authorization': 'Bearer ' + bearer"))
         XCTAssertFalse(site.script.contains("subscription_credentials.json"))
         let probe = try? XCTUnwrap(site.authProbeScript)
         XCTAssertTrue(probe?.contains("qwen_access_token_state") == true)
         XCTAssertTrue(probe?.contains("expiresAt") == true)
-        XCTAssertTrue(probe?.contains("/auths/refresh") == true)
+        XCTAssertTrue(probe?.contains("https://auth.qwen.ai/api/v2/auths/refresh") == true)
+        XCTAssertTrue(probe?.contains("180000") == true)
         XCTAssertTrue(probe?.contains("SHA-256") == true)
         XCTAssertFalse(probe?.contains("credits/query") == true,
                        "the probe must not depend on a feature-flagged endpoint")

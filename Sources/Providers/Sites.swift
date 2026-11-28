@@ -388,36 +388,41 @@ enum Sites {
         glyph: .qwenAI,
         origin: URL(string: "https://chat.qwen.ai/")!,
         script: #"""
-        // The console keeps its bearer in page storage (the native-app UA uses
-        // a cookie instead, which a normal WKWebView never claims). If it is
-        // absent, the console's own `/auths/refresh` mints one from the session
-        // cookie — ask before treating the page as signed out.
-        const readToken = () => {
+        // The console keeps its bearer in page storage, but renews it on the
+        // *auth* host (auth.qwen.ai/api/v2/auths/refresh), not on the chat page,
+        // and does so three minutes before expiry. A WebView open for days used
+        // to keep a token that had silently aged out: every read was refused,
+        // and only opening the sign-in popup reloaded the page and fixed it.
+        const refreshBearer = async () => {
             try {
-                const state = JSON.parse(localStorage.getItem('qwen_access_token_state') || 'null');
-                let token = (state && typeof state.token === 'string') ? state.token : '';
-                const expiresAt = Number(state && state.expiresAt);
-                if (token && Number.isFinite(expiresAt) && expiresAt > 0) {
-                    // The console stores milliseconds; older entries are seconds.
-                    const deadline = expiresAt > 100000000000 ? expiresAt : expiresAt * 1000;
-                    if (deadline <= Date.now()) token = '';
-                }
-                if (token) return token;
-            } catch (_) {}
-            return localStorage.getItem('token') || '';
+                const response = await fetch(
+                    'https://auth.qwen.ai/api/v2/auths/refresh',
+                    { credentials: 'include', headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'Version': '0.3.52', 'source': 'h5',
+                        'x-request-origin': location.origin
+                    } });
+                if (!response.ok) return '';
+                const body = await response.json();
+                return (body && body.data && body.data.access_token)
+                    || (body && body.access_token) || '';
+            } catch (_) { return ''; }
         };
-        let token = readToken();
-        if (!token) {
-            try {
-                const refresh = await fetch('/auths/refresh', {
-                    credentials: 'include', headers: { 'Accept': 'application/json' }
-                });
-                if (refresh.ok) {
-                    const body = await refresh.json();
-                    token = (body && (body.access_token || (body.data && body.data.access_token))) || '';
-                }
-            } catch (_) {}
-        }
+        const readToken = async () => {
+            let state = null;
+            try { state = JSON.parse(localStorage.getItem('qwen_access_token_state') || 'null'); }
+            catch (_) {}
+            let token = (state && typeof state.token === 'string') ? state.token : '';
+            let expiresAt = Number(state && state.expiresAt);
+            // The console stores milliseconds; older entries are seconds.
+            if (expiresAt > 0 && expiresAt < 100000000000) expiresAt *= 1000;
+            if (!token || (Number.isFinite(expiresAt) && expiresAt - Date.now() < 180000)) {
+                token = await refreshBearer() || token;
+            }
+            return token || localStorage.getItem('token') || '';
+        };
+        let token = await readToken();
         if (!token) {
             return JSON.stringify({ status: 401,
                 body: '{"errorCode":"NOT_LOGIN","httpCode":401,"success":false}' });
@@ -429,30 +434,42 @@ enum Sites {
             + encodeURIComponent(navigator.language || 'en-US') + '&tz='
             + encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')
             + '&wv=0.3.52';
-        const headers = {
-            'Accept': 'application/json',
-            'Authorization': 'Bearer ' + token,
-            'Version': '0.3.52',
-            'source': 'h5'
-        };
         const entitlement = async (path) => {
-            try {
-                const response = await fetch('https://sg-entitlement.qwen.com' + path, {
-                    credentials: 'include', headers: headers
-                });
-                const text = await response.text();
-                let status = response.status;
+            const call = async (bearer) => {
                 try {
-                    const body = JSON.parse(text);
-                    // Signed out is HTTP 200 with a body-level NOT_LOGIN on this
-                    // service; the transport status alone would call it a ring.
-                    if (body && (body.success === false || body.errorCode === 'NOT_LOGIN'
-                        || Number(body.httpCode) === 401)) status = 401;
-                } catch (_) {}
-                return { status: status, text: text };
-            } catch (_) {
-                return { status: 0, text: '' };
+                    const response = await fetch('https://sg-entitlement.qwen.com' + path, {
+                        credentials: 'include', headers: {
+                            'Accept': 'application/json',
+                            'Authorization': 'Bearer ' + bearer,
+                            'Version': '0.3.52', 'source': 'h5'
+                        }
+                    });
+                    const text = await response.text();
+                    let status = response.status;
+                    try {
+                        const body = JSON.parse(text);
+                        // Signed out is HTTP 200 with a body-level NOT_LOGIN on
+                        // this service; the transport status is not the answer.
+                        if (body && (body.success === false || body.errorCode === 'NOT_LOGIN'
+                            || Number(body.httpCode) === 401)) status = 401;
+                    } catch (_) {}
+                    return { status: status, text: text };
+                } catch (_) {
+                    return { status: 0, text: '' };
+                }
+            };
+            let result = await call(token);
+            if (result.status === 401) {
+                // A bearer can be retired before its stated expiry. One fresh
+                // token and one more read, the way the console's own request
+                // layer recovers, before handing a refusal to the provider.
+                const fresh = await refreshBearer();
+                if (fresh && fresh !== token) {
+                    token = fresh;
+                    result = await call(fresh);
+                }
             }
+            return result;
         };
         // `agent/usage` owns the percentage and the reset; the credits history
         // only supplies the "credits left" count for the tooltip.
@@ -472,25 +489,34 @@ enum Sites {
             // on an account without that flag it answers success:false even
             // with a valid web session, so a finished login was never committed
             // and the ring stayed dark until the button was pressed twice.
-            const state = JSON.parse(localStorage.getItem('qwen_access_token_state') || 'null');
+            const refreshBearer = async () => {
+                try {
+                    const response = await fetch(
+                        'https://auth.qwen.ai/api/v2/auths/refresh',
+                        { credentials: 'include', headers: {
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json',
+                            'Version': '0.3.52', 'source': 'h5',
+                            'x-request-origin': location.origin
+                        } });
+                    if (!response.ok) return '';
+                    const body = await response.json();
+                    return (body && body.data && body.data.access_token)
+                        || (body && body.access_token) || '';
+                } catch (_) { return ''; }
+            };
+            let state = null;
+            try { state = JSON.parse(localStorage.getItem('qwen_access_token_state') || 'null'); }
+            catch (_) {}
             let token = (state && typeof state.token === 'string') ? state.token : '';
-            const expiresAt = Number(state && state.expiresAt);
-            if (token && Number.isFinite(expiresAt) && expiresAt > 0) {
-                const deadline = expiresAt > 100000000000 ? expiresAt : expiresAt * 1000;
-                if (deadline <= Date.now()) token = '';
+            let expiresAt = Number(state && state.expiresAt);
+            if (expiresAt > 0 && expiresAt < 100000000000) expiresAt *= 1000;
+            // Refresh three minutes early, the console's own margin, so a
+            // valid session is never mistaken for a signed-out one.
+            if (!token || (Number.isFinite(expiresAt) && expiresAt - Date.now() < 180000)) {
+                token = await refreshBearer() || token;
             }
             if (!token) token = localStorage.getItem('token') || '';
-            if (!token) {
-                // A live web cookie can mint a fresh bearer, as it does on a
-                // normal console reload.
-                const refresh = await fetch('/auths/refresh', {
-                    credentials: 'include', headers: { 'Accept': 'application/json' }
-                });
-                if (refresh.ok) {
-                    const body = await refresh.json();
-                    token = (body && (body.access_token || (body.data && body.data.access_token))) || '';
-                }
-            }
             if (!token) return JSON.stringify({ authenticated: false });
             // The digest, not the token: the account identity a switch has to
             // see change, while the bearer stays in the page's own storage.
@@ -513,9 +539,9 @@ enum Sites {
         // endpoint — and the close path still confirms a login completed in a
         // popup that leaves this page's URL unchanged.
         pollsDuringSignIn: true,
-        // An expired web bearer is best recovered by refreshing the page: the
-        // console mints a fresh one from its own cookie, the way it does on a
-        // normal visit. Only a second refusal declares the session dead.
+        // The script renews a near-expired bearer itself and retries one
+        // refused read. A page reload is the last resort before declaring the
+        // web session genuinely dead.
         reloadsSessionOnAuthFailure: true,
         // The manage link opens Usage & Billing, but the sign-in window must
         // open the console's own `/auth` page: its guard bounces protected
