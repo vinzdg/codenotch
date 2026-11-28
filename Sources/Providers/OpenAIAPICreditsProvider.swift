@@ -5,7 +5,7 @@ struct OpenAIAPICreditGrant: Codable, Equatable, Sendable {
     let expires: String
     let granted: Decimal
     let available: Decimal
-    let costAtSnapshot: Decimal
+    let recordedAt: Date?
 
     static func midnight(_ value: String, timeZone: TimeZone) -> Date? {
         let chunks = value.split(separator: "-")
@@ -30,49 +30,19 @@ struct OpenAIAPICreditGrant: Codable, Equatable, Sendable {
               let granted = Decimal(string: granted, locale: locale),
               let available = Decimal(string: available, locale: locale),
               granted > 0, available >= 0, available <= granted else { return nil }
-        return Self(issued: issued, expires: expires, granted: granted, available: available, costAtSnapshot: 0)
+        return Self(issued: issued, expires: expires, granted: granted, available: available, recordedAt: now)
     }
 
-    func withBaseline(_ cost: Decimal) -> Self {
-        Self(issued: issued, expires: expires, granted: granted, available: available, costAtSnapshot: cost)
-    }
-
-    func available(at cost: Decimal) -> Decimal {
-        max(0, available - max(0, cost - costAtSnapshot))
-    }
-    func windows(at cost: Decimal) -> [LimitWindow] {
-        let left = available(at: cost)
-        let used = granted - left
-        let usd = { (value: Decimal) in NSDecimalNumber(decimal: value).doubleValue }
+    func windows() -> [LimitWindow] {
+        let fraction = NSDecimalNumber(decimal: (granted - available) / granted).doubleValue
         return [
-            LimitWindow(id: "credit-grant", label: L10n.t("Credit grant"),
-                        usedFraction: usd(used / granted), resetDateLabel: expires)
+            LimitWindow(id: "credit-grant", label: L10n.t("Saved credit balance"),
+                        usedFraction: fraction, resetDateLabel: expires)
         ]
     }
-
 }
 
-enum OpenAIAPICosts {
-    static let endpoint = URL(string: "https://api.openai.com/v1/organization/costs")!
-
-    struct Page: Decodable {
-        struct Bucket: Decodable {
-            struct Result: Decodable {
-                struct Amount: Decodable {
-                    let value: Decimal
-                    let currency: String
-                }
-                let amount: Amount
-            }
-            let startTime: Int
-            let endTime: Int
-            let results: [Result]
-        }
-        let data: [Bucket]
-        let hasMore: Bool
-        let nextPage: String?
-    }
-
+enum OpenAIAPIReporting {
     final class NoRedirects: NSObject, URLSessionTaskDelegate, Sendable {
         func urlSession(_ session: URLSession, task: URLSessionTask,
                         willPerformHTTPRedirection response: HTTPURLResponse,
@@ -110,37 +80,6 @@ enum OpenAIAPICosts {
         return try decoder.decode(T.self, from: data)
     }
 
-    static func total(key: String, start: Date, end: Date, session: URLSession = .shared) async throws -> Decimal {
-        try await total(start: Int(start.timeIntervalSince1970)) { cursor in
-            try await page(from: endpoint, key: key, start: start, end: end, cursor: cursor, session: session)
-        }
-    }
-
-    static func total(start: Int, fetch: (String?) async throws -> Page) async throws -> Decimal {
-        var sum: Decimal = 0
-        var previous = start
-        var cursor: String?
-        var seen = Set<String>()
-        for _ in 0..<10 {
-            let page = try await fetch(cursor)
-            for bucket in page.data {
-                guard bucket.startTime >= previous, bucket.endTime > bucket.startTime else {
-                    throw UsageProviderError.apiError(L10n.t("OpenAI returned overlapping cost buckets."))
-                }
-                previous = bucket.endTime
-                for row in bucket.results {
-                    guard row.amount.currency.lowercased() == "usd", !row.amount.value.isNaN else {
-                        throw UsageProviderError.apiError(L10n.t("OpenAI returned an invalid amount or currency."))
-                    }
-                    sum += row.amount.value
-                }
-            }
-            if !page.hasMore { return sum }
-            guard let next = page.nextPage, !next.isEmpty, seen.insert(next).inserted else { break }
-            cursor = next
-        }
-        throw UsageProviderError.apiError(L10n.t("OpenAI returned an incomplete cost period."))
-    }
 }
 
 actor OpenAIAPICreditsProvider: UsageProvider {
@@ -153,7 +92,7 @@ actor OpenAIAPICreditsProvider: UsageProvider {
     nonisolated let displayName = "ChatGPT API"
     nonisolated let glyph: ProviderGlyph = .openaiAPI
 
-    private var lastMetrics: (grant: OpenAIAPICreditGrant, usage: CodexTokenUsage)?
+    private nonisolated static let credentials = CredentialCache<String> { _ in true }
     private var retryUntil: Date?
 
     nonisolated var signInRoute: SignInRoute {
@@ -174,69 +113,68 @@ actor OpenAIAPICreditsProvider: UsageProvider {
         let key = supplied.isEmpty
             ? (KeychainItem.read(service: keychainService, account: keychainAccount) ?? "")
             : supplied
-        guard key.hasPrefix("sk-admin-"),
-              let start = OpenAIAPICreditGrant.midnight(grant.issued, timeZone: TimeZone(secondsFromGMT: 0)!) else {
-            throw UsageProviderError.needsAuth
-        }
-        let cost = try await OpenAIAPICosts.total(key: key, start: start, end: Date())
-        let data = try JSONEncoder().encode(grant.withBaseline(cost))
+        guard key.hasPrefix("sk-admin-") else { throw UsageProviderError.needsAuth }
+        _ = try await OpenAIAPIUsage.metrics(key: key, now: Date())
+        let data = try JSONEncoder().encode(grant)
         if !supplied.isEmpty {
             guard KeychainItem.store(service: keychainService, account: keychainAccount, value: key) else {
                 throw UsageProviderError.apiError(L10n.t("Could not save the Admin key to Keychain."))
             }
         }
+        credentials.forget()
         UserDefaults.standard.set(data, forKey: preference)
     }
 
     nonisolated func signOut() async {
         _ = KeychainItem.delete(service: Self.keychainService, account: Self.keychainAccount)
+        Self.credentials.forget()
         UserDefaults.standard.removeObject(forKey: Self.preference)
+    }
+
+    nonisolated func forgetCachedCredential() {
+        Self.credentials.forget()
     }
 
     func fetchSnapshot() async throws -> ProviderSnapshot {
         guard let grant = Self.configuredGrant() else { throw UsageProviderError.needsAuth }
-        return try await fetchSnapshot(grant: grant, now: Date()) { start, end in
-            guard let key = KeychainItem.read(service: Self.keychainService, account: Self.keychainAccount) else {
-                throw UsageProviderError.needsAuth
-            }
-            let cost = try await OpenAIAPICosts.total(key: key, start: start, end: end)
-            let metrics = try? await OpenAIAPIUsage.metrics(key: key, now: end)
-            return (cost, metrics)
+        return try await fetchSnapshot(grant: grant, now: Date()) { now in
+            let service = Self.keychainService
+            let account = Self.keychainAccount
+            let key = try Self.credentials.value(itemModifiedAt: {
+                KeychainItem.modifiedAt(service: service, account: account)
+            }, reload: {
+                guard let key = KeychainItem.read(service: service, account: account) else {
+                    throw UsageProviderError.needsAuth
+                }
+                return key
+            })
+            return try await OpenAIAPIUsage.metrics(key: key, now: now)
         }
     }
 
     func fetchSnapshot(grant: OpenAIAPICreditGrant, now: Date,
-                       read: (Date, Date) async throws -> (Decimal, CodexTokenUsage?)) async throws -> ProviderSnapshot {
-        guard let expiry = OpenAIAPICreditGrant.midnight(grant.expires, timeZone: .current),
-              let start = OpenAIAPICreditGrant.midnight(grant.issued, timeZone: TimeZone(secondsFromGMT: 0)!) else {
+                       read: (Date) async throws -> CodexTokenUsage) async throws -> ProviderSnapshot {
+        guard let expiry = OpenAIAPICreditGrant.midnight(grant.expires, timeZone: .current) else {
             throw UsageProviderError.needsAuth
-        }
-        if now >= expiry {
-            let window = LimitWindow(id: "credit-expiry", label: L10n.t("Resets"), usedText: grant.expires,
-                                     detail: L10n.t("Check Credit Grants for expiration or renewal."), prefersUsedText: true)
-            return snapshot([window])
         }
         if let retryUntil, retryUntil > now {
             throw UsageProviderError.rateLimited(retryAfter: retryUntil.timeIntervalSince(now))
         }
 
-        let (cost, metrics): (Decimal, CodexTokenUsage?)
+        let metrics: CodexTokenUsage
         do {
-            (cost, metrics) = try await read(start, now)
+            metrics = try await read(now)
         } catch let UsageProviderError.rateLimited(retryAfter) {
             retryUntil = now.addingTimeInterval(max(60, retryAfter))
             throw UsageProviderError.rateLimited(retryAfter: retryAfter)
         }
 
-        if let metrics { lastMetrics = (grant, metrics) }
-        var result = snapshot(grant.windows(at: cost))
-        result.tokenUsage = lastMetrics.flatMap { $0.grant == grant ? $0.usage : nil }
-        return result
-    }
-
-    private func snapshot(_ windows: [LimitWindow]) -> ProviderSnapshot {
-        ProviderSnapshot(id: id, displayName: displayName, glyph: glyph,
-                         fidelity: .derived, status: .ok, windows: windows,
-                         headlineID: windows.first?.id)
+        let windows = now >= expiry
+            ? [LimitWindow(id: "credit-expiry", label: L10n.t("Resets"), usedText: grant.expires,
+                           detail: L10n.t("Check Credit Grants for expiration or renewal."), prefersUsedText: true)]
+            : grant.windows()
+        return ProviderSnapshot(id: id, displayName: displayName, glyph: glyph,
+                                fidelity: .manual, status: .ok, windows: windows,
+                                headlineID: windows.first?.id, tokenUsage: metrics)
     }
 }

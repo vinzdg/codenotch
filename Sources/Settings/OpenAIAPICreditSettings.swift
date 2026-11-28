@@ -31,7 +31,11 @@ struct OpenAIAPICreditSettings: View {
                     .disabled(saving)
                 if !message.isEmpty { Text(message) }
             }
-            Text(L10n.t("The Costs API does not expose grant balances or expiry. Enter the current figures from Credit Grants. Future balances are estimates and do not renew automatically."))
+            if let stamp = OpenAIAPICreditsProvider.configuredGrant()?.recordedAt {
+                Text("\(L10n.t("Balance saved")): \(stamp.formatted(date: .abbreviated, time: .shortened))")
+                    .foregroundStyle(.secondary)
+            }
+            Text(L10n.t("Token activity refreshes automatically. The gauge shows the saved balance from Credit Grants. Update the balance and expiration here when they change."))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -62,7 +66,7 @@ struct OpenAIAPICreditSettings: View {
                 message = L10n.t("Saved")
                 onSave()
             } catch {
-                message = L10n.t("Could not verify organization costs. Check the key and connection.")
+                message = L10n.t("Could not verify organization usage. Check the key and connection.")
             }
         }
     }

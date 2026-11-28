@@ -29,7 +29,7 @@ enum OpenAIAPIUsage {
     static func metrics(key: String, now: Date, session: URLSession = .shared) async throws -> CodexTokenUsage {
         let start = utc.date(byAdding: .day, value: -29, to: utc.startOfDay(for: now))!
         return try await metrics(start: Int(start.timeIntervalSince1970)) { cursor in
-            try await OpenAIAPICosts.page(from: endpoint, key: key, start: start, end: now,
+            try await OpenAIAPIReporting.page(from: endpoint, key: key, start: start, end: now,
                                          cursor: cursor, session: session)
         }
     }

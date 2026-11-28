@@ -3,33 +3,54 @@ import XCTest
 @testable import Codenotch
 
 final class OpenAIAPICreditTests: XCTestCase {
-    func testConsecutiveRefreshesReadBothMetricsRatherThanServingAnOldSnapshot() async throws {
+    func testConsecutiveRefreshesUpdateActivityWithoutChangingTheSavedBalance() async throws {
         let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-06-10T18:00:00Z"))
         let grant = OpenAIAPICreditGrant(issued: "2026-06-01", expires: "2026-07-01",
-                                        granted: 100, available: 75, costAtSnapshot: 3)
+                                        granted: 435, available: Decimal(string: "433.26")!, recordedAt: now)
         let provider = OpenAIAPICreditsProvider()
         let old = CodexTokenUsage(dailyUsageBuckets: [.init(startDate: "2026-06-10", tokens: 25)])
         let new = CodexTokenUsage(dailyUsageBuckets: [.init(startDate: "2026-06-10", tokens: 45)])
-        let first = try await provider.fetchSnapshot(grant: grant, now: now) { _, _ in (3, old) }
-        let next = try await provider.fetchSnapshot(grant: grant, now: now.addingTimeInterval(1)) { _, _ in (5, new) }
-        let partial = try await provider.fetchSnapshot(grant: grant, now: now.addingTimeInterval(2)) { _, _ in (7, nil) }
+        let first = try await provider.fetchSnapshot(grant: grant, now: now) { _ in old }
+        let next = try await provider.fetchSnapshot(grant: grant, now: now.addingTimeInterval(1)) { _ in new }
 
-        XCTAssertEqual(first.headlineText, "25%")
-        XCTAssertEqual(next.headlineText, "27%")
+        XCTAssertEqual(first.usedFraction, 0.004)
+        XCTAssertEqual(next.usedFraction, first.usedFraction)
+        XCTAssertEqual(next.headline?.label, "Saved credit balance")
+        XCTAssertEqual(next.fidelity, .manual)
         XCTAssertEqual(next.tokenUsage, new)
-        XCTAssertEqual(partial.headlineText, "29%")
-        XCTAssertEqual(partial.tokenUsage, new)
+        XCTAssertFalse(provider.skipsIdleRefresh)
     }
 
-    func testEstimateStartsWithReportedBalance() throws {
+    func testExistingSavedGrantDecodesWithoutTreatingItAsAFreshBalance() throws {
+        let json = #"{"issued":"2026-06-01","expires":"2026-07-01","granted":100,"available":75,"costAtSnapshot":3}"#
+        let grant = try JSONDecoder().decode(OpenAIAPICreditGrant.self, from: Data(json.utf8))
+        XCTAssertNil(grant.recordedAt)
+        XCTAssertEqual(grant.windows().first?.usedFraction, 0.25)
+    }
+
+    func testExpiredGrantStillRefreshesActivityButDoesNotPublishABalance() async throws {
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-07-02T18:00:00Z"))
+        let grant = OpenAIAPICreditGrant(issued: "2026-06-01", expires: "2026-07-01",
+                                        granted: 100, available: 75, recordedAt: nil)
+        let metrics = CodexTokenUsage(dailyUsageBuckets: [.init(startDate: "2026-07-02", tokens: 25)])
+        let snapshot = try await OpenAIAPICreditsProvider().fetchSnapshot(grant: grant, now: now) { _ in metrics }
+        XCTAssertNil(snapshot.usedFraction)
+        XCTAssertEqual(snapshot.tokenUsage, metrics)
+    }
+
+    func testFailedActivityRefreshDoesNotServeStaleTokensAsFresh() async throws {
         let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-06-10T18:00:00Z"))
-        let grant = try XCTUnwrap(OpenAIAPICreditGrant.validated(
-            issued: "2026-06-01", expires: "2026-07-01", granted: "120.00", available: "110.00", now: now
-        )).withBaseline(7)
-        XCTAssertEqual(grant.available(at: 7), 110)
-        XCTAssertEqual(grant.available(at: 9), 108)
-        XCTAssertEqual(grant.available(at: 6), 110)
-        XCTAssertEqual(grant.available(at: 500), 0)
+        let grant = OpenAIAPICreditGrant(issued: "2026-06-01", expires: "2026-07-01",
+                                        granted: 100, available: 75, recordedAt: nil)
+        let provider = OpenAIAPICreditsProvider()
+        do {
+            _ = try await provider.fetchSnapshot(grant: grant, now: now) { _ in
+                throw UsageProviderError.badResponse(status: 500)
+            }
+            XCTFail("An unsuccessful refresh must not return an OK snapshot.")
+        } catch UsageProviderError.badResponse(let status) {
+            XCTAssertEqual(status, 500)
+        }
     }
 
     func testGrantDateAndValueValidation() throws {
@@ -41,23 +62,11 @@ final class OpenAIAPICreditTests: XCTestCase {
             issued: "2026-06-01", expires: "2026-06-09", granted: "100", available: "10", now: now))
     }
 
-    func testOrganizationCostsPagination() async throws {
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let total = try await OpenAIAPICosts.total(start: 1) { cursor in
-            let json = cursor == nil
-                ? #"{"data":[{"start_time":1,"end_time":2,"results":[{"amount":{"value":0.125,"currency":"usd"}}]}],"has_more":true,"next_page":"b"}"#
-                : #"{"data":[{"start_time":2,"end_time":3,"results":[{"amount":{"value":0.25,"currency":"usd"}}]}],"has_more":false}"#
-            return try decoder.decode(OpenAIAPICosts.Page.self, from: Data(json.utf8))
-        }
-        XCTAssertEqual(total, Decimal(string: "0.375"))
-    }
-
     @MainActor
     func testMenuAndNotchUsePercentageAndKeepDateInDetails() throws {
         let grant = OpenAIAPICreditGrant(issued: "2026-06-01", expires: "2026-07-01",
-                                        granted: 100, available: 75, costAtSnapshot: 3)
-        let windows = grant.windows(at: 3)
+                                        granted: 100, available: 75, recordedAt: nil)
+        let windows = grant.windows()
         let snapshot = ProviderSnapshot(id: "openai-api-credits", displayName: "ChatGPT API",
                                         glyph: .openaiAPI, fidelity: .derived, status: .ok,
                                         windows: windows, headlineID: windows.first?.id)
