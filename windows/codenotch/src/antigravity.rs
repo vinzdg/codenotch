@@ -178,9 +178,16 @@ fn run_hidden(program: &str, args: &[&str]) -> String {
     cmd.output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default()
 }
 
-/// The process table is the only source of truth: the token is on the command line and the port is written nowhere
+/// `language_server` 2.36 no longer puts `--csrf_token` on its command line: it starts with
+/// `--read_host_bridge_token_from_stdin` and writes the token, with the port, to
+/// `~/.gemini/antigravity*/daemon/hub_<port>.json`. The process table then has nothing to scrape,
+/// and the loopback port answers 401 without the header. Read the hub files first; the command
+/// line is kept for builds that still carry the flag there.
 #[cfg(windows)]
 fn discover() -> Option<Endpoint> {
+    if let Some(endpoint) = hub_endpoint() {
+        return Some(endpoint);
+    }
     // PowerShell CIM query: one "pid<TAB>commandline" per line
     let table = run_hidden(
         "powershell",
@@ -198,6 +205,66 @@ fn discover() -> Option<Endpoint> {
     }
     Some(Endpoint { ports, csrf })
 }
+
+/// The newest hub whose HTTPS port is actually in LISTENING, with the token that goes with it.
+/// Antigravity leaves one file behind per run, so mtime alone can name a port that is already gone.
+#[cfg(windows)]
+fn hub_endpoint() -> Option<Endpoint> {
+    hub_endpoint_in(&state_roots(), &listening_ports_all())
+}
+
+/// Split from the environment for the test: the directories it reads and the ports that answer
+/// are both facts about the machine, and neither can be faked by a unit test.
+#[cfg(windows)]
+fn hub_endpoint_in(roots: &[PathBuf], listening: &[u16]) -> Option<Endpoint> {
+    let mut hubs: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
+    for root in roots {
+        let Ok(rd) = std::fs::read_dir(root.join("daemon")) else { continue };
+        for path in rd.flatten().map(|e| e.path()) {
+            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            if name.starts_with("hub_") && name.ends_with(".json") {
+                let at = std::fs::metadata(&path).and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH);
+                hubs.push((at, path));
+            }
+        }
+    }
+    hubs.sort_by(|a, b| b.0.cmp(&a.0));
+    for (_, path) in hubs {
+        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let Ok(hub) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+        let Some(csrf) = hub.get("csrfToken").and_then(|v| v.as_str()) else { continue };
+        let port = hub.get("httpsPort").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
+        if port != 0 && listening.contains(&port) {
+            return Some(Endpoint { ports: vec![port], csrf: csrf.to_string() });
+        }
+    }
+    None
+}
+
+/// Every loopback port in LISTENING, from the same netstat the per-pid lookup reads
+#[cfg(windows)]
+fn listening_ports_all() -> Vec<u16> {
+    let out = run_hidden("netstat", &["-ano", "-p", "TCP"]);
+    let mut ports: Vec<u16> = out
+        .lines()
+        .filter(|l| l.contains("LISTENING"))
+        .filter_map(|l| {
+            let cols: Vec<&str> = l.split_whitespace().collect();
+            if cols.len() < 5 {
+                return None;
+            }
+            let local = cols[1];
+            if !local.starts_with("127.0.0.1:") {
+                return None;
+            }
+            local.rsplit(':').next()?.parse::<u16>().ok()
+        })
+        .collect();
+    ports.sort_unstable();
+    ports.dedup();
+    ports
+}
+
 #[cfg(not(windows))]
 fn discover() -> Option<Endpoint> {
     let table = run_hidden("ps", &["-Ao", "pid,command"]);
@@ -1210,5 +1277,47 @@ mod tests {
         assert_eq!(super::server_in(&format!("{cli}\n{hub}")), Some((9052, "hub-token".into())));
         assert_eq!(super::server_in(&format!("{hub}\n{ide}")), Some((4410, "ide-token".into())));
         assert_eq!(super::server_in(cli), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_hub_file_names_the_live_port_and_its_token() {
+        // language_server 2.36 stopped putting the token on its command line and writes this file
+        // instead. One file is left behind per run, so only the hub whose port still answers counts.
+        let home = std::env::temp_dir().join(format!("codenotch-hub-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        let daemon = home.join(".gemini").join("antigravity").join("daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        std::fs::write(daemon.join("hub_60939.json"),
+            r#"{"pid":57164,"httpsPort":60938,"httpPort":60939,"lsVersion":"2.36.0","csrfToken":"live-token"}"#)
+            .unwrap();
+        let roots = super::state_roots_in(&home);
+        assert_eq!(
+            super::hub_endpoint_in(&roots, &[60938]),
+            Some(super::Endpoint { ports: vec![60938], csrf: "live-token".into() }),
+            "the listening port is the endpoint, with the token beside it"
+        );
+
+        // The file a closed IDE left behind names a port that answers nothing.
+        assert_eq!(super::hub_endpoint_in(&roots, &[50001]), None);
+
+        // Newest first: a fresh run's hub wins over the older one still in the directory.
+        std::fs::write(daemon.join("hub_50001.json"), r#"{"httpsPort":50001,"csrfToken":"newer-token"}"#)
+            .unwrap();
+        assert_eq!(
+            super::hub_endpoint_in(&roots, &[60938, 50001]),
+            Some(super::Endpoint { ports: vec![50001], csrf: "newer-token".into() })
+        );
+        // …and is skipped when that port is gone, rather than hiding the one that still works.
+        assert_eq!(
+            super::hub_endpoint_in(&roots, &[60938]),
+            Some(super::Endpoint { ports: vec![60938], csrf: "live-token".into() })
+        );
+
+        // Without a token the hub answers 401; the command line remains the fallback then.
+        std::fs::write(daemon.join("hub_50001.json"), r#"{"httpsPort":50001}"#).unwrap();
+        assert_eq!(super::hub_endpoint_in(&roots, &[50001]), None);
+
+        let _ = std::fs::remove_dir_all(&home);
     }
 }
