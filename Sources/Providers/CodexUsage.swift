@@ -37,13 +37,23 @@ struct CodexTokenUsage: Codable, Equatable, Sendable {
         }
     }
 
+    struct APIMetrics: Codable, Equatable, Sendable {
+        let requests: Int
+        let input: Int
+        let cachedInput: Int?
+        let output: Int
+    }
+
     let summary: Summary?
     let dailyUsageBuckets: [DailyBucket]
+    let apiMetrics: APIMetrics?
 
     init(summary: Summary? = nil,
-         dailyUsageBuckets: [DailyBucket] = []) {
+         dailyUsageBuckets: [DailyBucket] = [],
+         apiMetrics: APIMetrics? = nil) {
         self.summary = summary
         self.dailyUsageBuckets = dailyUsageBuckets
+        self.apiMetrics = apiMetrics
     }
 
     /// The consecutive calendar days represented by the card's chart.

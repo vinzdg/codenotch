@@ -2451,6 +2451,9 @@ private struct AccountRow: View {
             if provider.id == "apify" {
                 apifyTokenEntry
             }
+            if provider.id == OpenAIAPICreditsProvider.providerID {
+                OpenAIAPICreditSettings { _ = signIn(provider.id) }
+            }
             if provider.id == "higgsfield" {
                 higgsfieldKeyEntry
             }

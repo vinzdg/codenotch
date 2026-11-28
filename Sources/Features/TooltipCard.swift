@@ -517,7 +517,7 @@ private struct LimitWindowRow: View {
         window.resetsAt.map {
             ResetCopy.text(for: $0, now: now, format: resetTimeFormat,
                            withAbsoluteStamp: showsResetStamp)
-        } ?? ""
+        } ?? window.resetDateLabel.map { ResetCopy.text(forDateOnly: $0, now: now) } ?? ""
     }
 
     /// A count-only row (no fraction, no reset) — like Ollama's per-model request
@@ -755,11 +755,17 @@ struct ProviderLimitsContent: View {
         return result
     }
 
+    private var title: String {
+        if snapshot.kind == .localRuntime {
+            return L10n.t("\(snapshot.localModel?.brand?.displayName ?? snapshot.displayName) · Local")
+        }
+        if snapshot.id == OpenAIAPICreditsProvider.providerID { return snapshot.displayName }
+        return L10n.t("\(snapshot.displayName) Usage")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            TooltipHeader(title: snapshot.kind == .localRuntime
-                          ? L10n.t("\(snapshot.localModel?.brand?.displayName ?? snapshot.displayName) · Local")
-                          : L10n.t("\(snapshot.displayName) Usage"),
+            TooltipHeader(title: title,
                           // A runtime with nothing loaded has no window to
                           // draw, so its own summary — "2 models loaded",
                           // "Server reachable · No models loaded" — stands in
@@ -1054,8 +1060,15 @@ private struct CodexUsageSection: View {
     let usage: CodexTokenUsage
     let now: Date
 
+    private var usageCalendar: Calendar {
+        guard usage.apiMetrics != nil else { return .current }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }
+
     private var buckets: [CodexTokenUsage.DailyBucket] {
-        usage.last30Days(now: now)
+        usage.last30Days(now: now, calendar: usageCalendar)
     }
 
     private var maximum: Int {
@@ -1063,10 +1076,20 @@ private struct CodexUsageSection: View {
     }
 
     private var todayText: String {
-        usage.usageToday(now: now).map { UsageFormat.tokens($0) } ?? L10n.t("Pending")
+        usage.usageToday(now: now, calendar: usageCalendar).map { UsageFormat.tokens($0) } ?? L10n.t("Pending")
     }
 
     private var metrics: [CodexMetric] {
+        if let api = usage.apiMetrics {
+            return [
+                CodexMetric(id: "peak", value: UsageFormat.tokens(usage.peakDailyTokens),
+                            label: L10n.t("Peak tokens")),
+                CodexMetric(id: "requests", value: UsageFormat.tokens(api.requests), label: L10n.t("Model requests")),
+                CodexMetric(id: "input", value: UsageFormat.tokens(api.input), label: L10n.t("Input tokens")),
+                CodexMetric(id: "cached", value: UsageFormat.tokens(api.cachedInput), label: L10n.t("Cached input tokens")),
+                CodexMetric(id: "output", value: UsageFormat.tokens(api.output), label: L10n.t("Output tokens"))
+            ]
+        }
         let summary = usage.summary
         return [
             CodexMetric(id: "lifetime", value: UsageFormat.tokens(summary?.lifetimeTokens),
@@ -1090,6 +1113,7 @@ private struct CodexUsageSection: View {
                 .padding(.top, NotchLayout.codexUsageTop)
 
             CodexMetricList(metrics: metrics)
+                .help(usage.apiMetrics == nil ? "" : L10n.t("Metrics for the last 30 days (UTC)"))
                 .padding(.top, NotchLayout.codexMetricTop)
                 .padding(.bottom, NotchLayout.codexMetricBottom)
 
@@ -1100,7 +1124,7 @@ private struct CodexUsageSection: View {
             SplitRow(leading: L10n.t("Today"), trailing: todayText)
                 .padding(.top, NotchLayout.blockSpacing)
             SplitRow(leading: L10n.t("30-day tokens"),
-                     trailing: UsageFormat.tokens(usage.usageInLast30Days(now: now)))
+                     trailing: UsageFormat.tokens(usage.usageInLast30Days(now: now, calendar: usageCalendar)))
                 .padding(.top, NotchLayout.codexUsageRowGap)
             CodexDailyUsageChart(buckets: buckets, maximum: maximum)
                 .padding(.top, NotchLayout.codexChartTop)
